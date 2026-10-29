@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import * as git from "../git.js";
+import { log } from "../log.js";
 import { track } from "./processes.js";
 import type { ExecContext, ExecOutcome, Executor } from "./types.js";
 
@@ -34,7 +35,7 @@ export class CommandExecutor implements Executor {
   }
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
-    const worktree = this.cfg.worktree === false ? ctx.repo.repoPath : await git.prepareWorktree(ctx.repo, ctx.task.slug);
+    const worktree = this.cfg.worktree === false ? ctx.repo.repoPath : await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line));
     const args = expandArgs(this.cfg.args ?? [], ctx, worktree, prompt);
 
     if (!this.managed) {

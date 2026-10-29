@@ -4,7 +4,8 @@ import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
 import { createExecutor, type Executor } from "./executors/index.js";
 import type { RepoConfig } from "./config.js";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { routeTask } from "./routing.js";
@@ -66,6 +67,17 @@ export class Orchestrator {
       });
       this.wake = undefined;
     }
+  }
+
+  /** Where a task's work lives, for the changes view. */
+  workspaceFor(id: string): { worktree: string; baseBranch: string; task: TaskRecord["task"] } | undefined {
+    const rec = this.state.get(id);
+    if (!rec) return undefined;
+    const repo = rec.repo ? this.trackers.get(rec.task.trackerId)?.projects[rec.task.project]?.repos[rec.repo] : undefined;
+    // While the agent works the worktree is not recorded yet, but its path is fixed.
+    const worktree = rec.worktree ?? (repo ? path.join(repo.worktreesDir, rec.task.slug) : undefined);
+    if (!worktree || !existsSync(worktree)) return undefined;
+    return { worktree, baseBranch: repo?.baseBranch ?? "main", task: rec.task };
   }
 
   /** "Перевірити зараз": search the trackers without waiting for the next tick. */

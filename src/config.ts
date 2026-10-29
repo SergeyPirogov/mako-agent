@@ -14,6 +14,11 @@ export interface RepoConfig {
   extraInstructions?: string;
   /** Name from `executors`; defaults to `defaultExecutor`. */
   executor?: string;
+  /**
+   * Prepares a fresh worktree before the agent starts (installs dependencies, so tests, linters and git hooks work).
+   * "auto" picks the command from the lock file; "none" skips it.
+   */
+  setup: string;
   /** The task goes to this repo when it has any of these labels or (Jira) components. */
   match?: { labels?: string[]; components?: string[] };
 }
@@ -101,6 +106,7 @@ export function parseConfig(raw: any, dryRun = false): Config {
           extraInstructions: r.extraInstructions,
           match: r.match,
           executor: r.executor,
+          setup: typeof r.setup === "string" && r.setup.trim() ? r.setup.trim() : "auto",
         };
       }
       if (p.default && !repos[p.default]) throw new Error(`Project ${key}: default repo "${p.default}" is not in repos`);

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import * as git from "../git.js";
+import { log } from "../log.js";
 import { track } from "./processes.js";
 import type { ExecContext, ExecOutcome, Executor } from "./types.js";
 
@@ -22,7 +23,7 @@ export class ClaudeHeadlessExecutor implements Executor {
   }
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
-    const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug);
+    const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line));
     const args = ["-p", prompt, "--output-format", "stream-json", "--verbose", ...(this.cfg.args ?? [])];
     const child = spawn(this.cfg.command ?? "claude", args, { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] });
     track(child);

@@ -34,6 +34,7 @@ ${comments}
 - Explore the codebase first, then implement the change with minimal, focused edits.
 - Run the relevant tests/linters if the project has them.
 - Commit your work with messages that start with "${task.id}: ".
+- Never bypass git hooks (no --no-verify). If a hook or check fails, fix the cause; if you cannot, say so in the summary.
 ${managed ? "- Do not push and do not open pull requests; Mako does that when the session ends.\n" : ""}- If the task is unclear or impossible, make no changes and explain why.
 ${repo.extraInstructions ? `- ${repo.extraInstructions}\n` : ""}
 Finish with a short summary for the issue comment: what you changed, how you verified it, and anything a reviewer should check.`;

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import type { RepoConfig } from "./config.js";
 import { run, runOk } from "./shell.js";
@@ -8,7 +9,56 @@ export function branchFor(slug: string): string {
 }
 
 /** Creates (or reuses) an isolated worktree for the task, branched from the latest base branch. */
-export async function prepareWorktree(repo: RepoConfig, slug: string): Promise<string> {
+/** Creates (or reuses) the task's worktree and, when new, runs the repo's setup command in it. */
+export async function prepareWorktree(repo: RepoConfig, slug: string, log?: (line: string) => void): Promise<string> {
+  const fresh = !existsSync(path.join(repo.worktreesDir, slug));
+  const dir = await createWorktree(repo, slug);
+  if (fresh) {
+    const command = setupCommand(repo, dir);
+    if (command) {
+      log?.(`preparing worktree: ${command}`);
+      const r = await runShell(command, dir, 15 * 60_000);
+      log?.(r.ok ? "worktree ready" : `setup failed (the agent continues without it): ${r.output.slice(-500)}`);
+    }
+  }
+  return dir;
+}
+
+/** The setup command for a worktree: the configured one, or one guessed from the lock file for "auto". */
+export function setupCommand(repo: RepoConfig, dir: string): string | undefined {
+  if (repo.setup === "none") return undefined;
+  if (repo.setup !== "auto") return repo.setup;
+  const has = (f: string) => existsSync(path.join(dir, f));
+  if (has("pnpm-lock.yaml")) return "pnpm install --frozen-lockfile";
+  if (has("bun.lock") || has("bun.lockb")) return "bun install --frozen-lockfile";
+  if (has("yarn.lock")) return "yarn install";
+  if (has("package-lock.json")) return "npm ci";
+  if (has("uv.lock")) return "uv sync";
+  if (has("poetry.lock")) return "poetry install";
+  if (has("Gemfile.lock")) return "bundle install";
+  return undefined;
+}
+
+function runShell(command: string, cwd: string, timeoutMs: number): Promise<{ ok: boolean; output: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CI: "1" } });
+    let output = "";
+    const add = (d: Buffer) => (output = (output + d).slice(-20_000));
+    child.stdout.on("data", add);
+    child.stderr.on("data", add);
+    const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, output: err.message });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, output });
+    });
+  });
+}
+
+async function createWorktree(repo: RepoConfig, slug: string): Promise<string> {
   const dir = path.join(repo.worktreesDir, slug);
   const branch = branchFor(slug);
   if (existsSync(dir)) return dir;

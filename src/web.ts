@@ -9,6 +9,7 @@ import type { App } from "./app.js";
 import { renderInbox, inboxSignature } from "./inbox.js";
 import { page, esc } from "./ui-layout.js";
 import { sessions, type SessionEvent } from "./sessions.js";
+import { collectChanges } from "./changes.js";
 import { log } from "./log.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
@@ -22,6 +23,7 @@ const STATIC: Record<string, [string, string]> = {
   "settings.js": [path.join(UI_DIR, "settings.js"), "text/javascript"],
   "session.js": [path.join(UI_DIR, "session.js"), "text/javascript"],
   "inbox.js": [path.join(UI_DIR, "inbox.js"), "text/javascript"],
+  "changes.js": [path.join(UI_DIR, "changes.js"), "text/javascript"],
   "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
   "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
   "vendor/addon-fit.js": [require.resolve("@xterm/addon-fit/lib/addon-fit.js"), "text/javascript"],
@@ -37,12 +39,13 @@ export function startWebUi(app: App, port: number): void {
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
   const server = http.createServer(async (req, res) => {
-    const send = (status: number, type: string, body: string | Buffer) =>
+    const send = (status: number, type: string, body: string | Buffer, frameable = false) =>
       res
         .writeHead(status, {
           "Content-Type": typeof body === "string" ? `${type}; charset=utf-8` : type,
           "Cache-Control": typeof body === "string" ? "no-store" : "max-age=3600",
-          "X-Frame-Options": "DENY",
+          // Only the changes view may be embedded, and only in Mako's own session page.
+          "X-Frame-Options": frameable ? "SAMEORIGIN" : "DENY",
         })
         .end(body);
     const json = (status: number, data: unknown) => send(status, "application/json", JSON.stringify(data));
@@ -63,6 +66,21 @@ export function startWebUi(app: App, port: number): void {
       }
       if (req.method === "GET" && url.pathname === "/favicon.ico") {
         return send(200, "image/png", await readFile(STATIC["favicon.png"][0]));
+      }
+      if (req.method === "GET" && url.pathname === "/changes") {
+        const id = url.searchParams.get("task") ?? "";
+        const embed = url.searchParams.has("embed");
+        const ws = app.orchestrator?.workspaceFor(id);
+        const head = ws
+          ? `<h1>Зміни · <a href="${esc(ws.task.url)}" target="_blank" rel="noreferrer">${esc(id)}</a></h1><p class="muted">${esc(ws.task.title)}</p>`
+          : `<h1>Зміни</h1>`;
+        const body = `${embed ? "" : head}<div id="changes"><p class="muted">Завантаження…</p></div>`;
+        return send(200, "text/html", page({ title: `Зміни ${id}`, active: "inbox", token, body, script: "/ui/changes.js", data: { task: id }, bare: embed }), true);
+      }
+      if (req.method === "GET" && url.pathname === "/api/changes") {
+        const ws = app.orchestrator?.workspaceFor(url.searchParams.get("task") ?? "");
+        if (!ws) return json(404, { error: "Для цієї задачі ще немає worktree" });
+        return json(200, await collectChanges(ws.worktree, ws.baseBranch));
       }
       const sessionPage = url.pathname.match(/^\/session\/([\w.-]+)$/);
       if (req.method === "GET" && sessionPage) return send(200, "text/html", renderSession(sessionPage[1], token));
@@ -171,10 +189,12 @@ function renderSession(id: string, token: string): string {
       <div><a href="${esc(session.task.url)}" target="_blank" rel="noreferrer"><strong>${esc(session.task.id)}</strong></a>
         <span class="muted">${esc(session.task.title)}</span></div>
       <div class="session-actions"><span id="status" class="s"></span>
+        <button id="toggle-changes" title="Змінені файли і diff">Зміни</button>
         <button id="finish" class="primary" title="Закрити агента, закомітити, запушити і відкрити PR">Завершити</button>
         <button id="cancel" class="danger" title="Зупинити без PR">Скасувати</button></div>
     </div>
     <div id="status-msg" class="muted"></div>
-    <div id="term"></div>`;
+    <div class="session-body"><div id="term"></div>
+      <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>`;
   return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script>', data: { session: id } });
 }

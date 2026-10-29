@@ -82,14 +82,15 @@
 
   term.onData((d) => send({ t: "i", d }));
 
+  // Refit whenever the terminal's box changes: window resize, the status line appearing, the changes panel opening.
   let resizeTimer;
-  window.addEventListener("resize", () => {
+  new ResizeObserver(() => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       fit.fit();
       send({ t: "r", cols: term.cols, rows: term.rows });
-    }, 100);
-  });
+    }, 80);
+  }).observe(document.getElementById("term"));
 
   finishBtn.addEventListener("click", () => {
     if (confirm("Завершити сесію? Mako закриє агента, закомітить зміни, запушить гілку і відкриє PR.")) send({ t: "finish" });
@@ -97,6 +98,26 @@
   cancelBtn.addEventListener("click", () => {
     if (confirm("Скасувати? Агента буде зупинено, PR не створюватиметься. Зміни лишаться у worktree.")) send({ t: "cancel" });
   });
+
+  // Changes panel next to the terminal; remembered between visits.
+  const panel = document.getElementById("changes-panel");
+  const toggle = document.getElementById("toggle-changes");
+  const setPanel = (open) => {
+    panel.hidden = !open;
+    if (open && !panel.src) panel.src = panel.dataset.src;
+    toggle.classList.toggle("on", open);
+    try {
+      localStorage.setItem("mako.changesPanel", open ? "1" : "0");
+    } catch {
+      // storage unavailable: the panel just starts closed
+    }
+  };
+  toggle.addEventListener("click", () => setPanel(panel.hidden));
+  try {
+    if (localStorage.getItem("mako.changesPanel") === "1") setPanel(true);
+  } catch {
+    // ignore
+  }
 
   connect();
 })();

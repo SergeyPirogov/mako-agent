@@ -348,6 +348,8 @@
           options: [["", "автоматично (за origin)"], ["github", "GitHub (gh)"], ["gitlab", "GitLab (MR)"], ["none", "лише push"]] })}
         ${multi ? field({ label: "Правило: мітки", path: `${p}.conf.match.labels`, type: "csv", placeholder: "ui, frontend" }) : ""}
         ${multi && t.conf.type === "jira" ? field({ label: "Правило: компоненти Jira", path: `${p}.conf.match.components`, type: "csv", placeholder: "Frontend" }) : ""}
+        ${field({ label: "Підготовка worktree", path: `${p}.conf.setup`, wide: true, placeholder: "auto: за lock-файлом (pnpm install, npm ci, …)",
+          hint: "Команда, що запускається в новому worktree до агента, щоб працювали тести, лінтери й git-хуки. <code>none</code>: нічого не запускати" })}
         ${field({ label: "Додаткові інструкції агенту", path: `${p}.conf.extraInstructions`, wide: true, placeholder: "Run `npm test` before committing." })}
       </div></div>`;
   }

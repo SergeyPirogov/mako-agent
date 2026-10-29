@@ -39,7 +39,7 @@ export function renderInbox(app: App, token: string): string {
   const records = app.orchestrator.state.all();
   const rows = records
     .sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || b.updatedAt.localeCompare(a.updatedAt))
-    .map((r) => row(r, token))
+    .map((r) => row(app, r, token))
     .join("");
   const problem = app.problem ? `<div class="notice err">${esc(app.problem)}. <a href="/settings">Налаштування →</a></div>` : "";
   const limit = app.cfg?.wipLimit ?? 0;
@@ -87,7 +87,7 @@ function attentionBlock(): string {
   return `<section class="attention"><h2>🔔 Потрібна ваша увага</h2>${items}</section>`;
 }
 
-function row(r: TaskRecord, token: string): string {
+function row(app: App, r: TaskRecord, token: string): string {
   const form = (action: string, label: string, primary = false) =>
     `<form method="post" action="/${action}"><input type="hidden" name="id" value="${esc(r.id)}">` +
     `<input type="hidden" name="token" value="${esc(token)}"><button${primary ? ' class="primary"' : ""}>${label}</button></form>`;
@@ -99,6 +99,7 @@ function row(r: TaskRecord, token: string): string {
       : r.status === "failed"
         ? form("retry", "Повторити")
         : "";
+  const changesLink = app.orchestrator?.workspaceFor(r.id) ? ` <a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "";
   const extra = session
     ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>`
     : r.prUrl
@@ -113,5 +114,5 @@ function row(r: TaskRecord, token: string): string {
   const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle";
   return `<tr${attn ? ' class="attn"' : ""}><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
     <td><a href="${esc(r.task.url)}">${esc(r.id)}</a>${r.repo ? ` → ${esc(r.repo)}` : ""}${r.executor ? ` · ${esc(r.executor)}` : ""}<div class="muted">${esc(r.task.title)}</div></td>
-    <td>${extra}</td><td class="act">${actions}</td></tr>`;
+    <td>${extra}${changesLink}</td><td class="act">${actions}</td></tr>`;
 }

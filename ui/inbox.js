@@ -12,12 +12,14 @@
   const searchNow = document.getElementById("search-now");
   const time = (ms) => new Date(ms).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
+  // Tasks already taken still match the tracker query until they are done, so only new ones are news.
   function lastText(last) {
     if (!last) return "";
-    const parts = [`знайдено ${last.found}`];
-    if (last.added) parts.push(`нових ${last.added}`);
-    if (last.errors) parts.push(`помилок ${last.errors}`);
-    return ` · останній пошук о ${time(last.at)}: ${parts.join(", ")}`;
+    const known = last.found - last.added;
+    let text = last.added ? `нових задач: ${last.added}` : "нових задач немає";
+    if (known > 0) text += ` (${known} вже в Mako)`;
+    if (last.errors) text += `, помилок: ${last.errors}`;
+    return ` · останній пошук о ${time(last.at)}: ${text}`;
   }
 
   function drawClock() {

@@ -18,6 +18,8 @@ export function page(opts: {
   data?: Record<string, string>;
   /** Orange favicon: an agent waits for the developer. */
   attention?: boolean;
+  /** Without the header, for pages embedded in another Mako page. */
+  bare?: boolean;
 }): string {
   const tab = (href: string, id: string, label: string) =>
     `<a href="${href}" class="${opts.active === id ? "on" : ""}">${label}</a>`;
@@ -26,6 +28,6 @@ export function page(opts: {
 <title>${esc(opts.title)} · Mako</title><link rel="stylesheet" href="/ui/style.css">
 <link rel="icon" type="image/png" href="/ui/favicon${opts.attention ? "-attention" : ""}.png"><link rel="apple-touch-icon" href="/ui/icon.png">${opts.head ?? ""}</head>
 <body${Object.entries(opts.data ?? {}).map(([k, v]) => ` data-${k}="${esc(v)}"`).join("")}>
-<header><div class="bar"><span class="logo">🦈 Mako</span><nav>${tab("/", "inbox", "Вхідні")}${tab("/settings", "settings", "Налаштування")}</nav></div></header>
-<main${opts.wide ? ' class="wide"' : ""}>${opts.body}</main>${opts.script ? `<script src="${opts.script}"></script>` : ""}</body></html>`;
+${opts.bare ? "" : `<header><div class="bar"><span class="logo">🦈 Mako</span><nav>${tab("/", "inbox", "Вхідні")}${tab("/settings", "settings", "Налаштування")}</nav></div></header>`}
+<main class="${[opts.wide ? "wide" : "", opts.bare ? "bare" : ""].join(" ").trim()}">${opts.body}</main>${opts.script ? `<script src="${opts.script}"></script>` : ""}</body></html>`;
 }
