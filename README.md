@@ -1,73 +1,173 @@
 # 🦈 Mako
 
-> Mako — найшвидша акула. Помічає нову задачу в трекері, питає, чи брати, і віддає її вашому агенту.
+**Нова задача в трекері → сповіщення на десктопі → один клік → над нею працює ваш AI-агент.**
 
-Локальний демон, який стежить за задачами в **Jira, GitHub Issues або GitLab Issues** і делегує їх
-агенту на вашому компʼютері (за замовчуванням **Claude Code**). Коли зʼявляється нова задача, на десктопі
-показується сповіщення **«🦈 У вас нова задача»** з кнопками **Взяти** і **Відкласти**.
-Кожна взята задача виконується в окремому git worktree. Чим виконувати задачу, вирішуєте ви:
-фоновий Claude Code, Orca, Codex, tmux або будь-яка інша команда. Mako не привʼязаний до конкретного інструмента.
+Mako — локальний демон, який стежить за задачами в **Jira**, **GitHub Issues** і **GitLab Issues**.
+Коли зʼявляється задача для агента, на десктопі виринає сповіщення **«🦈 У вас нова задача»**
+з кнопками **Взяти** і **Відкласти**. Взяті задачі Mako віддає агенту на вашому компʼютері:
+фоновому Claude Code, Orca, Codex, вікну tmux або будь-якій іншій команді.
+Кожна задача виконується в окремому git worktree, тож ваша робоча копія лишається недоторканою.
 
+> Mako — найшвидша акула. Помічає задачу першою і віддає її тому, хто її зробить.
+
+## Можливості
+
+- **Трекери на вибір:** Jira (Cloud), GitHub Issues (зокрема Enterprise), GitLab Issues (зокрема self-hosted). Можна кілька одночасно.
+- **Ви вирішуєте, що брати:** нативні сповіщення з кнопками на macOS, Windows і Linux, а також локальна сторінка «Вхідні» на випадок, якщо сповіщення пропущене.
+- **Не привʼязаний до інструмента:** агента запускає «виконавець», і його можна вибрати для кожного репозиторію окремо.
+- **Ізоляція:** окремий worktree і гілка `agent/<задача>` на кожну задачу, кілька агентів працюють паралельно.
+- **Маршрутизація:** одна Jira на кілька репозиторіїв, з вибором за міткою `repo:<назва>`, компонентом або правилами.
+- **Повний цикл:** статус «In Progress» на старті, push, PR/MR з `Closes #N`, підсумок агента в коментарі, «In Review» наприкінці.
+- **Стійкість до перезапусків:** стан зберігається на диску, відкладені задачі не губляться, перервані повертаються в чергу.
+
+## Як це працює
+
+```mermaid
+flowchart LR
+    T[Jira / GitHub / GitLab] -- "опитування за JQL або міткою" --> M((🦈 Mako))
+    M -- "🔔 У вас нова задача" --> U{Ви}
+    U -- Відкласти --> M
+    U -- Взяти --> R[Вибір репозиторію]
+    R --> E{Виконавець}
+    E -- "claude-headless / command" --> W[git worktree<br/>agent/PROJ-123]
+    W --> P[commit → push → PR/MR]
+    E -- "orca / handoff" --> O[Orca, tmux, IDE:<br/>ви керуєте агентом]
+    O -. "Mako помічає PR" .-> P
+    P -- "коментар + In Review" --> T
 ```
- Jira / GitHub / GitLab ──poll──► orchestrator ──► 🔔 «У вас нова задача»  [Взяти] [Відкласти]
-                                       │                      │ Взяти
-                                       │         git worktree agent/<slug> + claude -p "<задача>"
-                                       │                      │
-     коментар + статус/мітка ◄─────────┴──── push + PR (GitHub) / MR (GitLab)
+
+1. Mako раз на хвилину питає трекер, чи є нові задачі для агента.
+2. Про кожну нову задачу ви отримуєте сповіщення. У ньому видно, куди піде задача, наприклад `Jira → web · Claude Code`.
+3. «Взяти» ставить задачу в чергу. «Відкласти» або проігнороване сповіщення: Mako спитає знову через годину.
+4. Задача переходить в In Progress, Mako створює worktree від свіжого `origin/main` і запускає агента з промптом,
+   зібраним із назви, опису й коментарів задачі.
+5. Коли агент закінчив, Mako пушить гілку, відкриває PR/MR, пише підсумок у задачу і переводить її в In Review.
+
+## Швидкий старт
+
+**Потрібно:** Node.js 20.12+, `git` і агент. За замовчуванням це [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+з виконаним входом. Для PR у GitHub ще потрібен `gh` з виконаним `gh auth login`.
+
+```bash
+git clone https://github.com/SergeyPirogov/mako-agent && cd mako-agent
+npm install
+cp .env.example .env
 ```
+
+Найпростіший конфіг `mako.config.json`: задачі з GitHub з міткою `claude-agent` виконує фоновий Claude Code.
+
+```json
+{
+  "executors": {
+    "claude": {
+      "type": "claude-headless",
+      "args": ["--permission-mode", "acceptEdits",
+               "--allowedTools", "Bash(git:*) Bash(npm:*) Read Edit Write Glob Grep"]
+    }
+  },
+  "trackers": [
+    {
+      "type": "github",
+      "projects": { "my-org/my-repo": { "repoPath": "/Users/me/code/my-repo" } }
+    }
+  ]
+}
+```
+
+Спершу подивіться, що Mako знайде, нічого не змінюючи:
+
+```bash
+npm run dev -- --dry-run
+```
+
+Потім запустіть по-справжньому, повісьте мітку `claude-agent` на будь-яке issue і дочекайтеся сповіщення:
+
+```bash
+npm run dev
+```
+
+Повний приклад з усіма трекерами й виконавцями лежить у [`mako.config.example.json`](mako.config.example.json).
 
 ## Життєвий цикл задачі
 
 | Стан | Що відбувається |
 |---|---|
 | **Нова** | Задачу знайдено, на екрані сповіщення з кнопками |
-| **Відкладена** | Ви натиснули «Відкласти» або проігнорували сповіщення. Через `snoozeMin` хвилин спитає знову |
+| **Відкладена** | Ви натиснули «Відкласти» або проігнорували сповіщення. Через `snoozeMin` хвилин Mako спитає знову |
 | **У черзі** | Ви натиснули «Взяти». Агент стартує, щойно звільниться слот (`maxConcurrent`) |
-| **Виконується** | Задача → In Progress (Jira) або мітка `agent:in-progress` (GitHub/GitLab), запускається виконавець |
-| **Передано** | Задачу відкрито в Orca, tmux тощо. Статус у трекері змінено на стартовий, далі керуєте ви. Mako чекає PR/MR з гілки задачі |
-| **Готово** | Push гілки, PR/MR, підсумок агента в коментарі, задача → In Review або мітка `agent:done`, сповіщення ✅ |
-| **Помилка** | Коментар із причиною, мітка `agent:failed`, сповіщення ❌. На сторінці «Вхідні» є кнопка «Повторити» |
+| **Виконується** | Статус In Progress або мітка `agent:in-progress`, працює виконавець |
+| **Передано** | Задачу відкрито в Orca, tmux тощо, і нею керуєте ви. Mako чекає PR/MR з гілки задачі |
+| **Готово** | Є PR/MR, підсумок у коментарі, статус In Review або мітка `agent:done`, сповіщення ✅ |
+| **Помилка** | Коментар із причиною, мітка `agent:failed`, сповіщення ❌, кнопка «Повторити» у «Вхідних» |
 
-Якщо сповіщення пропущене, ті самі кнопки є на сторінці **«Вхідні»**: http://127.0.0.1:7777.
-Стан зберігається в `.mako/state.json`. Після перезапуску відкладені задачі не губляться,
-а перервані Ctrl+C знову стають у чергу. Повні логи агента лежать у `.mako/logs/`.
+## Конфігурація
 
-## Налаштування
+Конфіг лежить у `mako.config.json` (інший файл можна вказати через `-c`), секрети в `.env`.
 
-Потрібні Node.js 20.12+, `claude` (з виконаним входом) і `git`. Для PR у GitHub потрібен `gh` з виконаним `gh auth login`.
-MR у GitLab створюється через git push options, тож `glab` не потрібен.
+### Загальні параметри
 
-```bash
-npm install
-cp .env.example .env                              # токени лише для тих трекерів, які використовуєте
-cp mako.config.example.json mako.config.json
-```
+| Параметр | За замовчуванням | Що означає |
+|---|---|---|
+| `pollIntervalSec` | `60` | Як часто опитувати трекери |
+| `maxConcurrent` | `1` | Скільки агентів працюють одночасно (стосується лише виконавців, яких Mako чекає) |
+| `taskTimeoutMin` | `45` | Ліміт часу на одну задачу |
+| `handoffCheckMin` | `5` | Як часто шукати PR для переданих задач, `0` вимикає |
+| `stateDir` | `.mako` | Стан (`state.json`), логи агентів і промпти |
+| `defaultExecutor` | перший у `executors` | Виконавець для репозиторіїв без власного `executor` |
 
 ### Трекери
 
-У `trackers` можна вказати один або кілька трекерів одночасно. Кожен має свій `projects`:
-ключ проєкту в трекері → локальні репозиторії (див. нижче).
+Масив `trackers` може містити кілька трекерів, зокрема одного типу. Тоді кожному потрібен свій `id`.
 
-| `type` | Які задачі беруться | Як позначається прогрес | Ключ у `projects` | Секрети |
+| `type` | Які задачі беруться | Як позначається прогрес | Ключ у `projects` | Секрети в `.env` |
 |---|---|---|---|---|
 | `jira` | За `jql` | Статуси з `transitions` | Ключ проєкту: `PROJ` | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
-| `github` | Відкриті issues з міткою `labels.trigger` (+ `assignee`) | Мітки `inProgress` / `done` / `failed` | `owner/repo` | `GITHUB_TOKEN` або `gh auth login` |
-| `gitlab` | Відкриті issues з міткою `labels.trigger` (+ `assignee`) | Ті самі мітки | `group/project` | `GITLAB_TOKEN` (scope `api`) |
+| `github` | Відкриті issues з міткою `labels.trigger` | Мітки | `owner/repo` | `GITHUB_TOKEN` або `gh auth login` |
+| `gitlab` | Відкриті issues з міткою `labels.trigger` | Мітки | `group/project` | `GITLAB_TOKEN` (scope `api`) |
 
-Для GitHub Enterprise вкажіть `apiUrl`, для self-hosted GitLab вкажіть `baseUrl`.
-У проєкті `pullRequest` може бути `auto` (за адресою `origin`), `github`, `gitlab` або `none`.
-PR/MR містить `Closes owner/repo#N`, тож після мерджу issue закривається автоматично.
+<details>
+<summary><b>Jira</b></summary>
 
-### У якому репозиторії виконується задача
+```json
+{
+  "type": "jira",
+  "jql": "assignee = currentUser() AND labels = claude-agent AND statusCategory = \"To Do\"",
+  "transitions": { "onStart": "In Progress", "onSuccess": "In Review", "onFailure": null },
+  "projects": { "PROJ": { "repoPath": "/Users/me/code/backend" } }
+}
+```
 
-Кожен проєкт трекера привʼязаний до одного або кількох локальних репозиторіїв.
-Найпростіший випадок: один проєкт відповідає одному репозиторію.
+`transitions` приймає назву переходу або назву цільового статусу, регістр не враховується. `null` означає не змінювати статус.
+API-токен створюється на [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens).
+</details>
+
+<details>
+<summary><b>GitHub / GitLab</b></summary>
+
+```json
+{
+  "type": "github",
+  "assignee": "my-login",
+  "labels": { "trigger": "claude-agent", "inProgress": "agent:in-progress", "done": "agent:done", "failed": "agent:failed" },
+  "projects": { "my-org/web": { "repoPath": "/Users/me/code/web" } }
+}
+```
+
+Mako опитує кожен репозиторій із `projects`. Після успішного виконання він знімає мітку `trigger`,
+тож задача не повернеться. При помилці мітка лишається, а задача отримує мітку `failed`.
+Для GitHub Enterprise вкажіть `"apiUrl": "https://github.example.com/api/v3"`.
+Для GitLab укажіть `"type": "gitlab"`, а для self-hosted ще `"baseUrl": "https://gitlab.example.com"`.
+</details>
+
+### Репозиторії та маршрутизація
+
+Найпростіший випадок: один проєкт трекера відповідає одному репозиторію.
 
 ```json
 "projects": { "my-org/web": { "repoPath": "/Users/me/code/web", "baseBranch": "main" } }
 ```
 
-Якщо в одному проєкті є задачі для різних репозиторіїв, опишіть їх у `repos`:
+Якщо в одному проєкті є задачі для різних репозиторіїв, перелічіть їх у `repos`:
 
 ```json
 "projects": {
@@ -75,37 +175,40 @@ PR/MR містить `Closes owner/repo#N`, тож після мерджу issue
     "default": "backend",
     "repos": {
       "backend": { "repoPath": "/Users/me/code/backend", "match": { "components": ["Backend", "API"] } },
-      "web":     { "repoPath": "/Users/me/code/web",     "match": { "components": ["Frontend"], "labels": ["ui"] } }
+      "web":     { "repoPath": "/Users/me/code/web",     "match": { "labels": ["ui"] }, "executor": "orca" }
     }
   }
 }
 ```
 
-Репозиторій для задачі вибирається за пріоритетом:
+Репозиторій вибирається за пріоритетом:
 
-1. **Мітка `repo:<назва>`** на задачі, наприклад `repo:web`. Працює в Jira, GitHub і GitLab.
-2. **Правила `match`**: перший репозиторій, у якого збіглася мітка або компонент Jira. Регістр не враховується.
+1. мітка **`repo:<назва>`** на задачі;
+2. перше правило **`match`**, де збіглася мітка або компонент Jira;
 3. **`default`**, або єдиний репозиторій проєкту.
 
-Якщо репозиторій визначити не вдалося (немає збігів і немає `default`, або `repo:` вказує на невідому назву),
-задача не пропонується, а в лог пишеться причина. Вибраний репозиторій видно в сповіщенні
-(`GitHub → web`), на сторінці «Вхідні» і в `--dry-run`.
+Якщо репозиторій визначити не вдалося, задача не пропонується, а в лог пишеться причина.
 
-Агент працює не у вашій робочій копії, а в окремому worktree `<worktreesDir>/<slug>`
-(за замовчуванням `<repoPath>/../.worktrees/<repo>/<slug>`) на гілці `agent/<slug>`
-від свіжого `origin/<baseBranch>`.
-
-### Хто виконує задачу (executors)
-
-У `executors` описуються способи запуску агента. Кожен репозиторій вибирає один через `"executor": "<назва>"`,
-інакше береться `defaultExecutor`.
-
-| `type` | Як працює | Після завершення |
+| Параметр репозиторію | За замовчуванням | Що означає |
 |---|---|---|
-| `claude-headless` | Mako створює worktree і запускає `claude -p`, чекає результату | Mako комітить, пушить, відкриває PR/MR, пише підсумок у задачу |
-| `orca` | `orca worktree create --agent claude --prompt …`: Orca створює workspace, ви бачите агента і керуєте ним | Задача позначається як **«Передано»**; PR робите в Orca |
-| `command`, `mode: "managed"` | Будь-яка CLI (Codex, Aider, скрипт) у worktree, Mako чекає завершення | Як у `claude-headless`: код 0 означає успіх, кінець stdout стає підсумком |
-| `command`, `mode: "handoff"` | Запускає інструмент і відпускає: вікно tmux, IDE, інший UI агента | **«Передано»** |
+| `repoPath` | (обовʼязковий) | Локальний клон |
+| `baseBranch` | `main` | Від якої гілки створювати гілку задачі й куди відкривати PR |
+| `worktreesDir` | `<repoPath>/../.worktrees/<repo>` | Де створювати worktree |
+| `pullRequest` | `auto` | `auto` (за адресою `origin`), `github` (через `gh`), `gitlab` (через git push options) або `none` |
+| `executor` | `defaultExecutor` | Хто виконує задачі цього репозиторію |
+| `extraInstructions` | | Додатковий рядок у промпт, наприклад «Run `npm test` before committing» |
+| `match` | | `{ "labels": [...], "components": [...] }` для маршрутизації |
+
+### Виконавці
+
+Виконавець визначає, як саме запускається агент. Опишіть один або кілька в `executors`.
+
+| `type` | Як працює | Хто робить PR |
+|---|---|---|
+| `claude-headless` | Mako створює worktree і запускає `claude -p`, чекає результату | Mako |
+| `orca` | `orca worktree create --agent … --prompt …`: [Orca](https://github.com/stablyai/orca) створює workspace, ви бачите агента і керуєте ним | Ви, а Mako помічає PR |
+| `command` + `"mode": "managed"` | Будь-яка CLI у worktree, Mako чекає завершення. Код `0` означає успіх, кінець stdout стає підсумком | Mako |
+| `command` + `"mode": "handoff"` | Запускає інструмент і відпускає: вікно tmux, IDE, інший UI | Ви, а Mako помічає PR |
 
 ```json
 "executors": {
@@ -118,23 +221,20 @@ PR/MR містить `Closes owner/repo#N`, тож після мерджу issue
 "defaultExecutor": "claude"
 ```
 
-Підстановки для `command`: `{worktree}`, `{prompt}`, `{promptFile}` (промпт у файлі), `{taskId}`, `{slug}`,
-`{branch}`, `{title}`, `{url}`, `{repoPath}`, `{repo}`. Команда запускається без shell. Якщо shell потрібен
-(`sh -c "…"`), читайте промпт з `{promptFile}`, а не вставляйте `{prompt}` у рядок, бо так безпечніше.
+**Підстановки в `command.args`:** `{worktree}`, `{prompt}`, `{promptFile}`, `{taskId}`, `{slug}`, `{branch}`,
+`{title}`, `{url}`, `{repoPath}`, `{repo}`. Команда запускається без shell. Якщо shell потрібен,
+читайте промпт з `{promptFile}`, а не вставляйте `{prompt}` у рядок `sh -c`.
 
-**Orca**: репозиторій має бути доданий в Orca, а CLI `orca` має бути в `PATH`. Mako передає гілку `agent/<slug>`,
-базову гілку і посилання на задачу (`--reference`). Якщо версія Orca не приймає посилання такого трекера,
-workspace створюється без нього.
+**Orca:** репозиторій має бути доданий в Orca, а `orca` має бути в `PATH`. Mako передає гілку, базову гілку
+і посилання на задачу. Додаткові параметри: `agent` (`claude`, `codex`, …), `setup` (`run` / `skip` / `inherit`),
+`linkIssue`, `extraArgs`.
 
-**Коли передана задача вважається завершеною.** Раз на `handoffCheckMin` хвилин (за замовчуванням 5, `0` вимикає)
-Mako перевіряє через `git ls-remote`, чи відкрито PR (GitHub, `refs/pull/N/head`) або MR (GitLab, `refs/merge-requests/N/head`)
-з гілки задачі, зокрема з її варіантів із суфіксом (`agent/PROJ-1-2`), які створює Orca, коли назва зайнята.
-Щойно PR знайдено, Mako пише в задачу коментар із посиланням, переводить її в `onSuccess` (In Review)
-або ставить мітку `agent:done` і показує сповіщення. Токени й `gh`/`glab` для цього не потрібні, лише доступ до git.
-Mako запамʼятовує останній коміт гілки, тож PR знайдеться, навіть якщо гілку видалили після мерджу.
+**Як Mako помічає PR для переданих задач.** Раз на `handoffCheckMin` хвилин Mako виконує `git ls-remote`
+і шукає `refs/pull/N/head` (GitHub) або `refs/merge-requests/N/head` (GitLab), що вказують на гілку задачі.
+Токени для цього не потрібні. PR знайдеться, навіть якщо Orca додала до назви гілки суфікс
+(`agent/PROJ-1-2`) або гілку видалили після мерджу.
 
-Для інтерактивних виконавців (`orca`, `handoff`) промпт трохи інший: агент знає, що ви поруч,
-і може спитати, а пуш і PR лишаються на вас.
+Для інтерактивних виконавців промпт трохи інший: агент знає, що ви поруч і можете відповісти на питання.
 
 ### Сповіщення
 
@@ -142,27 +242,119 @@ Mako запамʼятовує останній коміт гілки, тож PR 
 "notifications": { "enabled": true, "autoTake": false, "snoozeMin": 60, "timeoutSec": 600, "inboxPort": 7777 }
 ```
 
-- `autoTake: true`: брати все без питань.
-- `enabled: false`: без сповіщень, лише сторінка «Вхідні».
-- **macOS**: кнопки показуються, лише якщо для `terminal-notifier` вибрано стиль **«Оповіщення» (Alerts)**
-  у System Settings → Notifications. Інакше сповіщення зникає без кнопок, і відповісти можна у «Вхідних».
-- **Windows**: toast-сповіщення з кнопками (SnoreToast).
-- **Linux**: `notify-send` з libnotify 0.7.9+ (Ubuntu 20.10+, Fedora 33+).
+| Параметр | Що означає |
+|---|---|
+| `enabled` | `false`: без сповіщень, задачі чекають у «Вхідних» |
+| `autoTake` | `true`: брати все без питань |
+| `snoozeMin` | Через скільки хвилин знову питати про відкладену задачу |
+| `timeoutSec` | Скільки сповіщення чекає відповіді, після цього вважається проігнорованим |
+| `inboxPort` | Порт сторінки «Вхідні», `null` вимикає її |
 
-### Дозволи агента
-
-У `claude-headless` Claude не може спитати дозволу, тому все, що не дозволено в `--allowedTools` (у `executors.<назва>.args`),
-просто відхиляється. Розширюйте список під свій стек.
-
-## Запуск
-
-Після `npm run build` доступна команда `mako` (наприклад, через `npm link`).
+## Використання
 
 ```bash
-npm run dev -- --dry-run   # показати знайдені задачі й промпти, нічого не змінюючи
-npm run dev                # працювати постійно (Ctrl+C зупиняє агентів, задачі повернуться в чергу)
+npm run dev -- --dry-run          # знайдені задачі, маршрути й промпти; нічого не змінюється
+npm run dev                       # працювати постійно
+npm run dev -- -c other.json      # інший конфіг
 
-npm run build && npm start
+npm run build && npm link         # команда `mako` глобально
+mako --dry-run
 ```
 
-Worktree після завершення залишаються, щоб їх можна було переглянути. Прибирати їх: `git worktree remove <path>`.
+**«Вхідні»** (http://127.0.0.1:7777): усі задачі й стани, кнопки «Взяти», «Відкласти» і «Повторити»,
+посилання на PR. Сторінка доступна лише з вашого компʼютера.
+
+**Ctrl+C** зупиняє агентів. Перервані задачі після перезапуску повертаються в чергу, а не позначаються помилкою.
+
+**Логи і промпти** для кожної задачі лежать у `.mako/logs/`. Для `claude-headless` це повний потік подій Claude у форматі JSONL.
+
+## Рецепти
+
+<details>
+<summary><b>Jira + Orca: бачити агента наживо</b></summary>
+
+```json
+{
+  "executors": { "orca": { "type": "orca", "agent": "claude" } },
+  "trackers": [{
+    "type": "jira",
+    "jql": "assignee = currentUser() AND labels = claude-agent AND statusCategory = \"To Do\"",
+    "transitions": { "onStart": "In Progress", "onSuccess": "In Review" },
+    "projects": { "PROJ": { "repoPath": "/Users/me/code/app" } }
+  }]
+}
+```
+
+Після «Взяти» в Orca відкривається workspace із запущеним Claude. Коли ви відкриєте PR, Mako переведе задачу в In Review.
+</details>
+
+<details>
+<summary><b>Фонове виконання без питань</b></summary>
+
+```json
+"notifications": { "autoTake": true },
+"maxConcurrent": 3
+```
+
+Підходить для простих задач на кшталт «оновити залежність» чи «виправити опечатку», коли ви лише рецензуєте PR.
+</details>
+
+<details>
+<summary><b>Різні агенти для різних репозиторіїв</b></summary>
+
+```json
+"repos": {
+  "backend": { "repoPath": "/code/backend", "executor": "claude" },
+  "mobile":  { "repoPath": "/code/mobile",  "executor": "codex" },
+  "web":     { "repoPath": "/code/web",     "executor": "orca" }
+}
+```
+</details>
+
+## Безпека
+
+- **Дозволи агента.** У `claude-headless` Claude не може спитати дозволу, тому дозволено лише те, що є в `--allowedTools`.
+  `--dangerously-skip-permissions` використовуйте тільки в ізольованому середовищі.
+- **Промпт будується з тексту задачі.** Будь-хто, хто може створити задачу з міткою для агента, впливає на те, що агент робитиме.
+  Обмежуйте JQL або мітки задачами, які призначені вам (`assignee`).
+- **Секрети** лежать лише в `.env`, а він у `.gitignore`. Сторінка «Вхідні» слухає тільки `127.0.0.1`.
+
+## FAQ
+
+**На macOS сповіщення без кнопок.** У System Settings → Notifications → terminal-notifier оберіть стиль **«Оповіщення» (Alerts)**.
+Відповісти завжди можна і у «Вхідних».
+
+**На Linux немає кнопок.** Потрібен `notify-send` з libnotify 0.7.9+ (Ubuntu 20.10+, Fedora 33+).
+
+**Mako не бачить задачу.** Запустіть `--dry-run`: там видно, чи задача знайдена і чому її пропущено,
+наприклад `project … is not in config` або `no repo matched`.
+
+**Як перезапустити задачу?** Натисніть «Повторити» у «Вхідних» або видаліть її запис із `.mako/state.json`.
+
+**Куди поділися worktree?** Вони залишаються після завершення, щоб зміни можна було переглянути.
+Прибрати: `git worktree remove <шлях>`.
+
+## Структура проєкту
+
+```
+src/
+├── index.ts            # точка входу, CLI-прапорці
+├── orchestrator.ts     # цикл опитування, черга, життєвий цикл задачі
+├── config.ts           # завантаження й перевірка конфігу
+├── routing.ts          # вибір репозиторію для задачі
+├── prompt.ts           # промпт для агента
+├── notify.ts           # сповіщення з кнопками (macOS / Windows / Linux)
+├── inbox.ts            # сторінка «Вхідні»
+├── state.ts            # стан на диску
+├── git.ts              # worktree, push, PR/MR
+├── reviews.ts          # пошук PR/MR для переданих задач
+├── trackers/           # jira, github, gitlab
+└── executors/          # claude-headless, orca, command
+```
+
+Новий трекер реалізує інтерфейс `Tracker` (`src/types.ts`), а новий виконавець реалізує `Executor` (`src/executors/types.ts`).
+
+```bash
+npm run typecheck
+npm run build
+```
