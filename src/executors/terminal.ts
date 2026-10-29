@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { createWriteStream, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, createWriteStream, existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 import { spawn as spawnPty } from "node-pty";
 import * as git from "../git.js";
@@ -54,7 +56,9 @@ export class TerminalExecutor implements Executor {
       args.unshift("--settings", settingsFile);
     }
 
-    const pty = spawnPty(this.cfg.command ?? "claude", args, {
+    ensureSpawnHelper();
+    const command = resolveCommand(this.cfg.command ?? "claude");
+    const pty = spawnPty(command, args, {
       name: "xterm-256color",
       cols: 120,
       rows: 34,
@@ -109,4 +113,66 @@ function claudeHookSettings(url: string) {
       Stop: [{ hooks: [post] }],
     },
   };
+}
+
+/**
+ * node-pty starts processes through its spawn-helper; the macOS prebuilds ship it without the execute bit,
+ * which fails every session with "posix_spawnp failed". scripts/postinstall.cjs fixes it on install;
+ * this covers copies installed before that and packaged apps.
+ */
+let helperChecked = false;
+function ensureSpawnHelper(): void {
+  if (helperChecked || process.platform === "win32") return;
+  helperChecked = true;
+  try {
+    const root = path.dirname(createRequire(import.meta.url).resolve("node-pty/package.json")).replace("app.asar", "app.asar.unpacked");
+    const dirs = ["build/Release", ...(existsSync(path.join(root, "prebuilds")) ? readdirSync(path.join(root, "prebuilds")).map((d) => `prebuilds/${d}`) : [])];
+    for (const dir of dirs) {
+      const helper = path.join(root, dir, "spawn-helper");
+      if (existsSync(helper) && !(statSync(helper).mode & 0o111)) chmodSync(helper, 0o755);
+    }
+  } catch (err: any) {
+    log("terminal", `cannot fix node-pty spawn-helper permissions: ${err.message}`);
+  }
+}
+
+/**
+ * Finds the agent binary: as given if it is a path, otherwise in PATH and the usual install folders
+ * (apps started from Finder see a minimal PATH). A missing binary otherwise also shows up as "posix_spawnp failed".
+ */
+function resolveCommand(command: string): string {
+  if (process.platform === "win32") return command;
+  const home = os.homedir();
+  const expanded = command.startsWith("~/") ? path.join(home, command.slice(2)) : command;
+  if (expanded.includes("/")) {
+    if (isExecutable(expanded)) return expanded;
+    throw new Error(`Команда агента не знайдена або не виконувана: ${expanded}`);
+  }
+  const dirs = [
+    ...(process.env.PATH ?? "").split(path.delimiter),
+    path.join(home, ".local/bin"),
+    path.join(home, ".claude/local"),
+    path.join(home, ".npm-global/bin"),
+    path.join(home, ".bun/bin"),
+    path.join(home, ".volta/bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ].filter(Boolean);
+  for (const dir of dirs) {
+    const candidate = path.join(dir, expanded);
+    if (isExecutable(candidate)) return candidate;
+  }
+  throw new Error(
+    `Не знайдено команду «${command}». Перевірте в терміналі: which ${command}, і вкажіть повний шлях ` +
+      `у Налаштуваннях → «Хто виконує задачі» → «Команда агента» (наприклад ${path.join(home, ".local/bin", command)}).`,
+  );
+}
+
+function isExecutable(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK);
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
 }

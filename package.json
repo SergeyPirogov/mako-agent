@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "app": "tsc && electron .",
     "app:build": "tsc && electron-builder --dir",
-    "app:dmg": "tsc && electron-builder --mac dmg"
+    "app:dmg": "tsc && electron-builder --mac dmg",
+    "postinstall": "node scripts/postinstall.cjs"
   },
   "engines": {
     "node": ">=20.12"
