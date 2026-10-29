@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { run } from "../shell.js";
@@ -82,7 +83,11 @@ export class OrcaExecutor implements Executor {
         }
       }
     }
-    if (failure) throw new Error(explain(failure));
+    if (failure) {
+      // Keep Orca's full answer for diagnosis; the inbox shows the readable part.
+      appendFileSync(ctx.logPath, `\n--- orca ${new Date().toISOString()}\n${(r.stdout + r.stderr).trim()}\n`);
+      throw new Error(`${explain(failure)}\nПовна відповідь Orca: ${ctx.logPath}`);
+    }
 
     let worktree: string | undefined;
     let branch = ctx.branch;
@@ -155,9 +160,16 @@ function explain(f: OrcaFailure): string {
       ? "Orca не змогла підтвердити запуск агента, а workspace задачі не знайдено."
       : `Orca не створила workspace${f.code ? ` (${f.code})` : ""}: ${f.message}`,
   ];
-  if (f.data?.cause) lines.push(`Причина від Orca: ${f.data.cause.trim()}`);
-  if (f.code === UNKNOWN_OUTCOME) lines.push("Перевірте, що застосунок Orca запущений, і натисніть «Повторити».");
-  else if (f.data?.nextSteps?.length) lines.push(...f.data.nextSteps);
+  // A cause that only repeats an error code says nothing; Orca's own next steps say more.
+  const cause = f.data?.cause?.trim();
+  if (cause && !/^[a-z_]+$/.test(cause)) lines.push(`Причина від Orca: ${cause}`);
+  if (f.data?.nextSteps?.length) lines.push(...f.data.nextSteps.map((s) => `Orca радить: ${s}`));
+  if (f.code === UNKNOWN_OUTCOME) {
+    lines.push(
+      "Перевірте: застосунок Orca запущений і оновлений до останньої версії (CLI і застосунок мають збігатися), " +
+        "а цей репозиторій доданий в Orca. Потім натисніть «Повторити».",
+    );
+  }
   return lines.join("\n");
 }
 
