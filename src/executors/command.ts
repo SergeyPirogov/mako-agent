@@ -56,7 +56,7 @@ export class CommandExecutor implements Executor {
         child.once("error", (err) => reject(new Error(`Failed to start ${this.cfg.command}: ${err.message}`)));
       });
       child.unref();
-      return { kind: "handed-off", worktree: this.cfg.worktree === false ? undefined : worktree };
+      return { kind: "handed-off", worktree: this.cfg.worktree === false ? undefined : worktree, branch: ctx.branch };
     }
 
     const child = spawn(this.cfg.command, args, { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] });

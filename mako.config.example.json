@@ -2,6 +2,7 @@
   "pollIntervalSec": 60,
   "maxConcurrent": 2,
   "taskTimeoutMin": 45,
+  "handoffCheckMin": 5,
   "stateDir": ".mako",
   "notifications": {
     "enabled": true,

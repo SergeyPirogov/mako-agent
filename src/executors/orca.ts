@@ -55,12 +55,21 @@ export class OrcaExecutor implements Executor {
     if (r.code !== 0) throw new Error(`orca worktree create failed: ${(r.stderr || r.stdout).trim()}`);
 
     let worktree: string | undefined;
+    let branch = ctx.branch;
     try {
       const json = JSON.parse(r.stdout);
-      worktree = json.worktree?.path ?? json.path ?? json.result?.worktree?.path;
+      const wt = json.worktree ?? json.result?.worktree ?? json;
+      worktree = wt.path;
+      // Orca suffixes the branch (agent/X-1-2) when the name is taken.
+      branch = (wt.branch ?? branch).replace(/^refs\/heads\//, "");
     } catch {
       // Non-JSON output is fine; the workspace exists.
     }
-    return { kind: "handed-off", worktree, details: `Orca workspace ${ctx.task.slug}, agent ${this.cfg.agent ?? "claude"}` };
+    return {
+      kind: "handed-off",
+      worktree,
+      branch,
+      details: `Orca workspace ${ctx.task.slug}, agent ${this.cfg.agent ?? "claude"}`,
+    };
   }
 }

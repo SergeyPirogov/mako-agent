@@ -24,6 +24,9 @@ export interface TaskRecord {
   startedAt?: string;
   finishedAt?: string;
   worktree?: string;
+  /** Branch of a handed-off task, watched for a PR/MR. */
+  branch?: string;
+  branchSha?: string;
   prUrl?: string;
   sessionId?: string;
   costUsd?: number;

@@ -19,7 +19,7 @@ export interface ExecContext {
  */
 export type ExecOutcome =
   | { kind: "completed"; ok: boolean; summary: string; worktree: string; costUsd?: number; sessionId?: string }
-  | { kind: "handed-off"; worktree?: string; details?: string };
+  | { kind: "handed-off"; worktree?: string; details?: string; /** Branch the tool actually used. */ branch?: string };
 
 export interface Executor {
   /** Key from the `executors` config. */

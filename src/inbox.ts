@@ -54,7 +54,9 @@ function render(records: TaskRecord[]): string {
         ? `<a href="${esc(r.prUrl)}">PR</a>`
         : r.error
           ? `<span class="err">${esc(r.error.slice(0, 160))}</span>`
-          : r.status === "snoozed" && r.snoozedUntil
+          : r.status === "handed-off"
+            ? `чекає PR з <code>${esc(r.branch ?? "")}</code>`
+            : r.status === "snoozed" && r.snoozedUntil
             ? `до ${new Date(r.snoozedUntil).toLocaleTimeString()}`
             : "";
       return `<tr><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>

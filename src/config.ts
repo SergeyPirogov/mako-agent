@@ -44,6 +44,8 @@ export interface Config {
   stateDir: string;
   notifications: NotificationConfig;
   trackers: TrackerConfig[];
+  /** How often to look for a PR/MR on handed-off tasks; 0 turns it off. */
+  handoffCheckMin: number;
   /** Named ways to run an agent; repos pick one with `executor`. */
   executors: Record<string, ExecutorConfig>;
   defaultExecutor: string;
@@ -107,6 +109,7 @@ export function loadConfig(configPath: string, dryRun: boolean): Config {
     pollIntervalSec: raw.pollIntervalSec ?? 60,
     maxConcurrent: raw.maxConcurrent ?? 1,
     taskTimeoutMin: raw.taskTimeoutMin ?? 45,
+    handoffCheckMin: raw.handoffCheckMin ?? 5,
     stateDir: path.resolve(raw.stateDir ?? ".mako"),
     notifications: {
       enabled: n.enabled ?? true,

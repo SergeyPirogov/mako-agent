@@ -8,6 +8,7 @@ import { writeFileSync } from "node:fs";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { routeTask } from "./routing.js";
+import { findReview } from "./reviews.js";
 import { log } from "./log.js";
 
 export class Orchestrator {
@@ -17,6 +18,7 @@ export class Orchestrator {
   /** Unroutable tasks already reported, so the log is not repeated on every poll. */
   private unroutable = new Map<string, string>();
   private stopped = false;
+  private lastHandoffCheck = 0;
 
   constructor(
     private cfg: Config,
@@ -83,6 +85,36 @@ export class Orchestrator {
       }
     }
     this.schedule();
+    const every = this.cfg.handoffCheckMin * 60_000;
+    if (every > 0 && Date.now() - this.lastHandoffCheck >= every) {
+      this.lastHandoffCheck = Date.now();
+      await this.checkHandoffs();
+    }
+  }
+
+  /** A handed-off task is finished from Mako's side once a PR/MR is opened from its branch. */
+  async checkHandoffs(): Promise<void> {
+    for (const rec of this.state.all().filter((r) => r.status === "handed-off")) {
+      const tracker = this.trackers.get(rec.task.trackerId);
+      const repo = rec.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
+      if (!tracker || !repo) continue;
+      const branch = rec.branch ?? git.branchFor(rec.task.slug);
+      try {
+        const { review, branchSha } = await findReview(repo, branch, rec.branchSha);
+        if (branchSha && branchSha !== rec.branchSha) this.state.update(rec.id, { branchSha });
+        if (!review) continue;
+
+        const name = review.kind === "pull" ? `Pull request #${review.number}` : `Merge request !${review.number}`;
+        const link = review.url ?? name;
+        log(rec.id, `review found: ${link}`);
+        await tracker.comment(rec.task, `🦈 Mako: ${name} opened for this issue: ${link}`);
+        await tracker.onFinish(rec.task, "success");
+        this.state.update(rec.id, { status: "done", prUrl: review.url, finishedAt: new Date().toISOString() });
+        inform(`✅ ${rec.id}: є ${review.kind === "pull" ? "PR" : "MR"}`, link);
+      } catch (err: any) {
+        log(rec.id, `review check failed: ${err.message}`);
+      }
+    }
   }
 
   private onTaskSeen(task: Task, tracker: Tracker, repo: string): void {
@@ -175,9 +207,13 @@ export class Orchestrator {
       );
 
       if (result.kind === "handed-off") {
-        const where = result.details ?? executor.label;
-        await tracker.comment(task, `🦈 Mako handed this issue to ${executor.label} (${where}).`);
-        this.state.update(task.id, { status: "handed-off", finishedAt: new Date().toISOString(), worktree: result.worktree });
+        const where = result.details ? ` (${result.details})` : "";
+        await tracker.comment(task, `🦈 Mako handed this issue to ${executor.label}${where} on branch ${result.branch ?? branch}.`);
+        this.state.update(task.id, {
+          status: "handed-off",
+          worktree: result.worktree,
+          branch: result.branch ?? branch,
+        });
         log(task.id, `handed off to ${executor.label}${result.worktree ? ` at ${result.worktree}` : ""}`);
         inform(`🦈 ${task.id} відкрито в ${executor.label}`, task.title);
         return;
