@@ -143,3 +143,7 @@ button.fh { display: block; width: 100%; text-align: left; margin: 0; border: 0;
 .dl.del { background: color-mix(in srgb, var(--err) 14%, transparent); }
 .dl.hunk { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .dl.meta { color: var(--mute); font-style: italic; }
+
+details.errd summary { cursor: pointer; }
+details.errd pre { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 0; max-width: 520px; }

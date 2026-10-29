@@ -68,6 +68,14 @@ export function renderInbox(app: App, token: string): string {
   });
 }
 
+/** A failure's first line, with the full text (cause, next steps) one click away. */
+function errorDetails(error: string): string {
+  const first = error.split("\n")[0];
+  const short = first.length > 140 ? first.slice(0, 139) + "…" : first;
+  if (short === error) return `<span class="err">${esc(error)}</span>`;
+  return `<details class="errd"><summary class="err">${esc(short)}</summary><pre>${esc(error)}</pre></details>`;
+}
+
 /** What agents want from the developer right now, longest-waiting first. */
 function attentionBlock(): string {
   const waiting = attentionSessions();
@@ -105,7 +113,7 @@ function row(app: App, r: TaskRecord, token: string): string {
     : r.prUrl
     ? `<a href="${esc(r.prUrl)}">PR</a>`
     : r.error
-      ? `<span class="err">${esc(r.error.slice(0, 160))}</span>`
+      ? errorDetails(r.error)
       : r.status === "handed-off"
         ? `чекає PR з <code>${esc(r.branch ?? "")}</code>`
         : r.status === "snoozed" && r.snoozedUntil
