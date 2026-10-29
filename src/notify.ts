@@ -10,11 +10,26 @@ const TAKE = "Взяти";
 const LATER = "Відкласти";
 const APP = "Mako";
 
+/** Native notifications of a host app (the desktop app) that replace the command-line ones. */
+export interface NotificationHost {
+  ask(title: string, message: string, timeoutSec: number): Promise<Decision>;
+  inform(title: string, message: string, url?: string): void;
+  openUrl?(url: string): void;
+}
+
+let host: NotificationHost | undefined;
+
+export function setNotificationHost(h: NotificationHost): void {
+  host = h;
+}
+
 /** Shows "У вас нова задача" with Take / Postpone buttons and resolves with the user's choice. */
 export function askToTake(task: Task, tracker: Tracker, route: string | undefined, cfg: NotificationConfig): Promise<Decision> {
   const title = "🦈 У вас нова задача";
+  const where = `${tracker.name}${route ? ` → ${route}` : ""}`;
+  if (host) return host.ask(title, `${task.id}: ${task.title}\n${where}`, cfg.timeoutSec);
   const inbox = cfg.inboxPort ? `\nВхідні: http://127.0.0.1:${cfg.inboxPort}` : "";
-  const message = `${task.id}: ${task.title}\n${tracker.name}${route ? ` → ${route}` : ""}${inbox}`;
+  const message = `${task.id}: ${task.title}\n${where}${inbox}`;
   return process.platform === "linux"
     ? askLinux(title, message, cfg.timeoutSec)
     : askNodeNotifier(title, message, cfg.timeoutSec);
@@ -22,6 +37,7 @@ export function askToTake(task: Task, tracker: Tracker, route: string | undefine
 
 /** Fire-and-forget notification; with `url`, clicking it (or "Відкрити" on Linux) opens that page. */
 export function inform(title: string, message: string, url?: string): void {
+  if (host) return host.inform(title, message, url);
   if (process.platform === "linux") {
     const args = ["--app-name", APP, title, message];
     if (!url) return void spawn("notify-send", args, { stdio: "ignore" }).on("error", () => {});
@@ -38,6 +54,7 @@ export function inform(title: string, message: string, url?: string): void {
 }
 
 export function openUrl(url: string): void {
+  if (host?.openUrl) return host.openUrl(url);
   const [cmd, args] =
     process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
   spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).on("error", () => {}).unref();

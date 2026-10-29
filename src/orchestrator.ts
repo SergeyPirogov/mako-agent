@@ -20,6 +20,8 @@ export class Orchestrator {
   private stopped = false;
   private lastHandoffCheck = 0;
   private wipFull = false;
+  /** Paused from the tray: no new tasks are pulled; running ones continue. */
+  paused = false;
 
   constructor(
     private cfg: Config,
@@ -74,6 +76,11 @@ export class Orchestrator {
   }
 
   async poll(): Promise<void> {
+    if (this.paused && !this.cfg.dryRun) {
+      this.schedule();
+      await this.maybeCheckHandoffs();
+      return;
+    }
     const limit = this.cfg.wipLimit;
     if (limit && !this.cfg.dryRun && this.wip() >= limit) {
       if (!this.wipFull) log("main", `WIP limit reached (${this.wip()}/${limit}): not polling trackers until a task is finished`);

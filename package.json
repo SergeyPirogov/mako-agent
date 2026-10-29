@@ -1,7 +1,7 @@
 {
   "name": "mako-agent",
   "version": "0.1.0",
-  "description": "Monitors Jira, GitHub or GitLab issues and delegates them to a local Claude Code agent, each in its own git worktree",
+  "description": "Watches Jira, GitHub and GitLab for tasks and hands them to your AI agent, with a menu bar app",
   "type": "module",
   "bin": {
     "mako": "dist/index.js"
@@ -10,7 +10,10 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "app": "tsc && electron .",
+    "app:build": "tsc && electron-builder --dir",
+    "app:dmg": "tsc && electron-builder --mac dmg"
   },
   "engines": {
     "node": ">=20.12"
@@ -20,7 +23,9 @@
     "@types/node-notifier": "^8.0.5",
     "@types/ws": "^8.18.2",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -31,5 +36,49 @@
   },
   "overrides": {
     "uuid": "^11.1.1"
+  },
+  "main": "dist/desktop.js",
+  "build": {
+    "appId": "dev.mako.desktop",
+    "productName": "Mako",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "ui/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.png",
+      "target": [
+        "dmg"
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSUserNotificationAlertStyle": "alert"
+      }
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "assets/icon.png",
+      "category": "Development"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.png"
+    }
   }
 }

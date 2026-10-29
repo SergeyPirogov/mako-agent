@@ -5,11 +5,8 @@ import { loadEnvFile } from "./envfile.js";
 import { createTracker } from "./trackers/index.js";
 import { StateStore } from "./state.js";
 import { Orchestrator } from "./orchestrator.js";
-import { App } from "./app.js";
-import { startWebUi } from "./web.js";
-import { killAllAgents } from "./executors/index.js";
+import { startMako } from "./runtime.js";
 import { log } from "./log.js";
-import { openUrl } from "./notify.js";
 
 const { values } = parseArgs({
   options: {
@@ -28,18 +25,11 @@ if (values["dry-run"]) {
   process.exit(0);
 }
 
-const app = new App(values.config!, values.env!);
-app.apply();
-
-const port = app.cfg ? app.cfg.notifications.inboxPort : 7777;
-if (port) {
-  startWebUi(app, port);
-  if (!app.orchestrator) {
-    log("main", `${app.problem}. Open http://127.0.0.1:${port}/settings`);
-    if (!values["no-open"]) openUrl(`http://127.0.0.1:${port}/settings`);
-  }
-} else if (!app.orchestrator) {
-  log("main", `${app.problem}`);
+let runtime;
+try {
+  runtime = startMako({ configPath: values.config!, envPath: values.env!, openSettingsOnFirstRun: !values["no-open"] });
+} catch (err: any) {
+  log("main", err.message);
   process.exit(1);
 }
 
@@ -48,7 +38,5 @@ process.on("SIGINT", () => {
   if (shuttingDown) process.exit(1);
   shuttingDown = true;
   log("main", "stopping: terminating running agents (Ctrl+C again to force)");
-  app.orchestrator?.stop();
-  killAllAgents();
-  (app.orchestrator?.drain() ?? Promise.resolve()).then(() => process.exit(0));
+  runtime.shutdown().then(() => process.exit(0));
 });

@@ -36,7 +36,10 @@ export function renderInbox(app: App, token: string): string {
     ? `<div class="wip${wip >= limit ? " full" : ""}"><span>В роботі: <b>${wip} / ${limit}</b></span>
         <span class="muted">${wip >= limit ? "Ліміт досягнуто: Mako не бере нових задач, поки одна не завершиться" : `Вільних місць: ${limit - wip}`}</span></div>`
     : "";
-  const body = `<h1>Задачі для агента</h1>${problem}${wipBar}
+  const paused = app.orchestrator.paused
+    ? `<div class="notice warn">⏸ Mako на паузі: нові задачі не беруться, поточні продовжують виконуватись.</div>`
+    : "";
+  const body = `<h1>Задачі для агента</h1>${problem}${paused}${wipBar}
     ${rows ? `<table class="tasks">${rows}</table>` : `<p class="muted">Поки немає задач. Mako перевіряє трекери кожні ${app.cfg?.pollIntervalSec ?? 60} с.</p>`}`;
   return page({ title: "Вхідні", active: "inbox", token, body, refresh: 15 });
 }

@@ -14,6 +14,8 @@ export async function prepareWorktree(repo: RepoConfig, slug: string): Promise<s
   if (existsSync(dir)) return dir;
 
   mkdirSync(repo.worktreesDir, { recursive: true });
+  // Forget worktrees whose folders were deleted by hand, so the task's path can be reused.
+  await runOk("git", ["worktree", "prune"], repo.repoPath);
   await runOk("git", ["fetch", "origin", repo.baseBranch], repo.repoPath);
 
   const branchExists = (await run("git", ["rev-parse", "--verify", "--quiet", branch], repo.repoPath)).code === 0;
