@@ -10,7 +10,7 @@ import { log } from "./log.js";
 
 const { values } = parseArgs({
   options: {
-    config: { type: "string", short: "c", default: "agent.config.json" },
+    config: { type: "string", short: "c", default: "mako.config.json" },
     "dry-run": { type: "boolean", default: false },
   },
 });

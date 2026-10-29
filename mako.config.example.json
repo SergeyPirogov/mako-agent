@@ -2,7 +2,7 @@
   "pollIntervalSec": 60,
   "maxConcurrent": 2,
   "taskTimeoutMin": 45,
-  "stateDir": ".agent-state",
+  "stateDir": ".mako",
   "notifications": {
     "enabled": true,
     "autoTake": false,

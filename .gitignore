@@ -1,5 +1,5 @@
 node_modules/
 dist/
 .env
-agent.config.json
-.agent-state/
+mako.config.json
+.mako/

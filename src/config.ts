@@ -54,7 +54,7 @@ export function env(name: string): string {
 export function loadConfig(configPath: string, dryRun: boolean): Config {
   if (existsSync(".env")) process.loadEnvFile(".env");
   if (!existsSync(configPath)) {
-    throw new Error(`Config not found: ${configPath}. Copy agent.config.example.json to agent.config.json`);
+    throw new Error(`Config not found: ${configPath}. Copy mako.config.example.json to mako.config.json`);
   }
   const raw = JSON.parse(readFileSync(configPath, "utf8"));
 
@@ -89,7 +89,7 @@ export function loadConfig(configPath: string, dryRun: boolean): Config {
     pollIntervalSec: raw.pollIntervalSec ?? 60,
     maxConcurrent: raw.maxConcurrent ?? 1,
     taskTimeoutMin: raw.taskTimeoutMin ?? 45,
-    stateDir: path.resolve(raw.stateDir ?? ".agent-state"),
+    stateDir: path.resolve(raw.stateDir ?? ".mako"),
     notifications: {
       enabled: n.enabled ?? true,
       autoTake: n.autoTake ?? false,

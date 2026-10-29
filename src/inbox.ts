@@ -62,7 +62,7 @@ function render(records: TaskRecord[]): string {
     })
     .join("");
   return `<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<meta http-equiv="refresh" content="15"><title>Claude Agent · Вхідні</title><style>
+<meta http-equiv="refresh" content="15"><title>Mako · Вхідні</title><style>
 :root{color-scheme:light dark;--bg:#fff;--fg:#1c1c1e;--mute:#6b6b70;--line:#e3e3e6}
 @media (prefers-color-scheme:dark){:root{--bg:#161618;--fg:#eee;--mute:#9a9aa0;--line:#2c2c30}}
 body{margin:0;padding:24px 16px;font:15px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--fg)}

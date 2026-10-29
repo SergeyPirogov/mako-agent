@@ -1,10 +1,10 @@
 {
-  "name": "claude-task-agent",
+  "name": "mako-agent",
   "version": "0.1.0",
   "description": "Monitors Jira, GitHub or GitLab issues and delegates them to a local Claude Code agent, each in its own git worktree",
   "type": "module",
   "bin": {
-    "claude-task-agent": "dist/index.js"
+    "mako": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
