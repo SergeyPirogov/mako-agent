@@ -14,6 +14,9 @@ export interface Task {
   url: string;
   /** Extra context line for the prompt, e.g. "Type: Bug | Priority: High". */
   meta?: string;
+  labels: string[];
+  /** Jira components; empty for GitHub/GitLab. */
+  components: string[];
   comments: { author: string; body: string }[];
   /** Text that closes the issue when put into a PR/MR description, e.g. "Closes acme/web#42". */
   closingRef?: string;

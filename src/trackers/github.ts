@@ -55,6 +55,8 @@ export class GitHubTracker implements Tracker {
           description: issue.body ?? "",
           url: issue.html_url,
           meta: issue.labels?.length ? `Labels: ${issue.labels.map((l: any) => l.name).join(", ")}` : undefined,
+          labels: (issue.labels ?? []).map((l: any) => l.name),
+          components: [],
           comments: comments.map((c) => ({ author: c.user?.login ?? "unknown", body: c.body ?? "" })),
           closingRef: `Closes ${repo}#${issue.number}`,
         });

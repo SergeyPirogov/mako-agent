@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import type { Config, ProjectConfig } from "./config.js";
+import type { Config, RepoConfig } from "./config.js";
 import type { Task, Tracker } from "./types.js";
 
 export interface AgentResult {
@@ -16,7 +16,7 @@ export function killAllAgents(): void {
   for (const child of running) child.kill("SIGTERM");
 }
 
-export function buildPrompt(task: Task, tracker: Tracker, project: ProjectConfig): string {
+export function buildPrompt(task: Task, tracker: Tracker, repo: RepoConfig): string {
   const comments = task.comments.length
     ? task.comments.map((c) => `**${c.author}:**\n${c.body.trim()}`).join("\n\n")
     : "(none)";
@@ -38,7 +38,7 @@ ${comments}
 - Commit your work with messages that start with "${task.id}: ".
 - Do not push and do not open pull requests; the orchestrator does that.
 - If the task is unclear or impossible, make no changes and explain why.
-${project.extraInstructions ? `- ${project.extraInstructions}\n` : ""}
+${repo.extraInstructions ? `- ${repo.extraInstructions}\n` : ""}
 Finish with a short summary for the issue comment: what you changed, how you verified it, and anything a reviewer should check.`;
 }
 

@@ -13,6 +13,8 @@ export interface TaskRecord {
   id: string;
   status: TaskStatus;
   task: Task;
+  /** Name of the local repo the task was routed to. */
+  repo?: string;
   updatedAt: string;
   snoozedUntil?: number;
   queuedAt?: number;

@@ -3,7 +3,6 @@
   "maxConcurrent": 2,
   "taskTimeoutMin": 45,
   "stateDir": ".agent-state",
-
   "notifications": {
     "enabled": true,
     "autoTake": false,
@@ -11,44 +10,84 @@
     "timeoutSec": 600,
     "inboxPort": 7777
   },
-
   "trackers": [
     {
       "type": "jira",
       "jql": "assignee = currentUser() AND labels = claude-agent AND statusCategory = \"To Do\" ORDER BY priority DESC",
-      "transitions": { "onStart": "In Progress", "onSuccess": "In Review", "onFailure": null },
+      "transitions": {
+        "onStart": "In Progress",
+        "onSuccess": "In Review",
+        "onFailure": null
+      },
       "projects": {
         "PROJ": {
-          "repoPath": "/Users/me/code/backend",
-          "baseBranch": "main",
-          "worktreesDir": "/Users/me/code/.worktrees/backend",
-          "extraInstructions": "Run `npm test` before committing."
+          "default": "backend",
+          "repos": {
+            "backend": {
+              "repoPath": "/Users/me/code/backend",
+              "baseBranch": "main",
+              "match": {
+                "components": [
+                  "Backend",
+                  "API"
+                ]
+              },
+              "extraInstructions": "Run `npm test` before committing."
+            },
+            "web": {
+              "repoPath": "/Users/me/code/web",
+              "baseBranch": "main",
+              "match": {
+                "components": [
+                  "Frontend"
+                ],
+                "labels": [
+                  "ui"
+                ]
+              }
+            }
+          }
         }
       }
     },
     {
       "type": "github",
-      "labels": { "trigger": "claude-agent", "inProgress": "agent:in-progress", "done": "agent:done", "failed": "agent:failed" },
+      "labels": {
+        "trigger": "claude-agent",
+        "inProgress": "agent:in-progress",
+        "done": "agent:done",
+        "failed": "agent:failed"
+      },
       "projects": {
-        "my-org/web": { "repoPath": "/Users/me/code/web", "baseBranch": "main" }
+        "my-org/web": {
+          "repoPath": "/Users/me/code/web",
+          "baseBranch": "main"
+        }
       }
     },
     {
       "type": "gitlab",
       "baseUrl": "https://gitlab.com",
-      "labels": { "trigger": "claude-agent" },
+      "labels": {
+        "trigger": "claude-agent"
+      },
       "projects": {
-        "my-group/mobile-app": { "repoPath": "/Users/me/code/mobile-app", "baseBranch": "develop" }
+        "my-group/mobile-app": {
+          "repoPath": "/Users/me/code/mobile-app",
+          "baseBranch": "develop"
+        }
       }
     }
   ],
-
   "claude": {
     "command": "claude",
     "args": [
-      "--permission-mode", "acceptEdits",
-      "--allowedTools", "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Read Edit Write Glob Grep",
-      "--max-turns", "80"
+      "--permission-mode",
+      "acceptEdits",
+      "--allowedTools",
+      "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Read Edit Write Glob Grep",
+      "--max-turns",
+      "80"
     ]
   }
 }

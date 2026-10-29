@@ -54,6 +54,8 @@ export class GitLabTracker implements Tracker {
           description: issue.description ?? "",
           url: issue.web_url,
           meta: issue.labels?.length ? `Labels: ${issue.labels.join(", ")}` : undefined,
+          labels: issue.labels ?? [],
+          components: [],
           comments: notes.filter((n) => !n.system).map((n) => ({ author: n.author?.name ?? "unknown", body: n.body })),
           closingRef: `Closes ${projectPath}#${issue.iid}`,
         });

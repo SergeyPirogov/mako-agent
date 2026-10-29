@@ -11,10 +11,10 @@ const LATER = "Відкласти";
 const APP = "Claude Agent";
 
 /** Shows "У вас нова задача" with Take / Postpone buttons and resolves with the user's choice. */
-export function askToTake(task: Task, tracker: Tracker, cfg: NotificationConfig): Promise<Decision> {
+export function askToTake(task: Task, tracker: Tracker, repo: string | undefined, cfg: NotificationConfig): Promise<Decision> {
   const title = "У вас нова задача";
   const inbox = cfg.inboxPort ? `\nВхідні: http://127.0.0.1:${cfg.inboxPort}` : "";
-  const message = `${task.id}: ${task.title}\n${tracker.name}${inbox}`;
+  const message = `${task.id}: ${task.title}\n${tracker.name}${repo ? ` → ${repo}` : ""}${inbox}`;
   return process.platform === "linux"
     ? askLinux(title, message, cfg.timeoutSec)
     : askNodeNotifier(title, message, cfg.timeoutSec);

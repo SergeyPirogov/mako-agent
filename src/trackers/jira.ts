@@ -36,7 +36,7 @@ export class JiraTracker implements Tracker {
     const data = await this.request<{ issues: any[] }>("POST", "/rest/api/3/search/jql", {
       jql: this.cfg.jql,
       maxResults: 50,
-      fields: ["summary", "description", "issuetype", "priority", "project", "comment"],
+      fields: ["summary", "description", "issuetype", "priority", "project", "comment", "labels", "components"],
     });
     return data.issues.map((i) => ({
       id: i.key,
@@ -47,6 +47,8 @@ export class JiraTracker implements Tracker {
       description: adfToText(i.fields.description),
       url: `${this.baseUrl}/browse/${i.key}`,
       meta: `Type: ${i.fields.issuetype?.name ?? "?"} | Priority: ${i.fields.priority?.name ?? "?"}`,
+      labels: i.fields.labels ?? [],
+      components: (i.fields.components ?? []).map((c: any) => c.name),
       comments: (i.fields.comment?.comments ?? []).map((c: any) => ({
         author: c.author?.displayName ?? "unknown",
         body: adfToText(c.body),

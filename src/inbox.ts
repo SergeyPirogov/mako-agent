@@ -57,7 +57,7 @@ function render(records: TaskRecord[]): string {
             ? `до ${new Date(r.snoozedUntil).toLocaleTimeString()}`
             : "";
       return `<tr><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
-        <td><a href="${esc(r.task.url)}">${esc(r.id)}</a><div>${esc(r.task.title)}</div></td>
+        <td><a href="${esc(r.task.url)}">${esc(r.id)}</a>${r.repo ? ` → ${esc(r.repo)}` : ""}<div>${esc(r.task.title)}</div></td>
         <td>${extra}</td><td class="act">${actions}</td></tr>`;
     })
     .join("");

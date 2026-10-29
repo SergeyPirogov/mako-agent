@@ -2,13 +2,24 @@ import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import type { TrackerConfig } from "./trackers/index.js";
 
-export interface ProjectConfig {
+export interface RepoConfig {
+  /** Name used by `repo:<name>` labels and `default`. */
+  name: string;
   repoPath: string;
   baseBranch: string;
   worktreesDir: string;
   /** Where to open the pull/merge request; "auto" picks by the origin remote URL. */
   pullRequest: "auto" | "github" | "gitlab" | "none";
   extraInstructions?: string;
+  /** The task goes to this repo when it has any of these labels or (Jira) components. */
+  match?: { labels?: string[]; components?: string[] };
+}
+
+/** One tracker project (Jira project, GitHub/GitLab repo) and the local repositories its tasks can go to. */
+export interface ProjectConfig {
+  repos: Record<string, RepoConfig>;
+  /** Repo used when no label or rule matches; with a single repo it is the default implicitly. */
+  default?: string;
 }
 
 export interface NotificationConfig {
@@ -50,13 +61,23 @@ export function loadConfig(configPath: string, dryRun: boolean): Config {
   const trackers: TrackerConfig[] = (raw.trackers ?? []).map((t: any) => {
     const projects: Record<string, ProjectConfig> = {};
     for (const [key, p] of Object.entries<any>(t.projects ?? {})) {
-      projects[key] = {
-        repoPath: path.resolve(p.repoPath),
-        baseBranch: p.baseBranch ?? "main",
-        worktreesDir: path.resolve(p.worktreesDir ?? path.join(p.repoPath, "..", ".worktrees")),
-        pullRequest: p.pullRequest ?? "auto",
-        extraInstructions: p.extraInstructions,
-      };
+      // Short form: the project itself is a single repo.
+      const rawRepos: Record<string, any> = p.repos ?? { [key.split("/").pop()!]: p };
+      const repos: Record<string, RepoConfig> = {};
+      for (const [name, r] of Object.entries<any>(rawRepos)) {
+        if (!r.repoPath) throw new Error(`Project ${key}, repo ${name}: repoPath is required`);
+        repos[name] = {
+          name,
+          repoPath: path.resolve(r.repoPath),
+          baseBranch: r.baseBranch ?? "main",
+          worktreesDir: path.resolve(r.worktreesDir ?? path.join(r.repoPath, "..", ".worktrees", name)),
+          pullRequest: r.pullRequest ?? "auto",
+          extraInstructions: r.extraInstructions,
+          match: r.match,
+        };
+      }
+      if (p.default && !repos[p.default]) throw new Error(`Project ${key}: default repo "${p.default}" is not in repos`);
+      projects[key] = { repos, default: p.default };
     }
     if (!Object.keys(projects).length) throw new Error(`Tracker ${t.id ?? t.type} has no projects`);
     return { ...t, projects };

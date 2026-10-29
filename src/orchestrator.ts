@@ -4,11 +4,14 @@ import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt, runAgent } from "./agent.js";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
+import { routeTask } from "./routing.js";
 import { log } from "./log.js";
 
 export class Orchestrator {
   private trackers: Map<string, Tracker>;
   private active = new Map<string, Promise<void>>();
+  /** Unroutable tasks already reported, so the log is not repeated on every poll. */
+  private unroutable = new Map<string, string>();
   private stopped = false;
 
   constructor(
@@ -48,15 +51,18 @@ export class Orchestrator {
       const seen = new Set<string>();
       for (const task of tasks) {
         seen.add(task.id);
-        if (!tracker.projects[task.project]) {
-          log(task.id, `skipped: project ${task.project} is not in config`);
+        const route = routeTask(task, tracker.projects[task.project]);
+        if (!route.repo) {
+          if (this.unroutable.get(task.id) !== route.reason) log(task.id, `skipped: ${route.reason}`);
+          this.unroutable.set(task.id, route.reason);
           continue;
         }
+        this.unroutable.delete(task.id);
         if (this.cfg.dryRun) {
-          log(task.id, `[dry-run] prompt:\n${buildPrompt(task, tracker, tracker.projects[task.project])}\n`);
+          log(task.id, `[dry-run] → ${route.repo.name} (${route.repo.repoPath}) by ${route.reason}; prompt:\n${buildPrompt(task, tracker, route.repo)}\n`);
           continue;
         }
-        this.onTaskSeen(task, tracker);
+        this.onTaskSeen(task, tracker, route.repo.name);
       }
       // A postponed task that left the query (closed, reassigned) no longer needs an answer.
       for (const rec of this.state.all()) {
@@ -69,13 +75,13 @@ export class Orchestrator {
     this.schedule();
   }
 
-  private onTaskSeen(task: Task, tracker: Tracker): void {
+  private onTaskSeen(task: Task, tracker: Tracker, repo: string): void {
     const rec = this.state.get(task.id);
     if (!rec) {
-      log(task.id, `new task: ${task.title}`);
-      this.state.update(task.id, { task, status: "snoozed", snoozedUntil: 0 });
+      log(task.id, `new task → ${repo}: ${task.title}`);
+      this.state.update(task.id, { task, repo, status: "snoozed", snoozedUntil: 0 });
     } else if (rec.status === "snoozed" || rec.status === "queued") {
-      this.state.update(task.id, { task }); // keep the freshest description and comments
+      this.state.update(task.id, { task, repo }); // keep the freshest description, comments and routing
     }
     const current = this.state.get(task.id)!;
     if (current.status === "snoozed" && (current.snoozedUntil ?? 0) <= Date.now()) this.ask(current, tracker);
@@ -88,7 +94,7 @@ export class Orchestrator {
       return; // notifications off: tasks wait in the inbox page
     }
     this.state.update(rec.id, { status: "asking" });
-    askToTake(rec.task, tracker, n).then((d) => this.decide(rec.id, d));
+    askToTake(rec.task, tracker, rec.repo, n).then((d) => this.decide(rec.id, d));
   }
 
   /** Applies an answer from a notification or the inbox page. The first answer wins. */
@@ -127,8 +133,9 @@ export class Orchestrator {
     const { task } = rec;
     const tracker = this.trackers.get(task.trackerId);
     const project = tracker?.projects[task.project];
-    if (!tracker || !project) {
-      this.state.update(task.id, { status: "failed", error: `tracker ${task.trackerId} or project ${task.project} is not configured` });
+    const repo = (rec.repo && project?.repos[rec.repo]) || routeTask(task, project).repo;
+    if (!tracker || !repo) {
+      this.state.update(task.id, { status: "failed", error: `no configured repository for ${task.id}` });
       return;
     }
     const branch = git.branchFor(task.slug);
@@ -136,21 +143,21 @@ export class Orchestrator {
 
     try {
       await tracker.onStart(task);
-      const worktree = await git.prepareWorktree(project, task.slug);
-      this.state.update(task.id, { worktree });
+      const worktree = await git.prepareWorktree(repo, task.slug);
+      this.state.update(task.id, { worktree, repo: repo.name });
       await tracker.comment(task, `🤖 Claude agent started working on this issue (branch ${branch}).`);
-      log(task.id, `agent running in ${worktree}`);
+      log(task.id, `agent running in ${worktree} (repo ${repo.name})`);
 
-      const result = await runAgent(this.cfg, buildPrompt(task, tracker, project), worktree, this.state.logPath(task));
+      const result = await runAgent(this.cfg, buildPrompt(task, tracker, repo), worktree, this.state.logPath(task));
       log(task.id, `agent finished: ok=${result.ok}, cost=$${result.costUsd?.toFixed(2) ?? "?"}`);
       if (!result.ok) throw new Error(result.summary);
 
       if (await git.hasUncommittedChanges(worktree)) await git.commitAll(worktree, `${task.id}: ${task.title}`);
 
       let prUrl: string | undefined;
-      const changed = (await git.commitsAhead(project, worktree)) > 0;
+      const changed = (await git.commitsAhead(repo, worktree)) > 0;
       if (changed) {
-        prUrl = await git.publish(project, worktree, branch, {
+        prUrl = await git.publish(repo, worktree, branch, {
           title: `${task.id}: ${task.title}`,
           body: `${task.closingRef ?? task.url}\n\n${result.summary}\n\n🤖 Generated by Claude agent`,
           shortBody: task.closingRef ?? task.url,
