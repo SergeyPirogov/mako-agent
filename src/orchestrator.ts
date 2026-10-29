@@ -22,6 +22,11 @@ export class Orchestrator {
   private wipFull = false;
   /** Paused from the tray: no new tasks are pulled; running ones continue. */
   paused = false;
+  /** For the "next search" clock: when trackers were last searched and what came back. */
+  lastSearch?: { at: number; found: number; added: number; errors: number };
+  private nextTickAt?: number;
+  private searching = false;
+  private wake?: () => void;
 
   constructor(
     private cfg: Config,
@@ -50,8 +55,35 @@ export class Orchestrator {
     this.schedule(); // tasks queued before a restart
     while (!this.stopped) {
       await this.poll();
-      await new Promise((r) => setTimeout(r, this.cfg.pollIntervalSec * 1000));
+      const ms = this.cfg.pollIntervalSec * 1000;
+      this.nextTickAt = Date.now() + ms;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, ms);
+        this.wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      this.wake = undefined;
     }
+  }
+
+  /** "Перевірити зараз": search the trackers without waiting for the next tick. */
+  searchNow(): void {
+    this.wake?.();
+  }
+
+  /** What the clock in the UI shows: when Mako looks for tasks next, or why it does not. */
+  searchStatus():
+    | { state: "searching" | "paused"; last?: Orchestrator["lastSearch"] }
+    | { state: "wip-full"; wip: number; limit: number; last?: Orchestrator["lastSearch"] }
+    | { state: "scheduled"; nextAt?: number; last?: Orchestrator["lastSearch"] } {
+    const last = this.lastSearch;
+    if (this.searching) return { state: "searching", last };
+    if (this.paused) return { state: "paused", last };
+    const limit = this.cfg.wipLimit;
+    if (limit && this.wip() >= limit) return { state: "wip-full", wip: this.wip(), limit, last };
+    return { state: "scheduled", nextAt: this.nextTickAt, last };
   }
 
   stop(): void {
@@ -92,38 +124,49 @@ export class Orchestrator {
     if (this.wipFull) log("main", `WIP ${this.wip()}/${limit}: a slot is free, polling trackers again`);
     this.wipFull = false;
 
-    for (const tracker of this.trackers.values()) {
-      let tasks: Task[];
-      try {
-        tasks = await tracker.fetchTasks();
-      } catch (err: any) {
-        log(tracker.id, `poll failed: ${err.message}`);
-        continue;
-      }
-      const seen = new Set<string>();
-      for (const task of tasks) {
-        seen.add(task.id);
-        const route = routeTask(task, tracker.projects[task.project]);
-        if (!route.repo) {
-          if (this.unroutable.get(task.id) !== route.reason) log(task.id, `skipped: ${route.reason}`);
-          this.unroutable.set(task.id, route.reason);
+    this.searching = true;
+    const search = { at: Date.now(), found: 0, added: 0, errors: 0 };
+    const known = new Set(this.state.all().map((r) => r.id));
+    try {
+      for (const tracker of this.trackers.values()) {
+        let tasks: Task[];
+        try {
+          tasks = await tracker.fetchTasks();
+          search.found += tasks.length;
+        } catch (err: any) {
+          search.errors++;
+          log(tracker.id, `poll failed: ${err.message}`);
           continue;
         }
-        this.unroutable.delete(task.id);
-        if (this.cfg.dryRun) {
-          const ex = this.executorFor(route.repo);
-          log(task.id, `[dry-run] → ${route.repo.name} (${route.repo.repoPath}) by ${route.reason}, executor ${ex.name}; prompt:\n${buildPrompt(task, tracker, route.repo, ex)}\n`);
-          continue;
+        const seen = new Set<string>();
+        for (const task of tasks) {
+          seen.add(task.id);
+          const route = routeTask(task, tracker.projects[task.project]);
+          if (!route.repo) {
+            if (this.unroutable.get(task.id) !== route.reason) log(task.id, `skipped: ${route.reason}`);
+            this.unroutable.set(task.id, route.reason);
+            continue;
+          }
+          this.unroutable.delete(task.id);
+          if (this.cfg.dryRun) {
+            const ex = this.executorFor(route.repo);
+            log(task.id, `[dry-run] → ${route.repo.name} (${route.repo.repoPath}) by ${route.reason}, executor ${ex.name}; prompt:\n${buildPrompt(task, tracker, route.repo, ex)}\n`);
+            continue;
+          }
+          this.onTaskSeen(task, tracker, route.repo.name);
         }
-        this.onTaskSeen(task, tracker, route.repo.name);
-      }
-      // A postponed task that left the query (closed, reassigned) no longer needs an answer.
-      for (const rec of this.state.all()) {
-        if (rec.task.trackerId === tracker.id && rec.status === "snoozed" && !seen.has(rec.id)) {
-          log(rec.id, "no longer matches the tracker query, forgetting it");
-          this.state.delete(rec.id);
+        // A postponed task that left the query (closed, reassigned) no longer needs an answer.
+        for (const rec of this.state.all()) {
+          if (rec.task.trackerId === tracker.id && rec.status === "snoozed" && !seen.has(rec.id)) {
+            log(rec.id, "no longer matches the tracker query, forgetting it");
+            this.state.delete(rec.id);
+          }
         }
       }
+    } finally {
+      search.added = this.state.all().filter((r) => !known.has(r.id)).length;
+      this.lastSearch = search;
+      this.searching = false;
     }
     this.schedule();
     await this.maybeCheckHandoffs();

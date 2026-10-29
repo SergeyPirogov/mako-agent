@@ -81,7 +81,7 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/search-now"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -89,6 +89,7 @@ export function startWebUi(app: App, port: number): void {
         if (o && url.pathname === "/take") o.decide(id, "take");
         if (o && url.pathname === "/later") o.decide(id, "later");
         if (o && url.pathname === "/retry") o.retry(id);
+        if (o && url.pathname === "/search-now") o.searchNow();
         return res.writeHead(303, { Location: "/" }).end();
       }
       if (url.pathname.startsWith("/api/")) {

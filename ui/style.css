@@ -105,3 +105,8 @@ a.att .btn { margin: 0; }
 span.btn { display: inline-block; padding: 6px 14px; border-radius: 8px; background: var(--accent); color: #fff; }
 table.tasks tr.attn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
 table.tasks tr.attn { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+
+/* next search clock */
+.clock { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-size: 14px; margin: 0 0 10px; min-height: 32px; font-variant-numeric: tabular-nums; }
+.clock form button { margin: 0; font-size: 13px; padding: 4px 12px; }

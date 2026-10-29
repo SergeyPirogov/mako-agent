@@ -18,13 +18,14 @@ const SESSION_LABELS = { starting: "запуск", working: "працює", wait
 const order: TaskStatus[] = ["asking", "snoozed", "queued", "running", "failed", "handed-off", "done"];
 
 /** Changes whenever the inbox would look different; the page polls it to refresh itself. */
-export function inboxSignature(app: App): { sig: string; attention: number } {
+export function inboxSignature(app: App): { sig: string; attention: number; search?: unknown } {
   const records = app.orchestrator?.state.all() ?? [];
   const live = [...sessions.values()].map((s) => `${s.id}:${s.status}:${s.message ?? ""}`);
   const asking = records.filter((r) => r.status === "asking").length;
   return {
     sig: JSON.stringify([app.problem, app.orchestrator?.paused, records.map((r) => `${r.id}:${r.status}:${r.updatedAt}`), live]),
     attention: attentionSessions().length + asking,
+    search: app.orchestrator?.searchStatus(),
   };
 }
 
@@ -50,16 +51,19 @@ export function renderInbox(app: App, token: string): string {
   const paused = app.orchestrator.paused
     ? `<div class="notice warn">⏸ Mako на паузі: нові задачі не беруться, поточні продовжують виконуватись.</div>`
     : "";
-  const body = `<h1>Задачі для агента</h1>${problem}${paused}${attentionBlock()}${wipBar}
+  // The clock is drawn and ticked by /ui/inbox.js from the search status.
+  const clock = `<div id="clock" class="clock"><span id="clock-text" class="muted">…</span>
+    <form method="post" action="/search-now" id="search-now" hidden><input type="hidden" name="token" value="${esc(token)}"><button>Перевірити зараз</button></form></div>`;
+  const body = `<h1>Задачі для агента</h1>${problem}${paused}${attentionBlock()}${clock}${wipBar}
     ${rows ? `<table class="tasks">${rows}</table>` : `<p class="muted">Поки немає задач. Mako перевіряє трекери кожні ${app.cfg?.pollIntervalSec ?? 60} с.</p>`}`;
-  const { sig, attention } = inboxSignature(app);
+  const { sig, attention, search } = inboxSignature(app);
   return page({
     title: `${attention ? `(${attention}) ` : ""}Вхідні`,
     active: "inbox",
     token,
     body,
     script: "/ui/inbox.js",
-    data: { sig },
+    data: { sig, search: JSON.stringify(search ?? null) },
     attention: attention > 0,
   });
 }

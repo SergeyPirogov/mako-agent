@@ -186,7 +186,7 @@ async function main(): Promise<void> {
     const o = runtime.app.orchestrator;
     const cfg = runtime.app.cfg;
     if (!o || !cfg) {
-      return { configured: false, headline: runtime.app.problem ?? "не налаштований", title: "", attention: true, paused: false, items: [] as TrayItem[], newCount: 0, loginItem: loginItem() };
+      return { configured: false, headline: runtime.app.problem ?? "не налаштований", title: "", attention: true, paused: false, items: [] as TrayItem[], newCount: 0, loginItem: loginItem(), clock: "", canSearch: false };
     }
     const records = o.state.all();
     const items: TrayItem[] = records
@@ -198,8 +198,18 @@ async function main(): Promise<void> {
     const wip = o.wip();
     const count = cfg.wipLimit ? `${wip}/${cfg.wipLimit}` : wip ? String(wip) : "";
     const attention = waiting || newCount > 0;
+    const search = o.searchStatus();
+    const clock =
+      search.state === "searching" ? "Шукаю задачі…"
+      : search.state === "paused" ? "Пошук задач на паузі"
+      : search.state === "wip-full" ? "Не шукаю задач: ліміт WIP"
+      : search.state === "scheduled" && search.nextAt
+        ? `Наступний пошук задач о ${new Date(search.nextAt).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit", hour12: false })}`
+      : "Пошук задач починається";
     return {
       configured: true,
+      clock,
+      canSearch: search.state === "scheduled",
       headline: o.paused ? "на паузі" : `в роботі ${cfg.wipLimit ? `${wip} з ${cfg.wipLimit}` : wip}`,
       title: o.paused ? "⏸" : `${attention ? "● " : ""}${count}`.trim(),
       attention,
@@ -231,6 +241,10 @@ async function main(): Promise<void> {
       { label: view.configured ? `Mako · ${view.headline}` : `Mako · ${view.headline}`, enabled: false },
     ];
     if (!view.configured) items.push({ label: "Налаштувати…", click: () => openWindow("/settings") });
+    if (view.clock) {
+      items.push({ label: `🕐 ${view.clock}`, enabled: false });
+      if (view.canSearch) items.push({ label: "Шукати задачі зараз", click: () => runtime.app.orchestrator?.searchNow() });
+    }
     if (view.newCount) items.push({ label: `Нові задачі: ${view.newCount}`, click: () => openWindow("/") });
     if (view.items.length) {
       items.push({ type: "separator" });
