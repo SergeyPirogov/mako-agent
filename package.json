@@ -1,19 +1,27 @@
 {
-  "name": "jira-claude-agent",
+  "name": "claude-task-agent",
   "version": "0.1.0",
-  "description": "Monitors Jira via JQL and delegates issues to a local Claude Code agent, each in its own git worktree",
+  "description": "Monitors Jira, GitHub or GitLab issues and delegates them to a local Claude Code agent, each in its own git worktree",
   "type": "module",
-  "bin": { "jira-claude-agent": "dist/index.js" },
+  "bin": {
+    "claude-task-agent": "dist/index.js"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit"
   },
-  "engines": { "node": ">=20.12" },
+  "engines": {
+    "node": ">=20.12"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/node-notifier": "^8.0.5",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "node-notifier": "^10.0.1"
   }
 }

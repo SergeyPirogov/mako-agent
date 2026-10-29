@@ -4,23 +4,44 @@
   "taskTimeoutMin": 45,
   "stateDir": ".agent-state",
 
-  "jql": "labels = claude-agent AND statusCategory = \"To Do\" ORDER BY priority DESC, created ASC",
-
-  "transitions": {
-    "onStart": "In Progress",
-    "onSuccess": "In Review",
-    "onFailure": null
+  "notifications": {
+    "enabled": true,
+    "autoTake": false,
+    "snoozeMin": 60,
+    "timeoutSec": 600,
+    "inboxPort": 7777
   },
 
-  "projects": {
-    "PROJ": {
-      "repoPath": "/Users/me/code/my-repo",
-      "baseBranch": "main",
-      "worktreesDir": "/Users/me/code/.worktrees/my-repo",
-      "createPullRequest": true,
-      "extraInstructions": "Run `npm test` before committing."
+  "trackers": [
+    {
+      "type": "jira",
+      "jql": "assignee = currentUser() AND labels = claude-agent AND statusCategory = \"To Do\" ORDER BY priority DESC",
+      "transitions": { "onStart": "In Progress", "onSuccess": "In Review", "onFailure": null },
+      "projects": {
+        "PROJ": {
+          "repoPath": "/Users/me/code/backend",
+          "baseBranch": "main",
+          "worktreesDir": "/Users/me/code/.worktrees/backend",
+          "extraInstructions": "Run `npm test` before committing."
+        }
+      }
+    },
+    {
+      "type": "github",
+      "labels": { "trigger": "claude-agent", "inProgress": "agent:in-progress", "done": "agent:done", "failed": "agent:failed" },
+      "projects": {
+        "my-org/web": { "repoPath": "/Users/me/code/web", "baseBranch": "main" }
+      }
+    },
+    {
+      "type": "gitlab",
+      "baseUrl": "https://gitlab.com",
+      "labels": { "trigger": "claude-agent" },
+      "projects": {
+        "my-group/mobile-app": { "repoPath": "/Users/me/code/mobile-app", "baseBranch": "develop" }
+      }
     }
-  },
+  ],
 
   "claude": {
     "command": "claude",

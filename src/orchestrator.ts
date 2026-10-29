@@ -1,25 +1,29 @@
 import type { Config } from "./config.js";
-import { JiraClient, type JiraIssue } from "./jira.js";
-import { StateStore } from "./state.js";
+import type { Task, Tracker } from "./types.js";
+import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt, runAgent } from "./agent.js";
+import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { log } from "./log.js";
 
 export class Orchestrator {
+  private trackers: Map<string, Tracker>;
   private active = new Map<string, Promise<void>>();
   private stopped = false;
 
   constructor(
     private cfg: Config,
-    private jira: JiraClient,
-    private state: StateStore,
-  ) {}
+    trackers: Tracker[],
+    readonly state: StateStore,
+  ) {
+    this.trackers = new Map(trackers.map((t) => [t.id, t]));
+  }
 
   async start(): Promise<void> {
-    log("main", `Polling every ${this.cfg.pollIntervalSec}s, max ${this.cfg.maxConcurrent} agent(s)`);
-    log("main", `JQL: ${this.cfg.jql}`);
+    log("main", `Polling ${[...this.trackers.values()].map((t) => t.id).join(", ")} every ${this.cfg.pollIntervalSec}s`);
+    this.schedule(); // tasks queued before a restart
     while (!this.stopped) {
-      await this.pollOnce().catch((err) => log("poll", `error: ${err.message}`));
+      await this.poll();
       await new Promise((r) => setTimeout(r, this.cfg.pollIntervalSec * 1000));
     }
   }
@@ -28,63 +32,129 @@ export class Orchestrator {
     this.stopped = true;
   }
 
-  async pollOnce(): Promise<void> {
-    const free = this.cfg.maxConcurrent - this.active.size;
-    if (free <= 0) return;
+  async drain(): Promise<void> {
+    await Promise.allSettled(this.active.values());
+  }
 
-    const issues = await this.jira.search(this.cfg.jql);
-    const candidates = issues.filter((i) => !this.active.has(i.key) && !this.state.get(i.key));
-    for (const issue of candidates) {
-      if (!this.cfg.projects[issue.projectKey]) {
-        log(issue.key, `skipped: project ${issue.projectKey} is not in config`);
+  async poll(): Promise<void> {
+    for (const tracker of this.trackers.values()) {
+      let tasks: Task[];
+      try {
+        tasks = await tracker.fetchTasks();
+      } catch (err: any) {
+        log(tracker.id, `poll failed: ${err.message}`);
         continue;
       }
+      const seen = new Set<string>();
+      for (const task of tasks) {
+        seen.add(task.id);
+        if (!tracker.projects[task.project]) {
+          log(task.id, `skipped: project ${task.project} is not in config`);
+          continue;
+        }
+        if (this.cfg.dryRun) {
+          log(task.id, `[dry-run] prompt:\n${buildPrompt(task, tracker, tracker.projects[task.project])}\n`);
+          continue;
+        }
+        this.onTaskSeen(task, tracker);
+      }
+      // A postponed task that left the query (closed, reassigned) no longer needs an answer.
+      for (const rec of this.state.all()) {
+        if (rec.task.trackerId === tracker.id && rec.status === "snoozed" && !seen.has(rec.id)) {
+          log(rec.id, "no longer matches the tracker query, forgetting it");
+          this.state.delete(rec.id);
+        }
+      }
+    }
+    this.schedule();
+  }
+
+  private onTaskSeen(task: Task, tracker: Tracker): void {
+    const rec = this.state.get(task.id);
+    if (!rec) {
+      log(task.id, `new task: ${task.title}`);
+      this.state.update(task.id, { task, status: "snoozed", snoozedUntil: 0 });
+    } else if (rec.status === "snoozed" || rec.status === "queued") {
+      this.state.update(task.id, { task }); // keep the freshest description and comments
+    }
+    const current = this.state.get(task.id)!;
+    if (current.status === "snoozed" && (current.snoozedUntil ?? 0) <= Date.now()) this.ask(current, tracker);
+  }
+
+  private ask(rec: TaskRecord, tracker: Tracker): void {
+    const n = this.cfg.notifications;
+    if (n.autoTake || !n.enabled) {
+      if (n.autoTake) return void this.decide(rec.id, "take");
+      return; // notifications off: tasks wait in the inbox page
+    }
+    this.state.update(rec.id, { status: "asking" });
+    askToTake(rec.task, tracker, n).then((d) => this.decide(rec.id, d));
+  }
+
+  /** Applies an answer from a notification or the inbox page. The first answer wins. */
+  decide(id: string, decision: Decision): boolean {
+    const rec = this.state.get(id);
+    if (!rec || !["asking", "snoozed"].includes(rec.status)) return false;
+    if (decision === "take") {
+      log(id, "taken");
+      this.state.update(id, { status: "queued", queuedAt: Date.now() });
+      this.schedule();
+    } else {
+      const snoozeMin = this.cfg.notifications.snoozeMin;
+      log(id, `${decision === "later" ? "postponed" : "no answer"}, asking again in ${snoozeMin} min`);
+      this.state.update(id, { status: "snoozed", snoozedUntil: Date.now() + snoozeMin * 60_000 });
+    }
+    return true;
+  }
+
+  private schedule(): void {
+    if (this.stopped) return;
+    const queued = this.state
+      .all()
+      .filter((r) => r.status === "queued" && !this.active.has(r.id))
+      .sort((a, b) => (a.queuedAt ?? 0) - (b.queuedAt ?? 0));
+    for (const rec of queued) {
       if (this.active.size >= this.cfg.maxConcurrent) break;
-      const task = this.handle(issue).finally(() => this.active.delete(issue.key));
-      this.active.set(issue.key, task);
+      const job = this.execute(rec).finally(() => {
+        this.active.delete(rec.id);
+        this.schedule();
+      });
+      this.active.set(rec.id, job);
     }
   }
 
-  private async handle(issue: JiraIssue): Promise<void> {
-    const project = this.cfg.projects[issue.projectKey];
-    const branch = git.branchFor(issue.key);
-    const startedAt = new Date().toISOString();
-    log(issue.key, `picked up: ${issue.summary}`);
-
-    if (this.cfg.dryRun) {
-      log(issue.key, "[dry-run] would create worktree and run agent with prompt:\n" + buildPrompt(issue, project));
-      this.state.set({ key: issue.key, status: "done", startedAt, finishedAt: startedAt });
+  private async execute(rec: TaskRecord): Promise<void> {
+    const { task } = rec;
+    const tracker = this.trackers.get(task.trackerId);
+    const project = tracker?.projects[task.project];
+    if (!tracker || !project) {
+      this.state.update(task.id, { status: "failed", error: `tracker ${task.trackerId} or project ${task.project} is not configured` });
       return;
     }
+    const branch = git.branchFor(task.slug);
+    this.state.update(task.id, { status: "running", startedAt: new Date().toISOString() });
 
-    this.state.set({ key: issue.key, status: "running", startedAt });
     try {
-      await this.moveTo(issue.key, this.cfg.transitions.onStart);
-      const worktree = await git.prepareWorktree(project, issue.key);
-      await this.jira.comment(issue.key, `🤖 Claude agent started working on this issue (branch ${branch}).`);
-      log(issue.key, `agent running in ${worktree}`);
+      await tracker.onStart(task);
+      const worktree = await git.prepareWorktree(project, task.slug);
+      this.state.update(task.id, { worktree });
+      await tracker.comment(task, `🤖 Claude agent started working on this issue (branch ${branch}).`);
+      log(task.id, `agent running in ${worktree}`);
 
-      const result = await runAgent(this.cfg, buildPrompt(issue, project), worktree, this.state.logPath(issue.key));
-      log(issue.key, `agent finished: ok=${result.ok}, cost=$${result.costUsd?.toFixed(2) ?? "?"}`);
+      const result = await runAgent(this.cfg, buildPrompt(task, tracker, project), worktree, this.state.logPath(task));
+      log(task.id, `agent finished: ok=${result.ok}, cost=$${result.costUsd?.toFixed(2) ?? "?"}`);
       if (!result.ok) throw new Error(result.summary);
 
-      if (await git.hasUncommittedChanges(worktree)) {
-        await git.commitAll(worktree, `${issue.key}: ${issue.summary}`);
-      }
+      if (await git.hasUncommittedChanges(worktree)) await git.commitAll(worktree, `${task.id}: ${task.title}`);
 
       let prUrl: string | undefined;
       const changed = (await git.commitsAhead(project, worktree)) > 0;
       if (changed) {
-        await git.pushBranch(worktree, branch);
-        if (project.createPullRequest) {
-          prUrl = await git.createPullRequest(
-            project,
-            worktree,
-            branch,
-            `${issue.key}: ${issue.summary}`,
-            `Jira: ${issue.url}\n\n${result.summary}\n\n🤖 Generated by Claude agent`,
-          );
-        }
+        prUrl = await git.publish(project, worktree, branch, {
+          title: `${task.id}: ${task.title}`,
+          body: `${task.closingRef ?? task.url}\n\n${result.summary}\n\n🤖 Generated by Claude agent`,
+          shortBody: task.closingRef ?? task.url,
+        });
       }
 
       const outcome = prUrl
@@ -92,35 +162,37 @@ export class Orchestrator {
         : changed
           ? `Changes pushed to branch ${branch}.`
           : `No code changes were committed.`;
-      await this.jira.comment(issue.key, `🤖 Claude agent finished.\n\n${outcome}\n\n${result.summary}`);
-      await this.moveTo(issue.key, changed ? this.cfg.transitions.onSuccess : null);
-      this.state.set({
-        key: issue.key,
+      await tracker.comment(task, `🤖 Claude agent finished.\n\n${outcome}\n\n${result.summary}`);
+      await tracker.onFinish(task, changed ? "success" : "no-changes");
+      this.state.update(task.id, {
         status: "done",
-        startedAt,
         finishedAt: new Date().toISOString(),
-        worktree,
         prUrl,
         sessionId: result.sessionId,
         costUsd: result.costUsd,
       });
-      log(issue.key, `done: ${outcome}`);
+      log(task.id, `done: ${outcome}`);
+      inform(`✅ ${task.id} готово`, changed ? outcome : "Агент не вніс змін, див. коментар у задачі");
     } catch (err: any) {
-      log(issue.key, `failed: ${err.message}`);
-      this.state.set({ key: issue.key, status: "failed", startedAt, finishedAt: new Date().toISOString(), error: err.message });
-      await this.jira
-        .comment(issue.key, `🤖 Claude agent failed:\n\n${String(err.message).slice(0, 3000)}`)
-        .catch(() => {});
-      await this.moveTo(issue.key, this.cfg.transitions.onFailure).catch(() => {});
+      if (this.stopped) {
+        // Interrupted by shutdown, not a real failure: run it again after restart.
+        this.state.update(task.id, { status: "queued", queuedAt: 0 });
+        return;
+      }
+      log(task.id, `failed: ${err.message}`);
+      this.state.update(task.id, { status: "failed", finishedAt: new Date().toISOString(), error: err.message });
+      await tracker.comment(task, `🤖 Claude agent failed:\n\n${String(err.message).slice(0, 3000)}`).catch(() => {});
+      await tracker.onFinish(task, "failed").catch(() => {});
+      inform(`❌ ${task.id} не вдалося`, String(err.message).slice(0, 200));
     }
   }
 
-  private async moveTo(key: string, status: string | null): Promise<void> {
-    if (!status) return;
-    if (!(await this.jira.transition(key, status))) log(key, `no transition to "${status}" available`);
-  }
-
-  async drain(): Promise<void> {
-    await Promise.allSettled(this.active.values());
+  /** Lets a failed or finished task be offered again (inbox "Повторити"). */
+  retry(id: string): boolean {
+    const rec = this.state.get(id);
+    if (!rec || !["failed", "done"].includes(rec.status)) return false;
+    this.state.update(id, { status: "queued", queuedAt: Date.now(), error: undefined });
+    this.schedule();
+    return true;
   }
 }

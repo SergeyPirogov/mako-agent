@@ -1,62 +1,84 @@
-# jira-claude-agent
+# claude-task-agent
 
-Локальний демон, який моніторить Jira і делегує задачі **Claude Code**, встановленому на вашому компʼютері.
-Кожна задача отримує окремий git worktree, приблизно як в Orca.
-
-## Як це працює
+Локальний демон, який стежить за задачами в **Jira, GitHub Issues або GitLab Issues** і делегує їх
+**Claude Code**, встановленому на вашому компʼютері. Коли зʼявляється нова задача, на десктопі
+показується сповіщення **«У вас нова задача»** з кнопками **Взяти** і **Відкласти**.
+Кожна взята задача виконується в окремому git worktree, як в Orca.
 
 ```
- Jira ──(JQL poll кожні N сек)──► orchestrator ──► git worktree agent/PROJ-123
-                                       │                     │
-                                       │            claude -p "<задача>" (headless)
-                                       │                     │
-   коментар + статус "In Review" ◄─────┴── push гілки + gh pr create
+ Jira / GitHub / GitLab ──poll──► orchestrator ──► 🔔 «У вас нова задача»  [Взяти] [Відкласти]
+                                       │                      │ Взяти
+                                       │         git worktree agent/<slug> + claude -p "<задача>"
+                                       │                      │
+     коментар + статус/мітка ◄─────────┴──── push + PR (GitHub) / MR (GitLab)
 ```
 
-1. Раз на `pollIntervalSec` шукає задачі за JQL (за замовчуванням: мітка `claude-agent` і статус «To Do»).
-2. Для нової задачі переводить її в `In Progress` і пише коментар.
-3. Створює worktree `<worktreesDir>/PROJ-123` на гілці `agent/PROJ-123` від свіжого `origin/<baseBranch>`.
-4. Запускає `claude -p` у цьому worktree з промптом, зібраним із summary, description і коментарів задачі.
-5. Після завершення: комітить незакомічене, пушить гілку, відкриває PR через `gh` (якщо ввімкнено),
-   пише в Jira підсумок агента з посиланням на PR і переводить задачу в `In Review`.
-6. Паралельно працює до `maxConcurrent` агентів. Стан зберігається в `.agent-state/state.json`,
-   тож після перезапуску задачі не виконуються повторно. Повні логи агента лежать у `.agent-state/logs/<KEY>.jsonl`.
+## Життєвий цикл задачі
+
+| Стан | Що відбувається |
+|---|---|
+| **Нова** | Задачу знайдено, на екрані сповіщення з кнопками |
+| **Відкладена** | Ви натиснули «Відкласти» або проігнорували сповіщення. Через `snoozeMin` хвилин спитає знову |
+| **У черзі** | Ви натиснули «Взяти». Агент стартує, щойно звільниться слот (`maxConcurrent`) |
+| **Виконується** | Задача → In Progress (Jira) або мітка `agent:in-progress` (GitHub/GitLab), коментар, `claude -p` у worktree |
+| **Готово** | Push гілки, PR/MR, підсумок агента в коментарі, задача → In Review або мітка `agent:done`, сповіщення ✅ |
+| **Помилка** | Коментар із причиною, мітка `agent:failed`, сповіщення ❌. На сторінці «Вхідні» є кнопка «Повторити» |
+
+Якщо сповіщення пропущене, ті самі кнопки є на сторінці **«Вхідні»**: http://127.0.0.1:7777.
+Стан зберігається в `.agent-state/state.json`. Після перезапуску відкладені задачі не губляться,
+а перервані Ctrl+C знову стають у чергу. Повні логи агента лежать у `.agent-state/logs/`.
 
 ## Налаштування
 
-Потрібні Node.js 20.12+, `claude` (з виконаним входом), `git`, і `gh` (якщо потрібні PR, з виконаним `gh auth login`).
+Потрібні Node.js 20.12+, `claude` (з виконаним входом) і `git`. Для PR у GitHub потрібен `gh` з виконаним `gh auth login`.
+MR у GitLab створюється через git push options, тож `glab` не потрібен.
 
 ```bash
 npm install
-cp .env.example .env                              # JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN
-cp agent.config.example.json agent.config.json    # JQL, статуси, проєкти → репозиторії
+cp .env.example .env                              # токени лише для тих трекерів, які використовуєте
+cp agent.config.example.json agent.config.json
 ```
 
-Що задати в `agent.config.json`:
+### Трекери
 
-| Поле | Що означає |
-|---|---|
-| `jql` | Які задачі віддавати агенту. Наприклад, `assignee = currentUser() AND labels = claude-agent AND statusCategory = "To Do"` |
-| `transitions` | Назви статусів (або переходів) для старту, успіху й помилки. `null` означає не змінювати статус |
-| `projects.<KEY>` | Ключ Jira-проєкту → локальний репозиторій, базова гілка, тека для worktree, чи створювати PR, додаткові інструкції |
-| `claude.args` | Аргументи для `claude`: режим дозволів, `--allowedTools`, `--max-turns`, `--model` тощо |
-| `maxConcurrent`, `taskTimeoutMin` | Скільки агентів одночасно і ліміт часу на одну задачу |
+У `trackers` можна вказати один або кілька трекерів одночасно. Кожен має свій `projects`:
+ключ проєкту в трекері → локальний репозиторій.
+
+| `type` | Які задачі беруться | Як позначається прогрес | Ключ у `projects` | Секрети |
+|---|---|---|---|---|
+| `jira` | За `jql` | Статуси з `transitions` | Ключ проєкту: `PROJ` | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
+| `github` | Відкриті issues з міткою `labels.trigger` (+ `assignee`) | Мітки `inProgress` / `done` / `failed` | `owner/repo` | `GITHUB_TOKEN` або `gh auth login` |
+| `gitlab` | Відкриті issues з міткою `labels.trigger` (+ `assignee`) | Ті самі мітки | `group/project` | `GITLAB_TOKEN` (scope `api`) |
+
+Для GitHub Enterprise вкажіть `apiUrl`, для self-hosted GitLab вкажіть `baseUrl`.
+У проєкті `pullRequest` може бути `auto` (за адресою `origin`), `github`, `gitlab` або `none`.
+PR/MR містить `Closes owner/repo#N`, тож після мерджу issue закривається автоматично.
+
+### Сповіщення
+
+```json
+"notifications": { "enabled": true, "autoTake": false, "snoozeMin": 60, "timeoutSec": 600, "inboxPort": 7777 }
+```
+
+- `autoTake: true`: брати все без питань.
+- `enabled: false`: без сповіщень, лише сторінка «Вхідні».
+- **macOS**: кнопки показуються, лише якщо для `terminal-notifier` вибрано стиль **«Оповіщення» (Alerts)**
+  у System Settings → Notifications. Інакше сповіщення зникає без кнопок, і відповісти можна у «Вхідних».
+- **Windows**: toast-сповіщення з кнопками (SnoreToast).
+- **Linux**: `notify-send` з libnotify 0.7.9+ (Ubuntu 20.10+, Fedora 33+).
 
 ### Дозволи агента
 
-У headless-режимі Claude не може спитати дозволу, тому все, що не дозволено в `--allowedTools`,
-просто відхиляється. Приклад у конфігу дозволяє редагувати файли й запускати `git`, `npm`, `node`.
-Розширюйте список під свій стек. `--dangerously-skip-permissions` використовуйте лише в ізольованому середовищі.
+У headless-режимі Claude не може спитати дозволу, тому все, що не дозволено в `claude.args` → `--allowedTools`,
+просто відхиляється. Розширюйте список під свій стек.
 
 ## Запуск
 
 ```bash
-npm run dev -- --dry-run --once   # показати, які задачі знайдено і який промпт піде агенту, нічого не змінюючи
-npm run dev -- --once             # обробити одну порцію задач і завершитися
-npm run dev                       # працювати постійно (Ctrl+C зупиняє агентів)
+npm run dev -- --dry-run   # показати знайдені задачі й промпти, нічого не змінюючи
+npm run dev                # працювати постійно (Ctrl+C зупиняє агентів, задачі повернуться в чергу)
 
-npm run build && npm start        # продакшн-збірка
+npm run build && npm start
 ```
 
-Щоб перезапустити задачу, видаліть її запис із `.agent-state/state.json`.
-Worktree залишаються після завершення, щоб їх можна було переглянути. Прибирати їх: `git worktree remove <path>`.
+Worktree після завершення залишаються, щоб їх можна було переглянути. Прибирати їх: `git worktree remove <path>`.

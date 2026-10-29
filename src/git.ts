@@ -3,14 +3,14 @@ import path from "node:path";
 import type { ProjectConfig } from "./config.js";
 import { run, runOk } from "./shell.js";
 
-export function branchFor(issueKey: string): string {
-  return `agent/${issueKey}`;
+export function branchFor(slug: string): string {
+  return `agent/${slug}`;
 }
 
-/** Creates (or reuses) an isolated worktree for the issue, branched from the latest base branch. */
-export async function prepareWorktree(project: ProjectConfig, issueKey: string): Promise<string> {
-  const dir = path.join(project.worktreesDir, issueKey);
-  const branch = branchFor(issueKey);
+/** Creates (or reuses) an isolated worktree for the task, branched from the latest base branch. */
+export async function prepareWorktree(project: ProjectConfig, slug: string): Promise<string> {
+  const dir = path.join(project.worktreesDir, slug);
+  const branch = branchFor(slug);
   if (existsSync(dir)) return dir;
 
   mkdirSync(project.worktreesDir, { recursive: true });
@@ -38,23 +38,54 @@ export async function commitAll(worktree: string, message: string): Promise<void
   await runOk("git", ["commit", "-m", message], worktree);
 }
 
-export async function pushBranch(worktree: string, branch: string): Promise<void> {
-  await runOk("git", ["push", "-u", "origin", branch], worktree);
+export interface PublishRequest {
+  title: string;
+  body: string;
+  /** Single line for hosts that only take a short description (GitLab push options). */
+  shortBody: string;
 }
 
-/** Opens a PR with the GitHub CLI, or returns the existing one's URL. */
-export async function createPullRequest(
+/** Pushes the branch and opens a PR/MR when the project asks for one. Returns its URL, if any. */
+export async function publish(
   project: ProjectConfig,
   worktree: string,
   branch: string,
-  title: string,
-  body: string,
-): Promise<string> {
+  req: PublishRequest,
+): Promise<string | undefined> {
+  const host = project.pullRequest === "auto" ? await detectHost(worktree) : project.pullRequest;
+
+  if (host === "gitlab") {
+    // GitLab creates the MR itself from push options, so no extra CLI is needed.
+    const r = await run(
+      "git",
+      [
+        "push", "-u", "origin", branch,
+        "-o", "merge_request.create",
+        "-o", `merge_request.target=${project.baseBranch}`,
+        "-o", `merge_request.title=${req.title}`,
+        "-o", `merge_request.description=${req.shortBody}`,
+      ],
+      worktree,
+    );
+    if (r.code !== 0) throw new Error(`git push failed: ${r.stderr}`);
+    return (r.stderr + r.stdout).match(/https?:\/\/\S+\/-\/merge_requests\/\d+/)?.[0];
+  }
+
+  await runOk("git", ["push", "-u", "origin", branch], worktree);
+  if (host !== "github") return undefined;
+
   const existing = await run("gh", ["pr", "view", branch, "--json", "url", "-q", ".url"], worktree);
   if (existing.code === 0 && existing.stdout.trim()) return existing.stdout.trim();
   return runOk(
     "gh",
-    ["pr", "create", "--base", project.baseBranch, "--head", branch, "--title", title, "--body", body],
+    ["pr", "create", "--base", project.baseBranch, "--head", branch, "--title", req.title, "--body", req.body],
     worktree,
   );
+}
+
+async function detectHost(worktree: string): Promise<"github" | "gitlab" | "none"> {
+  const url = await runOk("git", ["remote", "get-url", "origin"], worktree);
+  if (url.includes("github")) return "github";
+  if (url.includes("gitlab")) return "gitlab";
+  return "none";
 }

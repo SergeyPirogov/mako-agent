@@ -1,12 +1,22 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 import path from "node:path";
+import type { Task } from "./types.js";
 
-export type TaskStatus = "running" | "done" | "failed";
+/**
+ * asking   – notification is on screen, waiting for "Взяти" / "Відкласти"
+ * snoozed  – postponed until `snoozedUntil`, then asked again
+ * queued   – taken, waiting for a free agent slot
+ */
+export type TaskStatus = "asking" | "snoozed" | "queued" | "running" | "done" | "failed";
 
 export interface TaskRecord {
-  key: string;
+  id: string;
   status: TaskStatus;
-  startedAt: string;
+  task: Task;
+  updatedAt: string;
+  snoozedUntil?: number;
+  queuedAt?: number;
+  startedAt?: string;
   finishedAt?: string;
   worktree?: string;
   prUrl?: string;
@@ -15,7 +25,7 @@ export interface TaskRecord {
   error?: string;
 }
 
-/** Remembers which issues were already picked up, so restarts don't redo work. */
+/** Remembers every task the agent has seen, so restarts neither re-ask nor redo work. */
 export class StateStore {
   private file: string;
   private tasks: Record<string, TaskRecord> = {};
@@ -24,22 +34,37 @@ export class StateStore {
     mkdirSync(path.join(dir, "logs"), { recursive: true });
     this.file = path.join(dir, "state.json");
     if (existsSync(this.file)) this.tasks = JSON.parse(readFileSync(this.file, "utf8"));
-    // Tasks that were running when the process died are retried on the next poll.
-    for (const t of Object.values(this.tasks)) if (t.status === "running") delete this.tasks[t.key];
+    // A process that died mid-question asks again; a task that was running is picked up again.
+    for (const t of Object.values(this.tasks)) {
+      if (t.status === "asking") Object.assign(t, { status: "snoozed", snoozedUntil: 0 });
+      if (t.status === "running") Object.assign(t, { status: "queued", queuedAt: 0 });
+    }
     this.save();
   }
 
-  get(key: string): TaskRecord | undefined {
-    return this.tasks[key];
+  get(id: string): TaskRecord | undefined {
+    return this.tasks[id];
   }
 
-  set(record: TaskRecord): void {
-    this.tasks[record.key] = record;
+  all(): TaskRecord[] {
+    return Object.values(this.tasks);
+  }
+
+  update(id: string, patch: Partial<TaskRecord> & { task?: Task }): TaskRecord {
+    const current = this.tasks[id];
+    if (!current && !patch.task) throw new Error(`Unknown task ${id}`);
+    this.tasks[id] = { ...current, ...patch, id, updatedAt: new Date().toISOString() } as TaskRecord;
+    this.save();
+    return this.tasks[id];
+  }
+
+  delete(id: string): void {
+    delete this.tasks[id];
     this.save();
   }
 
-  logPath(key: string): string {
-    return path.join(this.dir, "logs", `${key}.jsonl`);
+  logPath(task: Task): string {
+    return path.join(this.dir, "logs", `${task.trackerId}-${task.slug}.jsonl`);
   }
 
   private save(): void {

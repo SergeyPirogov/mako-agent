@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import type { Config, ProjectConfig } from "./config.js";
-import type { JiraIssue } from "./jira.js";
+import type { Task, Tracker } from "./types.js";
 
 export interface AgentResult {
   ok: boolean;
@@ -16,30 +16,30 @@ export function killAllAgents(): void {
   for (const child of running) child.kill("SIGTERM");
 }
 
-export function buildPrompt(issue: JiraIssue, project: ProjectConfig): string {
-  const comments = issue.comments.length
-    ? issue.comments.map((c) => `**${c.author}:**\n${c.body.trim()}`).join("\n\n")
+export function buildPrompt(task: Task, tracker: Tracker, project: ProjectConfig): string {
+  const comments = task.comments.length
+    ? task.comments.map((c) => `**${c.author}:**\n${c.body.trim()}`).join("\n\n")
     : "(none)";
-  return `You are working autonomously on Jira issue ${issue.key}. Nobody will answer questions, so make reasonable decisions yourself.
+  return `You are working autonomously on ${tracker.name} issue ${task.id}. Nobody will answer questions, so make reasonable decisions yourself.
 
-# ${issue.key}: ${issue.summary}
-Type: ${issue.issueType} | Priority: ${issue.priority} | ${issue.url}
+# ${task.id}: ${task.title}
+${task.meta ? task.meta + " | " : ""}${task.url}
 
 ## Description
-${issue.description.trim() || "(empty)"}
+${task.description.trim() || "(empty)"}
 
 ## Comments
 ${comments}
 
 ## How to work
-- You are in a dedicated git worktree on branch agent/${issue.key}. Stay inside it.
+- You are in a dedicated git worktree on branch agent/${task.slug}. Stay inside it.
 - Explore the codebase first, then implement the change with minimal, focused edits.
 - Run the relevant tests/linters if the project has them.
-- Commit your work with messages that start with "${issue.key}: ".
+- Commit your work with messages that start with "${task.id}: ".
 - Do not push and do not open pull requests; the orchestrator does that.
 - If the task is unclear or impossible, make no changes and explain why.
 ${project.extraInstructions ? `- ${project.extraInstructions}\n` : ""}
-Finish with a short summary for the Jira comment: what you changed, how you verified it, and anything a reviewer should check.`;
+Finish with a short summary for the issue comment: what you changed, how you verified it, and anything a reviewer should check.`;
 }
 
 /** Runs headless Claude Code in the worktree and streams its JSON events into a log file. */

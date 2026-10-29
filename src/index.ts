@@ -1,22 +1,28 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { loadConfig } from "./config.js";
-import { JiraClient } from "./jira.js";
+import { loadConfig, env } from "./config.js";
+import { createTracker } from "./trackers/index.js";
 import { StateStore } from "./state.js";
 import { Orchestrator } from "./orchestrator.js";
+import { startInbox } from "./inbox.js";
 import { killAllAgents } from "./agent.js";
 import { log } from "./log.js";
 
 const { values } = parseArgs({
   options: {
     config: { type: "string", short: "c", default: "agent.config.json" },
-    once: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
   },
 });
 
 const cfg = loadConfig(values.config!, values["dry-run"]!);
-const orchestrator = new Orchestrator(cfg, new JiraClient(cfg.jira), new StateStore(cfg.stateDir));
+const trackers = cfg.trackers.map((t) => createTracker(t, env));
+const orchestrator = new Orchestrator(cfg, trackers, new StateStore(cfg.stateDir));
+
+if (cfg.dryRun) {
+  await orchestrator.poll();
+  process.exit(0);
+}
 
 let shuttingDown = false;
 process.on("SIGINT", () => {
@@ -28,9 +34,5 @@ process.on("SIGINT", () => {
   orchestrator.drain().then(() => process.exit(0));
 });
 
-if (values.once) {
-  await orchestrator.pollOnce();
-  await orchestrator.drain();
-} else {
-  await orchestrator.start();
-}
+if (cfg.notifications.inboxPort) startInbox(orchestrator, cfg.notifications.inboxPort);
+await orchestrator.start();
