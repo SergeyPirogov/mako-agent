@@ -133,6 +133,7 @@ function starterConfig() {
     maxConcurrent: 1,
     notifications: { enabled: true, autoTake: false, snoozeMin: 60 },
     executors: {
+      terminal: { type: "terminal" },
       claude: {
         type: "claude-headless",
         args: [
@@ -142,7 +143,7 @@ function starterConfig() {
         ],
       },
     },
-    defaultExecutor: "claude",
+    defaultExecutor: "terminal",
     trackers: [],
   };
 }

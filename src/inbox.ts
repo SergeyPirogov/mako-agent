@@ -1,6 +1,7 @@
 import type { App } from "./app.js";
 import type { TaskRecord, TaskStatus } from "./state.js";
 import { esc, page } from "./ui-layout.js";
+import { sessions, sessionIdFor } from "./sessions.js";
 
 const LABELS: Record<TaskStatus, string> = {
   asking: "Нова",
@@ -11,6 +12,8 @@ const LABELS: Record<TaskStatus, string> = {
   done: "Готово",
   failed: "Помилка",
 };
+
+const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "закінчив хід", exited: "завершено" };
 
 const order: TaskStatus[] = ["asking", "snoozed", "queued", "running", "failed", "handed-off", "done"];
 
@@ -36,13 +39,17 @@ function row(r: TaskRecord, token: string): string {
   const form = (action: string, label: string, primary = false) =>
     `<form method="post" action="/${action}"><input type="hidden" name="id" value="${esc(r.id)}">` +
     `<input type="hidden" name="token" value="${esc(token)}"><button${primary ? ' class="primary"' : ""}>${label}</button></form>`;
-  const actions =
-    r.status === "asking" || r.status === "snoozed"
+  const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
+  const actions = session
+    ? `<a class="btn" href="/session/${esc(session.id)}">Термінал</a>`
+    : r.status === "asking" || r.status === "snoozed"
       ? form("take", "Взяти", true) + form("later", "Відкласти")
       : r.status === "failed"
         ? form("retry", "Повторити")
         : "";
-  const extra = r.prUrl
+  const extra = session
+    ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>`
+    : r.prUrl
     ? `<a href="${esc(r.prUrl)}">PR</a>`
     : r.error
       ? `<span class="err">${esc(r.error.slice(0, 160))}</span>`

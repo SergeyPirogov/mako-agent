@@ -80,7 +80,7 @@ export class Orchestrator {
         this.unroutable.delete(task.id);
         if (this.cfg.dryRun) {
           const ex = this.executorFor(route.repo);
-          log(task.id, `[dry-run] → ${route.repo.name} (${route.repo.repoPath}) by ${route.reason}, executor ${ex.name}; prompt:\n${buildPrompt(task, tracker, route.repo, ex.interactive)}\n`);
+          log(task.id, `[dry-run] → ${route.repo.name} (${route.repo.repoPath}) by ${route.reason}, executor ${ex.name}; prompt:\n${buildPrompt(task, tracker, route.repo, ex)}\n`);
           continue;
         }
         this.onTaskSeen(task, tracker, route.repo.name);
@@ -197,7 +197,7 @@ export class Orchestrator {
     }
     const executor = this.executorFor(repo);
     const branch = git.branchFor(task.slug);
-    const prompt = buildPrompt(task, tracker, repo, executor.interactive);
+    const prompt = buildPrompt(task, tracker, repo, executor);
     const promptFile = this.state.logPath(task).replace(/\.jsonl$/, ".prompt.md");
     writeFileSync(promptFile, prompt);
     this.state.update(task.id, {
@@ -211,7 +211,16 @@ export class Orchestrator {
       await tracker.onStart(task);
       log(task.id, `starting ${executor.name} (${executor.label}) for repo ${repo.name}`);
       const result = await executor.run(
-        { task, tracker, repo, branch, logPath: this.state.logPath(task), promptFile, timeoutMin: this.cfg.taskTimeoutMin },
+        {
+          task,
+          tracker,
+          repo,
+          branch,
+          logPath: this.state.logPath(task),
+          promptFile,
+          timeoutMin: this.cfg.taskTimeoutMin,
+          ui: this.cfg.notifications.inboxPort ? { port: this.cfg.notifications.inboxPort } : undefined,
+        },
         prompt,
       );
 

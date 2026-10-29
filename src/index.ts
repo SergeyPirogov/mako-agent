@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { loadConfig, env } from "./config.js";
 import { loadEnvFile } from "./envfile.js";
@@ -10,6 +9,7 @@ import { App } from "./app.js";
 import { startWebUi } from "./web.js";
 import { killAllAgents } from "./executors/index.js";
 import { log } from "./log.js";
+import { openUrl } from "./notify.js";
 
 const { values } = parseArgs({
   options: {
@@ -36,7 +36,7 @@ if (port) {
   startWebUi(app, port);
   if (!app.orchestrator) {
     log("main", `${app.problem}. Open http://127.0.0.1:${port}/settings`);
-    if (!values["no-open"]) openBrowser(`http://127.0.0.1:${port}/settings`);
+    if (!values["no-open"]) openUrl(`http://127.0.0.1:${port}/settings`);
   }
 } else if (!app.orchestrator) {
   log("main", `${app.problem}`);
@@ -52,9 +52,3 @@ process.on("SIGINT", () => {
   killAllAgents();
   (app.orchestrator?.drain() ?? Promise.resolve()).then(() => process.exit(0));
 });
-
-function openBrowser(url: string): void {
-  const [cmd, args] =
-    process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
-  spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
-}

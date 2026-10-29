@@ -15,6 +15,7 @@
 
   const TRACKERS = { jira: "Jira", github: "GitHub", gitlab: "GitLab" };
   const EXECUTORS = {
+    terminal: "Термінал у Mako (можна втрутитись)",
     "claude-headless": "Claude Code у фоні",
     orca: "Orca",
     command: "Своя команда",
@@ -333,7 +334,13 @@
         const p = `executors.${ei}.conf`;
         const type = e.conf.type;
         let fields = "";
-        if (type === "claude-headless") {
+        if (type === "terminal") {
+          fields = `
+            ${field({ label: "Команда агента", path: `${p}.command`, placeholder: "claude", hint: "На Windows: <code>claude.cmd</code>" })}
+            ${field({ label: "Аргументи (по одному на рядок)", path: `${p}.args`, type: "lines", kind: "textarea", wide: true,
+              placeholder: "{prompt}", hint: "За замовчуванням лише <code>{prompt}</code>. Сесія видна у вкладці «Вхідні» → «Термінал»" })}
+            ${field({ label: "Завершувати сам, якщо я не втручався", path: `${p}.autoFinish`, kind: "check", type: "bool", wide: true })}`;
+        } else if (type === "claude-headless") {
           fields = `
             ${field({ label: "Команда", path: `${p}.command`, placeholder: "claude" })}
             ${field({ label: "Аргументи (по одному на рядок)", path: `${p}.args`, type: "lines", kind: "textarea", wide: true,
@@ -370,7 +377,7 @@
       <p class="muted" style="margin-top:-6px">Mako не привʼязаний до інструмента: кожен репозиторій може мати свого виконавця.</p>
       ${cards}
       <div class="adds" style="margin-top:14px"><span class="muted">Додати:</span>
-        ${button("+ Claude Code", "add-executor", { type: "claude-headless" })}${button("+ Orca", "add-executor", { type: "orca" })}${button("+ Своя команда", "add-executor", { type: "command" })}</div>
+        ${button("+ Термінал", "add-executor", { type: "terminal" })}${button("+ Claude Code у фоні", "add-executor", { type: "claude-headless" })}${button("+ Orca", "add-executor", { type: "orca" })}${button("+ Своя команда", "add-executor", { type: "command" })}</div>
     </section>`;
   }
 
@@ -456,8 +463,12 @@
     },
     "add-executor"({ type }) {
       const names = model.executors.map((e) => e.name);
-      const base = { "claude-headless": "claude", orca: "orca", command: "command" }[type];
-      const conf = type === "claude-headless" ? { type, args: [...CLAUDE_ARGS] } : type === "orca" ? { type, agent: "claude" } : { type, command: "", args: [] };
+      const base = { terminal: "terminal", "claude-headless": "claude", orca: "orca", command: "command" }[type];
+      const conf =
+        type === "claude-headless" ? { type, args: [...CLAUDE_ARGS] }
+        : type === "orca" ? { type, agent: "claude" }
+        : type === "terminal" ? { type }
+        : { type, command: "", args: [] };
       model.executors.push({ name: uniqueName(base, names), conf });
     },
     "remove-executor"({ ei }) {

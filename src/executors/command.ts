@@ -35,19 +35,7 @@ export class CommandExecutor implements Executor {
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
     const worktree = this.cfg.worktree === false ? ctx.repo.repoPath : await git.prepareWorktree(ctx.repo, ctx.task.slug);
-    const vars: Record<string, string> = {
-      worktree,
-      prompt,
-      promptFile: ctx.promptFile,
-      taskId: ctx.task.id,
-      slug: ctx.task.slug,
-      branch: ctx.branch,
-      title: ctx.task.title,
-      url: ctx.task.url,
-      repoPath: ctx.repo.repoPath,
-      repo: ctx.repo.name,
-    };
-    const args = (this.cfg.args ?? []).map((a) => a.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m));
+    const args = expandArgs(this.cfg.args ?? [], ctx, worktree, prompt);
 
     if (!this.managed) {
       const child = spawn(this.cfg.command, args, { cwd: worktree, detached: true, stdio: "ignore" });
@@ -83,4 +71,21 @@ export class CommandExecutor implements Executor {
       );
     });
   }
+}
+
+/** Fills {placeholders} in executor arguments. */
+export function expandArgs(args: string[], ctx: ExecContext, worktree: string, prompt: string): string[] {
+  const vars: Record<string, string> = {
+    worktree,
+    prompt,
+    promptFile: ctx.promptFile,
+    taskId: ctx.task.id,
+    slug: ctx.task.slug,
+    branch: ctx.branch,
+    title: ctx.task.title,
+    url: ctx.task.url,
+    repoPath: ctx.repo.repoPath,
+    repo: ctx.repo.name,
+  };
+  return args.map((a) => a.replace(/\{(\w+)\}/g, (m, k) => vars[k] ?? m));
 }

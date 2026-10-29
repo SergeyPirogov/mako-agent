@@ -12,6 +12,10 @@
     "inboxPort": 7777
   },
   "executors": {
+    "terminal": {
+      "type": "terminal",
+      "command": "claude"
+    },
     "claude": {
       "type": "claude-headless",
       "command": "claude",
@@ -56,7 +60,7 @@
       ]
     }
   },
-  "defaultExecutor": "claude",
+  "defaultExecutor": "terminal",
   "trackers": [
     {
       "type": "jira",

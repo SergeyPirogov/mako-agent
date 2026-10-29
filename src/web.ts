@@ -3,13 +3,24 @@ import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { createRequire } from "node:module";
+import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
 import { renderInbox } from "./inbox.js";
-import { page } from "./ui-layout.js";
+import { page, esc } from "./ui-layout.js";
+import { sessions, type SessionEvent } from "./sessions.js";
 import { log } from "./log.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
-const STATIC: Record<string, string> = { "style.css": "text/css", "settings.js": "text/javascript" };
+const require = createRequire(import.meta.url);
+const STATIC: Record<string, [string, string]> = {
+  "style.css": [path.join(UI_DIR, "style.css"), "text/css"],
+  "settings.js": [path.join(UI_DIR, "settings.js"), "text/javascript"],
+  "session.js": [path.join(UI_DIR, "session.js"), "text/javascript"],
+  "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
+  "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
+  "vendor/addon-fit.js": [require.resolve("@xterm/addon-fit/lib/addon-fit.js"), "text/javascript"],
+};
 
 /**
  * Local web UI: inbox and settings. It can rewrite the config (which decides what commands run),
@@ -35,9 +46,20 @@ export function startWebUi(app: App, port: number): void {
         return send(200, "text/html", page({ title: "Налаштування", active: "settings", token, body, script: "/ui/settings.js" }));
       }
       if (req.method === "GET" && url.pathname.startsWith("/ui/")) {
-        const name = url.pathname.slice(4);
-        if (!STATIC[name]) return send(404, "text/plain", "Not found");
-        return send(200, STATIC[name], await readFile(path.join(UI_DIR, name), "utf8"));
+        const file = STATIC[url.pathname.slice(4)];
+        if (!file) return send(404, "text/plain", "Not found");
+        return send(200, file[1], await readFile(file[0], "utf8"));
+      }
+      const sessionPage = url.pathname.match(/^\/session\/([\w.-]+)$/);
+      if (req.method === "GET" && sessionPage) return send(200, "text/html", renderSession(sessionPage[1], token));
+
+      // Claude Code hooks of a terminal session; each session has its own token.
+      const hook = url.pathname.match(/^\/hook\/([\w.-]+)$/);
+      if (req.method === "POST" && hook) {
+        const session = sessions.get(hook[1]);
+        if (!session || url.searchParams.get("token") !== session.hookToken) return json(403, { error: "unknown session" });
+        session.onHook(JSON.parse((await readBody(req)) || "{}"));
+        return json(200, {});
       }
       if (req.method === "GET" && url.pathname === "/api/tasks") {
         return json(200, app.orchestrator?.state.all() ?? []);
@@ -70,6 +92,43 @@ export function startWebUi(app: App, port: number): void {
       json(400, { error: err.message });
     }
   });
+  // Live terminals: output streams to every open page; input and resize come back.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1_000_000 });
+  const allowedOrigins = new Set([...allowedHosts].map((h) => `http://${h}`));
+  server.on("upgrade", (req, socket, head) => {
+    const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+    const id = url.pathname.match(/^\/ws\/session\/([\w.-]+)$/)?.[1];
+    const session = id ? sessions.get(id) : undefined;
+    const trusted =
+      allowedHosts.has(req.headers.host ?? "") &&
+      allowedOrigins.has(req.headers.origin ?? "") &&
+      url.searchParams.get("token") === token;
+    if (!trusted || !session) {
+      socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      const send = (e: SessionEvent | { t: "init"; d: string; status: string; message?: string; title: string; exited: boolean }) => {
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(e));
+      };
+      send({ t: "init", d: session.output, status: session.status, message: session.message, title: session.task.title, exited: session.status === "exited" });
+      const off = session.subscribe(send);
+      ws.on("message", (raw) => {
+        let msg: any;
+        try {
+          msg = JSON.parse(String(raw));
+        } catch {
+          return;
+        }
+        if (msg.t === "i" && typeof msg.d === "string") session.input(msg.d);
+        if (msg.t === "r") session.resize(Number(msg.cols), Number(msg.rows));
+        if (msg.t === "finish") session.finish();
+        if (msg.t === "cancel") session.cancel();
+      });
+      ws.on("close", off);
+    });
+  });
+
   server.listen(port, "127.0.0.1", () => log("ui", `http://127.0.0.1:${port}`));
   server.on("error", (err) => log("ui", `cannot start on port ${port}: ${err.message}`));
 }
@@ -84,4 +143,22 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
+}
+
+function renderSession(id: string, token: string): string {
+  const session = sessions.get(id);
+  if (!session) {
+    const body = `<h1>Сесія</h1><div class="notice">Сесія <code>${esc(id)}</code> не активна. <a href="/">До вхідних →</a></div>`;
+    return page({ title: "Сесія", active: "inbox", token, body });
+  }
+  const body = `<div class="session-head">
+      <div><a href="${esc(session.task.url)}" target="_blank" rel="noreferrer"><strong>${esc(session.task.id)}</strong></a>
+        <span class="muted">${esc(session.task.title)}</span></div>
+      <div class="session-actions"><span id="status" class="s"></span>
+        <button id="finish" class="primary" title="Закрити агента, закомітити, запушити і відкрити PR">Завершити</button>
+        <button id="cancel" class="danger" title="Зупинити без PR">Скасувати</button></div>
+    </div>
+    <div id="status-msg" class="muted"></div>
+    <div id="term"></div>`;
+  return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script>', data: { session: id } });
 }

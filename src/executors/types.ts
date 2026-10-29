@@ -11,6 +11,8 @@ export interface ExecContext {
   /** Prompt also saved to a file, for tools that read it from disk. */
   promptFile: string;
   timeoutMin: number;
+  /** Local web UI, when it is enabled: terminal sessions are shown there. */
+  ui?: { port: number };
 }
 
 /**

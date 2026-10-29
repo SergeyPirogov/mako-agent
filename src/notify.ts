@@ -20,13 +20,27 @@ export function askToTake(task: Task, tracker: Tracker, route: string | undefine
     : askNodeNotifier(title, message, cfg.timeoutSec);
 }
 
-/** Fire-and-forget notification without buttons. */
-export function inform(title: string, message: string): void {
+/** Fire-and-forget notification; with `url`, clicking it (or "Відкрити" on Linux) opens that page. */
+export function inform(title: string, message: string, url?: string): void {
   if (process.platform === "linux") {
-    spawn("notify-send", ["--app-name", APP, title, message], { stdio: "ignore" }).on("error", () => {});
+    const args = ["--app-name", APP, title, message];
+    if (!url) return void spawn("notify-send", args, { stdio: "ignore" }).on("error", () => {});
+    const child = spawn("notify-send", ["--wait", "--action", "open=Відкрити", ...args], { stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.on("error", () => {});
+    child.on("close", () => out.trim() === "open" && openUrl(url));
   } else {
-    notifier.notify({ title, message, sound: true });
+    notifier.notify({ title, message, sound: true, ...(url ? { open: url, wait: true } : {}) } as any, (_err: unknown, response: string) => {
+      if (url && process.platform === "win32" && /activate|click/i.test(response ?? "")) openUrl(url);
+    });
   }
+}
+
+export function openUrl(url: string): void {
+  const [cmd, args] =
+    process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
 }
 
 /** libnotify >= 0.7.9: `--action` buttons, and `--wait` prints the clicked action's key. */

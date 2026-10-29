@@ -1,0 +1,112 @@
+import { randomBytes } from "node:crypto";
+import { createWriteStream, writeFileSync } from "node:fs";
+import path from "node:path";
+import { spawn as spawnPty } from "node-pty";
+import * as git from "../git.js";
+import { Session, sessions, sessionIdFor, plainTail } from "../sessions.js";
+import { inform } from "../notify.js";
+import { log } from "../log.js";
+import { expandArgs } from "./command.js";
+import { onShutdown } from "./processes.js";
+import type { ExecContext, ExecOutcome, Executor } from "./types.js";
+
+export interface TerminalExecutorConfig {
+  type: "terminal";
+  label?: string;
+  /** Interactive agent CLI; on Windows npm shims need the .cmd suffix (claude.cmd). */
+  command?: string;
+  /** Placeholders as in `command`; default: ["{prompt}"]. */
+  args?: string[];
+  /** Report working / waiting / done through Claude Code hooks. Defaults to true when the command is claude. */
+  claudeHooks?: boolean;
+  /** Finish by itself when the agent ends its turn and nobody typed into the terminal. */
+  autoFinish?: boolean;
+}
+
+/**
+ * Runs an interactive agent (Claude Code by default) in a pseudo-terminal that the Mako web UI shows live.
+ * The developer can watch, answer, approve or redirect at any moment; "Завершити" ends the session and
+ * Mako then commits, pushes and opens the PR as with the headless executor.
+ */
+export class TerminalExecutor implements Executor {
+  readonly label: string;
+  readonly interactive = true;
+  readonly managed = true;
+  private isClaude: boolean;
+
+  constructor(readonly name: string, private cfg: TerminalExecutorConfig) {
+    const command = cfg.command ?? "claude";
+    this.isClaude = /^claude(\.cmd|\.exe)?$/i.test(path.basename(command));
+    this.label = cfg.label ?? (this.isClaude ? "Claude Code" : command);
+  }
+
+  async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
+    if (!ctx.ui) throw new Error("The terminal executor shows sessions in the web UI: set notifications.inboxPort");
+    const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug);
+    const id = sessionIdFor(ctx.task);
+    const hookToken = randomBytes(16).toString("hex");
+    const sessionUrl = `http://127.0.0.1:${ctx.ui.port}/session/${id}`;
+
+    const args = expandArgs(this.cfg.args ?? ["{prompt}"], ctx, worktree, prompt);
+    if (this.cfg.claudeHooks ?? this.isClaude) {
+      const settingsFile = ctx.promptFile.replace(/\.prompt\.md$/, ".claude-settings.json");
+      writeFileSync(settingsFile, JSON.stringify(claudeHookSettings(`http://127.0.0.1:${ctx.ui.port}/hook/${id}?token=${hookToken}`)), { mode: 0o600 });
+      args.unshift("--settings", settingsFile);
+    }
+
+    const pty = spawnPty(this.cfg.command ?? "claude", args, {
+      name: "xterm-256color",
+      cols: 120,
+      rows: 34,
+      cwd: worktree,
+      env: { ...process.env, MAKO_TASK: ctx.task.id, FORCE_COLOR: "1" } as Record<string, string>,
+    });
+    const session = new Session(
+      id,
+      { id: ctx.task.id, title: ctx.task.title, url: ctx.task.url },
+      this.label,
+      hookToken,
+      pty,
+      this.isClaude ? "/exit" : undefined,
+    );
+    sessions.get(id)?.kill();
+    sessions.set(id, session);
+    const off = onShutdown(() => session.kill());
+    const logFile = createWriteStream(ctx.logPath.replace(/\.jsonl$/, ".terminal.log"), { flags: "a" });
+    log(ctx.task.id, `terminal session: ${sessionUrl}`);
+    inform(`🦈 ${ctx.task.id}: агент почав`, `${this.label} працює в терміналі Mako`, sessionUrl);
+
+    return new Promise((resolve) => {
+      session.subscribe((e) => {
+        if (e.t === "o") logFile.write(e.d);
+        if (e.t === "s" && (e.status === "waiting" || e.status === "idle")) {
+          if (e.status === "idle" && this.cfg.autoFinish && !session.userTouched) return session.finish();
+          inform(`🦈 ${ctx.task.id}: ${e.status === "waiting" ? "агент чекає на вас" : "агент закінчив хід"}`, e.message ?? "", sessionUrl);
+        }
+        if (e.t === "x") {
+          off();
+          logFile.end();
+          const cancelled = session.ending === "cancel";
+          const ok = !cancelled && (session.ending === "finish" || e.code === 0);
+          const summary = cancelled
+            ? "Session cancelled by the developer."
+            : session.lastAssistantMessage ?? (plainTail(session.output) || `Session ended with code ${e.code}`);
+          resolve({ kind: "completed", ok, summary, worktree });
+        }
+      });
+    });
+  }
+}
+
+/** Hooks that report Claude's state to Mako; merged by Claude Code with the user's own settings. */
+function claudeHookSettings(url: string) {
+  const post = { type: "command", command: `curl -s -m 3 -X POST -H "Content-Type: application/json" --data-binary @- "${url}"` };
+  return {
+    hooks: {
+      UserPromptSubmit: [{ hooks: [post] }],
+      PreToolUse: [{ matcher: "*", hooks: [post] }],
+      Notification: [{ hooks: [post] }],
+      Stop: [{ hooks: [post] }],
+    },
+  };
+}
