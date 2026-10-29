@@ -33,6 +33,15 @@ export class Orchestrator {
     return this.executors.get(repo.executor ?? this.cfg.defaultExecutor)!;
   }
 
+  /** Applies a new config from the settings page. Running agents keep the settings they started with. */
+  reload(cfg: Config, trackers: Tracker[]): void {
+    this.cfg = cfg;
+    this.trackers = new Map(trackers.map((t) => [t.id, t]));
+    this.executors = new Map(Object.entries(cfg.executors).map(([name, c]) => [name, createExecutor(name, c)]));
+    this.lastHandoffCheck = 0;
+    this.schedule();
+  }
+
   async start(): Promise<void> {
     log("main", `Polling ${[...this.trackers.values()].map((t) => t.id).join(", ")} every ${this.cfg.pollIntervalSec}s`);
     this.schedule(); // tasks queued before a restart

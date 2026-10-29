@@ -24,12 +24,12 @@ export class GitHubTracker implements Tracker {
   private labels: LabelConfig;
   private headers: Record<string, string>;
 
-  constructor(private cfg: GitHubTrackerConfig) {
+  constructor(private cfg: GitHubTrackerConfig, env: (name: string) => string) {
     this.id = cfg.id ?? "github";
     this.projects = cfg.projects;
     this.apiUrl = (cfg.apiUrl ?? "https://api.github.com").replace(/\/$/, "");
     this.labels = { ...defaultLabels, ...cfg.labels };
-    this.headers = { Authorization: `Bearer ${githubToken()}`, "X-GitHub-Api-Version": "2022-11-28" };
+    this.headers = { Authorization: `Bearer ${githubToken(env)}`, "X-GitHub-Api-Version": "2022-11-28" };
   }
 
   private request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -90,8 +90,12 @@ export class GitHubTracker implements Tracker {
 }
 
 /** GITHUB_TOKEN from env, otherwise the token the GitHub CLI is logged in with. */
-function githubToken(): string {
-  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
+function githubToken(env: (name: string) => string): string {
+  try {
+    return env("GITHUB_TOKEN");
+  } catch {
+    // fall back to the GitHub CLI login
+  }
   try {
     return execFileSync("gh", ["auth", "token"], { encoding: "utf8" }).trim();
   } catch {

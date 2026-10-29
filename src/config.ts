@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, renameSync } from "node:fs";
 import path from "node:path";
 import type { TrackerConfig } from "./trackers/index.js";
 import type { ExecutorConfig } from "./executors/index.js";
@@ -59,11 +59,26 @@ export function env(name: string): string {
 }
 
 export function loadConfig(configPath: string, dryRun: boolean): Config {
-  if (existsSync(".env")) process.loadEnvFile(".env");
-  if (!existsSync(configPath)) {
-    throw new Error(`Config not found: ${configPath}. Copy mako.config.example.json to mako.config.json`);
-  }
-  const raw = JSON.parse(readFileSync(configPath, "utf8"));
+  const raw = readRawConfig(configPath);
+  if (!raw) throw new Error(`Config not found: ${configPath}. Run \`mako\` and open the settings page, or copy mako.config.example.json`);
+  return parseConfig(raw, dryRun);
+}
+
+/** The config file as written by the user (or the settings page), or undefined when there is none yet. */
+export function readRawConfig(configPath: string): any | undefined {
+  if (!existsSync(configPath)) return undefined;
+  return JSON.parse(readFileSync(configPath, "utf8"));
+}
+
+export function writeRawConfig(configPath: string, raw: unknown): void {
+  const tmp = configPath + ".tmp";
+  writeFileSync(tmp, JSON.stringify(raw, null, 2) + "\n");
+  renameSync(tmp, configPath);
+}
+
+/** Validates a raw config and fills in defaults. Throws a readable error for the first problem found. */
+export function parseConfig(raw: any, dryRun = false): Config {
+  if (!raw || typeof raw !== "object") throw new Error("Config must be a JSON object");
 
   const trackers: TrackerConfig[] = (raw.trackers ?? []).map((t: any) => {
     const projects: Record<string, ProjectConfig> = {};

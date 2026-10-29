@@ -10,7 +10,7 @@ export function createTracker(cfg: TrackerConfig, env: (name: string) => string)
     case "jira":
       return new JiraTracker(cfg, env);
     case "github":
-      return new GitHubTracker(cfg);
+      return new GitHubTracker(cfg, env);
     case "gitlab":
       return new GitLabTracker(cfg, env);
     default:
