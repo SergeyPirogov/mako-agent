@@ -1,5 +1,5 @@
 import type { ProjectConfig } from "../config.js";
-import { requestJson } from "../http.js";
+import { requestJson, explainAccess } from "../http.js";
 import type { Outcome, Task, Tracker } from "../types.js";
 import { defaultLabels, labelChanges, type LabelConfig } from "./labels.js";
 
@@ -32,7 +32,17 @@ export class GitLabTracker implements Tracker {
   }
 
   private request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return requestJson<T>(method, `${this.apiUrl}${path}`, this.headers, body);
+    return requestJson<T>(method, `${this.apiUrl}${path}`, this.headers, body).catch((err) =>
+      explainAccess(err, (status, text) => {
+        const tokens = `${this.apiUrl.replace(/\/api\/v4$/, "")}/-/user_settings/personal_access_tokens`;
+        if (status === 401) return `GitLab не прийняв токен (401): він недійсний або прострочений. Створіть новий: ${tokens}`;
+        if (status === 403 && text.includes("insufficient_scope"))
+          return `Токену GitLab бракує прав: потрібен scope «api», бо Mako читає задачі й пише коментарі та мітки. Створіть токен зі scope api: ${tokens}`;
+        if (status === 403) return "GitLab заборонив доступ (403): власник токена має бути учасником проєкту з роллю Reporter або вище";
+        if (status === 404) return "GitLab не знайшов проєкт (404): перевірте шлях group/project і чи має токен доступ до нього";
+        return undefined;
+      }),
+    );
   }
 
   async fetchTasks(): Promise<Task[]> {

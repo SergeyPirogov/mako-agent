@@ -1,5 +1,5 @@
 import type { ProjectConfig } from "../config.js";
-import { requestJson } from "../http.js";
+import { requestJson, explainAccess } from "../http.js";
 import type { Outcome, Task, Tracker } from "../types.js";
 
 export interface JiraTrackerConfig {
@@ -29,7 +29,13 @@ export class JiraTracker implements Tracker {
   }
 
   private request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return requestJson<T>(method, `${this.baseUrl}${path}`, this.headers, body);
+    return requestJson<T>(method, `${this.baseUrl}${path}`, this.headers, body).catch((err) =>
+      explainAccess(err, (status) => {
+        if (status === 401) return "Jira не прийняла дані входу (401): перевірте JIRA_EMAIL і API-токен (id.atlassian.com → Security → API tokens)";
+        if (status === 403) return "Jira заборонила дію (403): у вашого акаунта немає потрібних прав у цьому проєкті";
+        return undefined;
+      }),
+    );
   }
 
   async fetchTasks(): Promise<Task[]> {

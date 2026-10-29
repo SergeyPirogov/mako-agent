@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import type { ProjectConfig } from "../config.js";
-import { requestJson } from "../http.js";
+import { requestJson, explainAccess } from "../http.js";
 import type { Outcome, Task, Tracker } from "../types.js";
 import { defaultLabels, labelChanges, type LabelConfig } from "./labels.js";
 
@@ -33,7 +33,14 @@ export class GitHubTracker implements Tracker {
   }
 
   private request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return requestJson<T>(method, `${this.apiUrl}${path}`, this.headers, body);
+    return requestJson<T>(method, `${this.apiUrl}${path}`, this.headers, body).catch((err) =>
+      explainAccess(err, (status) => {
+        if (status === 401) return "GitHub не прийняв токен (401): він недійсний або прострочений. Оновіть GITHUB_TOKEN або виконайте `gh auth login`";
+        if (status === 403 || status === 404)
+          return `GitHub не дає доступу до репозиторію (${status}): перевірте назву owner/repo і права токена. Fine-grained token: Issues → Read and write; classic: scope repo`;
+        return undefined;
+      }),
+    );
   }
 
   async fetchTasks(): Promise<Task[]> {

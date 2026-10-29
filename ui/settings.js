@@ -217,7 +217,32 @@
 
   // ---------- rendering ----------
 
+  /** Re-renders the page, keeping focus and the caret in the field the user is in. */
   function render() {
+    const active = document.activeElement;
+    const key = active && root.contains(active) ? fieldKey(active) : null;
+    const sel = key && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
+    renderNow();
+    if (!key) return;
+    const el = root.querySelector(key);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    if (sel) {
+      try {
+        el.setSelectionRange(sel[0], sel[1]);
+      } catch {
+        // inputs like number or checkbox have no caret
+      }
+    }
+  }
+
+  function fieldKey(el) {
+    if (el.dataset.secret) return `[data-secret="${CSS.escape(el.dataset.secret)}"]`;
+    if (el.dataset.path && el.type !== "radio") return `[data-path="${CSS.escape(el.dataset.path)}"]`;
+    return null;
+  }
+
+  function renderNow() {
     const banner = !meta.configured
       ? `<div class="notice">👋 Mako ще не налаштований. Додайте трекер, вкажіть репозиторій і натисніть «Зберегти», після цього Mako одразу почне працювати.</div>`
       : meta.problem
@@ -546,8 +571,26 @@
     else document.querySelector(".savebar")?.replaceWith(htmlToNode(saveBar()));
   });
 
+  // Names and paths update labels elsewhere on the page, so leaving such a field re-renders.
+  // That waits until the mouse button is released: re-rendering between mousedown and mouseup
+  // would replace the field or button being clicked, losing the click and the focus (and a pasted token).
+  let pointerDown = false;
+  let refreshPending = false;
+  const flushRefresh = () => {
+    if (!refreshPending || pointerDown) return;
+    refreshPending = false;
+    render();
+  };
+  document.addEventListener("pointerdown", () => (pointerDown = true), true);
+  document.addEventListener("pointerup", () => {
+    pointerDown = false;
+    setTimeout(flushRefresh, 0); // after the click handler has run
+  }, true);
+
   root.addEventListener("change", (e) => {
-    if (e.target.dataset.refresh !== undefined) render();
+    if (e.target.dataset.refresh === undefined) return;
+    refreshPending = true;
+    setTimeout(flushRefresh, 0);
   });
 
   root.addEventListener("click", async (e) => {
