@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import type { TrackerConfig } from "./trackers/index.js";
+import type { ExecutorConfig } from "./executors/index.js";
 
 export interface RepoConfig {
   /** Name used by `repo:<name>` labels and `default`. */
@@ -11,6 +12,8 @@ export interface RepoConfig {
   /** Where to open the pull/merge request; "auto" picks by the origin remote URL. */
   pullRequest: "auto" | "github" | "gitlab" | "none";
   extraInstructions?: string;
+  /** Name from `executors`; defaults to `defaultExecutor`. */
+  executor?: string;
   /** The task goes to this repo when it has any of these labels or (Jira) components. */
   match?: { labels?: string[]; components?: string[] };
 }
@@ -41,7 +44,9 @@ export interface Config {
   stateDir: string;
   notifications: NotificationConfig;
   trackers: TrackerConfig[];
-  claude: { command: string; args: string[] };
+  /** Named ways to run an agent; repos pick one with `executor`. */
+  executors: Record<string, ExecutorConfig>;
+  defaultExecutor: string;
   dryRun: boolean;
 }
 
@@ -74,6 +79,7 @@ export function loadConfig(configPath: string, dryRun: boolean): Config {
           pullRequest: r.pullRequest ?? "auto",
           extraInstructions: r.extraInstructions,
           match: r.match,
+          executor: r.executor,
         };
       }
       if (p.default && !repos[p.default]) throw new Error(`Project ${key}: default repo "${p.default}" is not in repos`);
@@ -83,6 +89,18 @@ export function loadConfig(configPath: string, dryRun: boolean): Config {
     return { ...t, projects };
   });
   if (!trackers.length) throw new Error("Config has no trackers");
+
+  // Older configs had a single `claude` block: that is the headless Claude executor.
+  const executors: Record<string, ExecutorConfig> = raw.executors ?? {
+    claude: { type: "claude-headless", command: raw.claude?.command, args: raw.claude?.args },
+  };
+  const defaultExecutor: string = raw.defaultExecutor ?? Object.keys(executors)[0];
+  if (!executors[defaultExecutor]) throw new Error(`defaultExecutor "${defaultExecutor}" is not in executors`);
+  for (const t of trackers)
+    for (const [key, p] of Object.entries(t.projects))
+      for (const r of Object.values(p.repos))
+        if (r.executor && !executors[r.executor])
+          throw new Error(`Project ${key}, repo ${r.name}: executor "${r.executor}" is not in executors`);
 
   const n = raw.notifications ?? {};
   return {
@@ -98,7 +116,8 @@ export function loadConfig(configPath: string, dryRun: boolean): Config {
       inboxPort: n.inboxPort === undefined ? 7777 : n.inboxPort,
     },
     trackers,
-    claude: { command: raw.claude?.command ?? "claude", args: raw.claude?.args ?? [] },
+    executors,
+    defaultExecutor,
     dryRun,
   };
 }

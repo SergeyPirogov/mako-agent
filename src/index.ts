@@ -5,7 +5,7 @@ import { createTracker } from "./trackers/index.js";
 import { StateStore } from "./state.js";
 import { Orchestrator } from "./orchestrator.js";
 import { startInbox } from "./inbox.js";
-import { killAllAgents } from "./agent.js";
+import { killAllAgents } from "./executors/index.js";
 import { log } from "./log.js";
 
 const { values } = parseArgs({

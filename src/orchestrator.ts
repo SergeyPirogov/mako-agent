@@ -1,7 +1,10 @@
 import type { Config } from "./config.js";
 import type { Task, Tracker } from "./types.js";
 import { StateStore, type TaskRecord } from "./state.js";
-import { buildPrompt, runAgent } from "./agent.js";
+import { buildPrompt } from "./prompt.js";
+import { createExecutor, type Executor } from "./executors/index.js";
+import type { RepoConfig } from "./config.js";
+import { writeFileSync } from "node:fs";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { routeTask } from "./routing.js";
@@ -9,6 +12,7 @@ import { log } from "./log.js";
 
 export class Orchestrator {
   private trackers: Map<string, Tracker>;
+  private executors: Map<string, Executor>;
   private active = new Map<string, Promise<void>>();
   /** Unroutable tasks already reported, so the log is not repeated on every poll. */
   private unroutable = new Map<string, string>();
@@ -20,6 +24,11 @@ export class Orchestrator {
     readonly state: StateStore,
   ) {
     this.trackers = new Map(trackers.map((t) => [t.id, t]));
+    this.executors = new Map(Object.entries(cfg.executors).map(([name, c]) => [name, createExecutor(name, c)]));
+  }
+
+  private executorFor(repo: RepoConfig): Executor {
+    return this.executors.get(repo.executor ?? this.cfg.defaultExecutor)!;
   }
 
   async start(): Promise<void> {
@@ -59,7 +68,8 @@ export class Orchestrator {
         }
         this.unroutable.delete(task.id);
         if (this.cfg.dryRun) {
-          log(task.id, `[dry-run] → ${route.repo.name} (${route.repo.repoPath}) by ${route.reason}; prompt:\n${buildPrompt(task, tracker, route.repo)}\n`);
+          const ex = this.executorFor(route.repo);
+          log(task.id, `[dry-run] → ${route.repo.name} (${route.repo.repoPath}) by ${route.reason}, executor ${ex.name}; prompt:\n${buildPrompt(task, tracker, route.repo, ex.interactive)}\n`);
           continue;
         }
         this.onTaskSeen(task, tracker, route.repo.name);
@@ -94,7 +104,13 @@ export class Orchestrator {
       return; // notifications off: tasks wait in the inbox page
     }
     this.state.update(rec.id, { status: "asking" });
-    askToTake(rec.task, tracker, rec.repo, n).then((d) => this.decide(rec.id, d));
+    askToTake(rec.task, tracker, this.routeLabel(rec), n).then((d) => this.decide(rec.id, d));
+  }
+
+  private routeLabel(rec: TaskRecord): string | undefined {
+    const tracker = this.trackers.get(rec.task.trackerId);
+    const repo = rec.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
+    return repo ? `${repo.name} · ${this.executorFor(repo).label}` : rec.repo;
   }
 
   /** Applies an answer from a notification or the inbox page. The first answer wins. */
@@ -138,18 +154,38 @@ export class Orchestrator {
       this.state.update(task.id, { status: "failed", error: `no configured repository for ${task.id}` });
       return;
     }
+    const executor = this.executorFor(repo);
     const branch = git.branchFor(task.slug);
-    this.state.update(task.id, { status: "running", startedAt: new Date().toISOString() });
+    const prompt = buildPrompt(task, tracker, repo, executor.interactive);
+    const promptFile = this.state.logPath(task).replace(/\.jsonl$/, ".prompt.md");
+    writeFileSync(promptFile, prompt);
+    this.state.update(task.id, {
+      status: "running",
+      startedAt: new Date().toISOString(),
+      repo: repo.name,
+      executor: executor.name,
+    });
 
     try {
       await tracker.onStart(task);
-      const worktree = await git.prepareWorktree(repo, task.slug);
-      this.state.update(task.id, { worktree, repo: repo.name });
-      await tracker.comment(task, `🦈 Mako: Claude started working on this issue (branch ${branch}).`);
-      log(task.id, `agent running in ${worktree} (repo ${repo.name})`);
+      log(task.id, `starting ${executor.name} (${executor.label}) for repo ${repo.name}`);
+      const result = await executor.run(
+        { task, tracker, repo, branch, logPath: this.state.logPath(task), promptFile, timeoutMin: this.cfg.taskTimeoutMin },
+        prompt,
+      );
 
-      const result = await runAgent(this.cfg, buildPrompt(task, tracker, repo), worktree, this.state.logPath(task));
-      log(task.id, `agent finished: ok=${result.ok}, cost=$${result.costUsd?.toFixed(2) ?? "?"}`);
+      if (result.kind === "handed-off") {
+        const where = result.details ?? executor.label;
+        await tracker.comment(task, `🦈 Mako handed this issue to ${executor.label} (${where}).`);
+        this.state.update(task.id, { status: "handed-off", finishedAt: new Date().toISOString(), worktree: result.worktree });
+        log(task.id, `handed off to ${executor.label}${result.worktree ? ` at ${result.worktree}` : ""}`);
+        inform(`🦈 ${task.id} відкрито в ${executor.label}`, task.title);
+        return;
+      }
+
+      const { worktree } = result;
+      this.state.update(task.id, { worktree });
+      log(task.id, `agent finished: ok=${result.ok}${result.costUsd !== undefined ? `, cost=$${result.costUsd.toFixed(2)}` : ""}`);
       if (!result.ok) throw new Error(result.summary);
 
       if (await git.hasUncommittedChanges(worktree)) await git.commitAll(worktree, `${task.id}: ${task.title}`);
@@ -159,7 +195,7 @@ export class Orchestrator {
       if (changed) {
         prUrl = await git.publish(repo, worktree, branch, {
           title: `${task.id}: ${task.title}`,
-          body: `${task.closingRef ?? task.url}\n\n${result.summary}\n\n🦈 Generated by Mako with Claude Code`,
+          body: `${task.closingRef ?? task.url}\n\n${result.summary}\n\n🦈 Generated by Mako with ${executor.label}`,
           shortBody: task.closingRef ?? task.url,
         });
       }
@@ -169,7 +205,7 @@ export class Orchestrator {
         : changed
           ? `Changes pushed to branch ${branch}.`
           : `No code changes were committed.`;
-      await tracker.comment(task, `🦈 Mako: Claude finished.\n\n${outcome}\n\n${result.summary}`);
+      await tracker.comment(task, `🦈 Mako: ${executor.label} finished.\n\n${outcome}\n\n${result.summary}`);
       await tracker.onFinish(task, changed ? "success" : "no-changes");
       this.state.update(task.id, {
         status: "done",
@@ -188,7 +224,7 @@ export class Orchestrator {
       }
       log(task.id, `failed: ${err.message}`);
       this.state.update(task.id, { status: "failed", finishedAt: new Date().toISOString(), error: err.message });
-      await tracker.comment(task, `🦈 Mako: Claude failed:\n\n${String(err.message).slice(0, 3000)}`).catch(() => {});
+      await tracker.comment(task, `🦈 Mako: ${executor.label} failed:\n\n${String(err.message).slice(0, 3000)}`).catch(() => {});
       await tracker.onFinish(task, "failed").catch(() => {});
       inform(`❌ ${task.id} не вдалося`, String(err.message).slice(0, 200));
     }
@@ -197,7 +233,7 @@ export class Orchestrator {
   /** Lets a failed or finished task be offered again (inbox "Повторити"). */
   retry(id: string): boolean {
     const rec = this.state.get(id);
-    if (!rec || !["failed", "done"].includes(rec.status)) return false;
+    if (!rec || !["failed", "done", "handed-off"].includes(rec.status)) return false;
     this.state.update(id, { status: "queued", queuedAt: Date.now(), error: undefined });
     this.schedule();
     return true;

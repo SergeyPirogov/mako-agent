@@ -6,8 +6,9 @@ import type { Task } from "./types.js";
  * asking   – notification is on screen, waiting for "Взяти" / "Відкласти"
  * snoozed  – postponed until `snoozedUntil`, then asked again
  * queued   – taken, waiting for a free agent slot
+ * handed-off – passed to an interactive tool (Orca, a terminal); the developer finishes it there
  */
-export type TaskStatus = "asking" | "snoozed" | "queued" | "running" | "done" | "failed";
+export type TaskStatus = "asking" | "snoozed" | "queued" | "running" | "handed-off" | "done" | "failed";
 
 export interface TaskRecord {
   id: string;
@@ -15,6 +16,8 @@ export interface TaskRecord {
   task: Task;
   /** Name of the local repo the task was routed to. */
   repo?: string;
+  /** Name of the executor that ran the task. */
+  executor?: string;
   updatedAt: string;
   snoozedUntil?: number;
   queuedAt?: number;

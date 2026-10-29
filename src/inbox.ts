@@ -8,6 +8,7 @@ const LABELS: Record<TaskStatus, string> = {
   snoozed: "Відкладена",
   queued: "У черзі",
   running: "Виконується",
+  "handed-off": "Передано",
   done: "Готово",
   failed: "Помилка",
 };
@@ -35,7 +36,7 @@ export function startInbox(orchestrator: Orchestrator, port: number): void {
   server.on("error", (err) => log("inbox", `cannot start: ${err.message}`));
 }
 
-const order: TaskStatus[] = ["asking", "snoozed", "queued", "running", "failed", "done"];
+const order: TaskStatus[] = ["asking", "snoozed", "queued", "running", "failed", "handed-off", "done"];
 
 function render(records: TaskRecord[]): string {
   const rows = records
@@ -57,7 +58,7 @@ function render(records: TaskRecord[]): string {
             ? `до ${new Date(r.snoozedUntil).toLocaleTimeString()}`
             : "";
       return `<tr><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
-        <td><a href="${esc(r.task.url)}">${esc(r.id)}</a>${r.repo ? ` → ${esc(r.repo)}` : ""}<div>${esc(r.task.title)}</div></td>
+        <td><a href="${esc(r.task.url)}">${esc(r.id)}</a>${r.repo ? ` → ${esc(r.repo)}` : ""}${r.executor ? ` · ${esc(r.executor)}` : ""}<div>${esc(r.task.title)}</div></td>
         <td>${extra}</td><td class="act">${actions}</td></tr>`;
     })
     .join("");
@@ -69,7 +70,7 @@ body{margin:0;padding:24px 16px;font:15px/1.4 system-ui,sans-serif;background:va
 main{max-width:900px;margin:auto}h1{font-size:20px}table{width:100%;border-collapse:collapse}
 td{padding:10px 8px;border-top:1px solid var(--line);vertical-align:top}td div{color:var(--mute)}
 a{color:inherit}.act{white-space:nowrap}form{display:inline}button{margin-left:6px;padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:none;color:inherit;cursor:pointer}
-.s{font-size:12px;padding:2px 8px;border-radius:10px;background:var(--line)}.asking{background:#2f6fed;color:#fff}.running{background:#d98a00;color:#fff}.done{background:#2e8b57;color:#fff}.failed,.err{color:#d33}.failed{background:none;border:1px solid #d33}
+.s{font-size:12px;padding:2px 8px;border-radius:10px;background:var(--line)}.asking{background:#2f6fed;color:#fff}.handed-off{background:#7a5af8;color:#fff}.running{background:#d98a00;color:#fff}.done{background:#2e8b57;color:#fff}.failed,.err{color:#d33}.failed{background:none;border:1px solid #d33}
 </style></head><body><main><h1>Задачі для агента</h1>
 ${rows ? `<table>${rows}</table>` : "<p>Поки немає задач.</p>"}</main></body></html>`;
 }

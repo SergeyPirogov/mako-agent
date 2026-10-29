@@ -10,6 +10,52 @@
     "timeoutSec": 600,
     "inboxPort": 7777
   },
+  "executors": {
+    "claude": {
+      "type": "claude-headless",
+      "command": "claude",
+      "args": [
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Read Edit Write Glob Grep",
+        "--max-turns",
+        "80"
+      ]
+    },
+    "orca": {
+      "type": "orca",
+      "agent": "claude",
+      "setup": "inherit"
+    },
+    "codex": {
+      "type": "command",
+      "label": "Codex",
+      "mode": "managed",
+      "command": "codex",
+      "args": [
+        "exec",
+        "--full-auto",
+        "{prompt}"
+      ]
+    },
+    "tmux": {
+      "type": "command",
+      "label": "tmux",
+      "mode": "handoff",
+      "command": "tmux",
+      "args": [
+        "new-window",
+        "-n",
+        "{slug}",
+        "-c",
+        "{worktree}",
+        "claude",
+        "{prompt}"
+      ]
+    }
+  },
+  "defaultExecutor": "claude",
   "trackers": [
     {
       "type": "jira",
@@ -44,7 +90,8 @@
                 "labels": [
                   "ui"
                 ]
-              }
+              },
+              "executor": "orca"
             }
           }
         }
@@ -78,16 +125,5 @@
         }
       }
     }
-  ],
-  "claude": {
-    "command": "claude",
-    "args": [
-      "--permission-mode",
-      "acceptEdits",
-      "--allowedTools",
-      "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Read Edit Write Glob Grep",
-      "--max-turns",
-      "80"
-    ]
-  }
+  ]
 }
