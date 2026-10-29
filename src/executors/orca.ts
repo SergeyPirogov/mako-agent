@@ -1,4 +1,7 @@
+import os from "node:os";
+import path from "node:path";
 import { run } from "../shell.js";
+import { findCommand } from "./find-command.js";
 import type { ExecContext, ExecOutcome, Executor } from "./types.js";
 
 export interface OrcaExecutorConfig {
@@ -42,11 +45,11 @@ export class OrcaExecutor implements Executor {
       "--json",
       ...(this.cfg.extraArgs ?? []),
     ];
-    const command = this.cfg.command ?? "orca";
+    const command = resolveOrca(this.cfg.command);
     const withLink = this.cfg.linkIssue === false ? base : [...base, "--reference", ctx.task.url];
 
     let r = await run(command, withLink, ctx.repo.repoPath).catch((err) => {
-      throw new Error(`Cannot run ${command}: ${err.message}. Is the Orca CLI installed and on PATH?`);
+      throw new Error(`Не вдалося запустити ${command}: ${err.message}`);
     });
     if (r.code !== 0 && withLink !== base) {
       // Older Orca hosts may not know this issue source; the workspace matters more than the link.
@@ -72,4 +75,29 @@ export class OrcaExecutor implements Executor {
       details: `Orca workspace ${ctx.task.slug}, agent ${this.cfg.agent ?? "claude"}`,
     };
   }
+}
+
+/**
+ * The Orca CLI ships inside the app and reaches PATH only after Orca → Settings → General → Orca CLI;
+ * look inside the app too. On Linux the command is orca-ide (GNOME's screen reader owns `orca`).
+ */
+function resolveOrca(configured: string | undefined): string {
+  if (configured) {
+    const found = findCommand(configured);
+    if (found) return found;
+    throw new Error(`Orca CLI не знайдено за шляхом «${configured}». Перевірте «Команда» у виконавця Orca в Налаштуваннях.`);
+  }
+  if (process.platform === "win32") return "orca";
+  const home = os.homedir();
+  const inApp = (app: string) => path.join(app, "Orca.app/Contents/Resources/bin/orca");
+  const found =
+    process.platform === "linux"
+      ? findCommand("orca-ide")
+      : findCommand("orca", [inApp("/Applications"), inApp(path.join(home, "Applications"))]);
+  if (found) return found;
+  throw new Error(
+    "Orca CLI не знайдено. Встановіть Orca (onorca.dev) і зареєструйте CLI: Orca → Settings → General → Orca CLI. " +
+      "Або вкажіть повний шлях у Налаштуваннях Mako → «Хто виконує задачі» → Orca → «Команда». " +
+      "Якщо Orca вам не потрібна, виберіть для репозиторію інший виконавець, наприклад «Термінал у Mako».",
+  );
 }

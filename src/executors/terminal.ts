@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { accessSync, chmodSync, constants, createWriteStream, existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, createWriteStream, existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { inform } from "../notify.js";
 import { log } from "../log.js";
 import { expandArgs } from "./command.js";
 import { onShutdown } from "./processes.js";
+import { findCommand } from "./find-command.js";
 import type { ExecContext, ExecOutcome, Executor } from "./types.js";
 
 export interface TerminalExecutorConfig {
@@ -153,43 +154,13 @@ function ensureSpawnHelper(): void {
   }
 }
 
-/**
- * Finds the agent binary: as given if it is a path, otherwise in PATH and the usual install folders
- * (apps started from Finder see a minimal PATH). A missing binary otherwise also shows up as "posix_spawnp failed".
- */
+/** The agent binary as an absolute path, or a message saying where to set it. */
 function resolveCommand(command: string): string {
   if (process.platform === "win32") return command;
-  const home = os.homedir();
-  const expanded = command.startsWith("~/") ? path.join(home, command.slice(2)) : command;
-  if (expanded.includes("/")) {
-    if (isExecutable(expanded)) return expanded;
-    throw new Error(`Команда агента не знайдена або не виконувана: ${expanded}`);
-  }
-  const dirs = [
-    ...(process.env.PATH ?? "").split(path.delimiter),
-    path.join(home, ".local/bin"),
-    path.join(home, ".claude/local"),
-    path.join(home, ".npm-global/bin"),
-    path.join(home, ".bun/bin"),
-    path.join(home, ".volta/bin"),
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-  ].filter(Boolean);
-  for (const dir of dirs) {
-    const candidate = path.join(dir, expanded);
-    if (isExecutable(candidate)) return candidate;
-  }
+  const found = findCommand(command);
+  if (found) return found;
   throw new Error(
     `Не знайдено команду «${command}». Перевірте в терміналі: which ${command}, і вкажіть повний шлях ` +
-      `у Налаштуваннях → «Хто виконує задачі» → «Команда агента» (наприклад ${path.join(home, ".local/bin", command)}).`,
+      `у Налаштуваннях → «Хто виконує задачі» → «Команда агента» (наприклад ${path.join(os.homedir(), ".local/bin", command)}).`,
   );
-}
-
-function isExecutable(file: string): boolean {
-  try {
-    accessSync(file, constants.X_OK);
-    return statSync(file).isFile();
-  } catch {
-    return false;
-  }
 }
