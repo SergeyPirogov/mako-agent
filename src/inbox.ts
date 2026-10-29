@@ -30,7 +30,13 @@ export function renderInbox(app: App, token: string): string {
     .map((r) => row(r, token))
     .join("");
   const problem = app.problem ? `<div class="notice err">${esc(app.problem)}. <a href="/settings">Налаштування →</a></div>` : "";
-  const body = `<h1>Задачі для агента</h1>${problem}
+  const limit = app.cfg?.wipLimit ?? 0;
+  const wip = app.orchestrator.wip();
+  const wipBar = limit
+    ? `<div class="wip${wip >= limit ? " full" : ""}"><span>В роботі: <b>${wip} / ${limit}</b></span>
+        <span class="muted">${wip >= limit ? "Ліміт досягнуто: Mako не бере нових задач, поки одна не завершиться" : `Вільних місць: ${limit - wip}`}</span></div>`
+    : "";
+  const body = `<h1>Задачі для агента</h1>${problem}${wipBar}
     ${rows ? `<table class="tasks">${rows}</table>` : `<p class="muted">Поки немає задач. Mako перевіряє трекери кожні ${app.cfg?.pollIntervalSec ?? 60} с.</p>`}`;
   return page({ title: "Вхідні", active: "inbox", token, body, refresh: 15 });
 }

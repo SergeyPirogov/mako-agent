@@ -29,6 +29,9 @@ h3 { font-size: 14px; margin: 0; color: var(--mute); font-weight: 600; text-tran
 .notice.warn { border-color: var(--warn); }
 
 /* inbox */
+.wip { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px;
+  background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--ok); border-radius: 10px; }
+.wip.full { border-left-color: var(--warn); }
 table.tasks { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 table.tasks td { padding: 12px 10px; border-top: 1px solid var(--line); vertical-align: top; }
 table.tasks tr:first-child td { border-top: 0; }

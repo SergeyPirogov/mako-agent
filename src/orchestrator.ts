@@ -19,6 +19,7 @@ export class Orchestrator {
   private unroutable = new Map<string, string>();
   private stopped = false;
   private lastHandoffCheck = 0;
+  private wipFull = false;
 
   constructor(
     private cfg: Config,
@@ -59,7 +60,31 @@ export class Orchestrator {
     await Promise.allSettled(this.active.values());
   }
 
+  /** Tasks taken and not finished: the Kanban "in progress" column that `wipLimit` caps. */
+  wip(): number {
+    return this.state.all().filter((r) => r.status === "queued" || r.status === "running" || r.status === "handed-off").length;
+  }
+
+  /** How many more tasks may be offered now; a task whose notification is on screen holds a slot. */
+  private freeSlots(): number {
+    const limit = this.cfg.wipLimit;
+    if (!limit) return Infinity;
+    const asking = this.state.all().filter((r) => r.status === "asking").length;
+    return limit - this.wip() - asking;
+  }
+
   async poll(): Promise<void> {
+    const limit = this.cfg.wipLimit;
+    if (limit && !this.cfg.dryRun && this.wip() >= limit) {
+      if (!this.wipFull) log("main", `WIP limit reached (${this.wip()}/${limit}): not polling trackers until a task is finished`);
+      this.wipFull = true;
+      this.schedule();
+      await this.maybeCheckHandoffs();
+      return;
+    }
+    if (this.wipFull) log("main", `WIP ${this.wip()}/${limit}: a slot is free, polling trackers again`);
+    this.wipFull = false;
+
     for (const tracker of this.trackers.values()) {
       let tasks: Task[];
       try {
@@ -94,6 +119,10 @@ export class Orchestrator {
       }
     }
     this.schedule();
+    await this.maybeCheckHandoffs();
+  }
+
+  private async maybeCheckHandoffs(): Promise<void> {
     const every = this.cfg.handoffCheckMin * 60_000;
     if (every > 0 && Date.now() - this.lastHandoffCheck >= every) {
       this.lastHandoffCheck = Date.now();
@@ -128,6 +157,10 @@ export class Orchestrator {
 
   private onTaskSeen(task: Task, tracker: Tracker, repo: string): void {
     const rec = this.state.get(task.id);
+    // Pull only as much work as the WIP limit allows; the rest stays in the tracker for later polls.
+    // With notifications off, every task waits in the inbox and the developer picks.
+    const offers = this.cfg.notifications.enabled || this.cfg.notifications.autoTake;
+    if (!rec && offers && this.freeSlots() <= 0) return;
     if (!rec) {
       log(task.id, `new task → ${repo}: ${task.title}`);
       this.state.update(task.id, { task, repo, status: "snoozed", snoozedUntil: 0 });
@@ -135,7 +168,8 @@ export class Orchestrator {
       this.state.update(task.id, { task, repo }); // keep the freshest description, comments and routing
     }
     const current = this.state.get(task.id)!;
-    if (current.status === "snoozed" && (current.snoozedUntil ?? 0) <= Date.now()) this.ask(current, tracker);
+    const due = current.status === "snoozed" && (current.snoozedUntil ?? 0) <= Date.now();
+    if (due && this.freeSlots() > 0) this.ask(current, tracker);
   }
 
   private ask(rec: TaskRecord, tracker: Tracker): void {

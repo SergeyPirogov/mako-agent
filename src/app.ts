@@ -130,7 +130,7 @@ function repoWarnings(cfg: Config): string[] {
 function starterConfig() {
   return {
     pollIntervalSec: 60,
-    maxConcurrent: 1,
+    wipLimit: 2,
     notifications: { enabled: true, autoTake: false, snoozeMin: 60 },
     executors: {
       terminal: { type: "terminal" },

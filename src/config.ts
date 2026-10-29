@@ -39,6 +39,8 @@ export interface NotificationConfig {
 
 export interface Config {
   pollIntervalSec: number;
+  /** Kanban WIP limit: at most this many tasks taken and unfinished; trackers are not polled while full. 0 = no limit. */
+  wipLimit: number;
   maxConcurrent: number;
   taskTimeoutMin: number;
   stateDir: string;
@@ -122,7 +124,8 @@ export function parseConfig(raw: any, dryRun = false): Config {
   const n = raw.notifications ?? {};
   return {
     pollIntervalSec: raw.pollIntervalSec ?? 60,
-    maxConcurrent: raw.maxConcurrent ?? 1,
+    wipLimit: raw.wipLimit ?? 0,
+    maxConcurrent: raw.maxConcurrent ?? (raw.wipLimit || 1),
     taskTimeoutMin: raw.taskTimeoutMin ?? 45,
     handoffCheckMin: raw.handoffCheckMin ?? 5,
     stateDir: path.resolve(raw.stateDir ?? ".mako"),
