@@ -1,0 +1,33 @@
+{
+  "pollIntervalSec": 60,
+  "maxConcurrent": 2,
+  "taskTimeoutMin": 45,
+  "stateDir": ".agent-state",
+
+  "jql": "labels = claude-agent AND statusCategory = \"To Do\" ORDER BY priority DESC, created ASC",
+
+  "transitions": {
+    "onStart": "In Progress",
+    "onSuccess": "In Review",
+    "onFailure": null
+  },
+
+  "projects": {
+    "PROJ": {
+      "repoPath": "/Users/me/code/my-repo",
+      "baseBranch": "main",
+      "worktreesDir": "/Users/me/code/.worktrees/my-repo",
+      "createPullRequest": true,
+      "extraInstructions": "Run `npm test` before committing."
+    }
+  },
+
+  "claude": {
+    "command": "claude",
+    "args": [
+      "--permission-mode", "acceptEdits",
+      "--allowedTools", "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Read Edit Write Glob Grep",
+      "--max-turns", "80"
+    ]
+  }
+}
