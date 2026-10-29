@@ -35,6 +35,8 @@ export interface NotificationConfig {
   timeoutSec: number;
   /** Port of the local inbox page; null disables it. */
   inboxPort: number | null;
+  /** Repeat the notification while an agent keeps waiting for you; 0 = notify once. */
+  remindMin: number;
 }
 
 export interface Config {
@@ -135,6 +137,7 @@ export function parseConfig(raw: any, dryRun = false): Config {
       snoozeMin: n.snoozeMin ?? 60,
       timeoutSec: n.timeoutSec ?? 600,
       inboxPort: n.inboxPort === undefined ? 7777 : n.inboxPort,
+      remindMin: n.remindMin ?? 5,
     },
     trackers,
     executors,

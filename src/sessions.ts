@@ -20,9 +20,13 @@ const MAX_BUFFER = 2_000_000;
 export class Session {
   status: SessionStatus = "starting";
   message?: string;
+  /** When the agent started waiting for the developer (waiting or idle); undefined while it works. */
+  attentionSince?: number;
   lastAssistantMessage?: string;
   /** Someone typed into the terminal, so the run is no longer hands-off. */
   userTouched = false;
+  /** The developer typed since the agent started waiting: no more reminders for this wait. */
+  acknowledged = false;
   ending?: "finish" | "cancel";
   exitCode: number | null = null;
   private buffer = "";
@@ -60,6 +64,7 @@ export class Session {
   input(data: string): void {
     if (this.status === "exited") return;
     this.userTouched = true;
+    if (this.attentionSince) this.acknowledged = true;
     this.pty.write(data);
   }
 
@@ -97,6 +102,10 @@ export class Session {
   setStatus(status: SessionStatus, message?: string): void {
     if (this.status === "exited") return;
     if (status === this.status && message === this.message) return;
+    const needsYou = status === "waiting" || status === "idle";
+    if (needsYou && !(this.status === "waiting" || this.status === "idle")) this.attentionSince = Date.now();
+    if (!needsYou) this.attentionSince = undefined;
+    if (status !== this.status) this.acknowledged = false;
     this.status = status;
     this.message = message;
     this.emit({ t: "s", status, message });
@@ -111,14 +120,14 @@ export class Session {
         this.setStatus("working");
         break;
       case "Notification":
-        this.setStatus("waiting", typeof event.message === "string" ? event.message : "Агент чекає на вас");
+        this.setStatus("waiting", humanize(typeof event.message === "string" ? event.message : ""));
         break;
       case "Stop":
         // Once the developer pressed "Завершити", the summary of the work is final.
         if (!this.ending) {
           this.lastAssistantMessage = event.last_assistant_message ?? lastAssistantText(event.transcript_path) ?? this.lastAssistantMessage;
         }
-        this.setStatus("idle", "Агент закінчив хід");
+        this.setStatus("idle", "Закінчив хід: перевірте результат і натисніть «Завершити» або дайте нові інструкції");
         break;
       default:
         return undefined;
@@ -132,6 +141,22 @@ export class Session {
 }
 
 export const sessions = new Map<string, Session>();
+
+/** Sessions where the agent waits for the developer, longest-waiting first. */
+export function attentionSessions(): Session[] {
+  return [...sessions.values()]
+    .filter((s) => s.status === "waiting" || s.status === "idle")
+    .sort((a, b) => (a.attentionSince ?? 0) - (b.attentionSince ?? 0));
+}
+
+/** Claude Code's notification texts in Ukrainian; unknown texts pass through. */
+export function humanize(message: string): string {
+  const permission = message.match(/needs your permission to use (.+)$/i);
+  if (permission) return `Просить дозволу: ${permission[1]}`;
+  if (/waiting for your input/i.test(message)) return "Чекає на вашу відповідь";
+  if (/needs your (approval|attention)/i.test(message)) return "Потрібне ваше рішення";
+  return message || "Чекає на вас";
+}
 
 export function sessionIdFor(task: { trackerId: string; slug: string }): string {
   return `${task.trackerId}-${task.slug}`.replace(/[^\w.-]/g, "_");

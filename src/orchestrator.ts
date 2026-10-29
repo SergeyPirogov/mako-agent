@@ -260,7 +260,9 @@ export class Orchestrator {
           logPath: this.state.logPath(task),
           promptFile,
           timeoutMin: this.cfg.taskTimeoutMin,
-          ui: this.cfg.notifications.inboxPort ? { port: this.cfg.notifications.inboxPort } : undefined,
+          ui: this.cfg.notifications.inboxPort
+            ? { port: this.cfg.notifications.inboxPort, remindMin: this.cfg.notifications.remindMin }
+            : undefined,
         },
         prompt,
       );

@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startMako, type Runtime } from "./runtime.js";
 import { setNotificationHost, type Decision } from "./notify.js";
-import { sessions, sessionIdFor, type SessionStatus } from "./sessions.js";
+import { sessions, sessionIdFor, attentionSessions, type SessionStatus } from "./sessions.js";
 import type { TaskRecord } from "./state.js";
 import { log } from "./log.js";
 
@@ -137,6 +137,7 @@ async function main(): Promise<void> {
         if (choice === 0) e.preventDefault();
       });
       w.once("ready-to-show", () => w.show());
+      w.on("focus", () => w.flashFrame(false));
       w.on("closed", () => {
         win = null;
         if (isMac) app.dock?.hide();
@@ -158,6 +159,7 @@ async function main(): Promise<void> {
   tray.setToolTip("Mako");
   if (!isMac) tray.on("click", () => openWindow("/"));
   let lastSignature = "";
+  let lastAttention = false;
 
   function refreshTray(): void {
     const view = trayView();
@@ -165,8 +167,11 @@ async function main(): Promise<void> {
     if (signature === lastSignature) return;
     lastSignature = signature;
     tray.setToolTip(`Mako · ${view.headline}`);
+    tray.setImage(view.attention ? icons.attention : icons.normal);
     if (isMac) tray.setTitle(view.title, { fontType: "monospacedDigit" });
-    else tray.setImage(view.attention ? icons.attention : icons.normal);
+    // A new reason for attention: make an open but unfocused window stand out (Dock bounce, taskbar flash).
+    if (view.attention && !lastAttention && win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true);
+    lastAttention = view.attention;
     tray.setContextMenu(Menu.buildFromTemplate(menuTemplate(view)));
   }
 
@@ -174,6 +179,7 @@ async function main(): Promise<void> {
     id: string;
     label: string;
     page: string;
+    attention: boolean;
   }
 
   function trayView() {
@@ -185,9 +191,10 @@ async function main(): Promise<void> {
     const records = o.state.all();
     const items: TrayItem[] = records
       .filter((r) => r.status === "queued" || r.status === "running" || r.status === "handed-off")
-      .map((r) => itemFor(r));
+      .map((r) => itemFor(r))
+      .sort((a, b) => Number(b.attention) - Number(a.attention));
     const newCount = records.filter((r) => r.status === "asking").length;
-    const waiting = [...sessions.values()].some((s) => s.status === "waiting" || s.status === "idle");
+    const waiting = attentionSessions().length > 0;
     const wip = o.wip();
     const count = cfg.wipLimit ? `${wip}/${cfg.wipLimit}` : wip ? String(wip) : "";
     const attention = waiting || newCount > 0;
@@ -209,10 +216,12 @@ async function main(): Promise<void> {
       ? SESSION_LABELS[session.status]
       : r.status === "queued" ? "у черзі" : r.status === "handed-off" ? "чекає PR" : "виконується";
     const title = r.task.title.length > 40 ? r.task.title.slice(0, 39) + "…" : r.task.title;
+    const attention = Boolean(session && r.status === "running" && (session.status === "waiting" || session.status === "idle"));
     return {
       id: r.id,
-      label: `${r.id}  ${title} — ${status}`,
+      label: `${attention ? "● " : ""}${r.id}  ${title} — ${status}${attention && session?.message ? `: ${session.message.slice(0, 50)}` : ""}`,
       page: session && r.status === "running" ? `/session/${session.id}` : "/",
+      attention,
     };
   }
 
@@ -299,7 +308,8 @@ async function main(): Promise<void> {
 
 function trayIcon(attention: boolean): Electron.NativeImage {
   if (isMac) {
-    // Template images are tinted by macOS for light and dark menu bars; attention shows as "●" in the title.
+    // Normally a template image (macOS tints it for light and dark menu bars); orange while an agent waits for you.
+    if (attention) return nativeImage.createFromPath(path.join(ASSETS, "trayAttention.png"));
     const img = nativeImage.createFromPath(path.join(ASSETS, "trayTemplate.png"));
     img.setTemplateImage(true);
     return img;

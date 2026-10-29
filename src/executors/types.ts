@@ -12,7 +12,7 @@ export interface ExecContext {
   promptFile: string;
   timeoutMin: number;
   /** Local web UI, when it is enabled: terminal sessions are shown there. */
-  ui?: { port: number };
+  ui?: { port: number; /** Repeat "waiting for you" notifications every N minutes; 0 = once. */ remindMin: number };
 }
 
 /**

@@ -42,7 +42,10 @@
     statusEl.className = `s ${status}`;
     statusEl.textContent = STATUS[status] || status;
     statusMsg.textContent = message || (status === "idle" ? "Перевірте результат: натисніть «Завершити» або дайте агенту ще інструкції." : "");
-    document.title = (status === "waiting" || status === "idle" ? "● " : "") + baseTitle;
+    const attention = status === "waiting" || status === "idle";
+    document.title = (attention ? "● " : "") + baseTitle;
+    const icon = document.querySelector('link[rel="icon"]');
+    if (icon) icon.href = attention ? "/ui/favicon-attention.png" : "/ui/favicon.png";
     if (status === "exited") end();
   }
 

@@ -444,6 +444,7 @@
           options: [["", "питати сповіщенням"], ["true", "брати без питань"]] })}
         ${field({ label: "Сповіщення на десктопі", path: "general.notifications.enabled", kind: "check", type: "booltrue" })}
         ${field({ label: "«Відкласти» на, хв", path: "general.notifications.snoozeMin", kind: "number", type: "number", placeholder: "60" })}
+        ${field({ label: "Нагадувати, що агент чекає, кожні, хв", path: "general.notifications.remindMin", kind: "number", type: "number", placeholder: "5", hint: "0: лише одне сповіщення" })}
         ${field({ label: "Ліміт задач у роботі (WIP)", path: "general.wipLimit", kind: "number", type: "number", placeholder: "без ліміту",
           hint: "Як у канбані: поки стільки задач взято й не завершено, Mako не опитує трекер. 0 або порожньо: без ліміту" })}
         ${field({ label: "Агентів одночасно", path: "general.maxConcurrent", kind: "number", type: "number",

@@ -81,13 +81,28 @@ export class TerminalExecutor implements Executor {
     inform(`🦈 ${ctx.task.id}: агент почав`, `${this.label} працює в терміналі Mako`, sessionUrl);
 
     return new Promise((resolve) => {
+      // Notify when the agent needs the developer, and keep reminding until they react.
+      let reminder: NodeJS.Timeout | undefined;
+      const notifyAttention = (repeat: boolean) => {
+        if (repeat && session.acknowledged) return; // the developer is already typing in this session
+        const what = session.status === "waiting" ? "агент чекає на вас" : "агент закінчив, перевірте";
+        const minutes = session.attentionSince ? Math.round((Date.now() - session.attentionSince) / 60_000) : 0;
+        inform(`${repeat ? "⏰" : "🦈"} ${ctx.task.id}: ${what}${repeat ? ` (${minutes} хв)` : ""}`, session.message ?? ctx.task.title, sessionUrl);
+      };
       session.subscribe((e) => {
         if (e.t === "o") logFile.write(e.d);
-        if (e.t === "s" && (e.status === "waiting" || e.status === "idle")) {
-          if (e.status === "idle" && this.cfg.autoFinish && !session.userTouched) return session.finish();
-          inform(`🦈 ${ctx.task.id}: ${e.status === "waiting" ? "агент чекає на вас" : "агент закінчив хід"}`, e.message ?? "", sessionUrl);
+        if (e.t === "s") {
+          clearInterval(reminder);
+          reminder = undefined;
+          if (e.status === "waiting" || e.status === "idle") {
+            if (e.status === "idle" && this.cfg.autoFinish && !session.userTouched) return session.finish();
+            notifyAttention(false);
+            const every = ctx.ui!.remindMin;
+            if (every > 0) reminder = setInterval(() => notifyAttention(true), every * 60_000);
+          }
         }
         if (e.t === "x") {
+          clearInterval(reminder);
           off();
           logFile.end();
           const cancelled = session.ending === "cancel";
@@ -109,6 +124,8 @@ function claudeHookSettings(url: string) {
     hooks: {
       UserPromptSubmit: [{ hooks: [post] }],
       PreToolUse: [{ matcher: "*", hooks: [post] }],
+      // After a permission is granted the tool runs: this moves the status back from "waiting" to "working".
+      PostToolUse: [{ matcher: "*", hooks: [post] }],
       Notification: [{ hooks: [post] }],
       Stop: [{ hooks: [post] }],
     },

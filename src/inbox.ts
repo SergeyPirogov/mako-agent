@@ -1,7 +1,7 @@
 import type { App } from "./app.js";
 import type { TaskRecord, TaskStatus } from "./state.js";
 import { esc, page } from "./ui-layout.js";
-import { sessions, sessionIdFor } from "./sessions.js";
+import { sessions, sessionIdFor, attentionSessions } from "./sessions.js";
 
 const LABELS: Record<TaskStatus, string> = {
   asking: "Нова",
@@ -16,6 +16,17 @@ const LABELS: Record<TaskStatus, string> = {
 const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "закінчив хід", exited: "завершено" };
 
 const order: TaskStatus[] = ["asking", "snoozed", "queued", "running", "failed", "handed-off", "done"];
+
+/** Changes whenever the inbox would look different; the page polls it to refresh itself. */
+export function inboxSignature(app: App): { sig: string; attention: number } {
+  const records = app.orchestrator?.state.all() ?? [];
+  const live = [...sessions.values()].map((s) => `${s.id}:${s.status}:${s.message ?? ""}`);
+  const asking = records.filter((r) => r.status === "asking").length;
+  return {
+    sig: JSON.stringify([app.problem, app.orchestrator?.paused, records.map((r) => `${r.id}:${r.status}:${r.updatedAt}`), live]),
+    attention: attentionSessions().length + asking,
+  };
+}
 
 /** Task list with the same Take / Postpone buttons as the notification, for ones that were missed. */
 export function renderInbox(app: App, token: string): string {
@@ -39,9 +50,37 @@ export function renderInbox(app: App, token: string): string {
   const paused = app.orchestrator.paused
     ? `<div class="notice warn">⏸ Mako на паузі: нові задачі не беруться, поточні продовжують виконуватись.</div>`
     : "";
-  const body = `<h1>Задачі для агента</h1>${problem}${paused}${wipBar}
+  const body = `<h1>Задачі для агента</h1>${problem}${paused}${attentionBlock()}${wipBar}
     ${rows ? `<table class="tasks">${rows}</table>` : `<p class="muted">Поки немає задач. Mako перевіряє трекери кожні ${app.cfg?.pollIntervalSec ?? 60} с.</p>`}`;
-  return page({ title: "Вхідні", active: "inbox", token, body, refresh: 15 });
+  const { sig, attention } = inboxSignature(app);
+  return page({
+    title: `${attention ? `(${attention}) ` : ""}Вхідні`,
+    active: "inbox",
+    token,
+    body,
+    script: "/ui/inbox.js",
+    data: { sig },
+    attention: attention > 0,
+  });
+}
+
+/** What agents want from the developer right now, longest-waiting first. */
+function attentionBlock(): string {
+  const waiting = attentionSessions();
+  if (!waiting.length) return "";
+  const items = waiting
+    .map((s) => {
+      const minutes = s.attentionSince ? Math.floor((Date.now() - s.attentionSince) / 60_000) : 0;
+      const since = minutes < 1 ? "щойно" : `${minutes} хв тому`;
+      const what = s.status === "waiting" ? "чекає на вас" : "закінчив, перевірте";
+      return `<a class="att ${s.status}" href="/session/${esc(s.id)}">
+        <span class="att-dot"></span>
+        <span class="att-text"><strong>${esc(s.task.id)}</strong> ${esc(s.task.title)}
+          <span class="muted">${esc(s.agentLabel)} ${what} · ${esc(s.message ?? "")} · ${since}</span></span>
+        <span class="btn">Відкрити</span></a>`;
+    })
+    .join("");
+  return `<section class="attention"><h2>🔔 Потрібна ваша увага</h2>${items}</section>`;
 }
 
 function row(r: TaskRecord, token: string): string {
@@ -67,7 +106,8 @@ function row(r: TaskRecord, token: string): string {
         : r.status === "snoozed" && r.snoozedUntil
           ? `до ${new Date(r.snoozedUntil).toLocaleTimeString()}`
           : "";
-  return `<tr><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
+  const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle";
+  return `<tr${attn ? ' class="attn"' : ""}><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
     <td><a href="${esc(r.task.url)}">${esc(r.id)}</a>${r.repo ? ` → ${esc(r.repo)}` : ""}${r.executor ? ` · ${esc(r.executor)}` : ""}<div class="muted">${esc(r.task.title)}</div></td>
     <td>${extra}</td><td class="act">${actions}</td></tr>`;
 }

@@ -6,17 +6,22 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
-import { renderInbox } from "./inbox.js";
+import { renderInbox, inboxSignature } from "./inbox.js";
 import { page, esc } from "./ui-layout.js";
 import { sessions, type SessionEvent } from "./sessions.js";
 import { log } from "./log.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const require = createRequire(import.meta.url);
+const ASSETS_DIR = fileURLToPath(new URL("../assets/", import.meta.url));
 const STATIC: Record<string, [string, string]> = {
+  "favicon.png": [path.join(ASSETS_DIR, "tray.png"), "image/png"],
+  "favicon-attention.png": [path.join(ASSETS_DIR, "tray-attention.png"), "image/png"],
+  "icon.png": [path.join(ASSETS_DIR, "icon.png"), "image/png"],
   "style.css": [path.join(UI_DIR, "style.css"), "text/css"],
   "settings.js": [path.join(UI_DIR, "settings.js"), "text/javascript"],
   "session.js": [path.join(UI_DIR, "session.js"), "text/javascript"],
+  "inbox.js": [path.join(UI_DIR, "inbox.js"), "text/javascript"],
   "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
   "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
   "vendor/addon-fit.js": [require.resolve("@xterm/addon-fit/lib/addon-fit.js"), "text/javascript"],
@@ -32,8 +37,14 @@ export function startWebUi(app: App, port: number): void {
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
   const server = http.createServer(async (req, res) => {
-    const send = (status: number, type: string, body: string) =>
-      res.writeHead(status, { "Content-Type": `${type}; charset=utf-8`, "Cache-Control": "no-store", "X-Frame-Options": "DENY" }).end(body);
+    const send = (status: number, type: string, body: string | Buffer) =>
+      res
+        .writeHead(status, {
+          "Content-Type": typeof body === "string" ? `${type}; charset=utf-8` : type,
+          "Cache-Control": typeof body === "string" ? "no-store" : "max-age=3600",
+          "X-Frame-Options": "DENY",
+        })
+        .end(body);
     const json = (status: number, data: unknown) => send(status, "application/json", JSON.stringify(data));
 
     if (!allowedHosts.has(req.headers.host ?? "")) return send(403, "text/plain", "Forbidden host");
@@ -48,7 +59,10 @@ export function startWebUi(app: App, port: number): void {
       if (req.method === "GET" && url.pathname.startsWith("/ui/")) {
         const file = STATIC[url.pathname.slice(4)];
         if (!file) return send(404, "text/plain", "Not found");
-        return send(200, file[1], await readFile(file[0], "utf8"));
+        return send(200, file[1], file[1].startsWith("image/") ? await readFile(file[0]) : await readFile(file[0], "utf8"));
+      }
+      if (req.method === "GET" && url.pathname === "/favicon.ico") {
+        return send(200, "image/png", await readFile(STATIC["favicon.png"][0]));
       }
       const sessionPage = url.pathname.match(/^\/session\/([\w.-]+)$/);
       if (req.method === "GET" && sessionPage) return send(200, "text/html", renderSession(sessionPage[1], token));
@@ -61,6 +75,7 @@ export function startWebUi(app: App, port: number): void {
         session.onHook(JSON.parse((await readBody(req)) || "{}"));
         return json(200, {});
       }
+      if (req.method === "GET" && url.pathname === "/api/inbox-state") return json(200, inboxSignature(app));
       if (req.method === "GET" && url.pathname === "/api/tasks") {
         return json(200, app.orchestrator?.state.all() ?? []);
       }
