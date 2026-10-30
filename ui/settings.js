@@ -378,6 +378,12 @@
     let host = "";
     if (type === "jira") {
       host = secrets.JIRA_BASE_URL?.value || t.conf.baseUrl || "";
+      // Statuses of the project's workflows, once «Перевірити підключення» has read them.
+      const found = tests[ti]?.result?.statuses;
+      const jiraStatuses = {
+        list: found ? `<datalist id="statuses-${ti}">${found.map((x) => `<option value="${h(x)}">`).join("")}</datalist>` : "",
+        hint: found ? `Статуси проєкту: ${found.map((x) => `<code>${h(x)}</code>`).join(", ")}` : "Назва статусу або переходу Jira, напр. <code>In Progress</code>. Список зʼявиться після «Перевірити підключення»",
+      };
       main = `
         ${secretField("JIRA_BASE_URL", "Адреса Jira", "https://company.atlassian.net")}
         ${secretField("JIRA_EMAIL", "Email в Atlassian", "you@company.com")}
@@ -385,11 +391,12 @@
         ${field({ label: "Які задачі віддавати агенту (JQL)", path: `${p}.jql`, kind: "textarea", wide: true,
           placeholder: 'assignee = currentUser() AND labels = claude-agent AND statusCategory = "To Do"',
           hint: "Порядок задає <code>ORDER BY</code>: пріоритетні задачі пропонуються першими" })}
-        ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: "не змінювати" })}
-        ${field({ label: "Статус, коли є PR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати" })}`;
+        ${jiraStatuses.list}
+        ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: "не змінювати", list: `statuses-${ti}`, hint: jiraStatuses.hint })}
+        ${field({ label: "Статус, коли є MR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати", list: `statuses-${ti}` })}`;
       advanced = `
-        ${field({ label: "Статус при помилці", path: `${p}.transitions.onFailure`, placeholder: "не змінювати" })}
-        ${field({ label: "Статус, коли PR змерджено", path: `${p}.transitions.onMerged`, placeholder: "не змінювати" })}
+        ${field({ label: "Статус при помилці", path: `${p}.transitions.onFailure`, placeholder: "не змінювати", list: `statuses-${ti}` })}
+        ${field({ label: "Статус, коли MR змерджено", path: `${p}.transitions.onMerged`, placeholder: "автоматично: Done", list: `statuses-${ti}` })}
         ${field({ label: "«Взяти» призначає задачу на мене", path: `${p}.assignOnTake`, kind: "check", type: "booltrue", wide: true })}
         ${field({ label: "Інша адреса Jira для цього трекера", path: `${p}.baseUrl`, placeholder: "як у секреті вище" })}`;
     } else {

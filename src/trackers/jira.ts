@@ -71,14 +71,14 @@ export class JiraTracker implements Tracker {
       trackerId: this.id,
       project: i.fields.project.key,
       title: i.fields.summary ?? "",
-      description: adfToText(i.fields.description),
+      description: adfToText(i.fields.description).trim(),
       url: `${this.baseUrl}/browse/${i.key}`,
       meta: `Type: ${i.fields.issuetype?.name ?? "?"} | Priority: ${i.fields.priority?.name ?? "?"}`,
       labels: i.fields.labels ?? [],
       components: (i.fields.components ?? []).map((c: any) => c.name),
       comments: (i.fields.comment?.comments ?? []).map((c: any) => ({
         author: c.author?.displayName ?? "unknown",
-        body: adfToText(c.body),
+        body: adfToText(c.body).trim(),
       })),
       closingRef: i.key,
       assignees: i.fields.assignee?.accountId ? [i.fields.assignee.accountId] : [],
@@ -93,6 +93,16 @@ export class JiraTracker implements Tracker {
     const t = this.cfg.transitions;
     if (moment === "merged") return t?.onMerged;
     return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
+  }
+
+  /** Statuses of the configured projects' workflows, for the settings page to suggest. */
+  async listStatuses(): Promise<string[]> {
+    const names = new Set<string>();
+    for (const key of Object.keys(this.projects)) {
+      const types = await this.request<{ statuses?: { name: string }[] }[]>("GET", `/rest/api/3/project/${encodeURIComponent(key)}/statuses`);
+      for (const t of types) for (const s of t.statuses ?? []) names.add(s.name);
+    }
+    return [...names];
   }
 
   async onMerged(task: Task): Promise<string | void> {
