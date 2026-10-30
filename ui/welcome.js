@@ -238,6 +238,7 @@
         ${opt("claude", "Claude Code у фоні", "Працює сам без терміналу; ви бачите результат і зміни.")}
       </div>
       ${doc && !doc.claude ? `<p class="notice warn small">Claude Code ще не встановлено: <code>npm install -g @anthropic-ai/claude-code</code>. Інших агентів (Codex, Orca, своя команда) можна додати в Налаштуваннях.</p>` : ""}
+      ${doc?.orca ? `<p class="small muted">Orca теж є на цьому компʼютері: її можна буде вибрати, коли берете задачу.</p>` : ""}
       ${nav(busy ? "Зберігаю…" : "Готово")}`;
   }
 
@@ -332,6 +333,8 @@
       config.executors ??= {};
       if (d.executor === "terminal") config.executors.terminal ??= { type: "terminal" };
       if (d.executor === "claude") config.executors.claude ??= settings.config.executors?.claude ?? { type: "claude-headless" };
+      // Orca on this machine: one more choice when taking a task («Передати в Orca»), not the default.
+      if (doc?.orca && !Object.values(config.executors).some((e) => e.type === "orca")) config.executors.orca = { type: "orca" };
       if (!fresh.configured || !config.defaultExecutor) config.defaultExecutor = d.executor;
       await api("PUT", "/api/settings", { config, secrets: secrets() });
       settings = await api("GET", "/api/settings");

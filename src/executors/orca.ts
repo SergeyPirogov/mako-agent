@@ -115,6 +115,14 @@ export class OrcaExecutor implements Executor {
  * The Orca CLI ships inside the app and reaches PATH only after Orca → Settings → General → Orca CLI;
  * look inside the app too. On Linux the command is orca-ide (GNOME's screen reader owns `orca`).
  */
+/** The Orca CLI on PATH or inside Orca.app, if Orca is installed. */
+export function findOrca(): string | undefined {
+  const inApp = (app: string) => path.join(app, "Orca.app/Contents/Resources/bin/orca");
+  return process.platform === "linux"
+    ? findCommand("orca-ide")
+    : findCommand("orca", [inApp("/Applications"), inApp(path.join(os.homedir(), "Applications"))]);
+}
+
 function resolveOrca(configured: string | undefined): string {
   if (configured) {
     const found = findCommand(configured);
@@ -122,12 +130,7 @@ function resolveOrca(configured: string | undefined): string {
     throw new Error(`Orca CLI не знайдено за шляхом «${configured}». Перевірте «Команда» у виконавця Orca в Налаштуваннях.`);
   }
   if (process.platform === "win32") return "orca";
-  const home = os.homedir();
-  const inApp = (app: string) => path.join(app, "Orca.app/Contents/Resources/bin/orca");
-  const found =
-    process.platform === "linux"
-      ? findCommand("orca-ide")
-      : findCommand("orca", [inApp("/Applications"), inApp(path.join(home, "Applications"))]);
+  const found = findOrca();
   if (found) return found;
   throw new Error(
     "Orca CLI не знайдено. Встановіть Orca (onorca.dev) і зареєструйте CLI: Orca → Settings → General → Orca CLI. " +

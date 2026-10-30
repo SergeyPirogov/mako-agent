@@ -2,15 +2,16 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { findCommand } from "./executors/find-command.js";
+import { findOrca } from "./executors/orca.js";
 import { run } from "./shell.js";
 
-/** What a new machine needs: git to make worktrees and an agent CLI to run. gh only helps GitHub logins. */
-export async function doctor(): Promise<{ git?: string; claude?: string; gh?: string; ghLoggedIn: boolean }> {
+/** What a new machine needs: git to make worktrees and an agent CLI to run. gh only helps GitHub logins; Orca, if installed, is one more place to hand tasks to. */
+export async function doctor(): Promise<{ git?: string; claude?: string; gh?: string; ghLoggedIn: boolean; orca?: string }> {
   const git = findCommand("git");
   const claude = findCommand("claude");
   const gh = findCommand("gh");
   const ghLoggedIn = gh ? (await run(gh, ["auth", "token"], homedir()).catch(() => undefined))?.code === 0 : false;
-  return { git, claude, gh, ghLoggedIn };
+  return { git, claude, gh, ghLoggedIn, orca: process.platform === "win32" ? undefined : findOrca() };
 }
 
 /** Folders where people usually keep their clones, looked through a few levels deep. */
