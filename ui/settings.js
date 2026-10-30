@@ -654,8 +654,8 @@
             ${field({ label: "Аргументи (по одному на рядок)", path: `${p}.args`, type: "lines", kind: "textarea", wide: true,
               placeholder: "{prompt}", hint: "За замовчуванням лише <code>{prompt}</code>" })}
             ${field({ label: "Що Claude робить без питань", path: `${p}.permissionMode`, kind: "select", type: "string", wide: true,
-              options: [["", "редагує файли задачі, про команди питає (рекомендовано)"], ["default", "питає про все"], ["bypassPermissions", "нічого не питає (небезпечно: будь-які команди без вашого відома)"]],
-              hint: "Працює лише в окремому worktree задачі; ваша робоча папка не зачіпається" })}
+              options: [["", "auto mode: Claude сам вирішує, що безпечно, і питає лише про ризиковане (рекомендовано)"], ["acceptEdits", "редагує файли задачі, про команди питає"], ["default", "питає про все"], ["bypassPermissions", "нічого не питає (небезпечно: будь-які команди без вашого відома)"]],
+              hint: "Працює в окремому worktree задачі; ваша робоча папка не зачіпається. Auto mode потрібна свіжа версія Claude Code" })}
             ${field({ label: "Команди без питань (по одній на рядок)", path: `${p}.allowedTools`, type: "lines", kind: "textarea", wide: true,
               placeholder: "Bash(git:*)\nBash(pnpm:*)\nBash(npx playwright:*)",
               hint: `Формат Claude Code: <code>Bash(команда:*)</code>, <code>WebFetch</code>, <code>mcp__…</code>. ${button("+ звичні: git, npm, pnpm, yarn, node, тести", "fill-tools", { ei }, "link")}` })}

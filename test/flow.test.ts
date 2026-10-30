@@ -539,7 +539,7 @@ test("Claude in Mako's terminal gets the permission mode and allowed commands fr
     for (let i = 0; i < 50 && !existsSync(argsFile); i++) await new Promise((r) => setTimeout(r, 100));
     const args = readFileSync(argsFile, "utf8").trim().split("\n");
     const at = args.indexOf("--permission-mode");
-    assert.equal(args[at + 1], "acceptEdits", "file edits without asking by default");
+    assert.equal(args[at + 1], "auto", "Claude Code's auto mode by default");
     assert.deepEqual(args.slice(args.indexOf("--allowedTools") + 1, args.indexOf("--allowedTools") + 3), ["Bash(git:*)", "Bash(pnpm:*)"]);
     assert.ok(args.indexOf("--allowedTools") > args.findIndex((a) => a.includes("Terminal permissions")), "the tool list comes after the prompt, so it cannot swallow it");
   } finally {

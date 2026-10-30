@@ -21,10 +21,11 @@ export interface TerminalExecutorConfig {
   /** Placeholders as in `command`; default: ["{prompt}"]. */
   args?: string[];
   /**
-   * How much Claude may do without asking: "acceptEdits" (default) edits files in the worktree freely,
-   * "default" asks about everything, "bypassPermissions" asks about nothing.
+   * How much Claude may do without asking: "auto" (default) lets Claude Code's auto mode judge what is safe,
+   * "acceptEdits" edits files in the worktree freely, "default" asks about everything, "bypassPermissions"
+   * asks about nothing.
    */
-  permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
+  permissionMode?: "auto" | "default" | "acceptEdits" | "bypassPermissions";
   /** Tools Claude uses without asking, e.g. "Bash(git:*)", "Bash(pnpm:*)", "WebFetch". */
   allowedTools?: string[];
   /** Report working / waiting / done through Claude Code hooks. Defaults to true when the command is claude. */
@@ -65,7 +66,7 @@ export class TerminalExecutor implements Executor {
     if (ctx.planMode && this.isClaude && !args.includes("--permission-mode")) args.unshift("--permission-mode", "plan");
     if (this.isClaude) {
       // After the prompt: --allowedTools takes several values and would swallow it otherwise.
-      const mode = this.cfg.permissionMode ?? "acceptEdits";
+      const mode = this.cfg.permissionMode ?? "auto";
       const ownMode = args.includes("--permission-mode") || args.includes("--dangerously-skip-permissions");
       if (!ownMode && mode !== "default") args.push("--permission-mode", mode);
       const tools = (this.cfg.allowedTools ?? []).map((t) => t.trim()).filter(Boolean);
