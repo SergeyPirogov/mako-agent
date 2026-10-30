@@ -28,6 +28,17 @@ export class JiraTracker implements Tracker {
     this.headers = { Authorization: `Basic ${auth}` };
   }
 
+  private account?: Promise<string>;
+
+  async whoAmI(): Promise<string> {
+    this.account ??= this.request<{ accountId: string }>("GET", "/rest/api/3/myself").then((u) => u.accountId);
+    return this.account;
+  }
+
+  async assignToMe(task: Task): Promise<void> {
+    await this.request("PUT", `/rest/api/3/issue/${encodeURIComponent(task.id)}/assignee`, { accountId: await this.whoAmI() });
+  }
+
   async issueState(task: Task): Promise<IssueState> {
     try {
       const issue = await requestJson<any>("GET", `${this.baseUrl}/rest/api/3/issue/${encodeURIComponent(task.id)}?fields=status`, this.headers);
@@ -52,7 +63,7 @@ export class JiraTracker implements Tracker {
     const data = await this.request<{ issues: any[] }>("POST", "/rest/api/3/search/jql", {
       jql: this.cfg.jql,
       maxResults: 50,
-      fields: ["summary", "description", "issuetype", "priority", "project", "comment", "labels", "components"],
+      fields: ["summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee"],
     });
     return data.issues.map((i) => ({
       id: i.key,
@@ -70,6 +81,7 @@ export class JiraTracker implements Tracker {
         body: adfToText(c.body),
       })),
       closingRef: i.key,
+      assignees: i.fields.assignee?.accountId ? [i.fields.assignee.accountId] : [],
     }));
   }
 

@@ -71,6 +71,7 @@ export class GitHubTracker implements Tracker {
           components: [],
           comments: comments.map((c) => ({ author: c.user?.login ?? "unknown", body: c.body ?? "" })),
           closingRef: `Closes ${repo}#${issue.number}`,
+          assignees: (issue.assignees ?? []).map((a: any) => a.login),
         });
       }
     }
@@ -173,6 +174,17 @@ export class GitHubTracker implements Tracker {
     const m = reviewUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
     if (!m) throw new Error(`не схоже на PR GitHub: ${reviewUrl}`);
     await this.request("PATCH", `/repos/${m[1]}/pulls/${m[2]}`, { title, body: description });
+  }
+
+  private login?: Promise<string>;
+
+  async whoAmI(): Promise<string> {
+    this.login ??= this.request<{ login: string }>("GET", "/user").then((u) => u.login);
+    return this.login;
+  }
+
+  async assignToMe(task: Task): Promise<void> {
+    await this.request("POST", `${this.issuePath(task)}/assignees`, { assignees: [await this.whoAmI()] });
   }
 
   async issueState(task: Task): Promise<IssueState> {

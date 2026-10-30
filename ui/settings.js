@@ -389,6 +389,7 @@
       advanced = `
         ${field({ label: "Статус при помилці", path: `${p}.transitions.onFailure`, placeholder: "не змінювати" })}
         ${field({ label: "Статус, коли PR змерджено", path: `${p}.transitions.onMerged`, placeholder: "не змінювати" })}
+        ${field({ label: "«Взяти» призначає задачу на мене", path: `${p}.assignOnTake`, kind: "check", type: "booltrue", wide: true })}
         ${field({ label: "Інша адреса Jira для цього трекера", path: `${p}.baseUrl`, placeholder: "як у секреті вище" })}`;
     } else {
       const isLab = type === "gitlab";
@@ -409,6 +410,7 @@
           ? `<div class="f"><span>Мітка для агента</span><span class="muted small" style="padding:8px 0">не потрібна: беруться всі відкриті задачі, призначені на вас</span></div>`
           : field({ label: "Мітка для агента", path: `${p}.labels.trigger`, placeholder: DEFAULT_LABELS.trigger, hint: "Задачі з цією міткою потрапляють до Mako. Інших міток Mako не ставить" })}
         ${field({ label: "Брати всі мої задачі, без мітки", path: `${p}.labels.trigger`, kind: "check", type: "nullflag", wide: true, rerender: true })}
+        ${field({ label: "«Взяти» призначає задачу на мене (колеги бачать, що її взято, і Mako їм її не пропонує)", path: `${p}.assignOnTake`, kind: "check", type: "booltrue", wide: true })}
         ${isLab ? `${statusList}
           ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: isLab ? "автоматично: In progress" : "не змінювати", list: `statuses-${ti}`, hint: statusHint })}
           ${field({ label: "Статус, коли є MR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати", list: `statuses-${ti}`,

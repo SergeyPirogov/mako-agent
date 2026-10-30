@@ -22,6 +22,8 @@ export interface Task {
   closingRef?: string;
   /** The tracker's own id of the issue when it differs from `id` (GitLab's global issue id for GraphQL). */
   nativeId?: string;
+  /** Who the issue is assigned to: usernames (GitLab), logins (GitHub) or account ids (Jira). */
+  assignees?: string[];
 }
 
 export type Outcome = "success" | "no-changes" | "failed";
@@ -65,6 +67,10 @@ export interface Tracker {
   describeFilter?(): Promise<string>;
   /** Whether the issue is still open, closed or deleted. */
   issueState?(task: Task): Promise<IssueState>;
+  /** The token owner, in the form of Task.assignees. */
+  whoAmI?(): Promise<string>;
+  /** Assigns the issue to the token owner, so colleagues see it is taken. */
+  assignToMe?(task: Task): Promise<void>;
   /** For trackers with statuses: which one a moment moves the issue to; empty when none is set. */
   statusFor?(moment: "start" | Outcome | "merged"): string | null | undefined;
   /** Whether a PR/MR opened for one of its issues is still open, merged or closed without merging. */

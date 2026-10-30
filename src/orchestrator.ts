@@ -195,8 +195,19 @@ export class Orchestrator {
           continue;
         }
         const seen = new Set<string>();
+        // With colleagues on Mako too: a task already assigned to someone else is theirs.
+        const me = tracker.whoAmI ? (await tracker.whoAmI().catch(() => undefined))?.toLowerCase() : undefined;
         for (const task of tasks) {
           seen.add(task.id);
+          const owners = (task.assignees ?? []).map((a) => a.toLowerCase());
+          if (me && owners.length && !owners.includes(me)) {
+            const rec = this.state.get(task.id);
+            if (rec && (rec.status === "asking" || rec.status === "snoozed")) {
+              log(task.id, `assigned to ${task.assignees!.join(", ")}: no longer offered`);
+              this.state.delete(task.id);
+            }
+            continue;
+          }
           const route = routeTask(task, tracker.projects[task.project]);
           if (!route.repo) {
             if (this.unroutable.get(task.id) !== route.reason) log(task.id, `skipped: ${route.reason}`);
@@ -369,6 +380,23 @@ export class Orchestrator {
     return "started";
   }
 
+  /** «Взяти» puts the issue on the developer in the tracker, so colleagues do not take it too (assignOnTake: false turns it off). */
+  private async assignOnTake(id: string): Promise<void> {
+    const rec = this.state.get(id);
+    const tracker = rec && this.trackers.get(rec.task.trackerId);
+    if (!rec || !tracker?.assignToMe) return;
+    const raw = (this.cfg.trackers as any[]).find((t) => (t.id ?? t.type) === tracker.id);
+    if (raw?.assignOnTake === false) return;
+    const me = await tracker.whoAmI?.().catch(() => undefined);
+    if (me && rec.task.assignees?.some((a) => a.toLowerCase() === me.toLowerCase())) return;
+    try {
+      await tracker.assignToMe(rec.task);
+      log(id, `assigned to ${me ?? "me"} in ${tracker.name}`);
+    } catch (err: any) {
+      log(id, `not assigned in ${tracker.name}: ${err.message}`);
+    }
+  }
+
   /** Taken tasks are not in every search (the WIP limit pauses it), so their issues are looked up one by one. */
   async checkGone(): Promise<void> {
     for (const rec of this.state.all().filter((r) => ["queued", "running", "handed-off"].includes(r.status))) {
@@ -495,6 +523,7 @@ export class Orchestrator {
         ...(chosenRepo ? { repo: chosenRepo } : {}),
       });
       this.schedule();
+      void this.assignOnTake(id);
     } else {
       const snoozeMin = this.cfg.notifications.snoozeMin;
       log(id, `${decision === "later" ? "postponed" : "no answer"}, asking again in ${snoozeMin} min`);

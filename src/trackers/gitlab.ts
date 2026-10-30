@@ -78,6 +78,7 @@ export class GitLabTracker implements Tracker {
           components: [],
           comments: notes.filter((n) => !n.system).map((n) => ({ author: n.author?.name ?? "unknown", body: n.body })),
           closingRef: `Closes ${projectPath}#${issue.iid}`,
+          assignees: (issue.assignees ?? (issue.assignee ? [issue.assignee] : [])).map((a: any) => a.username),
           nativeId: String(issue.id),
         });
       }
@@ -268,6 +269,18 @@ export class GitLabTracker implements Tracker {
     const m = reviewUrl.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)/);
     if (!m) throw new Error(`не схоже на MR GitLab: ${reviewUrl}`);
     await this.request("PUT", `${projectApi(m[1])}/merge_requests/${m[2]}`, { title, description });
+  }
+
+  private user?: Promise<{ id: number; username: string }>;
+
+  async whoAmI(): Promise<string> {
+    this.user ??= this.request<{ id: number; username: string }>("GET", "/user");
+    return (await this.user).username;
+  }
+
+  async assignToMe(task: Task): Promise<void> {
+    this.user ??= this.request<{ id: number; username: string }>("GET", "/user");
+    await this.request("PUT", this.issuePath(task), { assignee_ids: [(await this.user).id] });
   }
 
   async issueState(task: Task): Promise<IssueState> {

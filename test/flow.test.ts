@@ -42,6 +42,12 @@ class FakeTracker implements Tracker {
   async reviewDetails(): Promise<ReviewInfo> {
     return { state: this.review, conflicts: false, mergeable: this.review === "open", comments: [], checkedAt: Date.now() };
   }
+  async whoAmI() {
+    return "me";
+  }
+  async assignToMe(task: Task) {
+    this.calls.push(`assign ${task.id}`);
+  }
   async onMerged(task: Task) {
     this.calls.push(`merged ${task.id}`);
     return "Done";
@@ -110,7 +116,8 @@ test("a task goes from the tracker through the agent to a pushed branch", async 
   assert.equal(rec.branchName, "feat/7-add-a-hello-file");
   assert.match(git(remote, "branch", "--list"), /feat\/7-add-a-hello-file/);
   assert.equal(git(remote, "show", "feat/7-add-a-hello-file:hello.txt"), "hello");
-  assert.deepEqual(tracker.calls.filter((c) => !c.startsWith("comment")), ["start acme/web#7", "finish acme/web#7 success"]);
+  assert.deepEqual(tracker.calls.filter((c) => !c.startsWith("comment") && !c.startsWith("assign")), ["start acme/web#7", "finish acme/web#7 success"]);
+  assert.ok(tracker.calls.includes("assign acme/web#7"), "taking it assigns it to me");
   assert.ok(tracker.calls.some((c) => c.startsWith("comment acme/web#7")), "the issue gets a comment");
   assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «In progress»");
   assert.ok(rec.summary?.includes("Added hello.txt"), "the summary falls back to the agent's message");
@@ -142,5 +149,16 @@ test("a merged MR moves the task to its final status", async () => {
   assert.equal(rec.reviewState, "merged");
   assert.ok(tracker.calls.includes("merged acme/web#9"));
   assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «Done»");
+  orchestrator.stop();
+});
+
+test("«Взяти» assigns the task to me; a colleague's task is not offered", async () => {
+  const { tracker, orchestrator } = setup("echo done");
+  tracker.issues = [{ ...issue(10, "Free task"), assignees: [] }, { ...issue(11, "Colleague's task"), assignees: ["Colleague"] }];
+  await orchestrator.poll();
+  await orchestrator.drain();
+  assert.equal(orchestrator.state.get("acme/web#11"), undefined, "someone else's task is left alone");
+  assert.equal(orchestrator.state.get("acme/web#10")?.status, "done");
+  assert.ok(tracker.calls.includes("assign acme/web#10"));
   orchestrator.stop();
 });
