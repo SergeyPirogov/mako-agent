@@ -87,7 +87,7 @@ export class App {
   async testTracker(
     rawTracker: any,
     secrets: SecretChanges,
-  ): Promise<{ count: number; sample: { id: string; title: string }[]; statuses?: string[]; statusError?: string }> {
+  ): Promise<{ count: number; sample: { id: string; title: string }[]; statuses?: string[]; statusError?: string; filter?: string }> {
     const { trackers } = build(
       { trackers: [rawTracker], executors: { test: { type: "command", command: "true" } } },
       envFrom(secrets),
@@ -102,7 +102,8 @@ export class App {
         statusError = err.message;
       }
     }
-    return { count: tasks.length, sample: tasks.slice(0, 5).map((t) => ({ id: t.id, title: t.title })), statuses, statusError };
+    const filter = await trackers[0].describeFilter?.().catch(() => undefined);
+    return { count: tasks.length, sample: tasks.slice(0, 5).map((t) => ({ id: t.id, title: t.title })), statuses, statusError, filter };
   }
 }
 

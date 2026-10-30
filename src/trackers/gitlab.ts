@@ -1,7 +1,7 @@
 import type { ProjectConfig } from "../config.js";
 import { requestJson, explainAccess } from "../http.js";
 import type { Outcome, Task, Tracker } from "../types.js";
-import { defaultLabels, labelChanges, type LabelConfig } from "./labels.js";
+import { defaultLabels, labelChanges, normalizeAssignee, type LabelConfig } from "./labels.js";
 
 export interface GitLabTrackerConfig {
   type: "gitlab";
@@ -33,6 +33,9 @@ export class GitLabTracker implements Tracker {
     this.projects = cfg.projects;
     this.apiUrl = (cfg.baseUrl ?? "https://gitlab.com").replace(/\/$/, "") + "/api/v4";
     this.labels = { ...defaultLabels, ...cfg.labels };
+    if (!this.labels.trigger && !normalizeAssignee(cfg.assignee)) {
+      throw new Error(`${this.name}: без мітки для агента вкажіть «Лише призначені на» (ваш нік або me), інакше Mako братиме всі задачі проєкту`);
+    }
     this.headers = { "PRIVATE-TOKEN": env("GITLAB_TOKEN") };
   }
 
@@ -53,8 +56,10 @@ export class GitLabTracker implements Tracker {
   async fetchTasks(): Promise<Task[]> {
     const tasks: Task[] = [];
     for (const projectPath of Object.keys(this.projects)) {
-      const query = new URLSearchParams({ state: "opened", labels: this.labels.trigger, per_page: "50" });
-      if (this.cfg.assignee) query.set("assignee_username", this.cfg.assignee);
+      const query = new URLSearchParams({ state: "opened", per_page: "50" });
+      if (this.labels.trigger) query.set("labels", this.labels.trigger);
+      const assignee = await this.assignee();
+      if (assignee) query.set("assignee_username", assignee);
       const issues = await this.request<any[]>("GET", `${projectApi(projectPath)}/issues?${query}`);
       for (const issue of issues) {
         const notes = issue.user_notes_count
@@ -78,6 +83,27 @@ export class GitLabTracker implements Tracker {
       }
     }
     return tasks;
+  }
+
+  private me?: string;
+
+  /** The configured assignee; "me" is resolved once to the token owner's username. */
+  private async assignee(): Promise<string | undefined> {
+    const a = normalizeAssignee(this.cfg.assignee);
+    if (a?.toLowerCase() !== "me") return a;
+    this.me ??= (await this.request<{ username: string }>("GET", "/user")).username;
+    return this.me;
+  }
+
+  /** In words, which issues Mako looks for; shown when a search finds nothing. */
+  async describeFilter(): Promise<string> {
+    const who = await this.assignee();
+    return [
+      "відкриті задачі",
+      this.labels.trigger ? `з міткою «${this.labels.trigger}»` : "без вимоги мітки",
+      who ? `призначені на ${who}` : "призначені на будь-кого",
+      `у проєктах ${Object.keys(this.projects).join(", ")}`,
+    ].join(" ");
   }
 
   async comment(task: Task, text: string): Promise<void> {

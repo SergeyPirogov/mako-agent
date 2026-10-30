@@ -174,6 +174,7 @@
   function readValue(el) {
     const type = el.dataset.type || "string";
     if (type === "bool") return el.checked ? true : undefined;
+    if (type === "nullflag") return el.checked ? null : undefined;
     if (type === "booltrue") return el.checked ? undefined : false;
     const v = el.value;
     if (type === "number") return v === "" ? undefined : Number(v);
@@ -191,7 +192,7 @@
     const attrs = `data-path="${h(path)}" data-type="${type}"${refresh ? " data-refresh" : ""}${rerender ? " data-rerender" : ""}`;
     let control;
     if (kind === "check") {
-      const checked = type === "booltrue" ? value !== false : Boolean(value);
+      const checked = type === "booltrue" ? value !== false : type === "nullflag" ? value === null : Boolean(value);
       return `<label class="check${wide ? " wide" : ""}"><input type="checkbox" ${attrs}${checked ? " checked" : ""}> ${h(label)}</label>`;
     } else if (kind === "select") {
       control = `<select ${attrs}>${options
@@ -347,8 +348,12 @@
       main = `
         ${isLab ? field({ label: "Адреса GitLab", path: `${p}.baseUrl`, placeholder: "https://gitlab.com", refresh: true }) : ""}
         ${secretField(isLab ? "GITLAB_TOKEN" : "GITHUB_TOKEN", "Токен", "", tokenHint)}
-        ${field({ label: "Мітка для агента", path: `${p}.labels.trigger`, placeholder: DEFAULT_LABELS.trigger, hint: "Issues з цією міткою потрапляють до Mako. Інших міток Mako не ставить" })}
-        ${field({ label: "Лише призначені на", path: `${p}.assignee`, placeholder: "будь-хто", hint: isLab ? "GitLab username" : "GitHub login" })}
+        ${field({ label: "Лише призначені на", path: `${p}.assignee`, placeholder: "будь-хто",
+          hint: `Ваш нік у ${isLab ? "GitLab" : "GitHub"} без <code>@</code>, або <code>me</code>: Mako візьме його з токена` })}
+        ${t.conf.labels?.trigger === null
+          ? `<div class="f"><span>Мітка для агента</span><span class="muted small" style="padding:8px 0">не потрібна: беруться всі відкриті задачі, призначені на вас</span></div>`
+          : field({ label: "Мітка для агента", path: `${p}.labels.trigger`, placeholder: DEFAULT_LABELS.trigger, hint: "Задачі з цією міткою потрапляють до Mako. Інших міток Mako не ставить" })}
+        ${field({ label: "Брати всі мої задачі, без мітки", path: `${p}.labels.trigger`, kind: "check", type: "nullflag", wide: true, rerender: true })}
         ${isLab ? `${statusList}
           ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: "не змінювати", list: `statuses-${ti}`, hint: statusHint })}
           ${field({ label: "Статус, коли є MR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати", list: `statuses-${ti}`,
@@ -372,7 +377,7 @@
         ? `<div class="result err">✗ ${h(test.error)}</div>`
         : `<div class="result"><span class="ok-text">✓ Підключено.</span> Задач для агента: <b>${test.result.count}</b>${
             test.result.sample.length ? `<ul>${test.result.sample.map((x) => `<li><code>${h(x.id)}</code> ${h(x.title)}</li>`).join("")}</ul>` : ""
-          }${test.result.statusError ? `<div class="warn">⚠ ${h(test.result.statusError)}</div>` : ""}</div>`;
+          }${!test.result.count && test.result.filter ? `<div class="muted">Шукав: ${h(test.result.filter)}. Якщо ваших задач тут немає, перевірте нік і мітку.</div>` : ""}${test.result.statusError ? `<div class="warn">⚠ ${h(test.result.statusError)}</div>` : ""}</div>`;
     return `<div class="card tracker">
       <div class="head"><div class="title"><h3 class="tname">${TRACKERS[type]}</h3>${host ? `<span class="muted">${h(host)}</span>` : ""}${badge}</div>
         <div class="tools">${button("Перевірити підключення", "test-tracker", { ti })}${button("Видалити", "remove-tracker", { ti }, "link danger")}</div></div>

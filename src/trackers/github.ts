@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import type { ProjectConfig } from "../config.js";
 import { requestJson, explainAccess } from "../http.js";
 import type { Outcome, Task, Tracker } from "../types.js";
-import { defaultLabels, labelChanges, type LabelConfig } from "./labels.js";
+import { defaultLabels, labelChanges, normalizeAssignee, type LabelConfig } from "./labels.js";
 
 export interface GitHubTrackerConfig {
   type: "github";
@@ -29,6 +29,9 @@ export class GitHubTracker implements Tracker {
     this.projects = cfg.projects;
     this.apiUrl = (cfg.apiUrl ?? "https://api.github.com").replace(/\/$/, "");
     this.labels = { ...defaultLabels, ...cfg.labels };
+    if (!this.labels.trigger && !normalizeAssignee(cfg.assignee)) {
+      throw new Error(`${this.name}: без мітки для агента вкажіть «Лише призначені на» (ваш нік або me), інакше Mako братиме всі задачі проєкту`);
+    }
     this.headers = { Authorization: `Bearer ${githubToken(env)}`, "X-GitHub-Api-Version": "2022-11-28" };
   }
 
@@ -46,8 +49,10 @@ export class GitHubTracker implements Tracker {
   async fetchTasks(): Promise<Task[]> {
     const tasks: Task[] = [];
     for (const repo of Object.keys(this.projects)) {
-      const query = new URLSearchParams({ state: "open", labels: this.labels.trigger, per_page: "50" });
-      if (this.cfg.assignee) query.set("assignee", this.cfg.assignee);
+      const query = new URLSearchParams({ state: "open", per_page: "50" });
+      if (this.labels.trigger) query.set("labels", this.labels.trigger);
+      const assignee = await this.assignee();
+      if (assignee) query.set("assignee", assignee);
       const issues = await this.request<any[]>("GET", `/repos/${repo}/issues?${query}`);
       for (const issue of issues.filter((i) => !i.pull_request)) {
         const comments = issue.comments
@@ -70,6 +75,26 @@ export class GitHubTracker implements Tracker {
       }
     }
     return tasks;
+  }
+
+  private me?: string;
+
+  /** The configured assignee; "me" is resolved once to the token owner's login. */
+  private async assignee(): Promise<string | undefined> {
+    const a = normalizeAssignee(this.cfg.assignee);
+    if (a?.toLowerCase() !== "me") return a;
+    this.me ??= (await this.request<{ login: string }>("GET", "/user")).login;
+    return this.me;
+  }
+
+  async describeFilter(): Promise<string> {
+    const who = await this.assignee();
+    return [
+      "відкриті issues",
+      this.labels.trigger ? `з міткою «${this.labels.trigger}»` : "без вимоги мітки",
+      who ? `призначені на ${who}` : "призначені на будь-кого",
+      `у ${Object.keys(this.projects).join(", ")}`,
+    ].join(" ");
   }
 
   async comment(task: Task, text: string): Promise<void> {

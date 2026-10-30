@@ -37,4 +37,6 @@ export interface Tracker {
   onFinish(task: Task, outcome: Outcome): Promise<void>;
   /** Statuses an issue can be moved to, for the settings page; undefined when the tracker has none. */
   listStatuses?(): Promise<string[]>;
+  /** Which issues the tracker looks for, in words, for an empty search result. */
+  describeFilter?(): Promise<string>;
 }
