@@ -31,6 +31,7 @@ const STATIC: Record<string, [string, string]> = {
   "favicon-attention.png": [path.join(ASSETS_DIR, "tray-attention.png"), "image/png"],
   "icon.png": [path.join(ASSETS_DIR, "icon.png"), "image/png"],
   "style.css": [path.join(UI_DIR, "style.css"), "text/css"],
+  "style-quiet.css": [path.join(UI_DIR, "style-quiet.css"), "text/css"],
   "settings.js": [path.join(UI_DIR, "settings.js"), "text/javascript"],
   "session.js": [path.join(UI_DIR, "session.js"), "text/javascript"],
   "inbox.js": [path.join(UI_DIR, "inbox.js"), "text/javascript"],

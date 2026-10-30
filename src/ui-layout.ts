@@ -32,10 +32,11 @@ export function page(opts: {
     `<a href="${href}" class="${opts.active === id ? "on" : ""}">${label}</a>`;
   return `<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="mako-token" content="${esc(opts.token)}">${opts.refresh ? `<meta http-equiv="refresh" content="${opts.refresh}">` : ""}
-<title>${esc(opts.title)} · Mako</title><link rel="stylesheet" href="/ui/style.css">
+<title>${esc(opts.title)} · Mako</title><link rel="stylesheet" href="/ui/style.css" id="look-css">
+<script>/* the chosen look, before the page paints (while «Тихий» is being tried) */try{if(localStorage.getItem("mako-look")==="quiet")document.getElementById("look-css").href="/ui/style-quiet.css"}catch(e){}</script>
 <script src="/ui/dialog.js" defer></script>
 <link rel="icon" type="image/png" href="/ui/favicon${opts.attention ? "-attention" : ""}.png"><link rel="apple-touch-icon" href="/ui/icon.png">${opts.head ?? ""}</head>
 <body${Object.entries(opts.data ?? {}).map(([k, v]) => ` data-${k}="${esc(v)}"`).join("")}>
-${opts.bare ? "" : `<header><div class="bar"><span class="logo">🦈 Mako</span><nav>${tab("/", "inbox", "Задачі")}${tab("/tracker", "tracker", "Трекер")}${tab("/stats", "stats", "Статистика")}</nav><div class="right">${version ? `<span class="ver" title="Версія Mako">${esc(version)}</span>` : ""}<nav>${tab("/settings", "settings", `<span aria-hidden="true">⚙</span><span class="nav-label"> Налаштування</span>`)}</nav></div></div></header>`}
+${opts.bare ? "" : `<header><div class="bar"><span class="logo"><span class="logo-mark">🦈 </span>Mako</span><nav>${tab("/", "inbox", "Задачі")}${tab("/tracker", "tracker", "Трекер")}${tab("/stats", "stats", "Статистика")}</nav><div class="right"><label class="look-pick" title="Вигляд Mako: спробуйте «Тихий» на всіх сторінках">Вигляд <select id="look-pick" onchange="try{localStorage.setItem('mako-look',this.value)}catch(e){};location.reload()"><option value="classic">Класичний</option><option value="quiet">Тихий</option></select></label><script>try{document.getElementById("look-pick").value=localStorage.getItem("mako-look")==="quiet"?"quiet":"classic"}catch(e){}</script>${version ? `<span class="ver" title="Версія Mako">${esc(version)}</span>` : ""}<nav>${tab("/settings", "settings", `<span aria-hidden="true">⚙</span><span class="nav-label"> Налаштування</span>`)}</nav></div></div></header>`}
 <main class="${[opts.wide ? "wide" : "", opts.bare ? "bare" : ""].join(" ").trim()}">${opts.body}</main>${opts.script ? `<script src="${opts.script}"></script>` : ""}</body></html>`;
 }

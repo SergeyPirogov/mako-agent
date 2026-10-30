@@ -522,7 +522,7 @@ function planControls(r: TaskRecord, token: string): string {
     `<label class="f">Що змінити в плані<textarea name="notes" rows="3" placeholder="Напр.: не чіпай API, спершу напиши тест, який відтворює баг" required></textarea></label>` +
     `<button class="soft">Переплануй з урахуванням</button></form>`;
   return (
-    `<button type="button" class="primary" data-desc>Переглянути план</button><template class="kc-full">${dialog}</template>` +
+    `<button type="button" class="soft" data-desc>Переглянути план</button><template class="kc-full">${dialog}</template>` +
     answer("approve", "Погодити", "success") +
     answer("reject", "Відхилити", "danger-outline", ` data-confirm-title="Відхилити план?" data-confirm-ok="Відхилити" data-confirm="Задача перейде в «Не виконано», агент її не робитиме."`)
   );

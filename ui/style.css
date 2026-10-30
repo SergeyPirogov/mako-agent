@@ -614,3 +614,6 @@ button, a, summary, label { -webkit-tap-highlight-color: transparent; }
 /* An open dialog holds the scroll: the page behind it stays still, and a dialog's own scroll does not run on into the page. */
 html:has(dialog[open]) { overflow: hidden; }
 dialog, dialog .sum-text, dialog .desc-in, .sum-changes { overscroll-behavior: contain; }
+.look-pick { font-size: 12px; color: var(--mute); display: flex; align-items: center; gap: 6px; }
+.look-pick select { width: auto; padding: 3px 6px; font-size: 12px; }
+@media (max-width: 600px) { .look-pick { font-size: 0; gap: 0; } .look-pick select { font-size: 12px; } }
