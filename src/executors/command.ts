@@ -29,7 +29,7 @@ export class CommandExecutor implements Executor {
   readonly managed: boolean;
 
   constructor(readonly name: string, private cfg: CommandExecutorConfig) {
-    this.label = cfg.label ?? cfg.command;
+    this.label = cfg.label ?? name;
     this.managed = (cfg.mode ?? "managed") === "managed";
     this.interactive = cfg.interactive ?? !this.managed;
   }

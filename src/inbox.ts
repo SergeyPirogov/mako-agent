@@ -300,7 +300,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   // What the board filter searches: id, title, tracker, repo, executor, labels.
   const haystack = [r.id, r.task.title, trackerName, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
   return `<article class="kcard${attn ? " attn" : ""}" data-search="${esc(haystack)}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
-    <div class="kc-top">${r.task.url ? `<a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>` : `<span class="kc-id" title="Задача, створена в Mako">${esc(r.id)}</span>`}
+    <div class="kc-top">${r.task.url ? `<a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer" title="${esc(r.id)}">${esc(shortId(r.id))}</a>` : `<span class="kc-id" title="Задача, створена в Mako">${esc(r.id)}</span>`}
       ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}</div>
     ${description(r)}
@@ -376,8 +376,16 @@ function takeOverForm(app: App, r: TaskRecord, token: string, primary = false): 
 }
 
 /** "MR" for GitLab tasks, "PR" elsewhere. */
+/** «MR» on GitLab, «PR» on GitHub: by the link itself, since a Jira task's review lives on either. */
 function reviewKind(app: App, r: TaskRecord): string {
+  if (r.prUrl?.includes("/merge_requests/")) return "MR";
+  if (r.prUrl?.includes("/pull/")) return "PR";
   return app.orchestrator?.trackers.get(r.task.trackerId)?.name === "GitLab" ? "MR" : "PR";
+}
+
+/** «group/market-autotests#31» → «market-autotests#31»: the group repeats on every card of a project. */
+function shortId(id: string): string {
+  return id.replace(/^.*\/(?=[^/]*#)/, "");
 }
 
 const BLOCKERS: Record<string, string> = {
@@ -468,7 +476,7 @@ function planControls(r: TaskRecord, token: string): string {
   const answer = (value: string, label: string, cls: string, extra = "") =>
     `<form method="post" action="/plan"${extra}>${hidden}<input type="hidden" name="answer" value="${value}"><button class="${cls}">${label}</button></form>`;
   const dialog =
-    `<h2>План · ${esc(r.task.title)}</h2><div class="desc-body">${renderMarkdown(r.plan!, r.task.url || "http://localhost/")}</div>` +
+    `<h2>План · ${esc(r.task.title)}</h2><div class="desc-body">${renderMarkdown(r.plan!.replace(/^\s*#{1,3}\s*План\s*\n/i, ""), r.task.url || "http://localhost/")}</div>` +
     `<form method="post" action="/plan" class="plan-revise">${hidden}<input type="hidden" name="answer" value="revise">` +
     `<label class="f">Що змінити в плані<textarea name="notes" rows="3" placeholder="Напр.: не чіпай API, спершу напиши тест, який відтворює баг" required></textarea></label>` +
     `<button class="soft">Переплануй з урахуванням</button></form>`;

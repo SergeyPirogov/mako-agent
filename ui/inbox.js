@@ -13,13 +13,17 @@
   const time = (ms) => new Date(ms).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
   // Tasks already taken still match the tracker query until they are done, so only new ones are news.
+  // The line stays short; times and details are in its tooltip.
   function lastText(last) {
-    if (!last) return "";
+    if (!last) return { short: "", errors: "", long: "" };
     const known = last.found - last.added;
-    let text = last.added ? `нових задач: ${last.added}` : "нових задач немає";
-    if (known > 0) text += ` (${known} вже в Mako)`;
-    if (last.errors) text += `, помилок: ${last.errors}`;
-    return ` · останній пошук о ${time(last.at)}: ${text}`;
+    let text = last.added ? `нових задач: ${last.added}` : "нових немає";
+    const errors = last.errors ? `, помилок: ${last.errors}` : "";
+    return {
+      short: ` · ${text}`,
+      errors,
+      long: `Останній пошук о ${time(last.at)}: ${text}${known > 0 ? ` (${known} вже в Mako)` : ""}${errors}`,
+    };
   }
 
   function drawClock() {
@@ -30,6 +34,7 @@
       return;
     }
     let text;
+    let detail = "";
     if (search.state === "searching") text = "🔎 Шукаю задачі в трекерах…";
     else if (search.state === "paused") text = "⏸ На паузі: нові задачі не шукаються";
     else if (search.state === "wip-full") text = `⏸ Не шукаю нових задач: в роботі ${search.wip} з ${search.limit}. Почну, щойно звільниться місце`;
@@ -38,10 +43,16 @@
       const left = Math.max(0, Math.round((search.nextAt - Date.now()) / 1000));
       const mm = Math.floor(left / 60);
       const ss = String(left % 60).padStart(2, "0");
-      text = left > 0 ? `🕐 Наступний пошук задач через ${mm}:${ss} (о ${time(search.nextAt)})` : "🔎 Шукаю задачі в трекерах…";
+      text = left > 0 ? `🕐 Пошук задач через ${mm}:${ss}` : "🔎 Шукаю задачі в трекерах…";
+      if (left > 0) detail = `Наступний пошук о ${time(search.nextAt)}`;
       searchNow.hidden = left === 0;
     }
-    clockText.textContent = text + lastText(search.last);
+    const last = lastText(search.last);
+    const errors = document.createElement("span");
+    errors.className = "clock-errors";
+    errors.textContent = last.errors || "";
+    clockText.replaceChildren(text + last.short, errors);
+    clockText.title = [detail, last.long].filter(Boolean).join("\n");
   }
 
   drawClock();

@@ -23,7 +23,7 @@ export class TrackerSync {
       await tracker.assignToMe(rec.task);
       log(id, `assigned to ${me ?? "me"} in ${tracker.name}`);
     } catch (err: any) {
-      log(id, `not assigned in ${tracker.name}: ${err.message}`);
+      log(id, `не вдалось призначити задачу на вас у ${tracker.name}: ${err.message}`);
     }
   }
 

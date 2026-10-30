@@ -128,7 +128,7 @@ export class JiraTracker implements Tracker {
     const { transitions } = await this.request<{ transitions: any[] }>("GET", `/rest/api/3/issue/${key}/transitions`);
     const wanted = name.toLowerCase();
     const t = transitions.find((t) => t.name.toLowerCase() === wanted || t.to?.name?.toLowerCase() === wanted);
-    if (!t) throw new Error(`${key}: no transition to "${name}" available`);
+    if (!t) throw new Error(`${key}: у Jira немає переходу в «${name}» з поточного статусу`);
     await this.request("POST", `/rest/api/3/issue/${key}/transitions`, { transition: { id: t.id } });
     return name;
   }

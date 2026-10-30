@@ -131,7 +131,7 @@ test("Jira: a wrong token says what to fix; a missing transition is reported, no
   jira.issues = [{ key: "PROJ-2", summary: "x", status: "To Do", labels: [] }];
   const tracker = new JiraTracker(jiraCfg({ transitions: { onStart: "Doing" } }), env);
   const task = { id: "PROJ-2" } as Task;
-  await assert.rejects(tracker.onStart(task), /no transition to "Doing"/);
+  await assert.rejects(tracker.onStart(task), /немає переходу в «Doing»/);
   assert.equal(await tracker.issueState(task), "open");
   jira.issues[0].deleted = true;
   assert.equal(await tracker.issueState(task), "deleted");
