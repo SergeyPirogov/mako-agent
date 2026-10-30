@@ -213,3 +213,13 @@ test("handing a task to Orca tells the agent to finish with a merge request from
   assert.match(text, /"Closes acme\/web#12"/);
   assert.equal(handoffInstructions("Візьми {taskId}, зроби й відкрий MR з {branch} у {baseBranch}. {unknown}", ctx), "Візьми acme/web#12, зроби й відкрий MR з fix/12-fix-cart у main. {unknown}");
 });
+
+test("«Хто відкриває MR: я в Orca»: the agent stops at commits, without pushing", async () => {
+  const { handoffInstructions } = await import("../src/executors/orca.ts");
+  const ctx = { task: task("acme/web#12", "Fix cart"), branch: "fix/12-fix-cart", repo: { baseBranch: "main" } as any };
+  const text = handoffInstructions(undefined, ctx, "me");
+  assert.match(text, /Commit on the branch fix\/12-fix-cart/);
+  assert.match(text, /Do not push and do not open a merge request/);
+  assert.doesNotMatch(text, /git push -u/);
+  assert.equal(handoffInstructions("Своє: {branch}", ctx, "me"), "Своє: fix/12-fix-cart", "your own wording wins");
+});

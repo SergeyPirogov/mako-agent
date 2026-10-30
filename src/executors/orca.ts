@@ -24,6 +24,8 @@ export interface OrcaExecutorConfig {
    * {title} {url} {closingRef}.
    */
   instructions?: string;
+  /** Who opens the MR: the agent (default), or the developer, who reviews and opens it with Orca's own button. */
+  mrBy?: "agent" | "me";
   extraArgs?: string[];
 }
 
@@ -48,7 +50,7 @@ export class OrcaExecutor implements Executor {
       "--branch", ctx.branch,
       "--base-branch", ctx.repo.baseBranch,
       "--agent", this.cfg.agent ?? "claude",
-      "--prompt", `${prompt}\n\n${handoffInstructions(this.cfg.instructions, ctx)}`,
+      "--prompt", `${prompt}\n\n${handoffInstructions(this.cfg.instructions, ctx, this.cfg.mrBy)}`,
       "--setup", this.cfg.setup ?? "inherit",
       "--no-parent",
       "--json",
@@ -266,7 +268,18 @@ Take the task all the way to a merge request yourself:
 5. Reply with the link to the merge request.
 Mako watches the branch: once the merge request exists, it moves the issue on and comments with the link.`;
 
-export function handoffInstructions(custom: string | undefined, ctx: Pick<ExecContext, "task" | "branch" | "repo">): string {
+/** The developer opens the MR in Orca after a look: the agent stops at commits on the task's branch. */
+export const DEFAULT_HANDOFF_FOR_ME = `## Finish with commits, not a merge request
+1. Implement the task and check it (tests, linters) as described above.
+2. Commit on the branch {branch}, with messages that start with "{taskId}: ".
+3. Do not push and do not open a merge request: the developer reviews the changes and opens it from Orca.
+4. Reply with a short summary: what you changed, how you checked it, and anything to look at in review.`;
+
+export function handoffInstructions(
+  custom: string | undefined,
+  ctx: Pick<ExecContext, "task" | "branch" | "repo">,
+  mrBy: "agent" | "me" = "agent",
+): string {
   const values: Record<string, string> = {
     branch: ctx.branch,
     baseBranch: ctx.repo.baseBranch,
@@ -275,6 +288,6 @@ export function handoffInstructions(custom: string | undefined, ctx: Pick<ExecCo
     url: ctx.task.url,
     closingRef: ctx.task.closingRef ?? ctx.task.url,
   };
-  return (custom?.trim() || DEFAULT_HANDOFF).replace(/\{(\w+)\}/g, (all, key) => values[key] ?? all);
+  return (custom?.trim() || (mrBy === "me" ? DEFAULT_HANDOFF_FOR_ME : DEFAULT_HANDOFF)).replace(/\{(\w+)\}/g, (all, key) => values[key] ?? all);
 }
 

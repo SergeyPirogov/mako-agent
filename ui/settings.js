@@ -676,9 +676,14 @@
             ${field({ label: "Setup-хуки репозиторію", path: `${p}.setup`, kind: "select", options: [["", "як у репозиторії"], ["run", "запускати"], ["skip", "пропускати"]] })}
             ${field({ label: "Команда", path: `${p}.command`, placeholder: "orca", hint: "Mako шукає її й усередині Orca.app" })}
             ${field({ label: "Привʼязувати задачу до workspace", path: `${p}.linkIssue`, kind: "check", type: "booltrue" })}
-            ${field({ label: "Що сказати агенту в Orca після опису задачі", path: `${p}.instructions`, kind: "textarea", wide: true,
-          placeholder: "Порожньо: виконай задачу, закоміть, запуш гілку задачі й відкрий MR у основну гілку з Closes #N, у кінці дай посилання на MR",
-          hint: "Mako чекає на MR з гілки задачі, щоб перевести статус далі, тож інструкція має закінчуватись MR. Підстановки: <code>{branch}</code> <code>{baseBranch}</code> <code>{taskId}</code> <code>{title}</code> <code>{url}</code> <code>{closingRef}</code>" })}`;
+            ${field({ label: "Хто відкриває MR", path: `${p}.mrBy`, kind: "select", type: "string", rerender: true, wide: true,
+          options: [["", "агент: виконує задачу, пушить гілку й відкриває MR сам"], ["me", "я в Orca: агент лише комітить, я переглядаю й відкриваю MR кнопкою"]],
+          hint: "Статус у трекері Mako веде так само: чекає MR з гілки задачі, хоч би хто його відкрив" })}
+        ${field({ label: "Що сказати агенту в Orca після опису задачі", path: `${p}.instructions`, kind: "textarea", wide: true,
+          placeholder: (model.executors.find((e) => e.conf.type === "orca")?.conf.mrBy === "me"
+            ? "Порожньо: виконай задачу й закоміть у гілку задачі, не пушь і не відкривай MR, у кінці коротко підсумуй"
+            : "Порожньо: виконай задачу, закоміть, запуш гілку задачі й відкрий MR у основну гілку з Closes #N, у кінці дай посилання на MR"),
+          hint: "Замінює стандартну інструкцію (вона залежить від «Хто відкриває MR»). Mako переводить статус, щойно з гілки задачі зʼявляється MR. Підстановки: <code>{branch}</code> <code>{baseBranch}</code> <code>{taskId}</code> <code>{title}</code> <code>{url}</code> <code>{closingRef}</code>" })}`;
         } else {
           fields = `
             ${field({ label: "Режим", path: `${p}.mode`, kind: "select", rerender: true,
@@ -745,9 +750,14 @@
         ${field({ label: "Setup-хуки репозиторію", path: `${p}.setup`, kind: "select", options: [["", "як у репозиторії"], ["run", "запускати"], ["skip", "пропускати"]] })}
         ${field({ label: "Команда", path: `${p}.command`, placeholder: "orca", hint: "Mako шукає її й усередині Orca.app" })}
         ${field({ label: "Привʼязувати задачу до workspace", path: `${p}.linkIssue`, kind: "check", type: "booltrue" })}
+        ${field({ label: "Хто відкриває MR", path: `${p}.mrBy`, kind: "select", type: "string", rerender: true, wide: true,
+          options: [["", "агент: виконує задачу, пушить гілку й відкриває MR сам"], ["me", "я в Orca: агент лише комітить, я переглядаю й відкриваю MR кнопкою"]],
+          hint: "Статус у трекері Mako веде так само: чекає MR з гілки задачі, хоч би хто його відкрив" })}
         ${field({ label: "Що сказати агенту в Orca після опису задачі", path: `${p}.instructions`, kind: "textarea", wide: true,
-          placeholder: "Порожньо: виконай задачу, закоміть, запуш гілку задачі й відкрий MR у основну гілку з Closes #N, у кінці дай посилання на MR",
-          hint: "Mako чекає на MR з гілки задачі, щоб перевести статус далі, тож інструкція має закінчуватись MR. Підстановки: <code>{branch}</code> <code>{baseBranch}</code> <code>{taskId}</code> <code>{title}</code> <code>{url}</code> <code>{closingRef}</code>" })}
+          placeholder: (model.executors.find((e) => e.conf.type === "orca")?.conf.mrBy === "me"
+            ? "Порожньо: виконай задачу й закоміть у гілку задачі, не пушь і не відкривай MR, у кінці коротко підсумуй"
+            : "Порожньо: виконай задачу, закоміть, запуш гілку задачі й відкрий MR у основну гілку з Closes #N, у кінці дай посилання на MR"),
+          hint: "Замінює стандартну інструкцію (вона залежить від «Хто відкриває MR»). Mako переводить статус, щойно з гілки задачі зʼявляється MR. Підстановки: <code>{branch}</code> <code>{baseBranch}</code> <code>{taskId}</code> <code>{title}</code> <code>{url}</code> <code>{closingRef}</code>" })}
       </div></div>`;
   }
 
