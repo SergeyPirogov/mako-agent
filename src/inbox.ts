@@ -35,18 +35,26 @@ export function inboxSignature(app: App): { sig: string; attention: number; sear
 }
 
 interface Column {
-  key: "new" | "doing" | "done" | "failed";
+  key: "new" | "doing" | "review" | "done" | "failed";
   title: string;
-  statuses: TaskStatus[];
   empty: string;
 }
 
 const COLUMNS: Column[] = [
-  { key: "new", title: "Нові", statuses: ["asking", "snoozed"], empty: "Нових задач немає" },
-  { key: "doing", title: "В роботі", statuses: ["queued", "running", "handed-off"], empty: "Перетягніть сюди задачу з «Нових», щоб взяти її" },
-  { key: "done", title: "Готово", statuses: ["done"], empty: "Тут зʼявляться задачі з PR/MR" },
-  { key: "failed", title: "Не виконано", statuses: ["failed", "cancelled"], empty: "" },
+  { key: "new", title: "Нові", empty: "Нових задач немає" },
+  { key: "doing", title: "В роботі", empty: "Перетягніть сюди задачу з «Нових», щоб взяти її" },
+  { key: "review", title: "На ревʼю", empty: "Тут задачі з відкритим MR, поки його не змерджать" },
+  { key: "done", title: "Готово", empty: "Тут змерджені й завершені задачі" },
+  { key: "failed", title: "Не виконано", empty: "" },
 ];
+
+/** Which column a task is in: a finished task with an open PR/MR is not done until it is merged. */
+export function columnOf(r: TaskRecord): Column["key"] {
+  if (r.status === "asking" || r.status === "snoozed") return "new";
+  if (r.status === "queued" || r.status === "running" || r.status === "handed-off") return "doing";
+  if (r.status === "failed" || r.status === "cancelled") return "failed";
+  return r.prUrl && !r.reviewState ? "review" : "done";
+}
 
 const DONE_SHOWN = 15;
 
@@ -70,10 +78,10 @@ export function renderInbox(app: App, token: string, notice?: string): string {
 
   const limit = app.cfg?.wipLimit ?? 0;
   const wip = app.orchestrator.wip();
-  const columns = COLUMNS.filter((c) => c.key !== "failed" || records.some((r) => r.status === "failed" || r.status === "cancelled"));
+  const columns = COLUMNS.filter((c) => c.key !== "failed" || records.some((r) => columnOf(r) === "failed"));
   const board = columns
     .map((col) => {
-      let items = records.filter((r) => col.statuses.includes(r.status)).sort(columnOrder(col.key));
+      let items = records.filter((r) => columnOf(r) === col.key).sort(columnOrder(col.key));
       const total = items.length;
       if (col.key === "done") items = items.slice(0, DONE_SHOWN);
       const archiveAll =
@@ -149,7 +157,14 @@ function columnOrder(col: Column["key"]) {
     const s = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
     return r.status === "asking" || s?.status === "waiting" || s?.status === "idle" ? 0 : 1;
   };
+  // On review, the MRs that need something (CI, conflicts, comments) come first.
+  const reviewNeeds = (r: TaskRecord) =>
+    r.review && (r.review.pipeline?.status === "failed" || r.review.conflicts || r.review.comments.length) ? 0 : 1;
   return (a: TaskRecord, b: TaskRecord) => {
+    if (col === "review") {
+      const d = reviewNeeds(a) - reviewNeeds(b);
+      if (d) return d;
+    }
     if (col === "new" || col === "doing") {
       const d = needsYou(a) - needsYou(b);
       if (d) return d;
@@ -262,6 +277,8 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   ].join("");
   const status = session
     ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>${session.message && session.status === "waiting" ? ` <span class="muted">${esc(session.message)}</span>` : ""}`
+    : columnOf(r) === "review"
+    ? `<span class="s review">На ревʼю</span>`
     : `<span class="s ${r.status}">${LABELS[r.status]}</span>${
         r.status === "handed-off" ? ` <span class="muted">чекає PR з <code>${esc(r.branch ?? "")}</code></span>`
         : r.status === "snoozed" && r.snoozedUntil ? ` <span class="muted">до ${new Date(r.snoozedUntil).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}</span>`

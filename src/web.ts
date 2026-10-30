@@ -9,7 +9,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
-import { renderInbox, renderArchive, inboxSignature, renderTaskLog } from "./inbox.js";
+import { renderInbox, renderArchive, inboxSignature, renderTaskLog, columnOf } from "./inbox.js";
 import { page, esc, setVersion } from "./ui-layout.js";
 import { execFileSync } from "node:child_process";
 import { sessions, type SessionEvent } from "./sessions.js";
@@ -175,8 +175,8 @@ export function startWebUi(app: App, port: number): void {
         if (o && url.pathname === "/archive") {
           // One task, or a whole column ("done" or "failed") from its header.
           const column = form.get("column");
-          const statuses = column === "done" ? ["done"] : column === "failed" ? ["failed", "cancelled"] : [];
-          o.archive(column ? o.state.all().filter((r) => !r.archivedAt && statuses.includes(r.status)).map((r) => r.id) : [id]);
+          const all = column === "done" || column === "failed" ? o.state.all().filter((r) => !r.archivedAt && columnOf(r) === column) : [];
+          o.archive(column ? all.map((r) => r.id) : [id]);
         }
         if (o && url.pathname === "/unarchive") o.unarchive(id);
         if (o && url.pathname === "/delete") {
