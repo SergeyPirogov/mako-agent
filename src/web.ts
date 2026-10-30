@@ -103,14 +103,19 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/search-now"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
         const o = app.orchestrator;
-        if (o && url.pathname === "/take") o.decide(id, "take");
+        if (o && url.pathname === "/take") {
+          o.decide(id, "take", { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined });
+        }
         if (o && url.pathname === "/later") o.decide(id, "later");
-        if (o && url.pathname === "/retry") o.retry(id);
+        if (o && url.pathname === "/retry") {
+          o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined });
+        }
+        if (o && url.pathname === "/cancel") o.cancel(id);
         if (o && url.pathname === "/search-now") o.searchNow();
         return res.writeHead(303, { Location: "/" }).end();
       }
@@ -189,7 +194,7 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 function renderSession(id: string, token: string): string {
   const session = sessions.get(id);
   if (!session) {
-    const body = `<h1>Сесія</h1><div class="notice">Сесія <code>${esc(id)}</code> не активна. <a href="/">До вхідних →</a></div>`;
+    const body = `<h1>Сесія</h1><div class="notice">Сесія <code>${esc(id)}</code> не активна. <a href="/">До задач →</a></div>`;
     return page({ title: "Сесія", active: "inbox", token, body });
   }
   const body = `<div class="session-head">

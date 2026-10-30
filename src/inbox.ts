@@ -11,6 +11,7 @@ const LABELS: Record<TaskStatus, string> = {
   "handed-off": "Передано",
   done: "Готово",
   failed: "Помилка",
+  cancelled: "Скасовано",
 };
 
 const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "закінчив хід", exited: "завершено" };
@@ -38,7 +39,7 @@ const COLUMNS: Column[] = [
   { key: "new", title: "Нові", statuses: ["asking", "snoozed"], empty: "Нових задач немає" },
   { key: "doing", title: "В роботі", statuses: ["queued", "running", "handed-off"], empty: "Перетягніть сюди задачу з «Нових», щоб взяти її" },
   { key: "done", title: "Готово", statuses: ["done"], empty: "Тут зʼявляться задачі з PR" },
-  { key: "failed", title: "Помилка", statuses: ["failed"], empty: "" },
+  { key: "failed", title: "Не виконано", statuses: ["failed", "cancelled"], empty: "" },
 ];
 
 const DONE_SHOWN = 15;
@@ -46,9 +47,9 @@ const DONE_SHOWN = 15;
 /** Kanban board: Нові → В роботі (WIP limit) → Готово, plus Помилка when something failed. */
 export function renderInbox(app: App, token: string): string {
   if (!app.orchestrator) {
-    const body = `<h1>Вхідні</h1><div class="notice">${esc(app.problem ?? "Mako запускається…")}.
+    const body = `<h1>Задачі</h1><div class="notice">${esc(app.problem ?? "Mako запускається…")}.
       <a href="/settings">Відкрити налаштування →</a></div>`;
-    return page({ title: "Вхідні", active: "inbox", token, body });
+    return page({ title: "Задачі", active: "inbox", token, body });
   }
   const records = app.orchestrator.state.all();
   const problem = app.problem ? `<div class="notice err">${esc(app.problem)}. <a href="/settings">Налаштування →</a></div>` : "";
@@ -61,7 +62,7 @@ export function renderInbox(app: App, token: string): string {
 
   const limit = app.cfg?.wipLimit ?? 0;
   const wip = app.orchestrator.wip();
-  const columns = COLUMNS.filter((c) => c.key !== "failed" || records.some((r) => r.status === "failed"));
+  const columns = COLUMNS.filter((c) => c.key !== "failed" || records.some((r) => r.status === "failed" || r.status === "cancelled"));
   const board = columns
     .map((col) => {
       let items = records.filter((r) => col.statuses.includes(r.status)).sort(columnOrder(col.key));
@@ -86,7 +87,7 @@ export function renderInbox(app: App, token: string): string {
     <div class="board" style="--cols:${columns.length}">${board}</div>`;
   const { sig, attention, search } = inboxSignature(app);
   return page({
-    title: `${attention ? `(${attention}) ` : ""}Вхідні`,
+    title: `${attention ? `(${attention}) ` : ""}Задачі`,
     active: "inbox",
     token,
     body,
@@ -140,6 +141,42 @@ function attentionBlock(): string {
   return `<section class="attention"><h2>🔔 Потрібна ваша увага</h2>${items}</section>`;
 }
 
+/** Where the task runs (or would run if taken now): repo · executor. */
+function route(app: App, r: TaskRecord): string {
+  const waiting = r.status === "asking" || r.status === "snoozed";
+  const choices = app.orchestrator?.choicesFor(r.id);
+  const repo = waiting ? (choices?.repo ?? r.repo) : r.repo;
+  const name = waiting ? choices?.executor : r.executor;
+  const executor = choices?.executors.find((e) => e.name === name)?.label ?? name;
+  if (!repo && !executor) return "";
+  return `<span class="kc-repo" title="Куди піде задача">${esc([repo, executor].filter(Boolean).join(" · "))}</span>`;
+}
+
+/** "Взяти" runs the task the usual way; "▾" lets the developer pick the executor and, for multi-repo projects, the repo. */
+function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "retry"): string {
+  const hidden = `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">`;
+  const verb = action === "take" ? "Взяти" : "Повторити";
+  const quick = `<form method="post" action="/${action}">${hidden}<button class="${action === "take" ? "primary" : ""} take-main">${verb}</button></form>`;
+  const choices = app.orchestrator?.choicesFor(r.id);
+  if (!choices || (choices.executors.length < 2 && choices.repos.length < 2)) return quick;
+  const option = (value: string, label: string, selected: boolean) =>
+    `<option value="${esc(value)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
+  const executors = choices.executors
+    .map((e) => option(e.name, `${e.label}${e.name === choices.executor ? " (за замовчуванням)" : ""}`, e.name === choices.executor))
+    .join("");
+  const repos =
+    choices.repos.length > 1
+      ? `<label>Репозиторій<select name="repo">${choices.repos.map((n) => option(n, n, n === choices.repo)).join("")}</select></label>`
+      : "";
+  return `<div class="take ${action}">${quick}<details class="take-menu"><summary class="take-more" title="Вибрати, куди відправити задачу">▾</summary>
+    <form method="post" action="/${action}" class="take-pop">${hidden}
+      <div class="tp-title">Куди відправити</div>
+      <label>Хто виконує<select name="executor">${executors}</select></label>
+      ${repos}
+      <button class="primary">${verb}</button>
+    </form></details></div>`;
+}
+
 function card(app: App, r: TaskRecord, token: string, col: Column["key"]): string {
   const form = (action: string, label: string, primary = false) =>
     `<form method="post" action="/${action}"><input type="hidden" name="id" value="${esc(r.id)}">` +
@@ -147,8 +184,15 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
   const actions = [
     session ? `<a class="btn" href="/session/${esc(session.id)}">Термінал</a>` : "",
-    r.status === "asking" || r.status === "snoozed" ? form("take", "Взяти", true) + form("later", "Відкласти") : "",
-    r.status === "failed" ? form("retry", "Повторити") : "",
+    r.status === "asking" || r.status === "snoozed" ? takeControl(app, r, token, "take") + form("later", "Відкласти") : "",
+    r.status === "failed" || r.status === "cancelled" ? takeControl(app, r, token, "retry") : "",
+    r.status === "queued" || r.status === "handed-off"
+      ? `<form method="post" action="/cancel" data-confirm="${esc(
+          r.status === "handed-off"
+            ? "Mako перестане чекати PR і звільнить місце в роботі. Сам workspace в Orca чи іншому інструменті не зачіпається."
+            : "Задача не запуститься і звільнить місце в роботі.",
+        )}"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Скасувати</button></form>`
+      : "",
     app.orchestrator?.workspaceFor(r.id) ? `<a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "",
     r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">PR ↗</a>` : "",
   ].join("");
@@ -163,7 +207,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   const draggable = col === "new" || col === "failed";
   return `<article class="kcard${attn ? " attn" : ""}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
     <div class="kc-top"><a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>
-      ${r.repo ? `<span class="kc-repo">${esc(r.repo)}${r.executor ? ` · ${esc(r.executor)}` : ""}</span>` : ""}</div>
+      ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}</div>
     <div class="kc-status">${status}</div>
     ${r.error ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}

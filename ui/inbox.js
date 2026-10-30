@@ -47,6 +47,52 @@
   drawClock();
   setInterval(drawClock, 1000);
 
+  // Forms that need a "are you sure" go through Mako's in-page dialog.
+  document.addEventListener("submit", async (e) => {
+    const form = e.target;
+    if (!form.dataset?.confirm || form.dataset.confirmed) return;
+    e.preventDefault();
+    const ok = await makoConfirm({
+      title: "Скасувати задачу?",
+      body: form.dataset.confirm,
+      confirm: "Скасувати задачу",
+      cancel: "Ні",
+      tone: "danger",
+    });
+    if (ok) {
+      form.dataset.confirmed = "1";
+      form.submit();
+    }
+  });
+
+  // The board scrolls sideways, which would clip a menu inside it: float the open menu over the page instead.
+  document.addEventListener(
+    "toggle",
+    (e) => {
+      const menu = e.target;
+      if (!menu.matches?.("details.take-menu") || !menu.open) return;
+      document.querySelectorAll("details.take-menu[open]").forEach((d) => d !== menu && (d.open = false));
+      const pop = menu.querySelector(".take-pop");
+      const anchor = menu.closest(".take").getBoundingClientRect();
+      pop.style.position = "fixed";
+      pop.style.left = `${Math.min(anchor.left, innerWidth - pop.offsetWidth - 12)}px`;
+      const below = anchor.bottom + 6;
+      pop.style.top = below + pop.offsetHeight > innerHeight - 8 ? `${Math.max(8, anchor.top - pop.offsetHeight - 6)}px` : `${below}px`;
+    },
+    true,
+  );
+  addEventListener("scroll", () => document.querySelectorAll("details.take-menu[open]").forEach((d) => (d.open = false)), true);
+
+  // One "Куди відправити" menu at a time; a click elsewhere or Esc closes it.
+  document.addEventListener("click", (e) => {
+    document.querySelectorAll("details.take-menu[open]").forEach((d) => {
+      if (!d.contains(e.target)) d.open = false;
+    });
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") document.querySelectorAll("details.take-menu[open]").forEach((d) => (d.open = false));
+  });
+
   // Drag a card from «Нові» to «В роботі» to take it, or from «Помилка» to retry it.
   const TOKEN = document.querySelector('meta[name="mako-token"]').content;
   let dragged = null;
@@ -86,7 +132,8 @@
 
   async function check() {
     const state = await (await fetch("/api/inbox-state", { cache: "no-store" })).json();
-    if (state.sig !== sig && !busy) return location.reload();
+    // Do not reload under an open "Куди відправити" menu.
+    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open]")) return location.reload();
     search = state.search;
     drawClock();
   }

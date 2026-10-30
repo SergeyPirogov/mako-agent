@@ -69,6 +69,21 @@ export class Orchestrator {
     }
   }
 
+  /** Where a task may go when the developer takes it: the project's repos and every executor. */
+  choicesFor(id: string): { repos: string[]; repo?: string; executors: { name: string; label: string }[]; executor: string } | undefined {
+    const rec = this.state.get(id);
+    const project = rec ? this.trackers.get(rec.task.trackerId)?.projects[rec.task.project] : undefined;
+    if (!rec || !project) return undefined;
+    const repoName = rec.chosenRepo ?? rec.repo;
+    const repo = repoName ? project.repos[repoName] : undefined;
+    return {
+      repos: Object.keys(project.repos),
+      repo: repoName,
+      executors: [...this.executors.values()].map((e) => ({ name: e.name, label: e.label })),
+      executor: rec.chosenExecutor ?? (repo ? this.executorFor(repo).name : this.cfg.defaultExecutor),
+    };
+  }
+
   /** Where a task's work lives, for the changes view. */
   workspaceFor(id: string): { worktree: string; baseBranch: string; task: TaskRecord["task"] } | undefined {
     const rec = this.state.get(id);
@@ -212,7 +227,14 @@ export class Orchestrator {
       try {
         const { review, branchSha } = await findReview(repo, branch, rec.branchSha);
         if (branchSha && branchSha !== rec.branchSha) this.state.update(rec.id, { branchSha });
-        if (!review) continue;
+        if (!review) {
+          // The tool's workspace is gone and nothing was opened from it: the hand-off was abandoned.
+          if (rec.worktree && !existsSync(rec.worktree)) {
+            this.cancel(rec.id, `Workspace видалено (${rec.worktree}), PR не відкрито`);
+            inform(`🦈 ${rec.id}: передачу скасовано`, "Workspace видалено, PR немає. Задачу можна повторити з дошки.");
+          }
+          continue;
+        }
 
         const name = review.kind === "pull" ? `Pull request #${review.number}` : `Merge request !${review.number}`;
         const link = review.url ?? name;
@@ -237,7 +259,8 @@ export class Orchestrator {
       log(task.id, `new task → ${repo}: ${task.title}`);
       this.state.update(task.id, { task, repo, status: "snoozed", snoozedUntil: 0 });
     } else if (rec.status === "snoozed" || rec.status === "queued") {
-      this.state.update(task.id, { task, repo }); // keep the freshest description, comments and routing
+      // Keep the freshest description, comments and routing, unless the developer chose the repo.
+      this.state.update(task.id, rec.chosenRepo ? { task } : { task, repo });
     }
     const current = this.state.get(task.id)!;
     const due = current.status === "snoozed" && (current.snoozedUntil ?? 0) <= Date.now();
@@ -261,12 +284,21 @@ export class Orchestrator {
   }
 
   /** Applies an answer from a notification or the inbox page. The first answer wins. */
-  decide(id: string, decision: Decision): boolean {
+  decide(id: string, decision: Decision, choice: { repo?: string; executor?: string } = {}): boolean {
     const rec = this.state.get(id);
     if (!rec || !["asking", "snoozed"].includes(rec.status)) return false;
     if (decision === "take") {
-      log(id, "taken");
-      this.state.update(id, { status: "queued", queuedAt: Date.now() });
+      const project = this.trackers.get(rec.task.trackerId)?.projects[rec.task.project];
+      const chosenRepo = choice.repo && project?.repos[choice.repo] ? choice.repo : undefined;
+      const chosenExecutor = choice.executor && this.executors.has(choice.executor) ? choice.executor : undefined;
+      log(id, `taken${chosenRepo ? ` → repo ${chosenRepo}` : ""}${chosenExecutor ? ` · executor ${chosenExecutor}` : ""}`);
+      this.state.update(id, {
+        status: "queued",
+        queuedAt: Date.now(),
+        chosenRepo,
+        chosenExecutor,
+        ...(chosenRepo ? { repo: chosenRepo } : {}),
+      });
       this.schedule();
     } else {
       const snoozeMin = this.cfg.notifications.snoozeMin;
@@ -296,12 +328,13 @@ export class Orchestrator {
     const { task } = rec;
     const tracker = this.trackers.get(task.trackerId);
     const project = tracker?.projects[task.project];
-    const repo = (rec.repo && project?.repos[rec.repo]) || routeTask(task, project).repo;
+    const repo =
+      (rec.chosenRepo && project?.repos[rec.chosenRepo]) || (rec.repo && project?.repos[rec.repo]) || routeTask(task, project).repo;
     if (!tracker || !repo) {
       this.state.update(task.id, { status: "failed", error: `no configured repository for ${task.id}` });
       return;
     }
-    const executor = this.executorFor(repo);
+    const executor = (rec.chosenExecutor && this.executors.get(rec.chosenExecutor)) || this.executorFor(repo);
     const branch = git.branchFor(task.slug);
     const prompt = buildPrompt(task, tracker, repo, executor);
     const promptFile = this.state.logPath(task).replace(/\.jsonl$/, ".prompt.md");
@@ -393,10 +426,34 @@ export class Orchestrator {
   }
 
   /** Lets a failed or finished task be offered again (inbox "Повторити"). */
-  retry(id: string): boolean {
+  retry(id: string, choice: { repo?: string; executor?: string } = {}): boolean {
     const rec = this.state.get(id);
-    if (!rec || !["failed", "done", "handed-off"].includes(rec.status)) return false;
-    this.state.update(id, { status: "queued", queuedAt: Date.now(), error: undefined });
+    if (!rec || !["failed", "done", "handed-off", "cancelled"].includes(rec.status)) return false;
+    const project = this.trackers.get(rec.task.trackerId)?.projects[rec.task.project];
+    const chosenRepo = choice.repo && project?.repos[choice.repo] ? choice.repo : rec.chosenRepo;
+    const chosenExecutor = choice.executor && this.executors.has(choice.executor) ? choice.executor : rec.chosenExecutor;
+    log(id, `retry${chosenRepo ? ` → repo ${chosenRepo}` : ""}${chosenExecutor ? ` · executor ${chosenExecutor}` : ""}`);
+    this.state.update(id, {
+      status: "queued",
+      queuedAt: Date.now(),
+      error: undefined,
+      chosenRepo,
+      chosenExecutor,
+      ...(chosenRepo ? { repo: chosenRepo } : {}),
+      // A fresh run, not the old hand-off: forget its branch and PR tracking.
+      branch: undefined,
+      branchSha: undefined,
+    });
+    this.schedule();
+    return true;
+  }
+
+  /** Stops waiting for a task that is queued or handed off (e.g. its Orca workspace was deleted); frees its WIP slot. */
+  cancel(id: string, reason = "Скасовано вручну"): boolean {
+    const rec = this.state.get(id);
+    if (!rec || !["queued", "handed-off"].includes(rec.status)) return false;
+    log(id, `cancelled: ${reason}`);
+    this.state.update(id, { status: "cancelled", finishedAt: new Date().toISOString(), error: reason });
     this.schedule();
     return true;
   }

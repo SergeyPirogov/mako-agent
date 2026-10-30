@@ -28,7 +28,7 @@ export function askToTake(task: Task, tracker: Tracker, route: string | undefine
   const title = "🦈 У вас нова задача";
   const where = `${tracker.name}${route ? ` → ${route}` : ""}`;
   if (host) return host.ask(title, `${task.id}: ${task.title}\n${where}`, cfg.timeoutSec);
-  const inbox = cfg.inboxPort ? `\nВхідні: http://127.0.0.1:${cfg.inboxPort}` : "";
+  const inbox = cfg.inboxPort ? `\nЗадачі: http://127.0.0.1:${cfg.inboxPort}` : "";
   const message = `${task.id}: ${task.title}\n${where}${inbox}`;
   return process.platform === "linux"
     ? askLinux(title, message, cfg.timeoutSec)

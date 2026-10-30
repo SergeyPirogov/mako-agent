@@ -8,7 +8,7 @@ import type { Task } from "./types.js";
  * queued   – taken, waiting for a free agent slot
  * handed-off – passed to an interactive tool (Orca, a terminal); the developer finishes it there
  */
-export type TaskStatus = "asking" | "snoozed" | "queued" | "running" | "handed-off" | "done" | "failed";
+export type TaskStatus = "asking" | "snoozed" | "queued" | "running" | "handed-off" | "done" | "failed" | "cancelled";
 
 export interface TaskRecord {
   id: string;
@@ -18,6 +18,9 @@ export interface TaskRecord {
   repo?: string;
   /** Name of the executor that ran the task. */
   executor?: string;
+  /** Chosen by the developer when taking the task; win over routing and the default executor. */
+  chosenRepo?: string;
+  chosenExecutor?: string;
   updatedAt: string;
   snoozedUntil?: number;
   queuedAt?: number;

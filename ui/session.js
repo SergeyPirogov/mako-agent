@@ -52,7 +52,7 @@
   function end() {
     ended = true;
     finishBtn.disabled = cancelBtn.disabled = true;
-    statusMsg.innerHTML = 'Сесію завершено. Mako комітить, пушить і відкриває PR. Результат буде у <a href="/">вхідних</a>.';
+    statusMsg.innerHTML = 'Сесію завершено. Mako комітить, пушить і відкриває PR. Результат буде на <a href="/">дошці задач</a>.';
   }
 
   function connect() {
