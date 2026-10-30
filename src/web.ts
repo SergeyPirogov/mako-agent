@@ -1,7 +1,7 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { run } from "./shell.js";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,8 @@ import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
 import { renderInbox, renderArchive, inboxSignature } from "./inbox.js";
-import { page, esc } from "./ui-layout.js";
+import { page, esc, setVersion } from "./ui-layout.js";
+import { execFileSync } from "node:child_process";
 import { sessions, type SessionEvent } from "./sessions.js";
 import { collectChanges, readWorktreeFile } from "./changes.js";
 import { log } from "./log.js";
@@ -38,7 +39,26 @@ const STATIC: Record<string, [string, string]> = {
  * so every change needs the per-run token embedded in the pages, and the Host header must be
  * localhost, which blocks other websites and DNS-rebinding attacks.
  */
+/** "v0.1.0 · abc1234": the package version and, when running from a git checkout, the commit. */
+function makoVersion(): string {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  let v = "";
+  try {
+    v = "v" + JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
+  } catch {
+    // packaged without package.json next to dist: no version
+  }
+  try {
+    const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (sha) v += ` · ${sha}`;
+  } catch {
+    // not a git checkout (packaged app)
+  }
+  return v;
+}
+
 export function startWebUi(app: App, port: number): void {
+  setVersion(makoVersion());
   const token = randomBytes(24).toString("hex");
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 

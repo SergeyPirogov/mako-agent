@@ -187,7 +187,7 @@ function route(app: App, r: TaskRecord): string {
 function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "retry"): string {
   const hidden = `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">`;
   const verb = action === "take" ? "Взяти" : "Повторити";
-  const quick = `<form method="post" action="/${action}">${hidden}<button class="${action === "take" ? "primary" : ""} take-main">${verb}</button></form>`;
+  const quick = `<form method="post" action="/${action}">${hidden}<button class="${action === "take" ? "primary" : "soft"} take-main">${verb}</button></form>`;
   const choices = app.orchestrator?.choicesFor(r.id);
   if (!choices || (choices.executors.length < 2 && choices.repos.length < 2)) return quick;
   const option = (value: string, label: string, selected: boolean) =>

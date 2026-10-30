@@ -1,3 +1,10 @@
+let version = "";
+
+/** Shown in the header, so a stale build or an old running instance is easy to spot. */
+export function setVersion(v: string): void {
+  version = v;
+}
+
 export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
@@ -29,6 +36,6 @@ export function page(opts: {
 <script src="/ui/dialog.js" defer></script>
 <link rel="icon" type="image/png" href="/ui/favicon${opts.attention ? "-attention" : ""}.png"><link rel="apple-touch-icon" href="/ui/icon.png">${opts.head ?? ""}</head>
 <body${Object.entries(opts.data ?? {}).map(([k, v]) => ` data-${k}="${esc(v)}"`).join("")}>
-${opts.bare ? "" : `<header><div class="bar"><span class="logo">🦈 Mako</span><nav>${tab("/", "inbox", "Задачі")}${tab("/settings", "settings", "Налаштування")}</nav></div></header>`}
+${opts.bare ? "" : `<header><div class="bar"><span class="logo">🦈 Mako</span><nav>${tab("/", "inbox", "Задачі")}${tab("/settings", "settings", "Налаштування")}</nav>${version ? `<span class="ver" title="Версія Mako">${esc(version)}</span>` : ""}</div></header>`}
 <main class="${[opts.wide ? "wide" : "", opts.bare ? "bare" : ""].join(" ").trim()}">${opts.body}</main>${opts.script ? `<script src="${opts.script}"></script>` : ""}</body></html>`;
 }
