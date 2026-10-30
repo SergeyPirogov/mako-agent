@@ -406,7 +406,8 @@ main:has(.wz) { max-width: 720px; }
 .wz-center { justify-content: center; margin-top: 18px; }
 
 /* task log */
-.kc-phase { font-size: 12px; overflow-wrap: anywhere; }
+/* one line whatever the step says: the card keeps its height while the agent works */
+.kc-phase { font-size: 12px; line-height: 18px; height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 ol.tlog { list-style: none; padding: 12px 14px; margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
   font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 ol.tlog .muted { margin-right: 6px; }

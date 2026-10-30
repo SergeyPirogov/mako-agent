@@ -19,13 +19,17 @@ const LABELS: Record<TaskStatus, string> = {
 const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "закінчив хід", exited: "завершено" };
 
 /** Changes whenever the inbox would look different; the page polls it to refresh itself. */
-export function inboxSignature(app: App): { sig: string; attention: number; search?: unknown } {
+export function inboxSignature(app: App): { sig: string; attention: number; search?: unknown; phases: Record<string, string> } {
   const records = app.orchestrator?.state.all() ?? [];
   const live = [...sessions.values()].map((s) => `${s.id}:${s.status}:${s.message ?? ""}`);
   const asking = records.filter((r) => r.status === "asking" || (r.status === "failed" && r.denied?.length && !r.archivedAt)).length;
   return {
-    sig: JSON.stringify([app.problem, app.orchestrator?.paused, records.map((r) => `${r.id}:${r.status}:${r.updatedAt}:${r.status === "running" ? recentLog(r.id).length : ""}`), live]),
+    sig: JSON.stringify([app.problem, app.orchestrator?.paused, records.map((r) => `${r.id}:${r.status}:${r.updatedAt}`), live]),
     attention: attentionSessions().length + asking,
+    // The latest step of background runs, updated in place: reloading the board for each log line made it jump.
+    phases: Object.fromEntries(
+      records.filter((r) => r.status === "running").map((r) => [r.id, phase(recentLog(r.id).at(-1)?.text ?? "")]),
+    ),
     search: app.orchestrator?.searchStatus(),
   };
 }
@@ -253,7 +257,6 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>${session.message && session.status === "waiting" ? ` <span class="muted">${esc(session.message)}</span>` : ""}`
     : `<span class="s ${r.status}">${LABELS[r.status]}</span>${
         r.status === "handed-off" ? ` <span class="muted">чекає PR з <code>${esc(r.branch ?? "")}</code></span>`
-        : r.status === "running" && recentLog(r.id).length ? ` <span class="muted kc-phase">${esc(phase(recentLog(r.id).at(-1)!.text))}</span>`
         : r.status === "snoozed" && r.snoozedUntil ? ` <span class="muted">до ${new Date(r.snoozedUntil).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}</span>`
         : ""
       }`;
@@ -270,6 +273,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     <div class="kc-title">${esc(r.task.title)}</div>
     ${description(r)}
     <div class="kc-status">${gone ? (r.status === "cancelled" ? gone : `${status} ${gone}`) : needsPermission ? `<span class="s perm">🔒 Потрібні дозволи</span>` : status}</div>
+    ${r.status === "running" && !session ? `<div class="kc-phase muted" data-phase="${esc(r.id)}" title="${esc(phase(recentLog(r.id).at(-1)?.text ?? ""))}">${esc(phase(recentLog(r.id).at(-1)?.text ?? "")) || "&nbsp;"}</div>` : ""}
     ${r.trackerStatus ? `<div class="kc-tstatus${r.trackerStatus.ok ? "" : " warn"}" title="${esc(r.trackerStatus.text)}">${r.trackerStatus.ok ? "" : "⚠ "}${esc(r.trackerStatus.text.length > 140 ? r.trackerStatus.text.slice(0, 139) + "…" : r.trackerStatus.text)}${!r.trackerStatus.ok && /Налаштуваннях/.test(r.trackerStatus.text) ? ` <a href="/settings">Вибрати</a>` : ""}</div>` : ""}
     ${needsPermission
       ? `<div class="kc-perm"><div class="small muted">Агенту не дозволили:</div><ul>${r.denied!.slice(0, 3).map((d) => `<li><code>${esc(d)}</code></li>`).join("")}${r.denied!.length > 3 ? `<li class="muted">і ще ${r.denied!.length - 3}</li>` : ""}</ul></div>`
@@ -281,7 +285,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
 /** The latest step of a running task in a few words. */
 function phase(line: string): string {
   const t = line.replace(/\s+/g, " ").trim();
-  return t.length > 90 ? t.slice(0, 89) + "…" : t;
+  return t.length > 300 ? t.slice(0, 299) + "…" : t; // the card cuts it to one line; the tooltip has the rest
 }
 
 /** What a task without a terminal is doing: Mako's own steps and, for background agents, their actions. */

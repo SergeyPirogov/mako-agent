@@ -118,6 +118,13 @@
     if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog.desc[open]")) return location.reload();
     search = state.search;
     drawClock();
+    for (const el of document.querySelectorAll("[data-phase]")) {
+      const text = state.phases?.[el.dataset.phase];
+      if (text !== undefined && el.textContent !== text) {
+        el.textContent = text || "\u00a0";
+        el.title = text;
+      }
+    }
   }
   setInterval(() => {
     if (document.hidden) return;
