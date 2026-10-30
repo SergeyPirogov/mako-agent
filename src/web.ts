@@ -37,6 +37,7 @@ const STATIC: Record<string, [string, string]> = {
   "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
   "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
   "vendor/addon-fit.js": [require.resolve("@xterm/addon-fit/lib/addon-fit.js"), "text/javascript"],
+  "vendor/addon-web-links.js": [require.resolve("@xterm/addon-web-links/lib/addon-web-links.js"), "text/javascript"],
 };
 
 /**
@@ -338,7 +339,7 @@ function renderSession(app: App, id: string, token: string): string {
     <div id="mr-bar" class="kc-mr mr-bar" hidden></div>
     <div class="session-body"><div id="term"></div>
       <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>`;
-  return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });
+  return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script><script src="/ui/vendor/addon-web-links.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });
 }
 
 /** Live check for the settings page: does the repo path exist, is it git, does origin/<base> exist locally. */

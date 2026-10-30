@@ -17,8 +17,16 @@
     exited: "Сесію завершено",
   };
 
+  // Links the agent prints open in the browser right away (in the desktop app: the default browser),
+  // instead of xterm's own «Do you want to navigate…» confirm.
+  const openLink = (event, uri) => {
+    if (!/^https?:\/\//i.test(uri)) return;
+    event?.preventDefault?.();
+    window.open(uri, "_blank", "noopener");
+  };
   const term = new Terminal({
     cursorBlink: true,
+    linkHandler: { activate: openLink, allowNonHttpProtocols: false },
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
     fontSize: 13,
     scrollback: 20000,
@@ -27,6 +35,7 @@
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
+  term.loadAddon(new WebLinksAddon.WebLinksAddon(openLink));
   term.open(document.getElementById("term"));
   fit.fit();
   term.focus();
