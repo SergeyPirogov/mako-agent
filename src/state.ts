@@ -44,6 +44,8 @@ export interface TaskRecord {
   trackerStatus?: { ok: boolean; text: string };
   /** Commit the PR/MR was last pushed at, so finishing does not push (and reopen) an already merged branch. */
   publishedSha?: string;
+  /** The issue already has Mako's comment about the PR/MR (posted when it was opened from the session). */
+  reviewAnnounced?: boolean;
   costUsd?: number;
   error?: string;
 }

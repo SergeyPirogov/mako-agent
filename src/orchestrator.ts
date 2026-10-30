@@ -462,8 +462,11 @@ export class Orchestrator {
       }
       // «Створити MR» already pushed this exact commit: the MR may be merged by now, pushing again would reopen it.
       const pushed = this.state.get(task.id)?.publishedSha;
+      const announced = this.state.get(task.id)?.reviewAnnounced;
+      let pushedNow = false;
       if (changed && !(pushed && pushed === (await git.headSha(worktree)))) {
         prUrl = (await this.openReview(task, tracker, repo, worktree, branch, executor.label)).url ?? prUrl;
+        pushedNow = true;
       }
 
       const outcome = prUrl
@@ -471,7 +474,9 @@ export class Orchestrator {
         : changed
           ? `Changes pushed to branch ${branch}.`
           : `No code changes were committed.`;
-      await tracker.comment(task, `🦈 Mako: ${executor.label} finished.\n\n${outcome}\n\n${result.summary}`);
+      // The MR was announced in the issue when it was opened: say more only if finishing pushed new work.
+      if (!announced) await tracker.comment(task, `🦈 Mako: ${executor.label} finished.\n\n${outcome}\n\n${result.summary}`);
+      else if (pushedNow) await tracker.comment(task, `🦈 Mako: ${executor.label} finished and pushed the last changes to ${prUrl}\n\n${result.summary}`);
       await this.updateTracker(task, changed ? "success" : "no-changes", () => tracker.onFinish(task, changed ? "success" : "no-changes"));
       this.state.update(task.id, {
         status: "done",
@@ -545,7 +550,7 @@ export class Orchestrator {
     worktree: string,
     branch: string,
     agent: string,
-  ): Promise<{ url?: string; title: string; error?: string }> {
+  ): Promise<{ url?: string; title: string; summary: string; error?: string }> {
     const text = await reviewText(worktree, repo.baseBranch, task);
     if (text.error) log(task.id, `review text not written by Claude: ${text.error}`);
     const closing = task.closingRef ?? task.url;
@@ -563,7 +568,7 @@ export class Orchestrator {
         error = `опис не записано: ${err.message}`;
       });
     }
-    return { url, title: text.title, error };
+    return { url, title: text.title, summary: text.summary, error };
   }
 
   /**
@@ -587,7 +592,13 @@ export class Orchestrator {
     this.state.update(id, { prUrl: url, publishedSha: await git.headSha(ws.worktree) });
     log(id, `${first ? "review opened" : "review updated"}${url ? `: ${url}` : ` (branch ${branch} pushed)`}`);
     if (first && url) {
-      await tracker.comment(task, `🦈 Mako: ${url}`).catch(() => {});
+      // The same kind of report the issue gets when a task is finished: what the MR changes and where it is.
+      const kind = tracker.name === "GitHub" ? "pull request" : "merge request";
+      const report = [`🦈 Mako opened a ${kind}: ${url}`, `**${review.title}**`, review.summary].filter(Boolean).join("\n\n");
+      await tracker
+        .comment(task, report)
+        .then(() => this.state.update(id, { reviewAnnounced: true }))
+        .catch((err: any) => log(id, `comment not posted: ${err.message}`));
       await this.updateTracker(task, "success", () => tracker.onFinish(task, "success"));
     }
     const problems = [message?.error && message.error !== "немає змін" ? `коміт: ${message.error}` : "", review.error ? `MR: ${review.error}` : ""].filter(Boolean);
