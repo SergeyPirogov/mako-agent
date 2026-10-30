@@ -297,8 +297,8 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     : "";
   const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle" || needsPermission || (r.status === "running" && r.reviewState === "merged");
   const draggable = col === "new" || col === "failed";
-  // What the board filter searches: id, title, repo, executor, labels.
-  const haystack = [r.id, r.task.title, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
+  // What the board filter searches: id, title, tracker, repo, executor, labels.
+  const haystack = [r.id, r.task.title, trackerName, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
   return `<article class="kcard${attn ? " attn" : ""}" data-search="${esc(haystack)}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
     <div class="kc-top">${r.task.url ? `<a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>` : `<span class="kc-id" title="Задача, створена в Mako">${esc(r.id)}</span>`}
       ${route(app, r)}</div>
