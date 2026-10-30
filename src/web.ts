@@ -214,7 +214,7 @@ export function startWebUi(app: App, port: number): void {
           }
           let rec = o.state.get(task);
           if (rec?.prUrl && Date.now() - (o.reviewChecked.get(task) ?? 0) > 20_000) rec = await o.refreshReview(task);
-          return json(200, { prUrl: rec?.prUrl, review: rec?.review, reviewState: rec?.reviewState });
+          return json(200, { prUrl: rec?.prUrl, review: rec?.review, reviewState: rec?.reviewState, ...(await o.pendingChanges(task)) });
         }
         if (req.method === "POST" && url.pathname === "/api/publish") {
           if (!app.orchestrator) return json(400, { error: "Mako не налаштований" });
@@ -298,7 +298,7 @@ function renderSession(app: App, id: string, token: string): string {
       <div class="session-actions"><span id="status" class="s"></span>
         <button id="toggle-changes" title="Змінені файли і diff">Зміни</button>
         <a id="review-link" class="btn"${prUrl ? ` href="${esc(prUrl)}"` : " hidden"} target="_blank" rel="noreferrer">${reviewName} ↗</a>
-        <button id="publish" class="primary" title="Закомітити зміни з повідомленням від Claude, запушити гілку й відкрити ${reviewName}. Агент працює далі">${prUrl ? `Оновити ${reviewName}` : `Створити ${reviewName}`}</button>
+        <button id="publish" class="primary" disabled title="Закомітити зміни з повідомленням від Claude, запушити гілку й відкрити ${reviewName}. Агент працює далі">${prUrl ? `Оновити ${reviewName}` : `Створити ${reviewName}`}</button>
         <button id="finish" class="success" title="Закрити агента й завершити задачу${prUrl ? "" : `; якщо ${reviewName} ще немає, Mako його відкриє`}">✓ Завершити</button>
         <button id="cancel" class="danger-outline" title="Зупинити без PR">Скасувати</button></div>
     </div>

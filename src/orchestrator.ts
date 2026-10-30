@@ -760,6 +760,26 @@ export class Orchestrator {
     return { url, message: message?.text, title: review.title, updated: !first, warning: problems.join("; ") || undefined };
   }
 
+  /**
+   * Whether «Створити/Оновити MR» has anything to do: uncommitted work, or commits that are not in the
+   * PR/MR yet (since its last push), or, before there is one, any change against the base.
+   */
+  async pendingChanges(id: string): Promise<{ hasChanges: boolean; pending: boolean }> {
+    const rec = this.state.get(id);
+    const ws = this.workspaceFor(id);
+    const repo = rec?.repo ? this.trackers.get(rec.task.trackerId)?.projects[rec.task.project]?.repos[rec.repo] : undefined;
+    if (!rec || !ws || !repo) return { hasChanges: false, pending: false };
+    try {
+      const dirty = await git.hasUncommittedChanges(ws.worktree);
+      const ahead = (await git.commitsAhead(repo, ws.worktree)) > 0;
+      const hasChanges = dirty || ahead;
+      const pending = dirty || (rec.publishedSha ? (await git.headSha(ws.worktree)) !== rec.publishedSha : ahead);
+      return { hasChanges, pending };
+    } catch {
+      return { hasChanges: false, pending: false };
+    }
+  }
+
   /** Tasks whose background agent is being stopped to continue in the terminal. */
   private takeOvers = new Set<string>();
 

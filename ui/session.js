@@ -98,6 +98,7 @@
   const review = document.body.dataset.review || "MR";
   publishBtn?.addEventListener("click", async () => {
     const label = publishBtn.textContent;
+    publishing = true;
     publishBtn.disabled = true;
     publishBtn.textContent = "Комічу й пушу…";
     statusMsg.textContent = `Claude пише commit message, потім Mako запушить гілку й відкриє ${review}…`;
@@ -124,7 +125,8 @@
       publishBtn.textContent = label;
       statusMsg.textContent = `${review} не створено: ${err.message}`;
     } finally {
-      publishBtn.disabled = false;
+      publishing = false;
+      loadReview();
     }
   });
 
@@ -135,10 +137,19 @@
     created: ["run", "⏳ CI"], canceled: ["mute", "CI скасовано"], skipped: ["mute", "CI пропущено"], manual: ["mute", "CI чекає ручного запуску"],
   };
   const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  let publishing = false;
   async function loadReview() {
-    if (!reviewLink || reviewLink.hidden) return;
     const res = await fetch(`/api/review?task=${encodeURIComponent(document.body.dataset.task)}`, { headers: { "X-Mako-Token": TOKEN } });
     const data = await res.json().catch(() => ({}));
+    // «Створити/Оновити MR» only when there is something to send.
+    if (publishBtn && !publishing) {
+      const hasMr = reviewLink && !reviewLink.hidden;
+      publishBtn.disabled = data.reviewState === "merged" || (hasMr ? !data.pending : !data.hasChanges);
+      publishBtn.title = publishBtn.disabled
+        ? data.reviewState === "merged" ? `${review} уже змерджено` : hasMr ? `Нових змін після останнього оновлення ${review} немає` : "Агент ще нічого не змінив"
+        : `Закомітити зміни з повідомленням від Claude, запушити гілку й ${hasMr ? "оновити" : "відкрити"} ${review}. Агент працює далі`;
+    }
+    if (!reviewLink || reviewLink.hidden) return;
     const r = data.review;
     if (data.reviewState === "merged") {
       mrBar.hidden = false;
@@ -184,7 +195,8 @@
     term.focus();
   });
   loadReview();
-  setInterval(() => !document.hidden && loadReview(), 15_000);
+  // Often enough that the button wakes up soon after the agent changes something; the MR itself is re-read every 20 s.
+  setInterval(() => !document.hidden && loadReview(), 4000);
 
   finishBtn.addEventListener("click", async () => {
     const ok = await makoConfirm({
