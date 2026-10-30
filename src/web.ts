@@ -172,7 +172,7 @@ export function startWebUi(app: App, port: number): void {
         }
         if (o && url.pathname === "/unarchive") o.unarchive(id);
         if (o && url.pathname === "/delete") {
-          o.remove(form.get("all") ? o.state.all().filter((r) => r.archivedAt).map((r) => r.id) : [id]);
+          await o.remove(form.get("all") ? o.state.all().filter((r) => r.archivedAt).map((r) => r.id) : [id]);
           return res.writeHead(303, { Location: "/archive" }).end();
         }
         const back = form.get("back");

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import type { RepoConfig } from "./config.js";
@@ -6,6 +6,29 @@ import { run, runOk } from "./shell.js";
 
 export function branchFor(slug: string): string {
   return `agent/${slug}`;
+}
+
+/**
+ * Removes a task's worktree and its local branch (the pushed branch and any PR/MR stay). Never touches the repo
+ * itself: executors without worktrees record the repo path as the task's folder.
+ */
+export async function removeWorktree(repo: RepoConfig, dir: string, branch: string): Promise<boolean> {
+  const target = path.resolve(dir);
+  const main = path.resolve(repo.repoPath);
+  if (target === main || main.startsWith(target + path.sep)) return false;
+  let removed = false;
+  if (existsSync(target)) {
+    const r = await run("git", ["worktree", "remove", "--force", target], main);
+    removed = r.code === 0;
+    // Not a registered worktree (left over from a crash): delete it only inside Mako's own worktrees folder.
+    if (!removed && target.startsWith(path.resolve(repo.worktreesDir) + path.sep)) {
+      rmSync(target, { recursive: true, force: true });
+      removed = true;
+    }
+  }
+  await run("git", ["worktree", "prune"], main);
+  await run("git", ["branch", "-D", branch], main);
+  return removed;
 }
 
 /** Creates (or reuses) an isolated worktree for the task, branched from the latest base branch. */

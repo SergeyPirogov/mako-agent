@@ -136,7 +136,7 @@ export function renderArchive(app: App, token: string): string {
 }
 
 const DELETE_NOTE =
-  "Mako забуде задачу: її журнал і рішення зникнуть. Задача в трекері, гілка й worktree лишаться. Якщо вона й далі підходить під фільтр, Mako запропонує її знову.";
+  "Mako видалить worktree задачі (незакомічені зміни в ньому зникнуть), локальну гілку й журнал. Задача в трекері, запушена гілка й MR лишаться. Якщо задача й далі підходить під фільтр, Mako запропонує її знову.";
 
 /** Within a column: what needs you first, then the most recent. */
 function columnOrder(col: Column["key"]) {

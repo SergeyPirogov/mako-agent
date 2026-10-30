@@ -4,7 +4,7 @@ import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
 import { createExecutor, type Executor } from "./executors/index.js";
 import type { RepoConfig } from "./config.js";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
@@ -653,11 +653,28 @@ export class Orchestrator {
     return true;
   }
 
-  /** Forgets archived tasks for good; one still matching the tracker query will be offered again. */
-  remove(ids: string[]): number {
+  /**
+   * Forgets archived tasks for good, with their worktree, local branch and logs; the issue, the pushed branch and
+   * the PR/MR stay. A task still matching the tracker query will be offered again.
+   */
+  async remove(ids: string[]): Promise<number> {
     let n = 0;
     for (const id of ids) {
-      if (!this.state.get(id)?.archivedAt) continue;
+      const rec = this.state.get(id);
+      if (!rec?.archivedAt) continue;
+      const repo = rec.repo ? this.trackers.get(rec.task.trackerId)?.projects[rec.task.project]?.repos[rec.repo] : undefined;
+      const dir = rec.worktree ?? (repo ? path.join(repo.worktreesDir, rec.task.slug) : undefined);
+      if (repo && dir) {
+        const removed = await git.removeWorktree(repo, dir, rec.branch ?? git.branchFor(rec.task.slug)).catch((err: any) => {
+          log(id, `worktree not removed: ${err.message}`);
+          return false;
+        });
+        if (removed) log(id, `worktree removed: ${dir}`);
+      }
+      const logFile = this.state.logPath(rec.task);
+      for (const f of [logFile, logFile.replace(/\.jsonl$/, ".prompt.md"), logFile.replace(/\.jsonl$/, ".terminal.log"), logFile.replace(/\.jsonl$/, ".claude-settings.json")]) {
+        rmSync(f, { force: true });
+      }
       this.state.delete(id);
       n++;
     }
