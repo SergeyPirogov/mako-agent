@@ -32,6 +32,8 @@ export async function makePlan(worktree: string, prompt: string, timeoutMs = 10 
       if (code === 0 && out.trim()) return resolve(out.trim());
       reject(new Error(signal ? "Claude не склав план за 10 хв" : `claude завершився з кодом ${code}: ${err.trim().slice(0, 300)}`));
     });
+    // Claude may exit before reading it all (no login, a bad flag): its exit code reports that, not a crash.
+    child.stdin.on("error", () => {});
     child.stdin.end(ask);
   });
 }

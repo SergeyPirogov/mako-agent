@@ -135,6 +135,8 @@ function ask(claude: string, prompt: string, cwd: string, timeoutMs: number): Pr
       if (code === 0) return resolve(out);
       reject(new Error(signal ? "Claude не відповів за 2 хв" : `claude завершився з кодом ${code}: ${err.trim().slice(0, 200)}`));
     });
+    // Claude may exit before reading it all (no login, a bad flag): its exit code reports that, not a crash.
+    child.stdin.on("error", () => {});
     child.stdin.end(prompt);
   });
 }
