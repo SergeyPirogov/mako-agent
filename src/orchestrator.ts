@@ -1,4 +1,4 @@
-import type { Config } from "./config.js";
+import type { Config, TaskTemplate } from "./config.js";
 import type { IssueState, Outcome, Task, Tracker } from "./types.js";
 import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
@@ -17,6 +17,7 @@ import { sessions, sessionIdFor } from "./sessions.js";
 import { stopTask } from "./executors/processes.js";
 import { commitMessage, reviewText, taskSummary } from "./commit-message.js";
 import { makePlan } from "./plan.js";
+import { readMemory, writeMemory, learn } from "./memory.js";
 
 export class Orchestrator {
   /** By id; replaced on reload. */
@@ -628,11 +629,13 @@ export class Orchestrator {
     // plan from Claude that the developer approves on the board before the work starts.
     const needsPlan = Boolean(rec.planFirst && !rec.planApproved && !rec.followUp);
     const terminalPlan = needsPlan && this.isTerminalClaude(executor.name);
-    if (needsPlan && !terminalPlan) return this.planPhase(rec, tracker, repo, branch, buildPrompt(task, tracker, repo, executor));
+    const context = this.promptContext(rec, repo);
+    if (needsPlan && !terminalPlan) return this.planPhase(rec, tracker, repo, branch, buildPrompt(task, tracker, repo, executor) + context);
     // A follow-up (fix CI, review comments, conflicts) continues the work in the same worktree.
     const prompt = rec.followUp
       ? `You are continuing work on ${task.id}: ${task.title} (${task.url}) in this worktree, on branch ${branch}.\n\n${rec.followUp}`
       : buildPrompt(task, tracker, repo, executor) +
+        context +
         (rec.planApproved && rec.plan ? `\n\n## Approved plan\n\nThe developer approved this plan. Follow it:\n\n${rec.plan}` : "");
     const promptFile = this.state.logPath(task).replace(/\.jsonl$/, ".prompt.md");
     writeFileSync(promptFile, prompt);
@@ -733,6 +736,12 @@ export class Orchestrator {
       });
       log(task.id, `done: ${outcome}`);
       inform(`✅ ${task.id} готово`, changed ? outcome : "Агент не вніс змін, див. коментар у задачі");
+      // In the background: the next task in this repo starts from what this one found out.
+      if (this.cfg.memory) {
+        void learn(this.cfg.stateDir, repo.name, worktree, repo.baseBranch, task, result.summary)
+          .then((changed) => changed && log(task.id, `repo notes updated: ${repo.name}`))
+          .catch((err: any) => log(task.id, `repo notes not updated: ${err.message}`));
+      }
     } catch (err: any) {
       if (this.takeOvers.delete(task.id)) return this.continueInTerminal(task.id);
       if (this.stopped) {
@@ -939,6 +948,30 @@ export class Orchestrator {
     return posted;
   }
 
+  /** Templates that fit the task (by labels, title, or chosen in «+ Задача»). */
+  templatesFor(rec: TaskRecord): TaskTemplate[] {
+    const labels = rec.task.labels.map((l) => l.toLowerCase());
+    const title = rec.task.title.toLowerCase();
+    return this.cfg.templates.filter(
+      (t) =>
+        t.name === rec.template ||
+        t.labels.some((l) => labels.includes(l)) ||
+        t.titleContains.some((w) => w && title.includes(w)),
+    );
+  }
+
+  /** What Mako adds to the task's own text: matching templates and what earlier tasks learned about the repo. */
+  private promptContext(rec: TaskRecord, repo: RepoConfig): string {
+    const parts: string[] = [];
+    for (const t of this.templatesFor(rec)) {
+      log(rec.id, `template: ${t.name}`);
+      parts.push(`## Instructions for this kind of task («${t.name}»)\n\n${t.instructions}`);
+    }
+    const memory = this.cfg.memory ? readMemory(this.cfg.stateDir, repo.name) : "";
+    if (memory) parts.push(`## What earlier tasks learned about this repository\n\nNotes kept by Mako from previous agents' work here. Use them; they may be out of date.\n\n${memory}`);
+    return parts.length ? `\n\n${parts.join("\n\n")}` : "";
+  }
+
   private isTerminalClaude(executor: string): boolean {
     const c: any = this.cfg.executors[executor];
     return c?.type === "terminal" && /^claude(\.cmd|\.exe)?$/i.test(String(c.command ?? "claude").split(/[\\/]/).pop()!);
@@ -983,6 +1016,22 @@ export class Orchestrator {
     return true;
   }
 
+  /** The repos Mako keeps notes for, with their notes. */
+  memories(): { repo: string; text: string }[] {
+    return Object.keys(this.trackers.get(LOCAL_TRACKER)!.projects).map((repo) => ({ repo, text: readMemory(this.cfg.stateDir, repo) }));
+  }
+
+  saveMemory(repo: string, text: string): void {
+    if (!this.trackers.get(LOCAL_TRACKER)!.projects[repo]) throw new Error(`Немає репозиторію «${repo}»`);
+    writeMemory(this.cfg.stateDir, repo, text);
+    log("main", `repo notes ${text.trim() ? "edited" : "cleared"}: ${repo}`);
+  }
+
+  /** Templates, for «+ Задача». */
+  templateNames(): string[] {
+    return this.cfg.templates.map((t) => t.name);
+  }
+
   /** Executors for «+ Задача», the default first. */
   executorChoices(): { name: string; label: string; default: boolean }[] {
     return [...this.executors.values()]
@@ -991,7 +1040,7 @@ export class Orchestrator {
   }
 
   /** «+ Задача»: a task written in Mako, taken right away (or planned first) in the chosen repo. */
-  createTask(input: { title: string; description: string; repo: string; executor?: string; planFirst?: boolean }): string {
+  createTask(input: { title: string; description: string; repo: string; executor?: string; planFirst?: boolean; template?: string }): string {
     const local = this.trackers.get(LOCAL_TRACKER)!;
     if (!input.title.trim()) throw new Error("Вкажіть, що зробити");
     if (!local.projects[input.repo]) throw new Error(`Немає репозиторію «${input.repo}»`);
@@ -999,7 +1048,8 @@ export class Orchestrator {
     const task = localTask(n, input.title.trim(), input.description.trim(), input.repo);
     const executor = input.executor && this.executors.has(input.executor) ? input.executor : undefined;
     log(task.id, `new task from Mako → ${input.repo}: ${task.title}`);
-    this.state.update(task.id, { task, repo: input.repo, status: "snoozed", snoozedUntil: Date.now() + 365 * 24 * 3600_000 });
+    const template = this.cfg.templates.find((t) => t.name === input.template)?.name;
+    this.state.update(task.id, { task, repo: input.repo, status: "snoozed", snoozedUntil: Date.now() + 365 * 24 * 3600_000, template });
     this.decide(task.id, "take", { repo: input.repo, executor, planFirst: input.planFirst });
     return task.id;
   }

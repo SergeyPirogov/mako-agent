@@ -105,7 +105,7 @@ export async function taskSummary(
   );
 }
 
-async function write(cwd: string, prompt: string, fallback: string): Promise<Written> {
+export async function write(cwd: string, prompt: string, fallback: string): Promise<Written> {
   const claude = findCommand("claude");
   if (!claude) return { text: fallback, error: "Claude Code не знайдено" };
   try {

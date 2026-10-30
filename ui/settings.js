@@ -311,6 +311,7 @@
       ["s-trackers", "Трекери і репозиторії", trackersSection()],
       ["s-executors", "Хто виконує", executorsSection()],
       ["s-work", "Задачі й ліміти", workSection()],
+      ["s-templates", "Шаблони й памʼять", templatesSection()],
       ["s-notify", "Сповіщення", notifySection()],
       ["s-advanced", "Додатково", advancedSection()],
     ];
@@ -612,6 +613,34 @@
       </div></div>${BRANCH_LIST}`;
   }
 
+  function templatesSection() {
+    const list = model.general.templates || [];
+    const rows = list
+      .map((t, i) => {
+        const p = `general.templates.${i}`;
+        return `<div class="card tpl">
+          <div class="head"><div class="title"><h3 class="tname">${h(t.name || "Новий шаблон")}</h3></div>
+            <div class="tools">${button("Видалити", "remove-template", { i }, "link danger")}</div></div>
+          <div class="grid">
+            ${field({ label: "Назва", path: `${p}.name`, placeholder: "Розбір нічного рану", refresh: true })}
+            ${field({ label: "Для задач з мітками", path: `${p}.labels`, type: "csv", placeholder: "nightly-run, triage" })}
+            ${field({ label: "…або з назвою, що містить", path: `${p}.titleContains`, type: "csv", placeholder: "нічного рану, nightly" })}
+            ${field({ label: "Інструкції агенту", path: `${p}.instructions`, kind: "textarea", wide: true,
+              placeholder: "Завантаж звіт з …/report/failed.jsonl. Для кожного падіння визнач: флейк, баг продукту чи тесту. Флейки онови з ретраєм, на баги продукту заведи задачу в GitLab з міткою bug…",
+              hint: "Додаються до промпта кожної задачі, що підходить за міткою чи назвою; у «+ Задача» шаблон можна вибрати явно" })}
+          </div></div>`;
+      })
+      .join("");
+    return `<div class="shead"><h2>Шаблони задач</h2>
+        <p class="muted">Готові інструкції для задач, що повторюються: агент отримує їх разом із текстом задачі.</p></div>
+      ${rows || `<p class="muted">Шаблонів ще немає.</p>`}
+      <div class="adds">${button("+ Шаблон", "add-template")}</div>
+      <div class="shead" style="margin-top:24px"><h2>Памʼять репозиторіїв</h2></div>
+      <div class="card"><div class="grid">
+        ${field({ label: "Збирати й передавати агентам те, що вони дізналися про репозиторій (як запускати тести, структура, підводні камені)", path: "general.memory", kind: "check", type: "booltrue", wide: true })}
+      </div><p class="small"><a href="/memory">Переглянути й відредагувати памʼять →</a></p></div>`;
+  }
+
   function notifySection() {
     return `<div class="shead"><h2>Сповіщення</h2></div>
       <div class="card"><div class="grid">
@@ -674,6 +703,13 @@
       const removed = repoName(proj.repos[ri], proj);
       proj.repos.splice(ri, 1);
       if (proj.rest.default === removed) delete proj.rest.default;
+    },
+    "add-template"() {
+      model.general.templates = [...(model.general.templates || []), { name: "", labels: [], titleContains: [], instructions: "" }];
+    },
+    "remove-template"({ i }) {
+      model.general.templates.splice(Number(i), 1);
+      if (!model.general.templates.length) delete model.general.templates;
     },
     "add-executor"({ type }) {
       const names = model.executors.map((e) => e.name);

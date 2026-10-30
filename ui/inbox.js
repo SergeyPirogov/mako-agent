@@ -115,7 +115,7 @@
   async function check() {
     const state = await (await fetch("/api/inbox-state", { cache: "no-store" })).json();
     // Do not reload under an open "Куди відправити" menu.
-    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog[open]")) return location.reload();
+    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog[open]") && document.activeElement?.id !== "board-filter") return location.reload();
     search = state.search;
     drawClock();
     for (const el of document.querySelectorAll("[data-phase]")) {
@@ -183,4 +183,48 @@
   newTask?.addEventListener("click", (e) => {
     if (e.target === newTask || e.target.closest("[data-close]")) newTask.close();
   });
+
+  // Board filter: narrows the cards as you type; «/» focuses it, Esc clears; kept across the board's reloads.
+  const filter = document.getElementById("board-filter");
+  const applyFilter = () => {
+    const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const card of document.querySelectorAll(".kcard")) {
+      card.hidden = words.length > 0 && !words.every((w) => (card.dataset.search || "").includes(w));
+    }
+    for (const col of document.querySelectorAll(".kcol")) {
+      const shown = col.querySelectorAll(".kcard:not([hidden])").length;
+      col.classList.toggle("filtered", words.length > 0);
+      const note = col.querySelector(".kfiltered");
+      if (words.length && !shown && col.querySelector(".kcard")) {
+        if (!note) col.querySelector(".kcards").insertAdjacentHTML("afterbegin", '<div class="kempty kfiltered">Нічого не знайдено</div>');
+      } else note?.remove();
+    }
+    try {
+      sessionStorage.setItem("mako.filter", filter.value);
+    } catch {
+      // not kept: the filter just resets on reload
+    }
+  };
+  if (filter) {
+    try {
+      filter.value = sessionStorage.getItem("mako.filter") || "";
+    } catch {
+      // ignore
+    }
+    filter.addEventListener("input", applyFilter);
+    filter.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        filter.value = "";
+        applyFilter();
+        filter.blur();
+      }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "/" && !e.target.closest("input, textarea, select, [contenteditable]") && !document.querySelector("dialog[open]")) {
+        e.preventDefault();
+        filter.focus();
+      }
+    });
+    if (filter.value) applyFilter();
+  }
 })();

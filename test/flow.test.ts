@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import os from "node:os";
@@ -71,7 +71,7 @@ const issue = (n: number, title: string): Task => ({
   comments: [],
 });
 
-function setup(agentScript: string) {
+function setup(agentScript: string, extra: Record<string, unknown> = {}) {
   const base = mkdtempSync(path.join(dir, "case-"));
   const remote = path.join(base, "remote.git");
   const repo = path.join(base, "web");
@@ -91,6 +91,7 @@ function setup(agentScript: string) {
     handoffCheckMin: 0,
     branchPattern: "{type}/{id}-{title}",
     planFirst: false, // the plan has its own test
+    ...extra,
     notifications: { enabled: false, autoTake: true, inboxPort: 0 },
     executors: { agent: { type: "command", command: agent, mode: "managed" } },
     defaultExecutor: "agent",
@@ -256,6 +257,37 @@ test("«+ Задача» with a plan first: plan, approve, then the agent works 
     assert.equal(rec.status, "done", rec.error);
     assert.match(readFileSync(orchestrator.state.logPath(rec.task).replace(/\.jsonl$/, ".prompt.md"), "utf8"), /## Approved plan[\s\S]*Додати done\.txt/);
     assert.equal(git(remote, "show", `${rec.branchName}:done.txt`), "plan followed");
+  } finally {
+    process.env.PATH = savedPath;
+    orchestrator.stop();
+  }
+});
+
+test("templates and the repo's notes go into the prompt; a finished task updates the notes", async () => {
+  const { orchestrator } = setup('echo "ran pnpm test:unit, it needs NODE_ENV=test"', {
+    templates: [{ name: "Нічний ран", labels: ["nightly"], instructions: "Classify every failure: flaky, product bug or test bug." }],
+  });
+  const stateDir = path.dirname(orchestrator.state.logPath(issue(1, "x")).replace(/logs\/.*$/, "x"));
+  mkdirSync(path.join(stateDir, "memory"), { recursive: true });
+  writeFileSync(path.join(stateDir, "memory", "web.md"), "- Tests: `pnpm test:unit`\n");
+  const bin = mkdtempSync(path.join(dir, "bin-"));
+  // Claude for the notes: answers the memory prompt, nothing else
+  writeFileSync(path.join(bin, "claude"), '#!/bin/sh\nin=$(cat)\ncase "$in" in *"You keep the notes"*) echo "- Tests: \\`pnpm test:unit\\` with NODE_ENV=test";; *) exit 1;; esac\n', { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bin}:${savedPath}`;
+  try {
+    const t = { ...issue(14, "Triage the night"), labels: ["nightly"] };
+    (orchestrator.trackers.get("gitlab") as FakeTracker).issues = [t];
+    await orchestrator.poll();
+    await orchestrator.drain();
+    const rec = orchestrator.state.get(t.id)!;
+    assert.equal(rec.status, "done", rec.error);
+    const prompt = readFileSync(orchestrator.state.logPath(rec.task).replace(/\.jsonl$/, ".prompt.md"), "utf8");
+    assert.match(prompt, /«Нічний ран»[\s\S]*Classify every failure/);
+    assert.match(prompt, /What earlier tasks learned[\s\S]*pnpm test:unit/);
+    // the notes are updated in the background
+    for (let i = 0; i < 50 && !readFileSync(path.join(stateDir, "memory", "web.md"), "utf8").includes("NODE_ENV"); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.match(readFileSync(path.join(stateDir, "memory", "web.md"), "utf8"), /NODE_ENV=test/);
   } finally {
     process.env.PATH = savedPath;
     orchestrator.stop();

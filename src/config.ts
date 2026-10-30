@@ -26,6 +26,15 @@ export interface RepoConfig {
   branchPattern: string;
 }
 
+export interface TaskTemplate {
+  name: string;
+  instructions: string;
+  /** Applies to tasks with any of these labels… */
+  labels: string[];
+  /** …or whose title contains any of these words. */
+  titleContains: string[];
+}
+
 /** feat/12-add-dark-mode, fix/34-login-button: the usual names, with the type taken from the issue. */
 export const DEFAULT_BRANCH_PATTERN = "{type}/{id}-{title}";
 
@@ -67,6 +76,10 @@ export interface Config {
   dryRun: boolean;
   /** Every taken task starts with a plan the developer approves (default); a task can opt out when taken. */
   planFirst: boolean;
+  /** Ready-made instructions for recurring kinds of tasks, added to the prompt of the tasks they match. */
+  templates: TaskTemplate[];
+  /** Mako keeps what agents learn about each repo and gives it to the next task there (default on). */
+  memory: boolean;
 }
 
 /** Absolute path, with a leading ~/ meaning the home folder (as people type it in the settings page). */
@@ -166,5 +179,14 @@ export function parseConfig(raw: any, dryRun = false): Config {
     defaultExecutor,
     dryRun,
     planFirst: raw.planFirst ?? true,
+    templates: (raw.templates ?? [])
+      .filter((t: any) => t && typeof t.name === "string" && t.name.trim() && typeof t.instructions === "string" && t.instructions.trim())
+      .map((t: any) => ({
+        name: t.name.trim(),
+        instructions: t.instructions.trim(),
+        labels: (t.labels ?? []).map((l: string) => String(l).toLowerCase()),
+        titleContains: (t.titleContains ?? []).map((w: string) => String(w).toLowerCase()),
+      })),
+    memory: raw.memory ?? true,
   };
 }

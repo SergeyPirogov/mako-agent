@@ -17,6 +17,7 @@ import { collectChanges, readWorktreeFile } from "./changes.js";
 import { log } from "./log.js";
 import { doctor, findRepos } from "./onboarding.js";
 import { renderStats } from "./stats.js";
+import { renderMemory } from "./memory-page.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -92,6 +93,9 @@ export function startWebUi(app: App, port: number): void {
         return send(200, "text/html", page({ title: "Початок роботи", active: "settings", token, body, script: "/ui/welcome.js" }));
       }
       if (req.method === "GET" && url.pathname === "/log") return send(200, "text/html", renderTaskLog(app, url.searchParams.get("task") ?? "", token));
+      if (req.method === "GET" && url.pathname === "/memory") {
+        return send(200, "text/html", renderMemory(app, token, url.searchParams.get("saved") ?? undefined));
+      }
       if (req.method === "GET" && url.pathname === "/stats") {
         const days = Number(url.searchParams.get("days") ?? 30);
         return send(200, "text/html", renderStats(app, token, [0, 7, 30].includes(days) ? days : 30));
@@ -151,7 +155,7 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge", "/plan", "/create-task"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge", "/plan", "/create-task", "/memory"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -164,6 +168,11 @@ export function startWebUi(app: App, port: number): void {
           o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1", fresh: form.get("fresh") === "1", planFirst: planChoice(form) });
         }
         if (o && url.pathname === "/cancel") o.cancel(id);
+        if (o && url.pathname === "/memory") {
+          const repo = form.get("repo") ?? "";
+          o.saveMemory(repo, form.get("text") ?? "");
+          return res.writeHead(303, { Location: `/memory?saved=${encodeURIComponent(repo)}` }).end();
+        }
         if (o && url.pathname === "/plan") {
           o.answerPlan(id, form.get("answer") as "approve" | "revise" | "reject", form.get("notes") ?? "");
         }
@@ -175,6 +184,7 @@ export function startWebUi(app: App, port: number): void {
               repo: form.get("repo") ?? "",
               executor: form.get("executor") || undefined,
               planFirst: planChoice(form),
+              template: form.get("template") || undefined,
             });
           } catch (err: any) {
             return res.writeHead(303, { Location: `/?notice=${encodeURIComponent(err.message)}` }).end();

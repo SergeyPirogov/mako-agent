@@ -66,6 +66,8 @@ export interface TaskRecord {
   planFeedback?: string;
   /** When it was merged, for the statistics. */
   mergedAt?: string;
+  /** A template chosen for a task written in Mako; tracker tasks get theirs by labels and title. */
+  template?: string;
   costUsd?: number;
   error?: string;
 }

@@ -106,7 +106,9 @@ export function renderInbox(app: App, token: string, notice?: string): string {
     .join("");
 
   const archiveLink = archived ? `<a class="link archive-link" href="/archive">Архів (${archived})</a>` : "";
-  const newTask = `<button type="button" class="soft new-task-btn" id="new-task-open">+ Задача</button>${newTaskDialog(app, token)}`;
+  const newTask =
+    `<button type="button" class="soft new-task-btn" id="new-task-open">+ Задача</button>${newTaskDialog(app, token)}` +
+    `<input type="search" id="board-filter" class="board-filter" placeholder="Пошук задач  /" title="Номер, назва, репозиторій, виконавець, мітка. Клавіша / — швидкий пошук" aria-label="Пошук задач на дошці" autocomplete="off">`;
   const body = `<div class="board-head"><h1>Задачі</h1>${newTask}${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}
     <div class="board" style="--cols:${columns.length}">${board}</div>`;
   const { sig, attention, search } = inboxSignature(app);
@@ -295,7 +297,9 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     : "";
   const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle" || needsPermission || (r.status === "running" && r.reviewState === "merged");
   const draggable = col === "new" || col === "failed";
-  return `<article class="kcard${attn ? " attn" : ""}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
+  // What the board filter searches: id, title, repo, executor, labels.
+  const haystack = [r.id, r.task.title, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
+  return `<article class="kcard${attn ? " attn" : ""}" data-search="${esc(haystack)}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
     <div class="kc-top">${r.task.url ? `<a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>` : `<span class="kc-id" title="Задача, створена в Mako">${esc(r.id)}</span>`}
       ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}</div>
@@ -479,12 +483,14 @@ function planControls(r: TaskRecord, token: string): string {
 function newTaskDialog(app: App, token: string): string {
   const repos = Object.keys(app.orchestrator?.trackers.get("mako")?.projects ?? {});
   const choices = app.orchestrator?.executorChoices() ?? [];
+  const templates = app.orchestrator?.templateNames() ?? [];
   if (!repos.length) return "";
   return `<dialog id="new-task" class="mdialog wide-form"><form method="post" action="/create-task">
     <input type="hidden" name="token" value="${esc(token)}">
     <h2>Нова задача для агента</h2>
     <label class="f">Що зробити<input type="text" name="title" required placeholder="Напр.: додай тест на оформлення замовлення" autocomplete="off"></label>
     <label class="f">Подробиці<textarea name="description" rows="5" placeholder="Контекст, посилання, критерії готовності (Markdown)"></textarea></label>
+    ${templates.length ? `<label class="f">Шаблон<select name="template"><option value="">без шаблону (або за назвою задачі)</option>${templates.map((t) => `<option>${esc(t)}</option>`).join("")}</select></label>` : ""}
     <div class="grid">
       <label class="f">Репозиторій<select name="repo">${repos.map((r) => `<option>${esc(r)}</option>`).join("")}</select></label>
       <label class="f">Хто виконує<select name="executor">${choices.map((e) => `<option value="${esc(e.name)}"${e.default ? " selected" : ""}>${esc(e.label)}${e.default ? " · основний" : ""}</option>`).join("")}</select></label>
