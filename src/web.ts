@@ -155,7 +155,7 @@ export function startWebUi(app: App, port: number): void {
         }
         if (o && url.pathname === "/later") o.decide(id, "later");
         if (o && url.pathname === "/retry") {
-          o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined });
+          o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1" });
         }
         if (o && url.pathname === "/cancel") o.cancel(id);
         if (o && url.pathname === "/archive") {

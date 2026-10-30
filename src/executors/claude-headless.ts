@@ -56,6 +56,7 @@ export class ClaudeHeadlessExecutor implements Executor {
                 worktree,
                 costUsd: event.total_cost_usd,
                 sessionId: event.session_id,
+                denied: (event.permission_denials ?? []).map((d: any) => `${d.tool_name}${toolHint(d.tool_input)}`),
               };
             }
           } catch {

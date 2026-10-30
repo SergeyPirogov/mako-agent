@@ -21,7 +21,7 @@ const SESSION_LABELS = { starting: "запуск", working: "працює", wait
 export function inboxSignature(app: App): { sig: string; attention: number; search?: unknown } {
   const records = app.orchestrator?.state.all() ?? [];
   const live = [...sessions.values()].map((s) => `${s.id}:${s.status}:${s.message ?? ""}`);
-  const asking = records.filter((r) => r.status === "asking").length;
+  const asking = records.filter((r) => r.status === "asking" || (r.status === "failed" && r.denied?.length && !r.archivedAt)).length;
   return {
     sig: JSON.stringify([app.problem, app.orchestrator?.paused, records.map((r) => `${r.id}:${r.status}:${r.updatedAt}:${r.status === "running" ? recentLog(r.id).length : ""}`), live]),
     attention: attentionSessions().length + asking,
@@ -187,7 +187,7 @@ function route(app: App, r: TaskRecord): string {
 /** "Взяти" runs the task the usual way; "▾" lets the developer pick the executor and, for multi-repo projects, the repo. */
 function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "retry"): string {
   const hidden = `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">`;
-  const verb = action === "take" ? "Взяти" : "Повторити";
+  const verb = action === "take" ? "Взяти" : r.status === "done" ? "Ще раз" : "Повторити";
   const quick = `<form method="post" action="/${action}">${hidden}<button class="${action === "take" ? "primary" : "soft"} take-main">${verb}</button></form>`;
   const choices = app.orchestrator?.choicesFor(r.id);
   if (!choices || (choices.executors.length < 2 && choices.repos.length < 2)) return quick;
@@ -219,7 +219,10 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     // No terminal yet (the worktree is being prepared) or none at all (a background agent): show its log.
     r.status === "running" && !session ? `<a class="btn" href="/log?task=${encodeURIComponent(r.id)}">Хід роботи</a>` : "",
     r.status === "asking" || r.status === "snoozed" ? takeControl(app, r, token, "take") + form("later", "Відкласти") : "",
-    r.status === "failed" || r.status === "cancelled" ? takeControl(app, r, token, "retry") : "",
+    ["done", "failed", "cancelled"].includes(r.status) && r.sessionId && r.executor !== app.orchestrator?.terminalExecutor() && app.orchestrator?.terminalExecutor()
+      ? `<form method="post" action="/retry" title="Відкрити ту саму розмову з агентом у терміналі Mako"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><input type="hidden" name="resume" value="1"><button class="${r.status === "done" ? "soft" : "primary"}">Продовжити в терміналі</button></form>`
+      : "",
+    ["done", "failed", "cancelled"].includes(r.status) ? takeControl(app, r, token, "retry") : "",
     r.status === "queued" || r.status === "handed-off"
       ? `<form method="post" action="/cancel" data-confirm="${esc(
           r.status === "handed-off"
@@ -241,15 +244,18 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
         : r.status === "snoozed" && r.snoozedUntil ? ` <span class="muted">до ${new Date(r.snoozedUntil).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}</span>`
         : ""
       }`;
-  const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle";
+  const needsPermission = r.status === "failed" && Boolean(r.denied?.length);
+  const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle" || needsPermission;
   const draggable = col === "new" || col === "failed";
   return `<article class="kcard${attn ? " attn" : ""}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
     <div class="kc-top"><a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>
       ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}</div>
     ${description(r)}
-    <div class="kc-status">${status}</div>
-    ${r.error ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}
+    <div class="kc-status">${needsPermission ? `<span class="s perm">🔒 Потрібні дозволи</span>` : status}</div>
+    ${needsPermission
+      ? `<div class="kc-perm"><div class="small muted">Агенту не дозволили:</div><ul>${r.denied!.slice(0, 3).map((d) => `<li><code>${esc(d)}</code></li>`).join("")}${r.denied!.length > 3 ? `<li class="muted">і ще ${r.denied!.length - 3}</li>` : ""}</ul></div>`
+      : r.error ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}
     ${actions ? `<div class="kc-actions">${actions}</div>` : ""}
   </article>`;
 }

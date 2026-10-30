@@ -151,7 +151,7 @@ function starterConfig() {
         type: "claude-headless",
         args: [
           "--permission-mode", "acceptEdits",
-          "--allowedTools", "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Read Edit Write Glob Grep",
+          "--allowedTools", "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Bash(pnpm:*) Bash(yarn:*) Bash(bun:*) Read Edit Write Glob Grep",
           "--max-turns", "80",
         ],
       },

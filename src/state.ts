@@ -34,6 +34,10 @@ export interface TaskRecord {
   branchSha?: string;
   prUrl?: string;
   sessionId?: string;
+  /** Continue this agent conversation on the next run (claude --resume) instead of starting over. */
+  resumeSession?: string;
+  /** Tool calls the agent was refused in its last run; the developer has to allow them. */
+  denied?: string[];
   costUsd?: number;
   error?: string;
 }

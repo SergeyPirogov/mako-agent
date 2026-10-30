@@ -13,6 +13,8 @@ export interface ExecContext {
   timeoutMin: number;
   /** Local web UI, when it is enabled: terminal sessions are shown there. */
   ui?: { port: number; /** Repeat "waiting for you" notifications every N minutes; 0 = once. */ remindMin: number };
+  /** An earlier agent conversation to continue instead of starting a new one. */
+  resumeSessionId?: string;
 }
 
 /**
@@ -20,7 +22,16 @@ export interface ExecContext {
  * handed-off – the task now lives in another tool (Orca, a terminal); the developer drives it from there.
  */
 export type ExecOutcome =
-  | { kind: "completed"; ok: boolean; summary: string; worktree: string; costUsd?: number; sessionId?: string }
+  | {
+      kind: "completed";
+      ok: boolean;
+      summary: string;
+      worktree: string;
+      costUsd?: number;
+      sessionId?: string;
+      /** Tool calls the agent was not allowed to make, e.g. "Bash: glab issue create …". */
+      denied?: string[];
+    }
   | { kind: "handed-off"; worktree?: string; details?: string; /** Branch the tool actually used. */ branch?: string };
 
 export interface Executor {

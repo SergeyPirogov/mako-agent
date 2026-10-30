@@ -344,6 +344,7 @@ export class Orchestrator {
       startedAt: new Date().toISOString(),
       repo: repo.name,
       executor: executor.name,
+      resumeSession: undefined,
     });
 
     try {
@@ -361,6 +362,7 @@ export class Orchestrator {
           ui: this.cfg.notifications.inboxPort
             ? { port: this.cfg.notifications.inboxPort, remindMin: this.cfg.notifications.remindMin }
             : undefined,
+          resumeSessionId: rec.resumeSession,
         },
         prompt,
       );
@@ -379,7 +381,7 @@ export class Orchestrator {
       }
 
       const { worktree } = result;
-      this.state.update(task.id, { worktree });
+      this.state.update(task.id, { worktree, ...(result.sessionId ? { sessionId: result.sessionId } : {}) });
       log(task.id, `agent finished: ok=${result.ok}${result.costUsd !== undefined ? `, cost=$${result.costUsd.toFixed(2)}` : ""}`);
       if (!result.ok) throw new Error(result.summary);
 
@@ -387,6 +389,17 @@ export class Orchestrator {
 
       let prUrl: string | undefined;
       const changed = (await git.commitsAhead(repo, worktree)) > 0;
+      if (result.denied?.length && !changed) {
+        // It wanted to do more than it was allowed to: that is not "done", the developer has to step in.
+        const denied = [...new Set(result.denied)].slice(0, 8);
+        this.state.update(task.id, { denied });
+        const list = denied.map((d) => `- ${d}`).join("\n");
+        throw new Error(
+          `Агенту бракувало дозволів, тому він не завершив задачу:\n${list}\n\n` +
+            "«Продовжити в терміналі» відкриє ту саму розмову: підтвердіть дозволи, і агент продовжить. " +
+            "Або додайте ці команди в --allowedTools виконавця в Налаштуваннях.",
+        );
+      }
       if (changed) {
         prUrl = await git.publish(repo, worktree, branch, {
           title: `${task.id}: ${task.title}`,
@@ -426,19 +439,22 @@ export class Orchestrator {
   }
 
   /** Lets a failed or finished task be offered again (inbox "Повторити"). */
-  retry(id: string, choice: { repo?: string; executor?: string } = {}): boolean {
+  retry(id: string, choice: { repo?: string; executor?: string; resume?: boolean } = {}): boolean {
     const rec = this.state.get(id);
     if (!rec || !["failed", "done", "handed-off", "cancelled"].includes(rec.status)) return false;
     const project = this.trackers.get(rec.task.trackerId)?.projects[rec.task.project];
     const chosenRepo = choice.repo && project?.repos[choice.repo] ? choice.repo : rec.chosenRepo;
-    const chosenExecutor = choice.executor && this.executors.has(choice.executor) ? choice.executor : rec.chosenExecutor;
-    log(id, `retry${chosenRepo ? ` → repo ${chosenRepo}` : ""}${chosenExecutor ? ` · executor ${chosenExecutor}` : ""}`);
+    const resume = choice.resume && rec.sessionId ? this.terminalExecutor() : undefined;
+    const chosenExecutor = resume ?? (choice.executor && this.executors.has(choice.executor) ? choice.executor : rec.chosenExecutor);
+    log(id, `${resume ? "continue in terminal" : "retry"}${chosenRepo ? ` → repo ${chosenRepo}` : ""}${chosenExecutor ? ` · executor ${chosenExecutor}` : ""}`);
     this.state.update(id, {
       status: "queued",
       queuedAt: Date.now(),
       error: undefined,
       chosenRepo,
       chosenExecutor,
+      resumeSession: resume ? rec.sessionId : undefined,
+      denied: undefined,
       ...(chosenRepo ? { repo: chosenRepo } : {}),
       // A fresh run, not the old hand-off: forget its branch and PR tracking.
       branch: undefined,
@@ -446,6 +462,13 @@ export class Orchestrator {
     });
     this.schedule();
     return true;
+  }
+
+  /** A Claude Code terminal executor, which can continue a background conversation with the developer present. */
+  terminalExecutor(): string | undefined {
+    return Object.entries(this.cfg.executors).find(
+      ([, c]: [string, any]) => c.type === "terminal" && /^claude(\.cmd|\.exe)?$/i.test((c.command ?? "claude").split(/[\\/]/).pop()),
+    )?.[0];
   }
 
   /** Moves finished tasks (done, failed, cancelled) off the board into the archive. */

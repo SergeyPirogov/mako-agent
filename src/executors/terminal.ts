@@ -50,7 +50,11 @@ export class TerminalExecutor implements Executor {
     const hookToken = randomBytes(16).toString("hex");
     const sessionUrl = `http://127.0.0.1:${ctx.ui.port}/session/${id}`;
 
-    const args = expandArgs(this.cfg.args ?? ["{prompt}"], ctx, worktree, prompt);
+    // Continuing an earlier conversation (from a background run): same worktree, so Claude finds the session.
+    const args =
+      ctx.resumeSessionId && this.isClaude
+        ? ["--resume", ctx.resumeSessionId, RESUME_PROMPT]
+        : expandArgs(this.cfg.args ?? ["{prompt}"], ctx, worktree, prompt);
     if (this.cfg.claudeHooks ?? this.isClaude) {
       const settingsFile = ctx.promptFile.replace(/\.prompt\.md$/, ".claude-settings.json");
       writeFileSync(settingsFile, JSON.stringify(claudeHookSettings(`http://127.0.0.1:${ctx.ui.port}/hook/${id}?token=${hookToken}`)), { mode: 0o600 });
@@ -117,6 +121,9 @@ export class TerminalExecutor implements Executor {
     });
   }
 }
+
+const RESUME_PROMPT =
+  "Продовжуй цю задачу з того місця, де зупинився. Тепер розробник поруч у терміналі і може підтвердити дозволи, яких тобі бракувало.";
 
 /** Hooks that report Claude's state to Mako; merged by Claude Code with the user's own settings. */
 function claudeHookSettings(url: string) {
