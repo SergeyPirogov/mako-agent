@@ -630,3 +630,11 @@ dialog, dialog .sum-text, dialog .desc-in, .sum-changes { overscroll-behavior: c
 :root[data-theme="dark"] .theme-toggle .to-light { display: inline; } :root[data-theme="dark"] .theme-toggle .to-dark { display: none; }
 @media (max-width: 600px) { .bar { gap: 8px; padding: 0 12px; } .logo-mark { display: none; } .bar nav a { padding: 6px 7px; } .bar .right { gap: 4px; } }
 main.wide.bare { height: 100vh; padding: 10px 12px 12px; } /* the terminal inside «Пошта»: no header above it */
+/* the agent's numbered question under the terminal: answer with a click */
+.ask-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; margin-top: 8px; border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.ask-bar[hidden] { display: none; }
+.ask-q { flex: 1 1 280px; font-size: 13px; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-opts button { margin: 0; font-size: 13px; }
+

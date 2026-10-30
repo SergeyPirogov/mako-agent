@@ -700,10 +700,35 @@ main:has(.mail) { max-width: none; }
 @media (max-width: 600px) { .bar { gap: 12px; padding: 0 12px; } .bar nav { gap: 12px; } .bar .right { gap: 4px; } }
 /* «Пошта» with a live terminal: the terminal fills the pane, the task's details are a tab */
 .mail-detail:has(.mail-term) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
-.mail-tabs { display: flex; align-items: center; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex: none; }
-.mail-tabs button { margin: 0; height: 28px; padding: 0 12px; border-color: transparent; background: none; color: var(--mute); font-size: 13px; }
-.mail-tabs button.on { color: var(--fg); background: var(--hover); border-color: var(--line); }
 .mail-term { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--bg); }
 .mail-info { overflow-y: auto; padding: 24px 32px 48px; }
-.mail-info[hidden], .mail-term[hidden] { display: none; }
 main.wide.bare { height: 100vh; padding: 10px 12px 12px; } /* the terminal inside «Пошта»: no header above it */
+/* «Робоче місце»: the live terminal and the task's details side by side; the details fold away */
+.ws-split { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+.ws-split.no-insp { grid-template-columns: minmax(0, 1fr); }
+.ws-split .mail-term { height: 100%; }
+.ws-insp { border-left: 1px solid var(--line); overflow-y: auto; padding: 0 18px 32px; min-height: 0; overscroll-behavior: contain; }
+.ws-insp-head { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 12px 0 10px; margin-bottom: 4px;
+  background: var(--card); font-size: 12px; font-weight: 600; color: var(--mute); border-bottom: 1px solid var(--line); z-index: 1; }
+.ws-insp-head .link { font-size: 12px; font-weight: 400; }
+.ws-insp > .kcard { border: 0; padding: 12px 0 0; }
+.ws-insp > .kcard .kc-title { font-size: 16px; }
+.ws-split.no-insp .ws-insp { display: none; }
+.ws-insp-open { display: none; position: absolute; top: 10px; right: 12px; margin: 0; height: 28px; padding: 0 10px; font-size: 12px; z-index: 2; }
+.ws-split.no-insp .ws-insp-open { display: block; }
+.ws-projects { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 6px 6px; border-bottom: 1px solid var(--line); margin: 0 -6px 4px; }
+.ws-projects button { margin: 0; height: 26px; padding: 0 10px; font-size: 12px; border-radius: 999px; color: var(--mute); background: none; border-color: var(--line); }
+.ws-projects button span { color: var(--faint); margin-left: 2px; font-variant-numeric: tabular-nums; }
+.ws-projects button.on { color: var(--fg); border-color: var(--fg); }
+.mail-item.other-project { display: none; }
+.mail-sec[hidden] { display: none; }
+@media (max-width: 900px) { .ws-split, .ws-split.no-insp { grid-template-columns: 1fr; grid-template-rows: minmax(420px, 1fr) auto; } .ws-insp { border-left: 0; border-top: 1px solid var(--line); } }
+/* the agent's numbered question under the terminal: answer with a click */
+.ask-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; margin-top: 8px; border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--card)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.ask-bar[hidden] { display: none; }
+.ask-q { flex: 1 1 280px; font-size: 13px; }
+.ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-opts button { margin: 0; font-size: 13px; }
+
+.ws-insp .kc-actions a.btn[href^="/session/"] { display: none; } /* the terminal is right next to it */

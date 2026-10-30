@@ -271,6 +271,12 @@ export function startWebUi(app: App, port: number): http.Server {
         if (req.method === "GET" && url.pathname === "/api/find-repo") {
           return json(200, { paths: findRepos(url.searchParams.get("project") ?? "") });
         }
+        if (req.method === "GET" && url.pathname === "/api/session-choice") {
+          // What the agent asks with numbered answers, read off its screen, for the buttons under the terminal.
+          const s = sessions.get(url.searchParams.get("id") ?? "");
+          const asking = s && (s.status === "waiting" || s.status === "idle" || s.status === "starting");
+          return json(200, { choice: asking ? (s.choice() ?? null) : null });
+        }
         if (req.method === "GET" && url.pathname === "/api/check-path") {
           return json(200, await checkRepoPath(url.searchParams.get("path") ?? "", url.searchParams.get("base") ?? ""));
         }
@@ -400,7 +406,8 @@ function renderSession(app: App, id: string, token: string, embed = false): stri
     <div id="status-msg" class="muted"></div>
     <div id="mr-bar" class="kc-mr mr-bar" hidden></div>
     <div class="session-body"><div id="term"></div>
-      <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>`;
+      <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>
+    <div id="ask-bar" class="ask-bar" hidden aria-live="polite"></div>`;
   return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, bare: embed, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script><script src="/ui/vendor/addon-web-links.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });
 }
 

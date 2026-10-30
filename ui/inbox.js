@@ -286,7 +286,7 @@
 
 // «Пошта»: ↑/↓ (or j/k) go through the list; the chosen task opens on the right.
 (() => {
-  const items = [...document.querySelectorAll(".mail-item:not([hidden])")];
+  const items = [...document.querySelectorAll(".mail-item")];
   if (!items.length) return;
   document.querySelector(".mail-item.on")?.scrollIntoView({ block: "nearest" });
   document.addEventListener("keydown", (e) => {
@@ -294,32 +294,39 @@
     const step = e.key === "ArrowDown" || e.key === "j" ? 1 : e.key === "ArrowUp" || e.key === "k" ? -1 : 0;
     if (!step) return;
     e.preventDefault();
-    const shown = items.filter((el) => !el.hidden);
+    const shown = items.filter((el) => !el.hidden && !el.classList.contains("other-project"));
     const at = shown.findIndex((el) => el.classList.contains("on"));
     const next = shown[Math.min(shown.length - 1, Math.max(0, at + step))];
     if (next && !next.classList.contains("on")) location.assign(next.href);
   });
 })();
 
-// «Пошта»: the running task's terminal or its details; the choice is kept across the board's reloads.
+// «Робоче місце»: the details next to the terminal can be folded away; projects narrow the list. Both are kept.
 (() => {
-  const tabs = [...document.querySelectorAll("[data-mail-tab]")];
-  if (!tabs.length) return;
-  const show = (name) => {
-    tabs.forEach((t) => {
-      t.classList.toggle("on", t.dataset.mailTab === name);
-      t.setAttribute("aria-selected", String(t.dataset.mailTab === name));
+  const split = document.querySelector("[data-ws-split]");
+  const keep = (k, v) => { try { sessionStorage.setItem(k, v); } catch {} };
+  const read = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
+  if (split) {
+    split.classList.toggle("no-insp", read("mako.wsInsp") === "hidden");
+    split.addEventListener("click", (e) => {
+      if (!e.target.closest("[data-ws-insp]")) return;
+      split.classList.toggle("no-insp");
+      keep("mako.wsInsp", split.classList.contains("no-insp") ? "hidden" : "shown");
     });
-    document.querySelectorAll("[data-mail-pane]").forEach((p) => (p.hidden = p.dataset.mailPane !== name));
-    try {
-      sessionStorage.setItem("mako.mailTab", name);
-    } catch {}
+  }
+  const chips = [...document.querySelectorAll(".ws-projects [data-project]")];
+  if (!chips.length) return;
+  const show = (project) => {
+    chips.forEach((c) => c.classList.toggle("on", c.dataset.project === project));
+    for (const item of document.querySelectorAll(".mail-item")) item.classList.toggle("other-project", Boolean(project) && item.dataset.project !== project);
+    for (const sec of document.querySelectorAll(".mail-sec")) {
+      let el = sec.nextElementSibling, any = false;
+      while (el && !el.classList.contains("mail-sec")) { if (el.matches(".mail-item:not(.other-project)")) any = true; el = el.nextElementSibling; }
+      sec.hidden = !any;
+    }
+    keep("mako.project", project);
   };
-  tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.mailTab)));
-  let saved = "term";
-  try {
-    saved = sessionStorage.getItem("mako.mailTab") || "term";
-  } catch {}
-  show(saved === "info" ? "info" : "term");
+  chips.forEach((c) => c.addEventListener("click", () => show(c.dataset.project)));
+  const saved = read("mako.project") || "";
+  show(chips.some((c) => c.dataset.project === saved) ? saved : "");
 })();
-

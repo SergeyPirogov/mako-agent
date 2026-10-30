@@ -284,4 +284,44 @@
   }
 
   connect();
+
+  // The agent's numbered question (a plan to approve, a permission) as buttons under the terminal:
+  // a click is the same as pressing its number there.
+  const askBar = document.getElementById("ask-bar");
+  const answered = { key: "", at: 0 };
+  async function loadChoice() {
+    if (ended || document.hidden || !askBar) return;
+    try {
+      const res = await fetch(`/api/session-choice?id=${encodeURIComponent(id)}`, { headers: { "X-Mako-Token": TOKEN } });
+      const { choice } = await res.json();
+      if (!choice) {
+        askBar.hidden = true;
+        askBar.dataset.q = "";
+        return;
+      }
+      const key = choice.question + choice.options.map((o) => o.label).join("|");
+      // just answered: the menu stays on screen a moment longer than the answer takes
+      if (answered.key === key && Date.now() - answered.at < 10_000) return;
+      if (askBar.dataset.q === key && !askBar.hidden) return;
+      askBar.dataset.q = key;
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      askBar.innerHTML =
+        `<span class="ask-q"><b>Агент питає:</b> ${esc(choice.question)}</span><span class="ask-opts">` +
+        choice.options.map((o, i) => `<button type="button" class="${i === 0 ? "primary" : ""}" data-key="${esc(o.key)}" title="Те саме, що натиснути ${esc(o.key)} у терміналі">${esc(o.key)}. ${esc(o.label)}</button>`).join("") +
+        "</span>";
+      askBar.hidden = false;
+    } catch {
+      // the bar is a convenience: the terminal itself still asks
+    }
+  }
+  askBar?.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-key]");
+    if (!b) return;
+    send({ t: "i", d: b.dataset.key });
+    Object.assign(answered, { key: askBar.dataset.q, at: Date.now() });
+    askBar.hidden = true;
+    term.focus();
+  });
+  loadChoice();
+  setInterval(loadChoice, 1500);
 })();

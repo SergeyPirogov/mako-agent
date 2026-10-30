@@ -180,8 +180,15 @@ export function renderMailBoard(app: App, token: string, notice: string | undefi
     })
     .join("");
   const r = (selected && o.state.get(selected)) || order[0];
+  // Several projects: chips to show one (or all), with how many tasks each has on the board.
+  const repos = [...new Set(records.map((x) => x.repo ?? x.task.project))].sort();
+  const chips = repos.length > 1
+    ? `<div class="ws-projects" role="group" aria-label="Проєкти"><button type="button" class="on" data-project="">Усі <span>${records.length}</span></button>${repos
+        .map((p) => `<button type="button" data-project="${esc(p)}">${esc(p)} <span>${records.filter((x) => (x.repo ?? x.task.project) === p).length}</span></button>`)
+        .join("")}</div>`
+    : "";
   const body = `${boardChrome(app, token, notice, all.length - records.length)}
-    <div class="mail"><aside class="mail-list" aria-label="Задачі">${list || `<div class="kempty">Задач немає</div>`}</aside>
+    <div class="mail"><aside class="mail-list" aria-label="Задачі">${chips}${list || `<div class="kempty">Задач немає</div>`}</aside>
     <section class="mail-detail" aria-label="Вибрана задача">${r ? mailDetail(app, r, token) : `<p class="muted">Виберіть задачу зліва</p>`}</section></div>`;
   return boardPage(app, token, body);
 }
@@ -194,7 +201,7 @@ function mailItem(app: App, r: TaskRecord, on: boolean): string {
   // What the agent asks, read off its screen: «питає: Would you like to proceed?»
   const asks = session && (session.status === "waiting" || session.status === "idle") ? session.choice()?.question : undefined;
   const haystack = [r.id, r.task.title, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
-  return `<a class="mail-item${on ? " on" : ""}" href="/?task=${encodeURIComponent(r.id)}" data-search="${esc(haystack)}"${on ? ' aria-current="true"' : ""}>
+  return `<a class="mail-item${on ? " on" : ""}" href="/?task=${encodeURIComponent(r.id)}" data-search="${esc(haystack)}" data-project="${esc(r.repo ?? r.task.project)}"${on ? ' aria-current="true"' : ""}>
     <span class="s ${dot}" aria-hidden="true"></span><span class="t">${esc(r.task.title)}</span><span class="time">${esc(ago(r.updatedAt))}</span>
     <span class="sub"><span class="id">${esc(shortId(r.id))}</span> · ${asks ? `питає: ${esc(asks)}` : `${esc(label)}${esc(ci)}`}</span></a>`;
 }
@@ -203,11 +210,10 @@ function mailDetail(app: App, r: TaskRecord, token: string): string {
   // A live terminal comes first: the agent, its questions and Завершити are there; the task's details are a tab.
   const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
   if (session) {
-    return `<div class="mail-tabs" role="tablist">
-        <button type="button" role="tab" class="on" aria-selected="true" data-mail-tab="term">Термінал</button>
-        <button type="button" role="tab" aria-selected="false" data-mail-tab="info">Деталі задачі</button></div>
-      <iframe class="mail-term" data-mail-pane="term" title="Термінал ${esc(r.id)}" src="/session/${esc(session.id)}?embed=1"></iframe>
-      <div class="mail-info" data-mail-pane="info" hidden>${mailInfo(app, r, token)}</div>`;
+    return `<div class="ws-split" data-ws-split>
+      <iframe class="mail-term" title="Термінал ${esc(r.id)}" src="/session/${esc(session.id)}?embed=1"></iframe>
+      <aside class="ws-insp" aria-label="Деталі задачі"><div class="ws-insp-head">Деталі задачі<button type="button" class="link" data-ws-insp title="Сховати деталі">Сховати</button></div>${mailInfo(app, r, token)}</aside>
+      <button type="button" class="ws-insp-open" data-ws-insp title="Показати деталі задачі">Деталі</button></div>`;
   }
   return mailInfo(app, r, token);
 }
