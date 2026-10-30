@@ -11,6 +11,11 @@ export interface GitLabTrackerConfig {
   labels?: Partial<LabelConfig>;
   /** Only issues assigned to this username. */
   assignee?: string;
+  /**
+   * Work item status names to set (GitLab 17.11+, Premium/Ultimate), e.g. "In progress";
+   * null or missing leaves the status alone.
+   */
+  transitions?: { onStart?: string | null; onSuccess?: string | null; onFailure?: string | null };
   /** Keys are project paths: "group/subgroup/project"; every listed project is polled. */
   projects: Record<string, ProjectConfig>;
 }
@@ -68,6 +73,7 @@ export class GitLabTracker implements Tracker {
           components: [],
           comments: notes.filter((n) => !n.system).map((n) => ({ author: n.author?.name ?? "unknown", body: n.body })),
           closingRef: `Closes ${projectPath}#${issue.iid}`,
+          nativeId: String(issue.id),
         });
       }
     }
@@ -78,12 +84,60 @@ export class GitLabTracker implements Tracker {
     await this.request("POST", `${this.issuePath(task)}/notes`, { body: text });
   }
 
-  onStart(task: Task): Promise<void> {
-    return this.applyLabels(task, labelChanges(this.labels, "start"));
+  async onStart(task: Task): Promise<void> {
+    await this.setStatus(task, this.cfg.transitions?.onStart);
+    await this.applyLabels(task, labelChanges(this.labels, "start"));
   }
 
-  onFinish(task: Task, outcome: Outcome): Promise<void> {
-    return this.applyLabels(task, labelChanges(this.labels, outcome));
+  async onFinish(task: Task, outcome: Outcome): Promise<void> {
+    const t = this.cfg.transitions;
+    await this.setStatus(task, outcome === "success" ? t?.onSuccess : outcome === "failed" ? t?.onFailure : undefined);
+    await this.applyLabels(task, labelChanges(this.labels, outcome));
+  }
+
+  /** Statuses of the project's issues, from the work item type definition. */
+  async listStatuses(): Promise<string[]> {
+    const projectPath = Object.keys(this.projects)[0];
+    const data = await this.graphql<any>(
+      `query($path: ID!) { project(fullPath: $path) { workItemTypes { nodes { name widgetDefinitions {
+         type ... on WorkItemWidgetDefinitionStatus { allowedStatuses { name } } } } } } }`,
+      { path: projectPath },
+    );
+    const types: any[] = data?.project?.workItemTypes?.nodes ?? [];
+    const issue = types.find((t) => /^issue$/i.test(t.name)) ?? types[0];
+    const def = issue?.widgetDefinitions?.find((w: any) => Array.isArray(w.allowedStatuses));
+    if (!def) {
+      throw new Error("Статуси задач на цьому GitLab недоступні (потрібні GitLab 17.11+ і тариф Premium або Ultimate). Мітки статусу можна ввімкнути в «Додатково».");
+    }
+    return def.allowedStatuses.map((s: any) => s.name);
+  }
+
+  /** Moves the issue to a work item status by name (resolved case-insensitively by GitLab). */
+  private async setStatus(task: Task, name: string | null | undefined): Promise<void> {
+    if (!name) return;
+    // Tasks taken before Mako kept the issue's global id: look it up.
+    const id = task.nativeId ?? String((await this.request<any>("GET", this.issuePath(task))).id);
+    const data = await this.graphql<any>(
+      `mutation($id: WorkItemID!, $name: String!) { workItemUpdate(input: { id: $id, statusWidget: { name: $name } }) { errors } }`,
+      { id: `gid://gitlab/WorkItem/${id}`, name },
+    );
+    const errors: string[] = data?.workItemUpdate?.errors ?? [];
+    if (errors.length) throw new Error(`GitLab не змінив статус ${task.id} на «${name}»: ${errors.join("; ")}`);
+  }
+
+  private async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+    const url = this.apiUrl.replace(/\/api\/v4$/, "/api/graphql");
+    const res = await requestJson<{ data?: T; errors?: { message: string }[] }>("POST", url, this.headers, { query, variables }).catch((err) =>
+      explainAccess(err, (status) => (status === 401 ? "GitLab не прийняв токен (401)" : undefined)),
+    );
+    if (res.errors?.length) {
+      const msg = res.errors.map((e) => e.message).join("; ");
+      if (/statusWidget|WorkItemWidgetDefinitionStatus|allowedStatuses|doesn't exist on type|not available/i.test(msg)) {
+        throw new Error(`Статуси задач на цьому GitLab недоступні (потрібні GitLab 17.11+ і Premium/Ultimate): ${msg}`);
+      }
+      throw new Error(`GitLab GraphQL: ${msg}`);
+    }
+    return res.data as T;
   }
 
   private issuePath(task: Task): string {

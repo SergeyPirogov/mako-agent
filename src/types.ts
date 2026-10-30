@@ -20,6 +20,8 @@ export interface Task {
   comments: { author: string; body: string }[];
   /** Text that closes the issue when put into a PR/MR description, e.g. "Closes acme/web#42". */
   closingRef?: string;
+  /** The tracker's own id of the issue when it differs from `id` (GitLab's global issue id for GraphQL). */
+  nativeId?: string;
 }
 
 export type Outcome = "success" | "no-changes" | "failed";
@@ -33,4 +35,6 @@ export interface Tracker {
   comment(task: Task, text: string): Promise<void>;
   onStart(task: Task): Promise<void>;
   onFinish(task: Task, outcome: Outcome): Promise<void>;
+  /** Statuses an issue can be moved to, for the settings page; undefined when the tracker has none. */
+  listStatuses?(): Promise<string[]>;
 }

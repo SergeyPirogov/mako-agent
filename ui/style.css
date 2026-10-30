@@ -11,7 +11,7 @@
 body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
 a { color: var(--accent); }
 code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
-header { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+body > header { background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
 .bar { max-width: 960px; margin: auto; padding: 0 16px; display: flex; align-items: center; gap: 24px; height: 52px; }
 .logo { font-weight: 700; font-size: 17px; }
 nav { display: flex; gap: 4px; }
@@ -213,3 +213,44 @@ details.adv > .grid { margin-top: 10px; padding-top: 10px; border-top: 1px dashe
 }
 .settings { overflow-x: clip; } .snav { max-width: 100%; }
 body:has(.settings) .savebar .in { max-width: 1160px; }
+
+/* kanban board */
+main:has(.board) { max-width: 1440px; }
+.board-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.board-head h1 { margin: 0; }
+.board-head .clock { margin: 0; flex: 1; justify-content: flex-end; }
+.board { display: grid; grid-template-columns: repeat(var(--cols), minmax(270px, 1fr)); gap: 14px; align-items: start;
+  overflow-x: auto; padding-bottom: 8px; }
+.kcol { background: color-mix(in srgb, var(--line) 45%, var(--bg)); border-radius: 12px; padding: 10px; min-height: 180px; transition: box-shadow .15s; }
+.kcol > header { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 10px; }
+.kcol > header h2 { font-size: 14px; margin: 0; text-transform: uppercase; letter-spacing: .04em; color: var(--mute); }
+.kcount { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 10px; background: var(--card); border: 1px solid var(--line);
+  font-variant-numeric: tabular-nums; }
+.kcount.full { background: color-mix(in srgb, var(--warn) 18%, var(--card)); border-color: var(--warn); color: var(--warn); }
+.knote { font-size: 12px; color: var(--warn); margin: -4px 4px 8px; }
+.kcards { display: flex; flex-direction: column; gap: 8px; }
+.kempty { font-size: 13px; color: var(--mute); text-align: center; padding: 22px 10px; border: 1px dashed var(--line); border-radius: 10px; }
+.kmore { font-size: 12px; text-align: center; padding: 4px; }
+.kcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.kcard[draggable] { cursor: grab; }
+.kcard.dragging { opacity: .45; }
+.kcard.attn { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+.kc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
+.kc-id { font-weight: 600; text-decoration: none; }
+.kc-id:hover { text-decoration: underline; }
+.kc-repo { color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kc-title { font-size: 14px; line-height: 1.35; }
+.kc-status { font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.kc-error details.errd pre { max-width: none; }
+.kc-error { font-size: 12px; }
+.kc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.kc-actions form, .kc-actions .btn { margin: 0; }
+.kc-actions button { margin: 0; padding: 4px 12px; font-size: 13px; }
+.kc-actions .btn { padding: 4px 12px; font-size: 13px; }
+.kc-actions a.link { margin: 0 4px; }
+.kcol.drop-target { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+.kcol.drop-over { box-shadow: 0 0 0 3px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+@media (max-width: 700px) { .board { grid-template-columns: repeat(var(--cols), 82vw); scroll-snap-type: x mandatory; } .kcol { scroll-snap-align: start; } }
+[hidden] { display: none !important; }
+.kcol > header { position: static; background: none; border: 0; }

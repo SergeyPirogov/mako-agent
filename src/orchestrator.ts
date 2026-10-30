@@ -80,6 +80,16 @@ export class Orchestrator {
     return { worktree, baseBranch: repo?.baseBranch ?? "main", task: rec.task };
   }
 
+  /** Status or label changes in the tracker must not fail the agent's work: report them and carry on. */
+  private async updateTracker(task: Task, change: () => Promise<void>): Promise<void> {
+    try {
+      await change();
+    } catch (err: any) {
+      log(task.id, `tracker status not updated: ${err.message}`);
+      inform(`⚠ ${task.id}: статус у трекері не змінено`, String(err.message).slice(0, 200));
+    }
+  }
+
   /** "Перевірити зараз": search the trackers without waiting for the next tick. */
   searchNow(): void {
     this.wake?.();
@@ -208,7 +218,7 @@ export class Orchestrator {
         const link = review.url ?? name;
         log(rec.id, `review found: ${link}`);
         await tracker.comment(rec.task, `🦈 Mako: ${name} opened for this issue: ${link}`);
-        await tracker.onFinish(rec.task, "success");
+        await this.updateTracker(rec.task, () => tracker.onFinish(rec.task, "success"));
         this.state.update(rec.id, { status: "done", prUrl: review.url, finishedAt: new Date().toISOString() });
         inform(`✅ ${rec.id}: є ${review.kind === "pull" ? "PR" : "MR"}`, link);
       } catch (err: any) {
@@ -304,7 +314,7 @@ export class Orchestrator {
     });
 
     try {
-      await tracker.onStart(task);
+      await this.updateTracker(task, () => tracker.onStart(task));
       log(task.id, `starting ${executor.name} (${executor.label}) for repo ${repo.name}`);
       const result = await executor.run(
         {
@@ -358,7 +368,7 @@ export class Orchestrator {
           ? `Changes pushed to branch ${branch}.`
           : `No code changes were committed.`;
       await tracker.comment(task, `🦈 Mako: ${executor.label} finished.\n\n${outcome}\n\n${result.summary}`);
-      await tracker.onFinish(task, changed ? "success" : "no-changes");
+      await this.updateTracker(task, () => tracker.onFinish(task, changed ? "success" : "no-changes"));
       this.state.update(task.id, {
         status: "done",
         finishedAt: new Date().toISOString(),

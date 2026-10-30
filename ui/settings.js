@@ -24,7 +24,7 @@
     orca: "Orca",
     command: "Своя команда",
   };
-  const DEFAULT_LABELS = { trigger: "claude-agent", inProgress: "agent:in-progress", done: "agent:done", failed: "agent:failed" };
+  const DEFAULT_LABELS = { trigger: "claude-agent" };
   const CLAUDE_ARGS = [
     "--permission-mode", "acceptEdits",
     "--allowedTools", "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Read Edit Write Glob Grep",
@@ -186,7 +186,7 @@
 
   /** One labelled form control bound to a path in the model. */
   function field(o) {
-    const { label, path, kind = "text", type = "string", placeholder = "", hint = "", options, wide, refresh, rerender } = o;
+    const { label, path, kind = "text", type = "string", placeholder = "", hint = "", options, wide, refresh, rerender, list } = o;
     const value = getAt(model, path);
     const attrs = `data-path="${h(path)}" data-type="${type}"${refresh ? " data-refresh" : ""}${rerender ? " data-rerender" : ""}`;
     let control;
@@ -202,7 +202,7 @@
       const rows = Math.min(12, Math.max(3, String(text || placeholder).split("\n").length + 1));
       control = `<textarea ${attrs} rows="${rows}" placeholder="${h(placeholder)}" spellcheck="false">${h(text)}</textarea>`;
     } else {
-      control = `<input type="${kind}" ${attrs} value="${h(display(value, type))}" placeholder="${h(placeholder)}" spellcheck="false">`;
+      control = `<input type="${kind}" ${attrs} value="${h(display(value, type))}" placeholder="${h(placeholder)}" spellcheck="false"${list ? ` list="${h(list)}"` : ""}>`;
     }
     return `<label class="f${wide ? " wide" : ""}">${h(label)}${control}${hint ? `<span class="hint">${hint}</span>` : ""}</label>`;
   }
@@ -341,15 +341,23 @@
       const tokenHint = isLab
         ? `Personal access token зі scope <code>api</code>: <a href="${h(base.replace(/\/$/, ""))}/-/user_settings/personal_access_tokens" target="_blank" rel="noreferrer">створити</a>`
         : "Необовʼязково, якщо виконано <code>gh auth login</code>. Fine-grained: Issues → Read and write";
+      const statuses = tests[ti]?.result?.statuses;
+      const statusList = statuses ? `<datalist id="statuses-${ti}">${statuses.map((x) => `<option value="${h(x)}">`).join("")}</datalist>` : "";
+      const statusHint = statuses ? `Статуси проєкту: ${statuses.map((x) => `<code>${h(x)}</code>`).join(", ")}` : "Назва статусу задачі в GitLab, напр. <code>In progress</code>. Порожньо: не змінювати";
       main = `
         ${isLab ? field({ label: "Адреса GitLab", path: `${p}.baseUrl`, placeholder: "https://gitlab.com", refresh: true }) : ""}
         ${secretField(isLab ? "GITLAB_TOKEN" : "GITHUB_TOKEN", "Токен", "", tokenHint)}
-        ${field({ label: "Мітка для агента", path: `${p}.labels.trigger`, placeholder: DEFAULT_LABELS.trigger, hint: "Issues з цією міткою потрапляють до Mako" })}
-        ${field({ label: "Лише призначені на", path: `${p}.assignee`, placeholder: "будь-хто", hint: isLab ? "GitLab username" : "GitHub login" })}`;
+        ${field({ label: "Мітка для агента", path: `${p}.labels.trigger`, placeholder: DEFAULT_LABELS.trigger, hint: "Issues з цією міткою потрапляють до Mako. Інших міток Mako не ставить" })}
+        ${field({ label: "Лише призначені на", path: `${p}.assignee`, placeholder: "будь-хто", hint: isLab ? "GitLab username" : "GitHub login" })}
+        ${isLab ? `${statusList}
+          ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: "не змінювати", list: `statuses-${ti}`, hint: statusHint })}
+          ${field({ label: "Статус, коли є MR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати", list: `statuses-${ti}`,
+            hint: "Після мерджу MR із <code>Closes #N</code> задача закриється сама" })}` : ""}`;
       advanced = `
-        ${field({ label: "Мітка «в роботі»", path: `${p}.labels.inProgress`, placeholder: DEFAULT_LABELS.inProgress })}
-        ${field({ label: "Мітка «готово»", path: `${p}.labels.done`, placeholder: DEFAULT_LABELS.done })}
-        ${field({ label: "Мітка «помилка»", path: `${p}.labels.failed`, placeholder: DEFAULT_LABELS.failed })}
+        ${isLab ? field({ label: "Статус при помилці", path: `${p}.transitions.onFailure`, placeholder: "не змінювати", list: `statuses-${ti}` }) : ""}
+        ${field({ label: "Мітка «в роботі» (необовʼязково)", path: `${p}.labels.inProgress`, placeholder: "не ставити" })}
+        ${field({ label: "Мітка «готово» (необовʼязково)", path: `${p}.labels.done`, placeholder: "не ставити" })}
+        ${field({ label: "Мітка «помилка» (необовʼязково)", path: `${p}.labels.failed`, placeholder: "не ставити" })}
         ${isLab ? "" : field({ label: "API (для GitHub Enterprise)", path: `${p}.apiUrl`, placeholder: "https://api.github.com" })}`;
     }
     const test = tests[ti];
@@ -364,7 +372,7 @@
         ? `<div class="result err">✗ ${h(test.error)}</div>`
         : `<div class="result"><span class="ok-text">✓ Підключено.</span> Задач для агента: <b>${test.result.count}</b>${
             test.result.sample.length ? `<ul>${test.result.sample.map((x) => `<li><code>${h(x.id)}</code> ${h(x.title)}</li>`).join("")}</ul>` : ""
-          }</div>`;
+          }${test.result.statusError ? `<div class="warn">⚠ ${h(test.result.statusError)}</div>` : ""}</div>`;
     return `<div class="card tracker">
       <div class="head"><div class="title"><h3 class="tname">${TRACKERS[type]}</h3>${host ? `<span class="muted">${h(host)}</span>` : ""}${badge}</div>
         <div class="tools">${button("Перевірити підключення", "test-tracker", { ti })}${button("Видалити", "remove-tracker", { ti }, "link danger")}</div></div>

@@ -47,6 +47,43 @@
   drawClock();
   setInterval(drawClock, 1000);
 
+  // Drag a card from «Нові» to «В роботі» to take it, or from «Помилка» to retry it.
+  const TOKEN = document.querySelector('meta[name="mako-token"]').content;
+  let dragged = null;
+  document.addEventListener("dragstart", (e) => {
+    const card = e.target.closest?.(".kcard[draggable]");
+    if (!card) return;
+    dragged = card;
+    busy = true;
+    card.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", card.dataset.id);
+    document.querySelector('.kcol[data-col="doing"]')?.classList.add("drop-target");
+  });
+  document.addEventListener("dragend", () => {
+    dragged?.classList.remove("dragging");
+    dragged = null;
+    busy = false;
+    document.querySelectorAll(".kcol").forEach((c) => c.classList.remove("drop-target", "drop-over"));
+  });
+  const doing = document.querySelector('.kcol[data-col="doing"]');
+  doing?.addEventListener("dragover", (e) => {
+    if (!dragged) return;
+    e.preventDefault();
+    doing.classList.add("drop-over");
+  });
+  doing?.addEventListener("dragleave", (e) => {
+    if (!doing.contains(e.relatedTarget)) doing.classList.remove("drop-over");
+  });
+  doing?.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    if (!dragged) return;
+    const action = dragged.dataset.from === "failed" ? "/retry" : "/take";
+    const body = new URLSearchParams({ id: dragged.dataset.id, token: TOKEN });
+    await fetch(action, { method: "POST", body, redirect: "manual" }).catch(() => {});
+    location.reload();
+  });
+
   async function check() {
     const state = await (await fetch("/api/inbox-state", { cache: "no-store" })).json();
     if (state.sig !== sig && !busy) return location.reload();

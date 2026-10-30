@@ -106,10 +106,7 @@
     {
       "type": "github",
       "labels": {
-        "trigger": "claude-agent",
-        "inProgress": "agent:in-progress",
-        "done": "agent:done",
-        "failed": "agent:failed"
+        "trigger": "claude-agent"
       },
       "projects": {
         "my-org/web": {
@@ -129,6 +126,11 @@
           "repoPath": "/Users/me/code/mobile-app",
           "baseBranch": "develop"
         }
+      },
+      "transitions": {
+        "onStart": "In progress",
+        "onSuccess": "In review",
+        "onFailure": null
       }
     }
   ]

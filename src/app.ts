@@ -84,13 +84,25 @@ export class App {
   }
 
   /** Fetches tasks with one tracker's settings, so the page can show "found N tasks". */
-  async testTracker(rawTracker: any, secrets: SecretChanges): Promise<{ count: number; sample: { id: string; title: string }[] }> {
+  async testTracker(
+    rawTracker: any,
+    secrets: SecretChanges,
+  ): Promise<{ count: number; sample: { id: string; title: string }[]; statuses?: string[]; statusError?: string }> {
     const { trackers } = build(
       { trackers: [rawTracker], executors: { test: { type: "command", command: "true" } } },
       envFrom(secrets),
     );
     const tasks = await trackers[0].fetchTasks();
-    return { count: tasks.length, sample: tasks.slice(0, 5).map((t) => ({ id: t.id, title: t.title })) };
+    let statuses: string[] | undefined;
+    let statusError: string | undefined;
+    if (trackers[0].listStatuses) {
+      try {
+        statuses = await trackers[0].listStatuses();
+      } catch (err: any) {
+        statusError = err.message;
+      }
+    }
+    return { count: tasks.length, sample: tasks.slice(0, 5).map((t) => ({ id: t.id, title: t.title })), statuses, statusError };
   }
 }
 
