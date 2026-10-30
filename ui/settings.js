@@ -329,14 +329,17 @@
       : meta.problem
         ? `<div class="notice err">Mako зараз не працює: ${h(meta.problem)}</div>`
         : "";
+    const dispatch = model.general.mode === "dispatch";
+    if (dispatch) orcaIndex(); // the dispatcher needs an Orca to hand tasks to
     const sections = [
+      ["s-mode", "Режим роботи", modeSection()],
       ["s-trackers", "Трекери і репозиторії", trackersSection()],
-      ["s-executors", "Хто виконує", executorsSection()],
+      dispatch ? ["s-executors", "Orca", orcaSection()] : ["s-executors", "Хто виконує", executorsSection()],
       ["s-work", "Задачі й ліміти", workSection()],
-      ["s-templates", "Шаблони й памʼять", templatesSection()],
+      dispatch ? null : ["s-templates", "Шаблони й памʼять", templatesSection()],
       ["s-notify", "Сповіщення", notifySection()],
       ["s-advanced", "Додатково", advancedSection()],
-    ];
+    ].filter(Boolean);
     root.innerHTML = `<div class="settings">
       <nav class="snav">${sections.map(([id, title]) => `<a href="#${id}" data-nav="${id}">${h(title)}</a>`).join("")}</nav>
       <div class="scontent"><h1>Налаштування</h1>${banner}
@@ -709,7 +712,41 @@
         ${button("+ Термінал", "add-executor", { type: "terminal" })}${button("+ Claude Code у фоні", "add-executor", { type: "claude-headless" })}${button("+ Orca", "add-executor", { type: "orca" })}${button("+ Своя команда", "add-executor", { type: "command" })}</div>`;
   }
 
+  function modeSection() {
+    return `<div class="shead"><h2>Режим роботи</h2></div>
+      <div class="card"><div class="grid">
+        ${field({ label: "Що робить Mako", path: "general.mode", kind: "select", type: "string", wide: true, rerender: true,
+          options: [["", "повний: агент у терміналі Mako, план, автопілот MR, шаблони"], ["dispatch", "диспетчер для Orca: віддає задачі в Orca і веде їхній статус у трекері"]],
+          hint: model.general.mode === "dispatch"
+            ? "«Віддати в Orca» відкриває worktree задачі в Orca й ставить «In progress»; коли зʼявляється MR — коментар і статус ревʼю; після мерджу — Done"
+            : "Диспетчер простіший: без термінала, плану й автопілота, лише трекер ↔ Orca" })}
+      </div></div>`;
+  }
+
+  /** The dispatcher's Orca: the first Orca executor, made when there is none. */
+  function orcaIndex() {
+    let ei = model.executors.findIndex((e) => e.conf.type === "orca");
+    if (ei < 0) {
+      model.executors.push({ name: uniqueName("orca", model.executors.map((e) => e.name)), conf: { type: "orca", agent: "claude" } });
+      ei = model.executors.length - 1;
+      dirty = true;
+    }
+    return ei;
+  }
+
+  function orcaSection() {
+    const p = `executors.${orcaIndex()}.conf`;
+    return `<div class="shead"><h2>Orca</h2><p class="muted">Куди Mako віддає задачі. Репозиторій має бути доданий в Orca.</p></div>
+      <div class="card"><div class="grid">
+        ${field({ label: "Агент в Orca", path: `${p}.agent`, placeholder: "claude", hint: "claude, codex, cursor, opencode…" })}
+        ${field({ label: "Setup-хуки репозиторію", path: `${p}.setup`, kind: "select", options: [["", "як у репозиторії"], ["run", "запускати"], ["skip", "пропускати"]] })}
+        ${field({ label: "Команда", path: `${p}.command`, placeholder: "orca", hint: "Mako шукає її й усередині Orca.app" })}
+        ${field({ label: "Привʼязувати задачу до workspace", path: `${p}.linkIssue`, kind: "check", type: "booltrue" })}
+      </div></div>`;
+  }
+
   function workSection() {
+    const dispatch = model.general.mode === "dispatch";
     return `<div class="shead"><h2>Задачі й ліміти</h2></div>
       <div class="card"><div class="grid">
         ${field({ label: "Коли зʼявляється нова задача", path: "general.notifications.autoTake", kind: "select", type: "string",
@@ -718,15 +755,15 @@
           hint: "Поки стільки задач у роботі, Mako не шукає нових. Порожньо: без ліміту" })}
         ${field({ label: "Шукати задачі кожні, с", path: "general.pollIntervalSec", kind: "number", type: "number", placeholder: "60" })}
         ${field({ label: "«Відкласти» на, хв", path: "general.notifications.snoozeMin", kind: "number", type: "number", placeholder: "60" })}
-        ${field({ label: "Агентів одночасно", path: "general.maxConcurrent", kind: "number", type: "number",
+        ${dispatch ? "" : field({ label: "Агентів одночасно", path: "general.maxConcurrent", kind: "number", type: "number",
           placeholder: String(model.general.wipLimit || 1), hint: "За замовчуванням дорівнює WIP-ліміту" })}
-        ${field({ label: "Ліміт часу на задачу, хв", path: "general.taskTimeoutMin", kind: "number", type: "number", placeholder: "45", hint: "Для фонових виконавців" })}
+        ${dispatch ? "" : field({ label: "Ліміт часу на задачу, хв", path: "general.taskTimeoutMin", kind: "number", type: "number", placeholder: "45", hint: "Для фонових виконавців" })}
         ${field({ label: "Архівувати завершені через, днів", path: "general.archiveAfterDays", kind: "number", type: "number", placeholder: "2",
           hint: "Готові й скасовані задачі йдуть в архів самі. «Не виконано» і задачі з відкритим MR лишаються. 0: не архівувати" })}
-        ${field({ label: "Спершу план: агент пропонує план, а працює після вашого погодження (для окремої задачі вимикається в «Взяти ▾»)", path: "general.planFirst", kind: "check", type: "booltrue", wide: true })}
+        ${dispatch ? "" : field({ label: "Спершу план: агент пропонує план, а працює після вашого погодження (для окремої задачі вимикається в «Взяти ▾»)", path: "general.planFirst", kind: "check", type: "booltrue", wide: true })}
         ${field({ label: "Назва гілки задачі", path: "general.branchPattern", wide: true, placeholder: DEFAULT_BRANCH, list: "branch-patterns", rerender: true,
           hint: `${BRANCH_HINT} Наприклад: <code>${h(branchExample(model.general.branchPattern))}</code>` })}
-      </div></div>${BRANCH_LIST}
+      </div></div>${BRANCH_LIST}${dispatch ? "" : `
       <div class="shead" style="margin-top:24px"><h2>Автопілот MR</h2>
         <p class="muted">Mako сам віддає фоновому агенту впалий CI, нові коментарі рев’юверів і конфлікти, поки MR не стане готовим до мерджу. На картці його можна вмикати й вимикати для окремої задачі.</p></div>
       <div class="card"><div class="grid">
@@ -734,7 +771,7 @@
         ${field({ label: "Не більше раундів на задачу", path: "general.autopilot.maxRounds", kind: "number", type: "number", placeholder: "3",
           hint: "Потім автопілот зупиняється й кличе вас" })}
         ${field({ label: "Мерджити самому, коли MR готовий (CI зелений, коментарів і конфліктів немає, апруви є)", path: "general.autopilot.merge", kind: "check", type: "bool", wide: true })}
-      </div></div>`;
+      </div></div>`}`;
   }
 
   function templatesSection() {

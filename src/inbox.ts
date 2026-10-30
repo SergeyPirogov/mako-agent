@@ -24,6 +24,8 @@ const LABELS: Record<TaskStatus, string> = {
 const postponed = (r: TaskRecord) => r.status === "snoozed" && (r.snoozedUntil ?? 0) > Date.now() && Boolean(r.postponedByYou);
 const stateClass = (r: TaskRecord) => (r.status === "snoozed" && !postponed(r) ? "asking" : r.status);
 const stateLabel = (r: TaskRecord) => LABELS[stateClass(r)];
+/** Mako as a dispatcher to Orca (the «Диспетчер для Orca» mode): fewer choices on the board. */
+const dispatching = (app: App) => app.cfg?.mode === "dispatch";
 
 const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "можна перевіряти", exited: "завершую…" };
 
@@ -67,7 +69,7 @@ function boardChrome(app: App, token: string, notice: string | undefined, archiv
     <form method="post" action="/search-now" id="search-now" hidden><input type="hidden" name="token" value="${esc(token)}"><button>Перевірити зараз</button></form></div>`;
   const archiveLink = archived ? `<a class="link archive-link" href="/archive">Архів (${archived})</a>` : "";
   const newTask =
-    `<button type="button" class="soft new-task-btn" id="new-task-open">+ Задача</button>${newTaskDialog(app, token)}` +
+    (dispatching(app) ? "" : `<button type="button" class="soft new-task-btn" id="new-task-open">+ Задача</button>${newTaskDialog(app, token)}`) +
     `<input type="search" id="board-filter" class="board-filter" placeholder="Пошук задач  /" title="Номер, назва, репозиторій, виконавець, мітка. Клавіша / — швидкий пошук" aria-label="Пошук задач на дошці" autocomplete="off">`;
   const explain = `<button type="button" class="link explain-open" id="explain-open" title="Перевірити, чому задачі з трекера немає на дошці">Не бачите задачу?</button>
     <dialog id="explain" class="mdialog wide-form"><form id="explain-form">
@@ -112,7 +114,7 @@ export function renderInbox(app: App, token: string, notice?: string, selected?:
   };
   const groups: [string, (r: TaskRecord) => boolean][] = [
     ["Потребує вас", needsYou],
-    ["Працює", (r) => columnOf(r) === "doing"],
+    [dispatching(app) ? "У Orca" : "Працює", (r) => columnOf(r) === "doing"],
     ["На ревʼю", (r) => columnOf(r) === "review"],
     ["Нові", (r) => columnOf(r) === "new"],
     ["Готово", (r) => columnOf(r) === "done"],
@@ -151,7 +153,7 @@ export function renderInbox(app: App, token: string, notice?: string, selected?:
 function mailItem(app: App, r: TaskRecord, on: boolean): string {
   const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
   const dot = session ? session.status : columnOf(r) === "review" ? "review" : stateClass(r);
-  const label = session ? SESSION_LABELS[session.status] : columnOf(r) === "review" ? "на ревʼю" : stateLabel(r).toLowerCase();
+  const label = session ? SESSION_LABELS[session.status] : columnOf(r) === "review" ? "на ревʼю" : r.status === "handed-off" && dispatching(app) ? "у Orca" : stateLabel(r).toLowerCase();
   const ci = r.review?.pipeline ? ` · CI ${r.review.pipeline.status === "success" ? "✓" : r.review.pipeline.status === "failed" ? "✗" : "…"}` : "";
   // What the agent asks, read off its screen: «питає: Would you like to proceed?»
   const asks = session && (session.status === "waiting" || session.status === "idle") ? session.choice()?.question : undefined;
@@ -275,6 +277,11 @@ function route(app: App, r: TaskRecord): string {
 /** "Взяти" runs the task the usual way; "▾" lets the developer pick the executor and, for multi-repo projects, the repo. */
 function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "retry"): string {
   const hidden = `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">`;
+  // The dispatcher has one way to run a task: Orca, no executor or plan to choose.
+  if (dispatching(app)) {
+    const fresh = action === "retry" ? `<input type="hidden" name="fresh" value="1">` : "";
+    return `<form method="post" action="/${action}">${hidden}${fresh}<button class="${action === "take" ? "primary" : "soft"}">${action === "take" ? "Віддати в Orca" : "Ще раз в Orca"}</button></form>`;
+  }
   const verb = action === "take" ? "Взяти" : r.status === "done" ? "Ще раз" : "Повторити";
   // With an MR or a finished run, the old worktree already has the answer and the agent would skip the task:
   // start over in a new one. A failed run is usually worth continuing where it stopped.
@@ -340,8 +347,8 @@ function card(app: App, r: TaskRecord, token: string): string {
     ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>${session.message && session.status === "waiting" ? ` <span class="muted">${esc(session.message)}</span>` : ""}`
     : columnOf(r) === "review"
     ? `<span class="s review">На ревʼю</span>`
-    : `<span class="s ${stateClass(r)}">${stateLabel(r)}</span>${
-        r.status === "handed-off" ? ` <span class="muted">чекає PR з <code>${esc(r.branch ?? "")}</code></span>`
+    : `<span class="s ${stateClass(r)}">${r.status === "handed-off" && dispatching(app) ? "У Orca" : stateLabel(r)}</span>${
+        r.status === "handed-off" ? ` <span class="muted">${dispatching(app) ? "чекаю MR з гілки" : "чекає PR з"} <code>${esc(r.branch ?? "")}</code></span>`
         : postponed(r) ? ` <span class="muted">до ${new Date(r.snoozedUntil!).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}</span>`
         : ""
       }`;

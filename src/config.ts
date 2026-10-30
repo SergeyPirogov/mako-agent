@@ -130,6 +130,11 @@ export interface Config {
   trackers: TrackerConfig[];
   /** How often to look for a PR/MR on handed-off tasks; 0 turns it off. */
   handoffCheckMin: number;
+  /**
+   * «dispatch»: Mako only dispatches — every task goes to Orca, the tracker's status follows (start, MR,
+   * merge); no terminal, plan, autopilot or templates. «full» (default): everything.
+   */
+  mode: "full" | "dispatch";
   /** Done and cancelled tasks go to the archive this many days after they finished; 0 keeps them on the board. */
   archiveAfterDays: number;
   /** Where repos without a path of their own live (cloned by Mako): ~/mako/projects. */
@@ -209,9 +214,14 @@ export function parseConfig(raw: any, dryRun = false): Config {
   const executors: Record<string, ExecutorConfig> = raw.executors ?? {
     claude: { type: "claude-headless", command: raw.claude?.command, args: raw.claude?.args },
   };
+  // The dispatcher hands everything to Orca: its executor, made if the config has none.
+  const dispatch = raw.mode === "dispatch";
+  const orca = dispatch ? (Object.keys(executors).find((n) => (executors as any)[n].type === "orca") ?? "orca") : undefined;
+  if (orca && !executors[orca]) (executors as any)[orca] = { type: "orca", agent: "claude" };
   // Without a choice: Mako's own terminal, where the developer sees the agent and can step in.
   const defaultExecutor: string =
-    raw.defaultExecutor ?? Object.keys(executors).find((n) => (executors as any)[n].type === "terminal") ?? Object.keys(executors)[0];
+    orca ?? raw.defaultExecutor ?? Object.keys(executors).find((n) => (executors as any)[n].type === "terminal") ?? Object.keys(executors)[0];
+  if (orca) for (const t of trackers) for (const p of Object.values(t.projects)) for (const r of Object.values(p.repos)) r.executor = orca;
   if (!executors[defaultExecutor]) throw new Error(`defaultExecutor "${defaultExecutor}" is not in executors`);
   for (const t of trackers)
     for (const [key, p] of Object.entries(t.projects))
@@ -242,7 +252,8 @@ export function parseConfig(raw: any, dryRun = false): Config {
     executors,
     defaultExecutor,
     dryRun,
-    planFirst: raw.planFirst ?? true,
+    mode: dispatch ? "dispatch" : "full",
+    planFirst: dispatch ? false : (raw.planFirst ?? true),
     templates: (raw.templates ?? [])
       .filter((t: any) => t && typeof t.name === "string" && t.name.trim() && typeof t.instructions === "string" && t.instructions.trim())
       .map((t: any) => ({
@@ -253,7 +264,7 @@ export function parseConfig(raw: any, dryRun = false): Config {
       })),
     memory: raw.memory ?? true,
     autopilot: {
-      enabled: raw.autopilot?.enabled ?? false,
+      enabled: !dispatch && (raw.autopilot?.enabled ?? false),
       maxRounds: Math.max(1, Number(raw.autopilot?.maxRounds) || 3),
       merge: raw.autopilot?.merge ?? false,
     },

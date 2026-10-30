@@ -175,3 +175,31 @@ test("an unanswered notification leaves a task new; only «Відкласти» 
   assert.match(line("acme/web#2"), /class="s snoozed"[\s\S]*відкладена/);
   o.stop();
 });
+
+test("«Диспетчер для Orca»: every task goes to Orca, no plan or autopilot; the board offers «Віддати в Orca»", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mako-dispatch-"));
+  const cfg = parseConfig({
+    stateDir: dir, mode: "dispatch", planFirst: true, autopilot: { enabled: true },
+    notifications: { enabled: false, inboxPort: 0 },
+    executors: { terminal: { type: "terminal" } }, defaultExecutor: "terminal",
+    trackers: [{ type: "gitlab", labels: { trigger: "x" }, projects: { "acme/web": { repoPath: dir, executor: "terminal" } } }],
+  });
+  assert.equal(cfg.mode, "dispatch");
+  assert.equal(cfg.defaultExecutor, "orca");
+  assert.equal((cfg.executors as any).orca.type, "orca", "an Orca executor is made when there is none");
+  assert.equal(cfg.trackers[0].projects["acme/web"].repos.web.executor, "orca", "a repo's own executor gives way to Orca");
+  assert.equal(cfg.planFirst, false);
+  assert.equal(cfg.autopilot.enabled, false);
+  const { Orchestrator } = await import("../src/orchestrator.ts");
+  const { StateStore } = await import("../src/state.ts");
+  const { renderInbox } = await import("../src/inbox.ts");
+  const o = new Orchestrator(cfg, [], new StateStore(dir));
+  o.state.update("acme/web#3", { task: task("acme/web#3", "Dispatch me"), status: "snoozed", snoozedUntil: 0 });
+  const html = renderInbox({ orchestrator: o, cfg } as any, "t");
+  assert.match(html, />Віддати в Orca</);
+  assert.doesNotMatch(html, /take-menu|id="new-task-open"/, "no executor menu, no «+ Задача»");
+  o.stop();
+});
