@@ -30,12 +30,15 @@ export function slugifyTitle(title: string, max = 40): string {
 
 /** fix for bugs (labels, Jira issue type, a title starting with "fix"), feat otherwise. */
 /**
- * fix/… for a bug (a bug label, Jira's Bug or GitLab's Incident type, a title starting with fix/bug),
- * feature/… for everything else.
+ * fix/… for a bug, feature/… for a task. A GitLab Task is a feature; a GitLab Issue or Incident is a bug unless
+ * labelled feature/enhancement; elsewhere a bug label, Jira's Bug or a title starting with fix/bug makes it one.
  */
 export function taskType(task: Task): "fix" | "feature" {
-  const text = [...task.labels, task.meta ?? ""].join(" ").toLowerCase();
-  if (/\b(bug|fix|defect|hotfix|incident|баг|помилка)\b/.test(text) || /^\s*(fix|bug)/i.test(task.title)) return "fix";
+  const meta = (task.meta ?? "").toLowerCase();
+  const labels = task.labels.join(" ").toLowerCase();
+  if (/\btype: task\b/.test(meta)) return "feature";
+  if (/\b(bug|fix|defect|hotfix|incident|баг|помилка)\b/.test(`${labels} ${meta}`) || /^\s*(fix|bug)/i.test(task.title)) return "fix";
+  if (/\btype: issue\b/.test(meta) && !/\b(feature|enhancement|фіча)\b/.test(labels)) return "fix";
   return "feature";
 }
 

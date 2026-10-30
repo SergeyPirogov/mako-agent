@@ -39,6 +39,9 @@ test("titles become short git-safe slugs", () => {
   assert.equal(taskType(task("a#1", "Fix login")), "fix");
   assert.equal(taskType(task("a#1", "Add login")), "feature");
   assert.equal(taskType(task("a#2", "Page is down", { meta: "Type: Incident" })), "fix", "GitLab incidents are bugs");
+  assert.equal(taskType(task("a#3", "Scroll on the main page", { meta: "Type: Issue" })), "fix", "a GitLab Issue is a bug");
+  assert.equal(taskType(task("a#4", "Add the version", { meta: "Type: Task" })), "feature", "a GitLab Task is a feature");
+  assert.equal(taskType(task("a#5", "Dark mode", { meta: "Type: Issue", labels: ["feature"] })), "feature", "unless labelled a feature");
 });
 
 test("markdown renders GitLab descriptions safely", () => {
