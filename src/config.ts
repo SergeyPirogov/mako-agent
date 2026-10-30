@@ -111,6 +111,8 @@ export interface Config {
   trackers: TrackerConfig[];
   /** How often to look for a PR/MR on handed-off tasks; 0 turns it off. */
   handoffCheckMin: number;
+  /** Done and cancelled tasks go to the archive this many days after they finished; 0 keeps them on the board. */
+  archiveAfterDays: number;
   /** Where repos without a path of their own live (cloned by Mako): ~/mako/projects. */
   projectsDir: string;
   /** Named ways to run an agent; repos pick one with `executor`. */
@@ -217,6 +219,7 @@ export function parseConfig(raw: any, dryRun = false): Config {
     maxConcurrent: raw.maxConcurrent ?? (raw.wipLimit || 1),
     taskTimeoutMin: raw.taskTimeoutMin ?? 45,
     handoffCheckMin: raw.handoffCheckMin ?? 5,
+    archiveAfterDays: Math.max(0, Number(raw.archiveAfterDays ?? 2) || 0),
     projectsDir,
     stateDir: path.resolve(raw.stateDir ?? ".mako"),
     notifications: {

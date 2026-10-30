@@ -368,8 +368,10 @@ table.code tr.meta td.tx { color: var(--mute); font-style: italic; }
 form.karchive button.link { font-size: 12px; padding: 0; color: var(--mute); }
 form.karchive button.link:hover { color: var(--accent); }
 .kc-actions form.kc-archive { margin-left: auto; }
-button.link.muted-link { color: var(--mute); font-size: 12px; padding: 4px 2px; }
-button.link.muted-link:hover { color: var(--accent); }
+button.archive-btn { margin: 0; padding: 4px 12px; font-size: 13px; color: var(--fg); background: var(--card); border: 1px solid var(--line); }
+button.archive-btn:hover { background: var(--bg); border-color: var(--mute); }
+/* «Робоче місце»: the task is wide, so the archive button stays with the other actions instead of the far corner */
+.mail-detail .kc-actions form.kc-archive, .ws-insp .kc-actions form.kc-archive { margin-left: 0; }
 a.archive-link { font-size: 14px; margin-right: auto; margin-left: 4px; }
 table.tasks.archive td.act form { display: inline; }
 table.tasks.archive td.act button { margin: 0 0 0 6px; padding: 4px 12px; font-size: 13px; }

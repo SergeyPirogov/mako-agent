@@ -546,3 +546,23 @@ test("Claude in Mako's terminal gets the permission mode and allowed commands fr
     orchestrator.stop();
   }
 });
+
+test("finished tasks go to the archive on their own; failed ones and open MRs stay", async () => {
+  const { orchestrator } = setup("true", { archiveAfterDays: 2 });
+  const old = new Date(Date.now() - 3 * 24 * 3600_000).toISOString();
+  const fresh = new Date(Date.now() - 3600_000).toISOString();
+  const rec = (n: number, extra: object) => orchestrator.state.update(`acme/web#${n}`, { task: issue(n, `t${n}`), finishedAt: old, ...extra } as any);
+  rec(40, { status: "done" });
+  rec(41, { status: "done", prUrl: "https://git.example/acme/web/-/merge_requests/1", reviewState: "merged", mergedAt: old });
+  rec(42, { status: "cancelled" });
+  rec(43, { status: "failed" });
+  rec(44, { status: "done", prUrl: "https://git.example/acme/web/-/merge_requests/2" });
+  rec(45, { status: "done", finishedAt: fresh });
+  assert.equal(orchestrator.autoArchive(), 3);
+  const archived = (n: number) => Boolean(orchestrator.state.get(`acme/web#${n}`)!.archivedAt);
+  assert.deepEqual([40, 41, 42, 43, 44, 45].map(archived), [true, true, true, false, false, false]);
+  orchestrator.cfg.archiveAfterDays = 0;
+  rec(46, { status: "done" });
+  assert.equal(orchestrator.autoArchive(), 0, "0 turns it off");
+  orchestrator.stop();
+});

@@ -261,7 +261,28 @@ export class Orchestrator {
     await this.maybeCheckHandoffs();
   }
 
+  /**
+   * Done and cancelled tasks leave the board on their own after `archiveAfterDays`; failed ones stay until the
+   * developer deals with them, and a task whose MR is still open stays in review.
+   */
+  autoArchive(now = Date.now()): number {
+    const days = this.cfg.archiveAfterDays;
+    if (!days) return 0;
+    const due = this.state
+      .all()
+      .filter((r) => !r.archivedAt && (r.status === "done" || r.status === "cancelled"))
+      .filter((r) => !(r.status === "done" && r.prUrl && !r.reviewState))
+      .filter((r) => {
+        const at = Date.parse(r.mergedAt ?? r.finishedAt ?? r.updatedAt);
+        return Number.isFinite(at) && now - at >= days * 24 * 3600_000;
+      });
+    const n = this.archive(due.map((r) => r.id));
+    if (n) log("main", `auto-archived ${n} task(s) finished more than ${days} day(s) ago`);
+    return n;
+  }
+
   private async maybeCheckHandoffs(): Promise<void> {
+    this.autoArchive();
     const every = this.cfg.handoffCheckMin * 60_000;
     if (every > 0 && Date.now() - this.lastHandoffCheck >= every) {
       this.lastHandoffCheck = Date.now();

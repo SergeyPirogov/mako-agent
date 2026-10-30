@@ -401,7 +401,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     summaryButton(app, r),
     r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : "",
     ["done", "failed", "cancelled"].includes(r.status)
-      ? `<form method="post" action="/archive" class="kc-archive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="link muted-link" title="Прибрати з дошки в архів">В архів</button></form>`
+      ? `<form method="post" action="/archive" class="kc-archive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="archive-btn" title="Прибрати з дошки в архів${app.cfg?.archiveAfterDays ? ` (Mako зробить це сам через ${app.cfg.archiveAfterDays} дн. після завершення)` : ""}">В архів</button></form>`
       : "",
   ].join("");
   const status = session
