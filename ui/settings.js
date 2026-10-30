@@ -113,7 +113,7 @@
     if (!key.includes("/") || p.repos.length > 1) return "";
     try {
       if (t.conf.type === "gitlab") return `git@${new URL(t.conf.baseUrl || "https://gitlab.com").host}:${key}.git`;
-      if (t.conf.type === "github") return `git@${t.conf.apiUrl ? new URL(t.conf.apiUrl).host : "github.com"}:${key}.git`;
+      if (t.conf.type === "github") return `git@${t.conf.apiUrl ? new URL(t.conf.apiUrl).host.replace(/^api\./, "") : "github.com"}:${key}.git`;
     } catch {}
     return "";
   }
@@ -449,7 +449,7 @@
         ${field({ label: "Мітка «в роботі» (необовʼязково)", path: `${p}.labels.inProgress`, placeholder: "не ставити" })}
         ${field({ label: "Мітка «готово» (необовʼязково)", path: `${p}.labels.done`, placeholder: "не ставити" })}
         ${field({ label: "Мітка «помилка» (необовʼязково)", path: `${p}.labels.failed`, placeholder: "не ставити" })}
-        ${isLab ? "" : field({ label: "API (для GitHub Enterprise)", path: `${p}.apiUrl`, placeholder: "https://api.github.com" })}`;
+        ${isLab ? "" : field({ label: "API (для GitHub Enterprise)", path: `${p}.apiUrl`, placeholder: "https://api.github.com", refresh: true })}`;
     }
     const test = tests[ti];
     const badge = !test
@@ -482,7 +482,7 @@
     const keyPlaceholder = type === "jira" ? "PROJ" : type === "github" ? "my-org/my-repo" : "group/project";
     const multi = proj.repos.length > 1;
     return `<div class="card project"><div class="head"><div class="grid" style="flex:1">
-        ${field({ label: keyLabel, path: `${p}.key`, placeholder: keyPlaceholder })}
+        ${field({ label: keyLabel, path: `${p}.key`, placeholder: keyPlaceholder, refresh: true })}
         ${multi
           ? field({ label: "Репозиторій за замовчуванням", path: `${p}.rest.default`, kind: "select",
               options: [["", "немає (лише мітки й правила)"], ...proj.repos.map((r) => [repoName(r, proj), repoName(r, proj)])],
@@ -500,13 +500,18 @@
     const multi = proj.repos.length > 1;
     const defaultExec = defaultExecutorName();
     const fallback = defaultRepoPath(r, proj);
+
     const clone = r.conf.cloneUrl || defaultCloneUrl(t, proj);
-    const check = pathCheckKey(r.conf.repoPath || fallback, r.conf.baseBranch, clone, ti, pi, ri);
+    // A new project without its name yet: nothing to check, the default folder would be «…/repo».
+    const unnamed = !r.conf.repoPath && !r.name.trim() && !proj.key.trim();
+    const check = unnamed ? "" : pathCheckKey(r.conf.repoPath || fallback, r.conf.baseBranch, clone, ti, pi, ri);
     return `<div class="card repo"><div class="head"><strong>📁 ${h(repoName(r, proj))}</strong>
         ${multi ? button("Видалити", "remove-repo", { ti, pi, ri }, "link danger") : ""}</div>
       <div class="grid">
         ${field({ label: "Шлях до локального репозиторію", path: `${p}.conf.repoPath`, wide: true, placeholder: `${fallback} (за замовчуванням)`, refresh: true,
-          hint: `<span class="pathcheck" data-check="${h(check)}">${pathCheckHtml(check)}</span>` })}
+          hint: unnamed
+            ? `<span class="muted">Спершу вкажіть ${t.conf.type === "jira" ? "ключ проєкту" : "проєкт"} вище: тоді буде видно, куди Mako склонує код</span>`
+            : `<span class="pathcheck" data-check="${h(check)}">${pathCheckHtml(check)}</span>` })}
         ${field({ label: "Базова гілка", path: `${p}.conf.baseBranch`, placeholder: "автоматично", refresh: true, hint: "Порожньо: основна гілка репозиторію (origin/HEAD)" })}
         ${field({ label: "Хто виконує", path: `${p}.conf.executor`, kind: "select",
           options: [["", `основний (${defaultExec})`], ...model.executors.map((e) => [e.name, `${e.name} · ${EXECUTORS[e.conf.type] ?? e.conf.type}`])] })}

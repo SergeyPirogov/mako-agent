@@ -71,7 +71,7 @@ export function defaultCloneUrl(tracker: any, projectKey: string): string | unde
   let host: string;
   try {
     if (tracker.type === "gitlab") host = new URL(tracker.baseUrl ?? "https://gitlab.com").host;
-    else if (tracker.type === "github") host = tracker.apiUrl ? new URL(tracker.apiUrl).host : "github.com";
+    else if (tracker.type === "github") host = tracker.apiUrl ? new URL(tracker.apiUrl).host.replace(/^api\./, "") : "github.com";
     else return undefined;
   } catch {
     return undefined;
