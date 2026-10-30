@@ -318,7 +318,9 @@ export class Orchestrator {
       this.state.update(task.id, { task, repo, status: "snoozed", snoozedUntil: 0 });
     } else if (rec.status === "snoozed" || rec.status === "queued") {
       // Keep the freshest description, comments and routing, unless the developer chose the repo.
-      this.state.update(task.id, rec.chosenRepo ? { task } : { task, repo });
+      // A fresh attempt has its own slug (worktree, branch): keep it over the tracker's.
+      const fresh = { ...task, slug: rec.task.slug };
+      this.state.update(task.id, rec.chosenRepo ? { task: fresh } : { task: fresh, repo });
     }
     const current = this.state.get(task.id)!;
     const due = current.status === "snoozed" && (current.snoozedUntil ?? 0) <= Date.now();
@@ -503,14 +505,29 @@ export class Orchestrator {
   }
 
   /** Lets a failed or finished task be offered again (inbox "Повторити"). */
-  retry(id: string, choice: { repo?: string; executor?: string; resume?: boolean } = {}): boolean {
+  retry(id: string, choice: { repo?: string; executor?: string; resume?: boolean; fresh?: boolean } = {}): boolean {
     const rec = this.state.get(id);
     if (!rec || !["failed", "done", "handed-off", "cancelled"].includes(rec.status)) return false;
     const project = this.trackers.get(rec.task.trackerId)?.projects[rec.task.project];
     const chosenRepo = choice.repo && project?.repos[choice.repo] ? choice.repo : rec.chosenRepo;
     const resume = choice.resume && rec.sessionId ? this.terminalExecutor() : undefined;
     const chosenExecutor = resume ?? (choice.executor && this.executors.has(choice.executor) ? choice.executor : rec.chosenExecutor);
-    log(id, `${resume ? "continue in terminal" : "retry"}${chosenRepo ? ` → repo ${chosenRepo}` : ""}${chosenExecutor ? ` · executor ${chosenExecutor}` : ""}`);
+    // From scratch: a new worktree and branch from the latest base; the previous attempt (and its MR) stays as it is.
+    const attempt = choice.fresh && !resume ? (rec.attempt ?? 1) + 1 : rec.attempt;
+    const slug = choice.fresh && !resume ? `${rec.task.slug.replace(/-try\d+$/, "")}-try${attempt}` : rec.task.slug;
+    if (choice.fresh && !resume) {
+      this.state.update(id, {
+        task: { ...rec.task, slug },
+        attempt,
+        worktree: undefined,
+        prUrl: undefined,
+        publishedSha: undefined,
+        reviewAnnounced: undefined,
+        sessionId: undefined,
+        trackerStatus: undefined,
+      });
+    }
+    log(id, `${resume ? "continue in terminal" : choice.fresh ? `start over in a new worktree (${slug})` : "retry"}${chosenRepo ? ` → repo ${chosenRepo}` : ""}${chosenExecutor ? ` · executor ${chosenExecutor}` : ""}`);
     this.state.update(id, {
       status: "queued",
       queuedAt: Date.now(),

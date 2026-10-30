@@ -471,3 +471,7 @@ form.take-pop label.tp-opt .badge { margin-left: auto; }
 .archive-tools { display: flex; align-items: center; gap: 16px; }
 .archive-tools button { margin: 0; }
 table.archive .act form + form button { margin-left: 6px; }
+form.take-pop label.tp-check { flex-direction: row; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--fg); padding: 6px 8px;
+  border: 1px dashed var(--line); border-radius: 8px; cursor: pointer; }
+form.take-pop label.tp-check input { margin: 2px 0 0; accent-color: var(--accent); }
+form.take-pop label.tp-check small { display: block; color: var(--mute); font-size: 11.5px; margin-top: 2px; }

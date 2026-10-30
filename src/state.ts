@@ -46,6 +46,8 @@ export interface TaskRecord {
   publishedSha?: string;
   /** The issue already has Mako's comment about the PR/MR (posted when it was opened from the session). */
   reviewAnnounced?: boolean;
+  /** Started over from scratch this many times: each attempt has its own slug, worktree and branch ("…-try2"). */
+  attempt?: number;
   costUsd?: number;
   error?: string;
 }

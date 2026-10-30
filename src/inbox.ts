@@ -119,7 +119,7 @@ export function renderArchive(app: App, token: string): string {
     .map((r) => {
       const actions = [
         app.orchestrator?.workspaceFor(r.id) ? `<a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "",
-        r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">PR ↗</a>` : "",
+        r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : "",
         `<form method="post" action="/unarchive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">` +
           `<input type="hidden" name="back" value="/archive"><button>Повернути на дошку</button></form>`,
         `<form method="post" action="/delete" data-confirm-title="Видалити задачу?" data-confirm-ok="Видалити" data-confirm="${esc(DELETE_NOTE)}">` +
@@ -201,9 +201,14 @@ function route(app: App, r: TaskRecord): string {
 function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "retry"): string {
   const hidden = `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">`;
   const verb = action === "take" ? "Взяти" : r.status === "done" ? "Ще раз" : "Повторити";
-  const quick = `<form method="post" action="/${action}">${hidden}<button class="${action === "take" ? "primary" : "soft"} take-main">${verb}</button></form>`;
+  // With an MR or a finished run, the old worktree already has the answer and the agent would skip the task:
+  // start over in a new one. A failed run is usually worth continuing where it stopped.
+  const freshByDefault = action === "retry" && (r.status === "done" || Boolean(r.prUrl));
+  const quick =
+    `<form method="post" action="/${action}">${hidden}${freshByDefault ? `<input type="hidden" name="fresh" value="1">` : ""}` +
+    `<button class="${action === "take" ? "primary" : "soft"} take-main" title="${freshByDefault ? "З нуля: новий worktree і нова гілка від основної" : action === "retry" ? "У тому ж worktree, з того місця, де зупинились" : ""}">${verb}</button></form>`;
   const choices = app.orchestrator?.choicesFor(r.id);
-  if (!choices || (choices.executors.length < 2 && choices.repos.length < 2)) return quick;
+  if (!choices || (action === "take" && choices.executors.length < 2 && choices.repos.length < 2)) return quick;
   const option = (value: string, label: string, selected: boolean) =>
     `<option value="${esc(value)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
   const executors = [...choices.executors]
@@ -221,6 +226,7 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
   return `<div class="take ${action}">${quick}<details class="take-menu"><summary class="take-more" title="Вибрати, куди відправити задачу">▾</summary>
     <form method="post" action="/${action}" class="take-pop">${hidden}
       <div class="tp-title">${verb}: хто виконує</div>
+      ${action === "retry" ? `<label class="tp-check"><input type="checkbox" name="fresh" value="1"${freshByDefault ? " checked" : ""}><span>З нуля в новому worktree<small>нова гілка від свіжої основної; стара спроба${r.prUrl ? " і її MR" : ""} лишаться</small></span></label>` : ""}
       ${repos}
       <fieldset class="tp-execs">${executors}</fieldset>
     </form></details></div>`;
@@ -248,7 +254,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
         )}"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Скасувати</button></form>`
       : "",
     app.orchestrator?.workspaceFor(r.id) ? `<a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "",
-    r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">PR ↗</a>` : "",
+    r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : "",
     ["done", "failed", "cancelled"].includes(r.status)
       ? `<form method="post" action="/archive" class="kc-archive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="link muted-link" title="Прибрати з дошки в архів">В архів</button></form>`
       : "",
@@ -339,4 +345,9 @@ function takeOverForm(app: App, r: TaskRecord, token: string, primary = false): 
   const terminal = app.orchestrator?.terminalExecutor();
   if (!terminal || r.executor === terminal || !r.sessionId) return "";
   return `<form method="post" action="/takeover" data-confirm-title="Перейти в термінал?" data-confirm-ok="Перейти" data-confirm-tone="primary" data-confirm="Фоновий агент зупиниться, і та сама розмова відкриється в терміналі Mako: ви побачите, що він робить, і зможете дати дозволи."><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="${primary ? "primary" : "soft"}">Перейти в термінал</button></form>`;
+}
+
+/** "MR" for GitLab tasks, "PR" elsewhere. */
+function reviewKind(app: App, r: TaskRecord): string {
+  return app.orchestrator?.trackers.get(r.task.trackerId)?.name === "GitLab" ? "MR" : "PR";
 }
