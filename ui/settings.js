@@ -395,7 +395,7 @@
           : field({ label: "Мітка для агента", path: `${p}.labels.trigger`, placeholder: DEFAULT_LABELS.trigger, hint: "Задачі з цією міткою потрапляють до Mako. Інших міток Mako не ставить" })}
         ${field({ label: "Брати всі мої задачі, без мітки", path: `${p}.labels.trigger`, kind: "check", type: "nullflag", wide: true, rerender: true })}
         ${isLab ? `${statusList}
-          ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: "не змінювати", list: `statuses-${ti}`, hint: statusHint })}
+          ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: isLab ? "автоматично: In progress" : "не змінювати", list: `statuses-${ti}`, hint: statusHint })}
           ${field({ label: "Статус, коли є MR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати", list: `statuses-${ti}`,
             hint: "Після мерджу MR із <code>Closes #N</code> задача закриється сама" })}` : ""}`;
       advanced = `

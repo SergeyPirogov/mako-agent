@@ -115,15 +115,29 @@ export class GitLabTracker implements Tracker {
     return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
   }
 
-  async onStart(task: Task): Promise<void> {
-    await this.setStatus(task, this.cfg.transitions?.onStart);
+  async onStart(task: Task): Promise<string | void> {
+    // Not set at all (not even "не змінювати"): the project's own «In progress», when it has one.
+    const configured = this.cfg.transitions?.onStart;
+    const name = configured === undefined ? await this.guessStatus(/^in progress$|progress|в роботі|doing/i) : configured;
+    const moved = await this.setStatus(task, name);
     await this.applyLabels(task, labelChanges(this.labels, "start"));
+    return moved;
   }
 
-  async onFinish(task: Task, outcome: Outcome): Promise<void> {
+  async onFinish(task: Task, outcome: Outcome): Promise<string | void> {
     const t = this.cfg.transitions;
-    await this.setStatus(task, outcome === "success" ? t?.onSuccess : outcome === "failed" ? t?.onFailure : undefined);
+    const moved = await this.setStatus(task, outcome === "success" ? t?.onSuccess : outcome === "failed" ? t?.onFailure : undefined);
     await this.applyLabels(task, labelChanges(this.labels, outcome));
+    return moved;
+  }
+
+  private statuses?: Promise<string[]>;
+
+  /** A status of this GitLab by pattern; none when statuses are not available here (Free tier, older GitLab). */
+  private async guessStatus(pattern: RegExp): Promise<string | undefined> {
+    this.statuses ??= this.listStatuses().catch(() => []);
+    const all = await this.statuses;
+    return all.find((s) => s.toLowerCase() === "in progress") ?? all.find((s) => pattern.test(s));
   }
 
   /** Statuses of the project's issues, from the work item type definition. */
@@ -144,8 +158,8 @@ export class GitLabTracker implements Tracker {
   }
 
   /** Moves the issue to a work item status by name (resolved case-insensitively by GitLab). */
-  private async setStatus(task: Task, name: string | null | undefined): Promise<void> {
-    if (!name) return;
+  private async setStatus(task: Task, name: string | null | undefined): Promise<string | undefined> {
+    if (!name) return undefined;
     // Tasks taken before Mako kept the issue's global id: look it up.
     const id = task.nativeId ?? String((await this.request<any>("GET", this.issuePath(task))).id);
     const data = await this.graphql<any>(
@@ -154,6 +168,7 @@ export class GitLabTracker implements Tracker {
     );
     const errors: string[] = data?.workItemUpdate?.errors ?? [];
     if (errors.length) throw new Error(`GitLab не змінив статус ${task.id} на «${name}»: ${errors.join("; ")}`);
+    return name;
   }
 
   private async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {

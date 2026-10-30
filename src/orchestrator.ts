@@ -99,11 +99,10 @@ export class Orchestrator {
 
   /** Status or label changes in the tracker must not fail the agent's work: report them and carry on. */
   /** Status changes never stop the work; the card says whether the issue moved, and why not. */
-  private async updateTracker(task: Task, moment: "start" | Outcome, change: () => Promise<void>): Promise<void> {
+  private async updateTracker(task: Task, moment: "start" | Outcome, change: () => Promise<string | void>): Promise<void> {
     const tracker = this.trackers.get(task.trackerId);
-    const name = tracker?.statusFor?.(moment);
     try {
-      await change();
+      const name = await change();
       if (name) {
         log(task.id, `tracker status → ${name}`);
         this.state.update(task.id, { trackerStatus: { ok: true, text: `Статус у ${tracker!.name}: «${name}»` } });

@@ -82,24 +82,25 @@ export class JiraTracker implements Tracker {
     return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
   }
 
-  async onStart(task: Task): Promise<void> {
-    await this.transition(task.id, this.cfg.transitions?.onStart);
+  async onStart(task: Task): Promise<string | void> {
+    return this.transition(task.id, this.cfg.transitions?.onStart);
   }
 
-  async onFinish(task: Task, outcome: Outcome): Promise<void> {
+  async onFinish(task: Task, outcome: Outcome): Promise<string | void> {
     const t = this.cfg.transitions;
-    if (outcome === "success") await this.transition(task.id, t?.onSuccess);
-    if (outcome === "failed") await this.transition(task.id, t?.onFailure);
+    if (outcome === "success") return this.transition(task.id, t?.onSuccess);
+    if (outcome === "failed") return this.transition(task.id, t?.onFailure);
   }
 
   /** Moves the issue to the status whose transition (or target status) name matches, case-insensitively. */
-  private async transition(key: string, name: string | null | undefined): Promise<void> {
-    if (!name) return;
+  private async transition(key: string, name: string | null | undefined): Promise<string | undefined> {
+    if (!name) return undefined;
     const { transitions } = await this.request<{ transitions: any[] }>("GET", `/rest/api/3/issue/${key}/transitions`);
     const wanted = name.toLowerCase();
     const t = transitions.find((t) => t.name.toLowerCase() === wanted || t.to?.name?.toLowerCase() === wanted);
     if (!t) throw new Error(`${key}: no transition to "${name}" available`);
     await this.request("POST", `/rest/api/3/issue/${key}/transitions`, { transition: { id: t.id } });
+    return name;
   }
 }
 

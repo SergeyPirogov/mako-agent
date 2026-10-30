@@ -36,8 +36,9 @@ export interface Tracker {
   projects: Record<string, ProjectConfig>;
   fetchTasks(): Promise<Task[]>;
   comment(task: Task, text: string): Promise<void>;
-  onStart(task: Task): Promise<void>;
-  onFinish(task: Task, outcome: Outcome): Promise<void>;
+  /** Both return the status the issue was moved to, if any. */
+  onStart(task: Task): Promise<string | void>;
+  onFinish(task: Task, outcome: Outcome): Promise<string | void>;
   /** Statuses an issue can be moved to, for the settings page; undefined when the tracker has none. */
   listStatuses?(): Promise<string[]>;
   /** Which issues the tracker looks for, in words, for an empty search result. */
