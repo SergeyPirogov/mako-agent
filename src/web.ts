@@ -18,6 +18,8 @@ import { log } from "./log.js";
 import { doctor, findRepos } from "./onboarding.js";
 import { renderStats } from "./stats.js";
 import { renderMemory } from "./memory-page.js";
+import { renderTracker } from "./tracker-page.js";
+import { adoptTask } from "./browse.js";
 import * as git from "./git.js";
 import { detectBaseBranch, resolvePath, type RepoConfig } from "./config.js";
 
@@ -36,6 +38,7 @@ const STATIC: Record<string, [string, string]> = {
   "changes.js": [path.join(UI_DIR, "changes.js"), "text/javascript"],
   "welcome.js": [path.join(UI_DIR, "welcome.js"), "text/javascript"],
   "tasklog.js": [path.join(UI_DIR, "tasklog.js"), "text/javascript"],
+  "tracker.js": [path.join(UI_DIR, "tracker.js"), "text/javascript"],
   "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
   "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
   "vendor/addon-fit.js": [require.resolve("@xterm/addon-fit/lib/addon-fit.js"), "text/javascript"],
@@ -99,6 +102,9 @@ export function startWebUi(app: App, port: number): http.Server {
       if (req.method === "GET" && url.pathname === "/memory") {
         return send(200, "text/html", renderMemory(app, token, url.searchParams.get("saved") ?? undefined));
       }
+      if (req.method === "GET" && url.pathname === "/tracker") {
+        return send(200, "text/html", await renderTracker(app, token, url.searchParams.get("notice") ?? undefined));
+      }
       if (req.method === "GET" && url.pathname === "/stats") {
         const days = Number(url.searchParams.get("days") ?? 30);
         return send(200, "text/html", renderStats(app, token, [0, 7, 30].includes(days) ? days : 30));
@@ -158,7 +164,7 @@ export function startWebUi(app: App, port: number): http.Server {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge", "/autopilot", "/plan", "/create-task", "/memory"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge", "/autopilot", "/adopt", "/plan", "/create-task", "/memory"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -202,6 +208,11 @@ export function startWebUi(app: App, port: number): http.Server {
           return res.writeHead(303, { Location: problem ? `/?notice=${encodeURIComponent(problem)}` : "/" }).end();
         }
         if (o && url.pathname === "/autopilot") o.setAutopilot(id, form.get("on") === "1");
+        if (o && url.pathname === "/adopt") {
+          // From «Трекер»: back to the list with the outcome.
+          const taken = await adoptTask(o, form.get("ref") ?? "").then((tid) => `Взято: ${tid}`, (err: any) => String(err.message));
+          return res.writeHead(303, { Location: `/tracker?notice=${encodeURIComponent(taken)}` }).end();
+        }
         if (o && url.pathname === "/takeover") {
           o.takeOver(id);
           // Back to the log: the terminal appears there as soon as the agent has stopped.

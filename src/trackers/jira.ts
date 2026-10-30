@@ -60,9 +60,31 @@ export class JiraTracker implements Tracker {
   }
 
   async fetchTasks(): Promise<Task[]> {
+    return this.search(this.cfg.jql, 50);
+  }
+
+  async browseTasks(): Promise<Task[]> {
+    const keys = Object.keys(this.projects).map((k) => `"${k.replace(/"/g, "")}"`);
+    return this.search(`project in (${keys.join(", ")}) AND statusCategory != Done ORDER BY updated DESC`, 100);
+  }
+
+  async inspectTask(ref: string): Promise<{ task: Task; misses: string[] } | undefined> {
+    const key = (ref.match(/\/browse\/([A-Z][A-Z0-9_]*-\d+)/) ?? ref.match(/^([A-Z][A-Z0-9_]*-\d+)$/i))?.[1]?.toUpperCase();
+    if (!key) return undefined;
+    const [task] = await this.search(`key = ${key}`, 1);
+    if (!task) throw new Error(`${key}: задачі немає або токен її не бачить`);
+    const misses: string[] = [];
+    if (!this.projects[task.project]) misses.push(`проєкт ${task.project} не доданий у Налаштуваннях`);
+    // The JQL can say anything: ask Jira whether this issue is in it.
+    const inQuery = await this.search(`(${this.cfg.jql.replace(/\s+ORDER\s+BY[\s\S]*$/i, "")}) AND key = ${key}`, 1);
+    if (!inQuery.length) misses.push(`не підходить під JQL: ${this.cfg.jql}`);
+    return { task, misses };
+  }
+
+  private async search(jql: string, maxResults: number): Promise<Task[]> {
     const data = await this.request<{ issues: any[] }>("POST", "/rest/api/3/search/jql", {
-      jql: this.cfg.jql,
-      maxResults: 50,
+      jql,
+      maxResults,
       fields: ["summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee"],
     });
     return data.issues.map((i) => ({
@@ -82,6 +104,7 @@ export class JiraTracker implements Tracker {
       })),
       closingRef: i.key,
       assignees: i.fields.assignee?.accountId ? [i.fields.assignee.accountId] : [],
+      assigneeNames: i.fields.assignee?.displayName ? [i.fields.assignee.displayName] : undefined,
     }));
   }
 

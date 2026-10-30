@@ -8,6 +8,7 @@ import { parseConfig } from "../src/config.ts";
 import { createTracker } from "../src/trackers/index.ts";
 import { Orchestrator } from "../src/orchestrator.ts";
 import { StateStore } from "../src/state.ts";
+import { browseTrackers, adoptTask } from "../src/browse.ts";
 
 // «Чому Mako не бачить задачу?» against a GitLab that, like some instances, leaves an issue out of its search.
 const issues: Record<number, any> = {
@@ -26,7 +27,11 @@ before(async () => {
     if (url.pathname === "/api/v4/user") return res.end(JSON.stringify({ id: 5, username: "me" }));
     const one = url.pathname.match(/\/issues\/(\d+)$/);
     if (one) return issues[+one[1]] ? res.end(JSON.stringify({ ...issues[+one[1]], web_url: `${base}/acme/web/-/issues/${one[1]}` })) : res.writeHead(404).end("{}");
-    if (url.pathname.endsWith("/issues")) return res.end(JSON.stringify([issues[1]].map((i) => ({ ...i, web_url: "" }))));
+    const web = (i: any) => ({ ...i, web_url: `${base}/acme/web/-/issues/${i.iid}` });
+    // «Трекер» asks for everything; Mako's search (with its label) gets only #1
+    if (url.pathname.endsWith("/issues") && url.searchParams.get("order_by") === "updated_at") return res.end(JSON.stringify(Object.values(issues).map(web)));
+    if (url.pathname.endsWith("/issues")) return res.end(JSON.stringify([issues[1]].map(web)));
+    if (url.pathname.endsWith("/notes")) return res.end("[]");
     res.writeHead(404).end("{}");
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -66,3 +71,36 @@ test("«Чому Mako не бачить задачу?» names the filter that le
     o.stop();
   }
 });
+
+test("«Трекер» lists every open issue with its assignees and what Mako does with it; «Взяти» takes one Mako left out", async () => {
+  const cfg = parseConfig({
+    stateDir: path.join(dir, "state2"),
+    planFirst: false,
+    notifications: { enabled: false, inboxPort: 0 },
+    executors: { agent: { type: "command", command: "true" } },
+    trackers: [{ type: "gitlab", baseUrl: base, projects: { "acme/web": { repoPath: dir, setup: "none" } } }],
+  });
+  const tracker = createTracker(cfg.trackers[0], () => "token");
+  const o = new Orchestrator(cfg, [tracker], new StateStore(cfg.stateDir));
+  try {
+    const [view] = await browseTrackers(o);
+    assert.equal(view.me, "me");
+    const byId = Object.fromEntries(view.items.map((i) => [i.task.id, i]));
+    assert.deepEqual(Object.keys(byId), ["acme/web#1", "acme/web#2", "acme/web#3"]);
+    assert.deepEqual(byId["acme/web#1"].task.assignees, ["dev", "qa"]);
+    assert.deepEqual([byId["acme/web#1"].mako.kind, byId["acme/web#1"].mako.text], ["skipped", "призначена на інших"]);
+    assert.deepEqual([byId["acme/web#3"].mako.kind, byId["acme/web#3"].mako.text], ["skipped", "не підходить під фільтр Mako"]);
+
+    const id = await adoptTask(o, `${base}/acme/web/-/issues/3`);
+    assert.equal(id, "acme/web#3");
+    assert.notEqual(o.state.get(id)?.status, undefined);
+    assert.notEqual(o.state.get(id)?.status, "snoozed", "taken, not waiting for an answer");
+    await assert.rejects(adoptTask(o, "acme/web#3"), /уже на дошці/);
+    const [again] = await browseTrackers(o);
+    assert.equal(again.items.find((i) => i.task.id === id)?.mako.kind, "board");
+  } finally {
+    o.stop();
+    await o.drain();
+  }
+});
+

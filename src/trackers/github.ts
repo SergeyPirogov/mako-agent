@@ -58,24 +58,60 @@ export class GitHubTracker implements Tracker {
         const comments = issue.comments
           ? await this.request<any[]>("GET", `/repos/${repo}/issues/${issue.number}/comments?per_page=100`)
           : [];
-        tasks.push({
-          id: `${repo}#${issue.number}`,
-          slug: `${repo.split("/")[1]}-${issue.number}`,
-          trackerId: this.id,
-          project: repo,
-          title: issue.title,
-          description: issue.body ?? "",
-          url: issue.html_url,
-          meta: issue.labels?.length ? `Labels: ${issue.labels.map((l: any) => l.name).join(", ")}` : undefined,
-          labels: (issue.labels ?? []).map((l: any) => l.name),
-          components: [],
-          comments: comments.map((c) => ({ author: c.user?.login ?? "unknown", body: c.body ?? "" })),
-          closingRef: `Closes ${repo}#${issue.number}`,
-          assignees: (issue.assignees ?? []).map((a: any) => a.login),
-        });
+        tasks.push(this.toTask(repo, issue, comments));
       }
     }
     return tasks;
+  }
+
+  async browseTasks(): Promise<Task[]> {
+    const tasks: Task[] = [];
+    for (const repo of Object.keys(this.projects)) {
+      const issues = await this.request<any[]>("GET", `/repos/${repo}/issues?state=open&sort=updated&per_page=100`);
+      tasks.push(...issues.filter((i) => !i.pull_request).map((i) => this.toTask(repo, i)));
+    }
+    return tasks;
+  }
+
+  async inspectTask(ref: string): Promise<{ task: Task; misses: string[] } | undefined> {
+    const repos = Object.keys(this.projects);
+    const m =
+      ref.match(/^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/issues\/(\d+)/) ??
+      ref.match(/^([\w.-]+\/[\w.-]+)#(\d+)$/) ??
+      (repos.length === 1 ? ref.match(/^()#?(\d+)$/) : null);
+    if (!m) return undefined;
+    const repo = m[1] || repos[0];
+    const issue = await this.request<any>("GET", `/repos/${repo}/issues/${m[2]}`);
+    const comments = issue.comments ? await this.request<any[]>("GET", `/repos/${repo}/issues/${m[2]}/comments?per_page=100`) : [];
+    const task = this.toTask(repo, issue, comments);
+    const misses: string[] = [];
+    if (!this.projects[repo]) misses.push(`репозиторій ${repo} не доданий у Налаштуваннях (є: ${repos.join(", ")})`);
+    if (issue.state !== "open") misses.push("issue закрите");
+    if (issue.pull_request) misses.push("це pull request, а не issue");
+    if (this.labels.trigger && !task.labels.includes(this.labels.trigger)) misses.push(`немає мітки «${this.labels.trigger}» (є: ${task.labels.join(", ") || "жодної"})`);
+    const who = await this.assignee();
+    if (who && !(task.assignees ?? []).some((a) => a.toLowerCase() === who.toLowerCase())) {
+      misses.push(`не призначене на ${who} (виконавці: ${task.assignees?.join(", ") || "немає"})`);
+    }
+    return { task, misses };
+  }
+
+  private toTask(repo: string, issue: any, comments: any[] = []): Task {
+    return {
+      id: `${repo}#${issue.number}`,
+      slug: `${repo.split("/")[1]}-${issue.number}`,
+      trackerId: this.id,
+      project: repo,
+      title: issue.title,
+      description: issue.body ?? "",
+      url: issue.html_url,
+      meta: issue.labels?.length ? `Labels: ${issue.labels.map((l: any) => l.name).join(", ")}` : undefined,
+      labels: (issue.labels ?? []).map((l: any) => l.name),
+      components: [],
+      comments: comments.map((c) => ({ author: c.user?.login ?? "unknown", body: c.body ?? "" })),
+      closingRef: `Closes ${repo}#${issue.number}`,
+      assignees: (issue.assignees ?? []).map((a: any) => a.login),
+    };
   }
 
   private me?: string;

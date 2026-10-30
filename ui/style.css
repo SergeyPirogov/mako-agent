@@ -568,3 +568,23 @@ form.mem-card { display: block; }
 .explain-list li::marker { color: var(--warn); }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dlg-actions button { margin: 0; }
+/* «Трекер» */
+.tr-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 12px 0 8px; }
+.tr-filters select { width: auto; }
+.tr-filters .check { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.tr-section { margin-top: 20px; }
+.tr-section h2 { margin-bottom: 6px; }
+.tr-table td { vertical-align: top; }
+.tr-task { min-width: 260px; }
+.tr-labels, .tr-people { display: flex; flex-wrap: wrap; gap: 4px; }
+.tr-labels { margin-top: 4px; }
+.chip { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); white-space: nowrap; }
+.chip.me { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chip.label { color: var(--mute); }
+.tr-state { font-size: 12px; white-space: nowrap; }
+.tr-state.board { color: var(--ok); } .tr-state.offered { color: var(--accent); } .tr-state.skipped { color: var(--warn); } .tr-state.archived { color: var(--mute); }
+.tr-table .act form { display: inline; } .tr-table .act button { margin: 0; padding: 3px 12px; font-size: 13px; }
+@media (max-width: 700px) { .tr-table thead { display: none; } .tr-table tr { display: grid; grid-template-columns: 1fr auto; } .tr-table td { border-top: 0; padding: 6px 10px; }
+  .tr-table td.tr-task { grid-column: 1 / -1; border-top: 1px solid var(--line); } }
+.tr-table th { text-align: left; font-size: 12px; color: var(--mute); font-weight: 600; padding: 10px; }
+#tr-search { width: 280px; }

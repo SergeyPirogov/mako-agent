@@ -24,6 +24,8 @@ export interface Task {
   nativeId?: string;
   /** Who the issue is assigned to: usernames (GitLab), logins (GitHub) or account ids (Jira). */
   assignees?: string[];
+  /** The same people by name, where `assignees` are ids (Jira). */
+  assigneeNames?: string[];
 }
 
 export type Outcome = "success" | "no-changes" | "failed";
@@ -61,6 +63,8 @@ export interface Tracker {
   /** Both return the status the issue was moved to, if any. */
   onStart(task: Task): Promise<string | void>;
   onFinish(task: Task, outcome: Outcome): Promise<string | void>;
+  /** Every open issue of the configured projects, Mako's label and assignee filters aside, recent first: «Трекер». */
+  browseTasks?(): Promise<Task[]>;
   /** One issue read directly by its link or number, and which of the tracker's own filters leave it out. */
   inspectTask?(ref: string): Promise<{ task: Task; misses: string[] } | undefined>;
   /** Projects the token can see, most active first, for the settings page to offer: key and a readable name. */

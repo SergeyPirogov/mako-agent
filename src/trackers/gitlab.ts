@@ -71,6 +71,15 @@ export class GitLabTracker implements Tracker {
     return tasks;
   }
 
+  async browseTasks(): Promise<Task[]> {
+    const tasks: Task[] = [];
+    for (const projectPath of Object.keys(this.projects)) {
+      const issues = await this.request<any[]>("GET", `${projectApi(projectPath)}/issues?state=opened&order_by=updated_at&per_page=100`);
+      tasks.push(...issues.map((i) => this.toTask(projectPath, i)));
+    }
+    return tasks;
+  }
+
   private toTask(projectPath: string, issue: any, notes: any[] = []): Task {
     return {
       id: `${projectPath}#${issue.iid}`,
@@ -103,7 +112,10 @@ export class GitLabTracker implements Tracker {
     if (!m) return undefined;
     const projectPath = m[1] || projects[0];
     const issue = await this.request<any>("GET", `${projectApi(projectPath)}/issues/${m[2]}`);
-    const task = this.toTask(projectPath, issue);
+    const notes = issue.user_notes_count
+      ? await this.request<any[]>("GET", `${projectApi(projectPath)}/issues/${issue.iid}/notes?sort=asc&per_page=100`)
+      : [];
+    const task = this.toTask(projectPath, issue, notes);
     const misses: string[] = [];
     if (!this.projects[projectPath]) misses.push(`проєкт ${projectPath} не доданий у Налаштуваннях (є: ${projects.join(", ")})`);
     if (issue.state !== "opened") misses.push("задача закрита");
