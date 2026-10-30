@@ -2,6 +2,8 @@
   color-scheme: light dark;
   --bg: #f6f7f9; --card: #fff; --fg: #1b1d21; --mute: #6b7079; --line: #e2e4e8; --field: #fff;
   --accent: #1f6feb; --accent-fg: #fff; --ok: #1f883d; --warn: #b35900; --err: #cf222e; --purple: #7a5af8;
+  /* motion: a strong ease-out, short */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #111317; --card: #1a1d23; --fg: #e8eaed; --mute: #9aa0a8; --line: #2c3038; --field: #14161b;
@@ -46,9 +48,10 @@ form { display: inline; }
 /* controls */
 /* outlined buttons: only the main action of a place is filled */
 button { font: inherit; font-weight: 500; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg);
-  cursor: pointer; margin-left: 6px; transition: background .12s, border-color .12s, box-shadow .12s; }
+  cursor: pointer; margin-left: 6px; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease, transform 160ms var(--ease-out); }
 button:hover { background: var(--bg); border-color: var(--mute); }
-button:active { transform: translateY(1px); }
+/* pressed: a slight scale, so the button feels heard */
+button:active:not(:disabled) { transform: scale(0.97); }
 button:focus-visible, a.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 button.primary:hover { background: color-mix(in srgb, var(--accent) 86%, #000); border-color: color-mix(in srgb, var(--accent) 86%, #000); }
@@ -113,7 +116,8 @@ a.att:hover { background: var(--bg); }
 .att-text { flex: 1; min-width: 0; }
 .att-text .muted { display: block; font-size: 13px; }
 .att-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--ok); }
-a.att.waiting .att-dot { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+a.att.waiting .att-dot { background: var(--warn); }
+@media (prefers-reduced-motion: no-preference) { a.att.waiting .att-dot { animation: pulse 1.4s ease-in-out infinite; } }
 a.att .btn { margin: 0; }
 span.btn { display: inline-block; padding: 6px 14px; border-radius: 6px; background: var(--accent); color: #fff; }
 table.tasks tr.attn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
@@ -589,3 +593,21 @@ form.mem-card { display: block; }
 .tr-table th { text-align: left; font-size: 12px; color: var(--mute); font-weight: 600; padding: 10px; }
 #tr-search { width: 280px; }
 .kc-files { font-size: 12px; color: var(--mute); white-space: nowrap; cursor: default; }
+
+/* Dialogs and the «Взяти ▾» menu come in instead of popping: opacity with a slight scale (never from 0), ease-out,
+   under 250ms. Modals stay centred; the menu grows from its trigger. Closing is instant. */
+dialog.mdialog[open], dialog.desc[open] { opacity: 1; transform: scale(1); transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+dialog.mdialog[open]::backdrop, dialog.desc[open]::backdrop { opacity: 1; transition: opacity 200ms ease; }
+@starting-style {
+  dialog.mdialog[open], dialog.desc[open] { opacity: 0; transform: scale(0.96); }
+  dialog.mdialog[open]::backdrop, dialog.desc[open]::backdrop { opacity: 0; }
+}
+form.take-pop { transform-origin: top left; transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out); }
+@starting-style { details.take-menu[open] form.take-pop { opacity: 0; transform: scale(0.97) translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) {
+  dialog.mdialog[open], dialog.desc[open], form.take-pop { transform: none; transition: opacity 150ms ease; }
+  button:active:not(:disabled) { transform: none; }
+}
+/* No tap highlight flash on touch screens; hover colours only where there is a real pointer. */
+button, a, summary, label { -webkit-tap-highlight-color: transparent; }
+
