@@ -437,3 +437,9 @@ dialog.desc .desc-actions { margin-top: 18px; padding-top: 14px; border-top: 1px
 .s.gone { background: none; border: 1px dashed var(--mute); color: var(--mute); }
 .s.gone.deleted { border-color: var(--err); color: var(--err); }
 .kcard:has(.s.gone.deleted) .kc-title { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--fg) 40%, transparent); }
+.tlog-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; font-size: 13px; }
+.tlog-bar form button { margin: 0; }
+main.wide:has(ol.tlog) { padding-bottom: 12px; }
+main.wide ol.tlog { flex: 1; min-height: 0; overflow-y: auto; }
+main.wide .tlog-foot { margin: 8px 0 0; }
+main.wide:has(ol.tlog) > p { margin: 0 0 10px; }

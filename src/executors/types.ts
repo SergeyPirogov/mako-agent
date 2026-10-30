@@ -15,6 +15,8 @@ export interface ExecContext {
   ui?: { port: number; /** Repeat "waiting for you" notifications every N minutes; 0 = once. */ remindMin: number };
   /** An earlier agent conversation to continue instead of starting a new one. */
   resumeSessionId?: string;
+  /** The agent reported its conversation id: it can be continued elsewhere even before it ends. */
+  onSession?: (sessionId: string) => void;
 }
 
 /**

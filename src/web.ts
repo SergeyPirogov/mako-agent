@@ -31,6 +31,7 @@ const STATIC: Record<string, [string, string]> = {
   "dialog.js": [path.join(UI_DIR, "dialog.js"), "text/javascript"],
   "changes.js": [path.join(UI_DIR, "changes.js"), "text/javascript"],
   "welcome.js": [path.join(UI_DIR, "welcome.js"), "text/javascript"],
+  "tasklog.js": [path.join(UI_DIR, "tasklog.js"), "text/javascript"],
   "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
   "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
   "vendor/addon-fit.js": [require.resolve("@xterm/addon-fit/lib/addon-fit.js"), "text/javascript"],
@@ -145,7 +146,7 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -158,6 +159,11 @@ export function startWebUi(app: App, port: number): void {
           o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1" });
         }
         if (o && url.pathname === "/cancel") o.cancel(id);
+        if (o && url.pathname === "/takeover") {
+          o.takeOver(id);
+          // Back to the log: the terminal appears there as soon as the agent has stopped.
+          return res.writeHead(303, { Location: `/log?task=${encodeURIComponent(id)}` }).end();
+        }
         if (o && url.pathname === "/archive") {
           // One task, or a whole column ("done" or "failed") from its header.
           const column = form.get("column");

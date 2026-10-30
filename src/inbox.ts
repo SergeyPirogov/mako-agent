@@ -217,7 +217,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   const actions = [
     session ? `<a class="btn" href="/session/${esc(session.id)}">Термінал</a>` : "",
     // No terminal yet (the worktree is being prepared) or none at all (a background agent): show its log.
-    r.status === "running" && !session ? `<a class="btn" href="/log?task=${encodeURIComponent(r.id)}">Хід роботи</a>` : "",
+    r.status === "running" && !session ? `<a class="btn" href="/log?task=${encodeURIComponent(r.id)}">Хід роботи</a>` + takeOverForm(app, r, token) : "",
     r.status === "asking" || r.status === "snoozed" ? takeControl(app, r, token, "take") + form("later", "Відкласти") : "",
     r.gone !== "deleted" && ["done", "failed", "cancelled"].includes(r.status) && r.sessionId && r.executor !== app.orchestrator?.terminalExecutor() && app.orchestrator?.terminalExecutor()
       ? `<form method="post" action="/retry" title="Відкрити ту саму розмову з агентом у терміналі Mako"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><input type="hidden" name="resume" value="1"><button class="${r.status === "done" ? "soft" : "primary"}">Продовжити в терміналі</button></form>`
@@ -274,15 +274,20 @@ function phase(line: string): string {
 export function renderTaskLog(app: App, id: string, token: string): string {
   const r = app.orchestrator?.state.get(id);
   const lines = recentLog(id);
+  const session = r?.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
+  if (session) return page({ title: "Хід роботи", active: "inbox", token, body: "", head: `<meta http-equiv="refresh" content="0;url=/session/${esc(session.id)}">` });
+  const last = lines.at(-1);
+  const quiet = last ? Math.floor((Date.now() - last.at) / 60_000) : 0;
   const time = (at: number) => new Date(at).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const live = r?.status === "running" || r?.status === "queued";
   const body = `<div class="board-head"><h1>Хід роботи</h1><a class="link" href="/">← До дошки</a></div>
     ${r ? `<p><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a> ${esc(r.task.title)} · <span class="s ${r.status}">${LABELS[r.status]}</span></p>` : ""}
+    ${r?.status === "running" ? `<div class="tlog-bar"><span class="muted">${last ? `Остання подія ${quiet ? `${quiet} хв тому${quiet >= 3 ? " — агент щось довго думає або чекає на відповідь мережі" : ""}` : "щойно"}` : ""}</span>${takeOverForm(app, r, token, true)}</div>` : ""}
     ${lines.length
       ? `<ol class="tlog">${[...lines].reverse().map((l) => `<li><span class="muted">${time(l.at)}</span> ${esc(l.text)}</li>`).join("")}</ol>`
       : `<p class="muted">Поки що записів немає${live ? "" : " (журнал зберігається, доки Mako запущений)"}.</p>`}
-    ${live ? `<p class="small muted">Нові записи зверху, сторінка оновлюється сама.</p>` : ""}`;
-  return page({ title: `Хід роботи ${id}`, active: "inbox", token, body, refresh: live ? 3 : undefined });
+    ${live ? `<p class="small muted tlog-foot">Нові записи зверху, журнал оновлюється сам.</p>` : ""}`;
+  return page({ title: `Хід роботи ${id}`, active: "inbox", token, body, wide: true, script: "/ui/tasklog.js", data: { live: live ? "1" : "" } });
 }
 
 /** A short plain-text preview on the card; the whole description opens in a dialog. */
@@ -345,4 +350,11 @@ function richText(md: string): string {
     }
   });
   return out.join("");
+}
+
+/** A background Claude run, moved into Mako's terminal mid-way: same conversation, now visible and steerable. */
+function takeOverForm(app: App, r: TaskRecord, token: string, primary = false): string {
+  const terminal = app.orchestrator?.terminalExecutor();
+  if (!terminal || r.executor === terminal || !r.sessionId) return "";
+  return `<form method="post" action="/takeover" data-confirm="Фоновий агент зупиниться, і та сама розмова відкриється в терміналі Mako: ви побачите, що він робить, і зможете дати дозволи."><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="${primary ? "primary" : "soft"}">Перейти в термінал</button></form>`;
 }

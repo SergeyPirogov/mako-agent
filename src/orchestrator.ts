@@ -11,6 +11,7 @@ import * as git from "./git.js";
 import { routeTask } from "./routing.js";
 import { findReview } from "./reviews.js";
 import { log } from "./log.js";
+import { stopTask } from "./executors/processes.js";
 
 export class Orchestrator {
   /** By id; replaced on reload. */
@@ -410,6 +411,7 @@ export class Orchestrator {
             ? { port: this.cfg.notifications.inboxPort, remindMin: this.cfg.notifications.remindMin }
             : undefined,
           resumeSessionId: rec.resumeSession,
+          onSession: (sessionId) => this.state.update(task.id, { sessionId }),
         },
         prompt,
       );
@@ -427,6 +429,7 @@ export class Orchestrator {
         return;
       }
 
+      if (this.takeOvers.delete(task.id)) return this.continueInTerminal(task.id);
       const { worktree } = result;
       this.state.update(task.id, { worktree, ...(result.sessionId ? { sessionId: result.sessionId } : {}) });
       log(task.id, `agent finished: ok=${result.ok}${result.costUsd !== undefined ? `, cost=$${result.costUsd.toFixed(2)}` : ""}`);
@@ -472,6 +475,7 @@ export class Orchestrator {
       log(task.id, `done: ${outcome}`);
       inform(`✅ ${task.id} готово`, changed ? outcome : "Агент не вніс змін, див. коментар у задачі");
     } catch (err: any) {
+      if (this.takeOvers.delete(task.id)) return this.continueInTerminal(task.id);
       if (this.stopped) {
         // Interrupted by shutdown, not a real failure: run it again after restart.
         this.state.update(task.id, { status: "queued", queuedAt: 0 });
@@ -509,6 +513,38 @@ export class Orchestrator {
     });
     this.schedule();
     return true;
+  }
+
+  /** Tasks whose background agent is being stopped to continue in the terminal. */
+  private takeOvers = new Set<string>();
+
+  /**
+   * Stops a background Claude run and opens the same conversation in Mako's terminal, so the developer
+   * sees what happens and can grant what it is missing.
+   */
+  takeOver(id: string): boolean {
+    const rec = this.state.get(id);
+    if (!rec || rec.status !== "running" || !rec.sessionId || !this.terminalExecutor()) return false;
+    this.takeOvers.add(id);
+    if (!stopTask(id)) {
+      this.takeOvers.delete(id);
+      return false;
+    }
+    log(id, "stopping the background agent to continue in the terminal");
+    return true;
+  }
+
+  private continueInTerminal(id: string): void {
+    const rec = this.state.get(id)!;
+    log(id, "continue in terminal");
+    this.state.update(id, {
+      status: "queued",
+      queuedAt: Date.now(),
+      error: undefined,
+      chosenExecutor: this.terminalExecutor(),
+      resumeSession: rec.sessionId,
+    });
+    this.schedule();
   }
 
   /** A Claude Code terminal executor, which can continue a background conversation with the developer present. */

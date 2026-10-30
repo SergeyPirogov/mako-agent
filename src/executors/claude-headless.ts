@@ -26,7 +26,7 @@ export class ClaudeHeadlessExecutor implements Executor {
     const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line));
     const args = ["-p", prompt, "--output-format", "stream-json", "--verbose", ...(this.cfg.args ?? [])];
     const child = spawn(this.cfg.command ?? "claude", args, { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] });
-    track(child);
+    track(child, ctx.task.id);
     const logFile = createWriteStream(ctx.logPath, { flags: "a" });
 
     return new Promise((resolve) => {
@@ -44,6 +44,11 @@ export class ClaudeHeadlessExecutor implements Executor {
           if (!line) continue;
           try {
             const event = JSON.parse(line);
+            if (event.type === "system" && event.subtype === "init" && event.session_id) ctx.onSession?.(event.session_id);
+            // Failed tool calls, refused permissions above all: otherwise the log goes quiet with no reason.
+            for (const item of event.type === "user" ? event.message?.content ?? [] : []) {
+              if (item.type === "tool_result" && item.is_error) log(ctx.task.id, `✗ ${toolError(item.content)}`);
+            }
             for (const item of event.type === "assistant" ? event.message?.content ?? [] : []) {
               if (item.type === "text" && item.text?.trim()) log(ctx.task.id, `🤖 ${oneLine(item.text, 300)}`);
               if (item.type === "tool_use") log(ctx.task.id, `→ ${item.name}${toolHint(item.input)}`);
@@ -90,6 +95,12 @@ export class ClaudeHeadlessExecutor implements Executor {
 function oneLine(text: string, max: number): string {
   const t = text.replace(/\s+/g, " ").trim();
   return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
+function toolError(content: unknown): string {
+  const text = typeof content === "string" ? content : Array.isArray(content) ? content.map((c: any) => c?.text ?? "").join(" ") : "";
+  if (/permission|haven't granted|not allowed|denied/i.test(text)) return `немає дозволу: ${oneLine(text, 200)}`;
+  return oneLine(text || "помилка", 200);
 }
 
 /** "→ Bash: npm test" rather than the whole tool input. */
