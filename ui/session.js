@@ -92,11 +92,27 @@
     }, 80);
   }).observe(document.getElementById("term"));
 
-  finishBtn.addEventListener("click", () => {
-    if (confirm("Завершити сесію? Mako закриє агента, закомітить зміни, запушить гілку і відкриє PR.")) send({ t: "finish" });
+  finishBtn.addEventListener("click", async () => {
+    const ok = await makoConfirm({
+      title: "Завершити задачу?",
+      body: "Mako закриє агента, закомітить зміни, запушить гілку й відкриє PR, а підсумок агента напише в задачу.",
+      confirm: "Завершити й відкрити PR",
+      cancel: "Ще ні",
+      tone: "success",
+    });
+    if (ok) send({ t: "finish" });
+    term.focus();
   });
-  cancelBtn.addEventListener("click", () => {
-    if (confirm("Скасувати? Агента буде зупинено, PR не створюватиметься. Зміни лишаться у worktree.")) send({ t: "cancel" });
+  cancelBtn.addEventListener("click", async () => {
+    const ok = await makoConfirm({
+      title: "Скасувати задачу?",
+      body: "Агента буде зупинено, PR не створюватиметься. Зміни лишаться у worktree, задачу можна буде повторити.",
+      confirm: "Зупинити без PR",
+      cancel: "Повернутися",
+      tone: "danger",
+    });
+    if (ok) send({ t: "cancel" });
+    term.focus();
   });
 
   // Changes panel next to the terminal; remembered between visits.

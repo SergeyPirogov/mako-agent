@@ -26,6 +26,7 @@ const STATIC: Record<string, [string, string]> = {
   "settings.js": [path.join(UI_DIR, "settings.js"), "text/javascript"],
   "session.js": [path.join(UI_DIR, "session.js"), "text/javascript"],
   "inbox.js": [path.join(UI_DIR, "inbox.js"), "text/javascript"],
+  "dialog.js": [path.join(UI_DIR, "dialog.js"), "text/javascript"],
   "changes.js": [path.join(UI_DIR, "changes.js"), "text/javascript"],
   "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
   "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
@@ -196,8 +197,8 @@ function renderSession(id: string, token: string): string {
         <span class="muted">${esc(session.task.title)}</span></div>
       <div class="session-actions"><span id="status" class="s"></span>
         <button id="toggle-changes" title="Змінені файли і diff">Зміни</button>
-        <button id="finish" class="primary" title="Закрити агента, закомітити, запушити і відкрити PR">Завершити</button>
-        <button id="cancel" class="danger" title="Зупинити без PR">Скасувати</button></div>
+        <button id="finish" class="success" title="Закрити агента, закомітити, запушити і відкрити PR">✓ Завершити</button>
+        <button id="cancel" class="danger-outline" title="Зупинити без PR">Скасувати</button></div>
     </div>
     <div id="status-msg" class="muted"></div>
     <div class="session-body"><div id="term"></div>

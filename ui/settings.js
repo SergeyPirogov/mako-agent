@@ -578,8 +578,16 @@
       model.trackers.push({ conf, projects: [{ key: "", rest: {}, repos: [{ name: "", conf: {} }] }] });
       setTimeout(() => root.querySelectorAll(".card.tracker")[model.trackers.length - 1]?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
     },
-    "remove-tracker"({ ti }) {
-      if (confirm("Видалити цей трекер?")) model.trackers.splice(ti, 1), (tests = {});
+    async "remove-tracker"({ ti }) {
+      const ok = await makoConfirm({
+        title: `Видалити трекер ${TRACKERS[model.trackers[ti].conf.type]}?`,
+        body: "Його проєкти й репозиторії зникнуть з налаштувань після збереження. Токен лишиться в .env.",
+        confirm: "Видалити",
+        tone: "danger",
+      });
+      if (!ok) return "skip";
+      model.trackers.splice(ti, 1);
+      tests = {};
     },
     "add-project"({ ti }) {
       model.trackers[ti].projects.push({ key: "", rest: {}, repos: [{ name: "", conf: {} }] });

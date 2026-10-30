@@ -254,3 +254,23 @@ main:has(.board) { max-width: 1440px; }
 @media (max-width: 700px) { .board { grid-template-columns: repeat(var(--cols), 82vw); scroll-snap-type: x mandatory; } .kcol { scroll-snap-align: start; } }
 [hidden] { display: none !important; }
 .kcol > header { position: static; background: none; border: 0; }
+
+/* coloured actions: success finishes the work, danger stops it */
+button.success { background: var(--ok); border-color: var(--ok); color: #fff; }
+button.success:hover { background: color-mix(in srgb, var(--ok) 85%, #000); border-color: color-mix(in srgb, var(--ok) 85%, #000); }
+button.danger-outline { color: var(--err); border-color: color-mix(in srgb, var(--err) 55%, transparent); background: var(--card); }
+button.danger-outline:hover { background: color-mix(in srgb, var(--err) 10%, var(--card)); border-color: var(--err); }
+button:disabled.success, button:disabled.danger-outline { opacity: .5; }
+
+/* in-page dialog */
+dialog.mdialog { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(440px, calc(100vw - 32px)); background: var(--card); color: var(--fg);
+  box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+dialog.mdialog::backdrop { background: rgba(10, 14, 22, .45); backdrop-filter: blur(2px); }
+dialog.mdialog form { display: block; padding: 20px 22px 18px; }
+dialog.mdialog h2 { font-size: 17px; margin: 0 0 8px; }
+dialog.mdialog .mbody { margin: 0 0 18px; color: var(--mute); line-height: 1.5; }
+.mactions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.mactions button { margin: 0; padding: 8px 16px; }
+.mactions .mok.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mactions .mok.danger { background: var(--err); border-color: var(--err); color: #fff; }
+.mactions .mok.danger:hover { background: color-mix(in srgb, var(--err) 85%, #000); }
