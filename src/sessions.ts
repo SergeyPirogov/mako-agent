@@ -135,7 +135,7 @@ export class Session {
         if (!this.ending) {
           this.lastAssistantMessage = event.last_assistant_message ?? lastAssistantText(event.transcript_path) ?? this.lastAssistantMessage;
         }
-        this.setStatus("idle", "Закінчив хід: перевірте результат і натисніть «Завершити» або дайте нові інструкції");
+        this.setStatus("idle", "Можна перевіряти: подивіться результат і натисніть «Завершити» або дайте нові інструкції");
         break;
       default:
         return undefined;

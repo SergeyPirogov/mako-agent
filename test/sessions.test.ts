@@ -40,7 +40,7 @@ test("hooks drive the session state: working, waiting for the developer, finishe
     "working",
     "waiting: Просить дозволу: Bash",
     "working",
-    "idle: Закінчив хід: перевірте результат і натисніть «Завершити» або дайте нові інструкції",
+    "idle: Можна перевіряти: подивіться результат і натисніть «Завершити» або дайте нові інструкції",
   ]);
   assert.equal(s.onHook({ hook_event_name: "SomethingNew" }), undefined, "unknown hooks are ignored");
 });

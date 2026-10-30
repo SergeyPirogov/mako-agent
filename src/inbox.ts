@@ -17,7 +17,7 @@ const LABELS: Record<TaskStatus, string> = {
   cancelled: "Скасовано",
 };
 
-const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "закінчив хід", exited: "завершено" };
+const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "можна перевіряти", exited: "завершено" };
 
 /** Changes whenever the inbox would look different; the page polls it to refresh itself. */
 export function inboxSignature(app: App): { sig: string; attention: number; search?: unknown; phases: Record<string, string> } {

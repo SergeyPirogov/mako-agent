@@ -18,7 +18,7 @@ const SESSION_LABELS: Record<SessionStatus, string> = {
   starting: "запуск",
   working: "працює",
   waiting: "чекає на вас",
-  idle: "закінчив хід",
+  idle: "можна перевіряти",
   exited: "публікується",
 };
 
