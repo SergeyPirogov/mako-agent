@@ -21,6 +21,8 @@ export interface TaskRecord {
   /** Chosen by the developer when taking the task; win over routing and the default executor. */
   chosenRepo?: string;
   chosenExecutor?: string;
+  /** Moved off the board by the developer; the record stays so the task is not offered again. */
+  archivedAt?: number;
   updatedAt: string;
   snoozedUntil?: number;
   queuedAt?: number;

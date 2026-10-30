@@ -1,24 +1,35 @@
-// Changed files and diff of a task's worktree compared with its base branch; refreshes while the agent works.
+// Editor-like changes view: file tree on the left, the selected file's diff or full content on the right.
 (() => {
   "use strict";
   const task = document.body.dataset.task;
   const root = document.getElementById("changes");
   const STATUS = { A: ["додано", "add"], M: ["змінено", "mod"], D: ["видалено", "del"], R: ["перейменовано", "mod"], C: ["скопійовано", "add"], "?": ["новий, не закомічено", "new"] };
-  let last = "";
-  let lastData = null;
-  const collapsed = new Set(); // files whose diff is folded
-  const closedDirs = new Set(); // folders folded in the tree
-  let view = "tree";
+
+  let data = null; // last /api/changes answer
+  let lastKey = "";
+  let selected = null; // path of the file in the preview
+  let mode = "diff"; // "diff" | "file"
+  let view = "tree"; // "tree" | "list"
+  const closedDirs = new Set();
+  const fileCache = new Map(); // path -> /api/file answer, dropped when the diff changes
   try {
     view = localStorage.getItem("mako.changesView") || "tree";
+    mode = localStorage.getItem("mako.changesMode") || "diff";
   } catch {
-    // storage unavailable: default view
+    // storage unavailable: defaults
   }
+  const remember = (k, v) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {
+      // ignore
+    }
+  };
 
   const h = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const anchor = (p) => "f-" + p.replace(/[^\w-]/g, "_");
 
-  /** Splits a unified diff into per-file chunks keyed by the new path. */
+  // ---------- diff parsing ----------
+
   function splitDiff(diff) {
     const out = new Map();
     for (const chunk of diff.split(/^(?=diff --git )/m)) {
@@ -28,60 +39,46 @@
     return out;
   }
 
-  function renderDiff(chunk) {
-    const lines = chunk.split("\n");
-    const start = lines.findIndex((l) => l.startsWith("@@") || l.startsWith("Binary files"));
-    if (start < 0) return `<div class="dl meta">Без змін у вмісті (перейменування чи права доступу)</div>`;
-    return lines
-      .slice(start)
-      .map((l) => {
-        const cls = l.startsWith("@@") ? "hunk" : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : l.startsWith("\\") || l.startsWith("Binary") ? "meta" : "";
-        return `<div class="dl ${cls}">${h(l) || " "}</div>`;
-      })
-      .join("");
-  }
-
-  function render(data) {
-    if (!data.files.length) {
-      root.innerHTML = `<p class="muted">Змін відносно <code>${h(data.base)}</code> поки немає.</p>`;
-      return;
+  /** Unified diff → rows with old/new line numbers, like an editor's diff view. */
+  function diffRows(chunk) {
+    const rows = [];
+    let oldNo = 0;
+    let newNo = 0;
+    let started = false;
+    for (const line of chunk.split("\n")) {
+      const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
+      if (hunk) {
+        started = true;
+        oldNo = Number(hunk[1]);
+        newNo = Number(hunk[2]);
+        rows.push({ kind: "hunk", text: line });
+        continue;
+      }
+      if (!started) {
+        if (line.startsWith("Binary files")) rows.push({ kind: "meta", text: "Двійковий файл: вміст не показується" });
+        continue;
+      }
+      if (line.startsWith("+")) rows.push({ kind: "add", n: newNo++, text: line.slice(1) });
+      else if (line.startsWith("-")) rows.push({ kind: "del", o: oldNo++, text: line.slice(1) });
+      else if (line.startsWith("\\")) rows.push({ kind: "meta", text: line });
+      else if (line !== "" || rows.length) rows.push({ kind: "ctx", o: oldNo++, n: newNo++, text: line.slice(1) });
     }
-    const add = data.files.reduce((n, f) => n + f.additions, 0);
-    const del = data.files.reduce((n, f) => n + f.deletions, 0);
-    const chunks = splitDiff(data.diff);
-    const commits = data.commits.length
-      ? `<details class="commits"><summary>${data.commits.length} ${data.commits.length === 1 ? "коміт" : "коміти"}</summary>
-          ${data.commits.map((c) => `<div><code>${h(c.hash)}</code> ${h(c.subject)}</div>`).join("")}</details>`
-      : `<span class="muted">комітів ще немає</span>`;
-    const list = view === "tree" ? renderTree(buildTree(data.files), 0) : data.files.map((f) => fileRow(f, f.path, 0)).join("");
-    const diffs = data.files
-      .map((f) => {
-        const chunk = chunks.get(f.path);
-        const open = !collapsed.has(f.path);
-        return `<section class="fd" id="${anchor(f.path)}"><button class="fh" data-file="${h(f.path)}">${open ? "▾" : "▸"} ${h(f.path)}</button>
-          ${open ? `<div class="diff">${chunk ? renderDiff(chunk) : '<div class="dl meta">diff недоступний</div>'}</div>` : ""}</section>`;
-      })
-      .join("");
-    root.innerHTML = `<div class="csum"><strong>${data.files.length} ${data.files.length === 1 ? "файл" : "файлів"}</strong>
-        <span class="plus">+${add}</span> <span class="minus">−${del}</span> <span class="muted">відносно <code>${h(data.base)}</code></span> · ${commits}</div>
-      <div class="cview"><button data-view="tree" class="${view === "tree" ? "on" : ""}">Дерево</button><button data-view="list" class="${view === "list" ? "on" : ""}">Список</button></div>
-      <div class="cfiles">${list}</div>${diffs}
-      ${data.truncated ? '<p class="muted">Diff дуже великий, показано лише початок.</p>' : ""}`;
+    while (rows.length && rows[rows.length - 1].kind === "ctx" && rows[rows.length - 1].text === "") rows.pop();
+    return rows;
   }
 
-  function fileRow(f, label, depth) {
-    const [title, cls] = STATUS[f.status] || [f.status, "mod"];
-    return `<a class="cf" href="#${anchor(f.path)}" style="padding-left:${10 + depth * 16}px" title="${h(f.path)}">
-      <span class="fs ${cls}" title="${h(title)}">${h(f.status === "?" ? "N" : f.status)}</span>
-      <span class="fp">${h(label)}</span><span class="fn"><span class="plus">+${f.additions}</span> <span class="minus">−${f.deletions}</span></span></a>`;
+  /** New-side line numbers the task added, to highlight them in the full-file view. */
+  function addedLines(chunk) {
+    return new Set(diffRows(chunk).filter((r) => r.kind === "add").map((r) => r.n));
   }
 
-  /** Folders → files, with single-child folder chains merged ("src/executors") like VS Code's compact folders. */
+  // ---------- tree ----------
+
   function buildTree(files) {
-    const root = { name: "", path: "", dirs: new Map(), files: [] };
+    const top = { name: "", path: "", dirs: new Map(), files: [] };
     for (const f of files) {
       const parts = f.path.split("/");
-      let node = root;
+      let node = top;
       for (const part of parts.slice(0, -1)) {
         if (!node.dirs.has(part)) node.dirs.set(part, { name: part, path: node.path ? `${node.path}/${part}` : part, dirs: new Map(), files: [] });
         node = node.dirs.get(part);
@@ -100,17 +97,36 @@
       }
       return node;
     };
-    return compact(root);
+    return compact(top);
   }
 
   function totals(node) {
-    let add = 0, del = 0, count = 0;
-    for (const f of node.files) (add += f.additions), (del += f.deletions), count++;
+    let add = 0, del = 0;
+    for (const f of node.files) (add += f.additions), (del += f.deletions);
     for (const d of node.dirs.values()) {
       const t = totals(d);
-      (add += t.add), (del += t.del), (count += t.count);
+      (add += t.add), (del += t.del);
     }
-    return { add, del, count };
+    return { add, del };
+  }
+
+  /** Files in the order they appear on screen, for keyboard navigation. */
+  function visibleOrder() {
+    if (view === "list") return data.files.map((f) => f.path);
+    const out = [];
+    const walk = (node) => {
+      for (const d of [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))) if (!closedDirs.has(d.path)) walk(d);
+      for (const f of [...node.files].sort((a, b) => a.name.localeCompare(b.name))) out.push(f.path);
+    };
+    walk(buildTree(data.files));
+    return out;
+  }
+
+  function fileRow(f, label, depth) {
+    const [title, cls] = STATUS[f.status] || [f.status, "mod"];
+    return `<button class="cx-file${f.path === selected ? " on" : ""}" data-file="${h(f.path)}" style="padding-left:${8 + depth * 14}px" title="${h(f.path)}">
+      <span class="fs ${cls}" title="${h(title)}">${h(f.status === "?" ? "N" : f.status)}</span>
+      <span class="fp">${h(label)}</span><span class="fn"><span class="plus">+${f.additions}</span> <span class="minus">−${f.deletions}</span></span></button>`;
   }
 
   function renderTree(node, depth) {
@@ -121,65 +137,168 @@
         .map((d) => {
           const open = !closedDirs.has(d.path);
           const t = totals(d);
-          return `<button class="cdir" data-dir="${h(d.path)}" style="padding-left:${10 + depth * 16}px">
-              <span class="caret">${open ? "▾" : "▸"}</span><span class="fp">📁 ${h(d.name)}</span>
-              <span class="fn"><span class="muted">${t.count}</span> <span class="plus">+${t.add}</span> <span class="minus">−${t.del}</span></span></button>` +
-            (open ? renderTree(d, depth + 1) : "");
+          return `<button class="cx-dir" data-dir="${h(d.path)}" style="padding-left:${8 + depth * 14}px">
+              <span class="caret">${open ? "▾" : "▸"}</span><span class="fp">${h(d.name)}</span>
+              <span class="fn"><span class="plus">+${t.add}</span> <span class="minus">−${t.del}</span></span></button>` + (open ? renderTree(d, depth + 1) : "");
         })
         .join("") + files.map((f) => fileRow(f, f.name, depth)).join("")
     );
   }
 
+  // ---------- rendering ----------
+
+  function render() {
+    if (!data.files.length) {
+      root.innerHTML = `<div class="cx-empty muted">Змін відносно <code>${h(data.base)}</code> поки немає. Сторінка оновиться сама.</div>`;
+      return;
+    }
+    // Start on the first file as it appears on screen (top of the tree), not git's order.
+    if (!selected || !data.files.some((f) => f.path === selected)) selected = visibleOrder()[0] ?? data.files[0].path;
+    const add = data.files.reduce((n, f) => n + f.additions, 0);
+    const del = data.files.reduce((n, f) => n + f.deletions, 0);
+    const commits = data.commits.length
+      ? `<details class="cx-commits"><summary>${data.commits.length} ${data.commits.length === 1 ? "коміт" : "коміти"}</summary>
+          ${data.commits.map((c) => `<div><code>${h(c.hash)}</code> ${h(c.subject)}</div>`).join("")}</details>`
+      : `<div class="muted small">комітів ще немає</div>`;
+    const list = view === "tree" ? renderTree(buildTree(data.files), 0) : data.files.map((f) => fileRow(f, f.path, 0)).join("");
+    const scrollTop = root.querySelector(".cx-files")?.scrollTop ?? 0;
+    const bodyScroll = root.querySelector(".cx-body")?.scrollTop ?? 0;
+    root.innerHTML = `<div class="cx">
+      <aside class="cx-side">
+        <div class="cx-sum"><strong>${data.files.length} ${data.files.length === 1 ? "файл" : "файлів"}</strong>
+          <span class="plus">+${add}</span> <span class="minus">−${del}</span>
+          <span class="muted small">від <code>${h(data.base)}</code></span></div>
+        ${commits}
+        <div class="seg"><button data-view="tree" class="${view === "tree" ? "on" : ""}">Дерево</button><button data-view="list" class="${view === "list" ? "on" : ""}">Список</button></div>
+        <div class="cx-files" tabindex="0" aria-label="Змінені файли">${list}</div>
+      </aside>
+      <section class="cx-main"><div class="cx-head"></div><div class="cx-body"></div></section>
+    </div>`;
+    root.querySelector(".cx-files").scrollTop = scrollTop;
+    renderPreview(bodyScroll);
+  }
+
+  /** `keepScroll`: where the preview was scrolled before a refresh (0 for a newly selected file). */
+  async function renderPreview(keepScroll = 0) {
+    const head = root.querySelector(".cx-head");
+    const body = root.querySelector(".cx-body");
+    if (!head || !body) return;
+    const f = data.files.find((x) => x.path === selected);
+    const [title, cls] = STATUS[f.status] || [f.status, "mod"];
+    head.innerHTML = `<span class="fs ${cls}" title="${h(title)}">${h(f.status === "?" ? "N" : f.status)}</span>
+      <span class="cx-path">${h(f.path)}</span><span class="fn"><span class="plus">+${f.additions}</span> <span class="minus">−${f.deletions}</span></span>
+      <div class="seg"><button data-mode="diff" class="${mode === "diff" ? "on" : ""}">Зміни</button><button data-mode="file" class="${mode === "file" ? "on" : ""}"${f.status === "D" ? " disabled" : ""}>Файл</button></div>`;
+    const chunk = splitDiff(data.diff).get(f.path) ?? "";
+    const y = keepScroll;
+
+    if (mode === "diff" || f.status === "D") {
+      const rows = diffRows(chunk);
+      body.innerHTML = rows.length
+        ? `<table class="code">${rows
+            .map((r) =>
+              r.kind === "hunk"
+                ? `<tr class="hunk"><td class="ln"></td><td class="ln"></td><td class="tx">${h(r.text)}</td></tr>`
+                : r.kind === "meta"
+                  ? `<tr class="meta"><td class="ln"></td><td class="ln"></td><td class="tx">${h(r.text)}</td></tr>`
+                  : `<tr class="${r.kind}"><td class="ln">${r.o ?? ""}</td><td class="ln">${r.n ?? ""}</td><td class="tx"><span class="sign">${r.kind === "add" ? "+" : r.kind === "del" ? "−" : " "}</span>${h(r.text) || " "}</td></tr>`,
+            )
+            .join("")}</table>`
+        : `<div class="cx-empty muted">Вміст не змінився (перейменування чи права доступу).</div>`;
+      body.scrollTop = y;
+      return;
+    }
+
+    // Full file as it is now in the worktree, with the task's added lines highlighted.
+    let file = fileCache.get(f.path);
+    if (!file) {
+      body.innerHTML = `<div class="cx-empty muted">Завантаження…</div>`;
+      try {
+        const res = await fetch(`/api/file?task=${encodeURIComponent(task)}&path=${encodeURIComponent(f.path)}`, { cache: "no-store" });
+        file = await res.json();
+        if (!res.ok) throw new Error(file.error || res.statusText);
+        fileCache.set(f.path, file);
+      } catch (err) {
+        body.innerHTML = `<div class="cx-empty err">${h(err.message)}</div>`;
+        return;
+      }
+      if (selected !== f.path || mode !== "file") return; // the user moved on while it loaded
+    }
+    if (file.binary) body.innerHTML = `<div class="cx-empty muted">Двійковий файл</div>`;
+    else if (file.tooLarge) body.innerHTML = `<div class="cx-empty muted">Файл завеликий для перегляду</div>`;
+    else if (file.missing) body.innerHTML = `<div class="cx-empty muted">Файлу вже немає в worktree</div>`;
+    else {
+      const added = addedLines(chunk);
+      const lines = file.content.replace(/\n$/, "").split("\n");
+      body.innerHTML = `<table class="code">${lines
+        .map((l, i) => `<tr class="${added.has(i + 1) ? "add" : ""}"><td class="ln">${i + 1}</td><td class="tx">${h(l) || " "}</td></tr>`)
+        .join("")}</table>`;
+      // Jump to the first change the first time this file is shown.
+      const first = body.querySelector("tr.add");
+      if (first && !y) first.scrollIntoView({ block: "center" });
+      else body.scrollTop = y;
+    }
+  }
+
+  function select(path) {
+    if (!path || path === selected) return;
+    selected = path;
+    root.querySelectorAll(".cx-file").forEach((b) => b.classList.toggle("on", b.dataset.file === path));
+    root.querySelector(`.cx-file[data-file="${CSS.escape(path)}"]`)?.scrollIntoView({ block: "nearest" });
+    renderPreview(0);
+  }
+
+  // ---------- data ----------
+
   async function refresh() {
     try {
       const res = await fetch(`/api/changes?task=${encodeURIComponent(task)}`, { cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || res.statusText);
-      const key = JSON.stringify(data);
-      if (key === last) return;
-      last = key;
-      lastData = data;
-      const y = window.scrollY;
-      const openDetails = root.querySelector("details.commits")?.open;
-      render(data);
-      if (openDetails) root.querySelector("details.commits")?.setAttribute("open", "");
-      window.scrollTo(0, y);
+      const next = await res.json();
+      if (!res.ok) throw new Error(next.error || res.statusText);
+      const key = JSON.stringify(next);
+      if (key === lastKey) return;
+      if (data && next.diff !== data.diff) fileCache.clear();
+      lastKey = key;
+      data = next;
+      render();
     } catch (err) {
-      root.innerHTML = `<p class="muted">${h(err.message)}</p>`;
-      last = "";
+      root.innerHTML = `<div class="cx-empty muted">${h(err.message)}</div>`;
+      lastKey = "";
     }
   }
 
-  function rerender() {
-    if (!lastData) return;
-    const y = window.scrollY;
-    render(lastData);
-    window.scrollTo(0, y);
-  }
+  // ---------- events ----------
 
   root.addEventListener("click", (e) => {
-    const dir = e.target.closest("button.cdir");
+    const file = e.target.closest(".cx-file");
+    if (file) return select(file.dataset.file);
+    const dir = e.target.closest(".cx-dir");
     if (dir) {
-      const p = dir.dataset.dir;
-      closedDirs.has(p) ? closedDirs.delete(p) : closedDirs.add(p);
-      return rerender();
+      closedDirs.has(dir.dataset.dir) ? closedDirs.delete(dir.dataset.dir) : closedDirs.add(dir.dataset.dir);
+      return render();
     }
-    const switcher = e.target.closest(".cview button");
-    if (switcher) {
-      view = switcher.dataset.view;
-      try {
-        localStorage.setItem("mako.changesView", view);
-      } catch {
-        // ignore
-      }
-      return rerender();
+    const v = e.target.closest("[data-view]");
+    if (v) {
+      view = v.dataset.view;
+      remember("mako.changesView", view);
+      return render();
     }
-    const btn = e.target.closest("button.fh");
-    if (!btn) return;
-    const f = btn.dataset.file;
-    collapsed.has(f) ? collapsed.delete(f) : collapsed.add(f);
-    last = "";
-    refresh();
+    const m = e.target.closest("[data-mode]");
+    if (m && !m.disabled) {
+      mode = m.dataset.mode;
+      remember("mako.changesMode", mode);
+      return renderPreview(0);
+    }
+  });
+
+  // ↑/↓ (or j/k) move through the files, like an editor's file list.
+  document.addEventListener("keydown", (e) => {
+    if (!data?.files.length || e.target.closest?.("input, textarea, select")) return;
+    const step = e.key === "ArrowDown" || e.key === "j" ? 1 : e.key === "ArrowUp" || e.key === "k" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const order = visibleOrder();
+    const i = order.indexOf(selected);
+    select(order[Math.max(0, Math.min(order.length - 1, i + step))]);
   });
 
   refresh();

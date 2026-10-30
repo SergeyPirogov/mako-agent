@@ -51,7 +51,9 @@ export function renderInbox(app: App, token: string): string {
       <a href="/settings">Відкрити налаштування →</a></div>`;
     return page({ title: "Задачі", active: "inbox", token, body });
   }
-  const records = app.orchestrator.state.all();
+  const all = app.orchestrator.state.all();
+  const records = all.filter((r) => !r.archivedAt);
+  const archived = all.length - records.length;
   const problem = app.problem ? `<div class="notice err">${esc(app.problem)}. <a href="/settings">Налаштування →</a></div>` : "";
   const paused = app.orchestrator.paused
     ? `<div class="notice warn">⏸ Mako на паузі: нові задачі не беруться, поточні продовжують виконуватись.</div>`
@@ -68,6 +70,11 @@ export function renderInbox(app: App, token: string): string {
       let items = records.filter((r) => col.statuses.includes(r.status)).sort(columnOrder(col.key));
       const total = items.length;
       if (col.key === "done") items = items.slice(0, DONE_SHOWN);
+      const archiveAll =
+        (col.key === "done" || col.key === "failed") && total
+          ? `<form method="post" action="/archive" class="karchive"><input type="hidden" name="column" value="${col.key}">` +
+            `<input type="hidden" name="token" value="${esc(token)}"><button class="link" title="Перенести всі задачі колонки в архів">Архівувати всі</button></form>`
+          : "";
       const count =
         col.key === "doing" && limit
           ? `<span class="kcount${wip >= limit ? " full" : ""}" title="Ліміт задач у роботі (WIP)">${wip} / ${limit}</span>`
@@ -78,12 +85,13 @@ export function renderInbox(app: App, token: string): string {
           : "";
       const cards = items.map((r) => card(app, r, token, col.key)).join("");
       const more = total > items.length ? `<div class="kmore muted">і ще ${total - items.length}</div>` : "";
-      return `<section class="kcol" data-col="${col.key}"><header><h2>${col.title}</h2>${count}</header>${note}
+      return `<section class="kcol" data-col="${col.key}"><header><h2>${col.title}</h2><span class="khead-tools">${archiveAll}${count}</span></header>${note}
         <div class="kcards">${cards || `<div class="kempty">${col.empty}</div>`}${more}</div></section>`;
     })
     .join("");
 
-  const body = `<div class="board-head"><h1>Задачі</h1>${clock}</div>${problem}${paused}${attentionBlock()}
+  const archiveLink = archived ? `<a class="link archive-link" href="/archive">Архів (${archived})</a>` : "";
+  const body = `<div class="board-head"><h1>Задачі</h1>${archiveLink}${clock}</div>${problem}${paused}${attentionBlock()}
     <div class="board" style="--cols:${columns.length}">${board}</div>`;
   const { sig, attention, search } = inboxSignature(app);
   return page({
@@ -95,6 +103,29 @@ export function renderInbox(app: App, token: string): string {
     data: { sig, search: JSON.stringify(search ?? null) },
     attention: attention > 0,
   });
+}
+
+/** Archived tasks, newest first, with a way back to the board. */
+export function renderArchive(app: App, token: string): string {
+  const records = (app.orchestrator?.state.all() ?? []).filter((r) => r.archivedAt).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
+  const day = (ms: number) => new Date(ms).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const rows = records
+    .map((r) => {
+      const actions = [
+        app.orchestrator?.workspaceFor(r.id) ? `<a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "",
+        r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">PR ↗</a>` : "",
+        `<form method="post" action="/unarchive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">` +
+          `<input type="hidden" name="back" value="/archive"><button>Повернути на дошку</button></form>`,
+      ].join("");
+      return `<tr><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
+        <td><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a> ${route(app, r)}<div class="muted">${esc(r.task.title)}</div>
+          ${r.error ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}</td>
+        <td class="muted small">${day(r.archivedAt!)}</td><td class="act">${actions}</td></tr>`;
+    })
+    .join("");
+  const body = `<div class="board-head"><h1>Архів</h1><a class="link" href="/">← До дошки</a></div>
+    ${rows ? `<table class="tasks archive">${rows}</table>` : `<p class="muted">Архів порожній. На дошці кнопка «В архів» прибирає виконані й невиконані задачі сюди.</p>`}`;
+  return page({ title: "Архів", active: "inbox", token, body });
 }
 
 /** Within a column: what needs you first, then the most recent. */
@@ -195,6 +226,9 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
       : "",
     app.orchestrator?.workspaceFor(r.id) ? `<a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "",
     r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">PR ↗</a>` : "",
+    ["done", "failed", "cancelled"].includes(r.status)
+      ? `<form method="post" action="/archive" class="kc-archive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="link muted-link" title="Прибрати з дошки в архів">В архів</button></form>`
+      : "",
   ].join("");
   const status = session
     ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>${session.message && session.status === "waiting" ? ` <span class="muted">${esc(session.message)}</span>` : ""}`

@@ -448,6 +448,26 @@ export class Orchestrator {
     return true;
   }
 
+  /** Moves finished tasks (done, failed, cancelled) off the board into the archive. */
+  archive(ids: string[]): number {
+    let n = 0;
+    for (const id of ids) {
+      const rec = this.state.get(id);
+      if (!rec || rec.archivedAt || !["done", "failed", "cancelled"].includes(rec.status)) continue;
+      this.state.update(id, { archivedAt: Date.now() });
+      n++;
+    }
+    if (n) log("main", `archived ${n} task(s)`);
+    return n;
+  }
+
+  unarchive(id: string): boolean {
+    const rec = this.state.get(id);
+    if (!rec?.archivedAt) return false;
+    this.state.update(id, { archivedAt: undefined });
+    return true;
+  }
+
   /** Stops waiting for a task that is queued or handed off (e.g. its Orca workspace was deleted); frees its WIP slot. */
   cancel(id: string, reason = "Скасовано вручну"): boolean {
     const rec = this.state.get(id);

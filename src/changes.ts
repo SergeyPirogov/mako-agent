@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { run } from "./shell.js";
 
@@ -85,6 +85,26 @@ export async function collectChanges(worktree: string, baseBranch: string): Prom
 
   const truncated = diff.length > MAX_DIFF;
   return { base: baseBranch, commits, files, diff: truncated ? diff.slice(0, MAX_DIFF) : diff, truncated };
+}
+
+const MAX_FILE = 800_000;
+
+/**
+ * A file as it is now in the task's worktree, for the editor-like preview.
+ * Refuses paths that leave the worktree (../, absolute paths, symlinks pointing outside).
+ */
+export function readWorktreeFile(worktree: string, relPath: string): { content?: string; binary?: boolean; tooLarge?: boolean; missing?: boolean } {
+  const root = realpathSync(worktree);
+  const full = path.resolve(root, relPath);
+  if (!existsSync(full)) return { missing: true };
+  const real = realpathSync(full);
+  if (path.relative(root, real).startsWith("..") || path.isAbsolute(path.relative(root, real))) throw new Error("Шлях поза worktree");
+  const stat = statSync(real);
+  if (!stat.isFile()) return { missing: true };
+  if (stat.size > MAX_FILE) return { tooLarge: true };
+  const buf = readFileSync(real);
+  if (buf.includes(0)) return { binary: true };
+  return { content: buf.toString("utf8") };
 }
 
 /** numstat shows renames as "dir/{old => new}.ts" or "old => new"; keep the new path. */

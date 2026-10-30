@@ -9,10 +9,10 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
-import { renderInbox, inboxSignature } from "./inbox.js";
+import { renderInbox, renderArchive, inboxSignature } from "./inbox.js";
 import { page, esc } from "./ui-layout.js";
 import { sessions, type SessionEvent } from "./sessions.js";
-import { collectChanges } from "./changes.js";
+import { collectChanges, readWorktreeFile } from "./changes.js";
 import { log } from "./log.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
@@ -59,6 +59,7 @@ export function startWebUi(app: App, port: number): void {
 
     try {
       if (req.method === "GET" && url.pathname === "/") return send(200, "text/html", renderInbox(app, token));
+      if (req.method === "GET" && url.pathname === "/archive") return send(200, "text/html", renderArchive(app, token));
       if (req.method === "GET" && url.pathname === "/settings") {
         const body = `<div id="app"><p class="muted">Завантаження…</p></div>`;
         return send(200, "text/html", page({ title: "Налаштування", active: "settings", token, body, script: "/ui/settings.js" }));
@@ -78,13 +79,23 @@ export function startWebUi(app: App, port: number): void {
         const head = ws
           ? `<h1>Зміни · <a href="${esc(ws.task.url)}" target="_blank" rel="noreferrer">${esc(id)}</a></h1><p class="muted">${esc(ws.task.title)}</p>`
           : `<h1>Зміни</h1>`;
-        const body = `${embed ? "" : head}<div id="changes"><p class="muted">Завантаження…</p></div>`;
-        return send(200, "text/html", page({ title: `Зміни ${id}`, active: "inbox", token, body, script: "/ui/changes.js", data: { task: id }, bare: embed }), true);
+        const body = `${embed ? "" : head}<div id="changes" class="cx-host"><p class="muted">Завантаження…</p></div>`;
+        return send(
+          200,
+          "text/html",
+          page({ title: `Зміни ${id}`, active: "inbox", token, body, script: "/ui/changes.js", data: { task: id }, bare: embed, wide: !embed }),
+          true,
+        );
       }
       if (req.method === "GET" && url.pathname === "/api/changes") {
         const ws = app.orchestrator?.workspaceFor(url.searchParams.get("task") ?? "");
         if (!ws) return json(404, { error: "Для цієї задачі ще немає worktree" });
         return json(200, await collectChanges(ws.worktree, ws.baseBranch));
+      }
+      if (req.method === "GET" && url.pathname === "/api/file") {
+        const ws = app.orchestrator?.workspaceFor(url.searchParams.get("task") ?? "");
+        if (!ws) return json(404, { error: "Для цієї задачі ще немає worktree" });
+        return json(200, readWorktreeFile(ws.worktree, url.searchParams.get("path") ?? ""));
       }
       const sessionPage = url.pathname.match(/^\/session\/([\w.-]+)$/);
       if (req.method === "GET" && sessionPage) return send(200, "text/html", renderSession(sessionPage[1], token));
@@ -103,7 +114,7 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -116,6 +127,15 @@ export function startWebUi(app: App, port: number): void {
           o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined });
         }
         if (o && url.pathname === "/cancel") o.cancel(id);
+        if (o && url.pathname === "/archive") {
+          // One task, or a whole column ("done" or "failed") from its header.
+          const column = form.get("column");
+          const statuses = column === "done" ? ["done"] : column === "failed" ? ["failed", "cancelled"] : [];
+          o.archive(column ? o.state.all().filter((r) => !r.archivedAt && statuses.includes(r.status)).map((r) => r.id) : [id]);
+        }
+        if (o && url.pathname === "/unarchive") o.unarchive(id);
+        const back = form.get("back");
+        if (back === "/archive") return res.writeHead(303, { Location: "/archive" }).end();
         if (o && url.pathname === "/search-now") o.searchNow();
         return res.writeHead(303, { Location: "/" }).end();
       }
