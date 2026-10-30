@@ -561,3 +561,10 @@ form.mem-card { display: block; }
 .kc-pilot span { flex: 1; min-width: 0; }
 .kc-pilot.off { border-top: 0; padding-top: 0; margin-top: 2px; }
 .kc-pilot button.link { font-size: 12px; padding: 0 2px; }
+/* «Не бачите задачу?» */
+.board-head .explain-open { font-size: 13px; }
+.explain-result:empty { display: none; }
+.explain-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.explain-list li::marker { color: var(--warn); }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dlg-actions button { margin: 0; }

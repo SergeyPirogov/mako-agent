@@ -571,6 +571,48 @@ export class Orchestrator {
       .sort((a, b) => Number(b.default) - Number(a.default));
   }
 
+  /**
+   * «Чому Mako не бачить задачу?»: reads the issue directly and goes through everything that can keep it off the
+   * board — the tracker's filters, its actual search, colleagues as assignees, routing, Mako's own records.
+   */
+  async explainTask(ref: string): Promise<{ id?: string; title?: string; url?: string; reasons: string[]; ok: boolean }> {
+    ref = ref.trim();
+    for (const tracker of this.trackers.values()) {
+      if (!tracker.inspectTask) continue;
+      const found = await tracker.inspectTask(ref).catch((err: any) => {
+        throw new Error(`${tracker.name}: ${err.message}`);
+      });
+      if (!found) continue;
+      const { task } = found;
+      const reasons = [...found.misses];
+      const rec = this.state.get(task.id);
+      if (rec) {
+        const where = rec.archivedAt ? "в архіві" : `на дошці, статус «${rec.status}»`;
+        reasons.push(`вона вже є в Mako: ${where}. Вдруге Mako задачу не пропонує`);
+      }
+      if (!found.misses.length) {
+        const inSearch = (await tracker.fetchTasks()).some((t) => t.id === task.id);
+        if (!inSearch) {
+          const filter = await tracker.describeFilter?.().catch(() => undefined);
+          reasons.push(`за фільтрами підходить, але пошук ${tracker.name} її не повертає${filter ? ` (шукаю: ${filter})` : ""}`);
+        }
+        const skipOthers = (this.cfg.trackers as any[]).find((t) => (t.id ?? t.type) === tracker.id)?.skipOthersTasks !== false;
+        const me = skipOthers ? await tracker.whoAmI?.().catch(() => undefined) : undefined;
+        const owners = (task.assignees ?? []).map((a) => a.toLowerCase());
+        if (me && owners.length && !owners.includes(me.toLowerCase())) {
+          reasons.push(`призначена на інших (${task.assignees!.join(", ")}), а ви — ${me}. Зніміть «Не пропонувати задачі, призначені на інших» у Налаштуваннях трекера`);
+        }
+        const project = tracker.projects[task.project];
+        const route = project ? routeTask(task, project) : undefined;
+        if (route && !route.repo) reasons.push(`не визначено репозиторій: ${route.reason}`);
+      }
+      if (this.wipFull) reasons.push(`зараз заповнений WIP-ліміт (${this.wip()}/${this.cfg.wipLimit}): нові задачі не шукаються`);
+      if (this.paused) reasons.push("Mako на паузі: нові задачі не шукаються");
+      return { id: task.id, title: task.title, url: task.url, reasons, ok: !reasons.length };
+    }
+    return { reasons: ["Не впізнав задачу. Вставте посилання на неї (…/-/issues/12) або group/project#12"], ok: false };
+  }
+
   /** «+ Задача»: a task written in Mako, taken right away (or planned first) in the chosen repo. */
   createTask(input: { title: string; description: string; repo: string; executor?: string; planFirst?: boolean; template?: string }): string {
     const local = this.trackers.get(LOCAL_TRACKER)!;

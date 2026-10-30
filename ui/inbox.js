@@ -202,6 +202,41 @@
     if (e.target === newTask || e.target.closest("[data-close]")) newTask.close();
   });
 
+  // «Не бачите задачу?»: Mako reads the issue directly and says which filter keeps it off the board.
+  const explain = document.getElementById("explain");
+  document.getElementById("explain-open")?.addEventListener("click", () => {
+    explain.showModal();
+    explain.querySelector("input[name=ref]").focus();
+  });
+  explain?.addEventListener("click", (e) => {
+    if (e.target === explain || e.target.closest("[data-close]")) explain.close();
+  });
+  document.getElementById("explain-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const out = document.getElementById("explain-result");
+    const button = e.target.querySelector("button.primary");
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    out.innerHTML = `<p class="muted">Перевіряю в трекері…</p>`;
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/explain-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Mako-Token": TOKEN },
+        body: JSON.stringify({ ref: e.target.ref.value }),
+      });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error || res.statusText);
+      const head = r.id ? `<p><a href="${esc(r.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a> ${esc(r.title)}</p>` : "";
+      out.innerHTML = head + (r.ok
+        ? `<p class="ok-text">✓ Задача підходить під усі фільтри. Вона зʼявиться після наступного пошуку, або натисніть «Перевірити зараз».</p>`
+        : `<ul class="explain-list">${r.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`);
+    } catch (err) {
+      out.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   // Board filter: narrows the cards as you type; «/» focuses it, Esc clears; kept across the board's reloads.
   const filter = document.getElementById("board-filter");
   const applyFilter = () => {

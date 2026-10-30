@@ -61,6 +61,8 @@ export interface Tracker {
   /** Both return the status the issue was moved to, if any. */
   onStart(task: Task): Promise<string | void>;
   onFinish(task: Task, outcome: Outcome): Promise<string | void>;
+  /** One issue read directly by its link or number, and which of the tracker's own filters leave it out. */
+  inspectTask?(ref: string): Promise<{ task: Task; misses: string[] } | undefined>;
   /** Projects the token can see, most active first, for the settings page to offer: key and a readable name. */
   listProjects?(): Promise<{ key: string; name: string }[]>;
   /** Statuses an issue can be moved to, for the settings page; undefined when the tracker has none. */

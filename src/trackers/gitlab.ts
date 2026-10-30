@@ -65,25 +65,54 @@ export class GitLabTracker implements Tracker {
         const notes = issue.user_notes_count
           ? await this.request<any[]>("GET", `${projectApi(projectPath)}/issues/${issue.iid}/notes?sort=asc&per_page=100`)
           : [];
-        tasks.push({
-          id: `${projectPath}#${issue.iid}`,
-          slug: `${projectPath.split("/").pop()}-${issue.iid}`,
-          trackerId: this.id,
-          project: projectPath,
-          title: issue.title,
-          description: issue.description ?? "",
-          url: issue.web_url,
-          meta: issue.labels?.length ? `Labels: ${issue.labels.join(", ")}` : undefined,
-          labels: issue.labels ?? [],
-          components: [],
-          comments: notes.filter((n) => !n.system).map((n) => ({ author: n.author?.name ?? "unknown", body: n.body })),
-          closingRef: `Closes ${projectPath}#${issue.iid}`,
-          assignees: (issue.assignees ?? (issue.assignee ? [issue.assignee] : [])).map((a: any) => a.username),
-          nativeId: String(issue.id),
-        });
+        tasks.push(this.toTask(projectPath, issue, notes));
       }
     }
     return tasks;
+  }
+
+  private toTask(projectPath: string, issue: any, notes: any[] = []): Task {
+    return {
+      id: `${projectPath}#${issue.iid}`,
+      slug: `${projectPath.split("/").pop()}-${issue.iid}`,
+      trackerId: this.id,
+      project: projectPath,
+      title: issue.title,
+      description: issue.description ?? "",
+      url: issue.web_url,
+      meta: issue.labels?.length ? `Labels: ${issue.labels.join(", ")}` : undefined,
+      labels: issue.labels ?? [],
+      components: [],
+      comments: notes.filter((n) => !n.system).map((n) => ({ author: n.author?.name ?? "unknown", body: n.body })),
+      closingRef: `Closes ${projectPath}#${issue.iid}`,
+      assignees: (issue.assignees ?? (issue.assignee ? [issue.assignee] : [])).map((a: any) => a.username),
+      nativeId: String(issue.id),
+    };
+  }
+
+  /**
+   * One issue by its link, «group/app#12» or just «12» (with one project), read directly, and which of this
+   * tracker's filters leave it out: for «Чому Mako не бачить задачу?».
+   */
+  async inspectTask(ref: string): Promise<{ task: Task; misses: string[] } | undefined> {
+    const projects = Object.keys(this.projects);
+    const m =
+      ref.match(/^https?:\/\/[^/]+\/(.+?)\/-\/(?:issues|work_items)\/(\d+)/) ??
+      ref.match(/^([\w.-]+(?:\/[\w.-]+)+)#(\d+)$/) ??
+      (projects.length === 1 ? ref.match(/^()#?(\d+)$/) : null);
+    if (!m) return undefined;
+    const projectPath = m[1] || projects[0];
+    const issue = await this.request<any>("GET", `${projectApi(projectPath)}/issues/${m[2]}`);
+    const task = this.toTask(projectPath, issue);
+    const misses: string[] = [];
+    if (!this.projects[projectPath]) misses.push(`проєкт ${projectPath} не доданий у Налаштуваннях (є: ${projects.join(", ")})`);
+    if (issue.state !== "opened") misses.push("задача закрита");
+    if (this.labels.trigger && !task.labels.includes(this.labels.trigger)) misses.push(`немає мітки «${this.labels.trigger}» (є: ${task.labels.join(", ") || "жодної"})`);
+    const who = await this.assignee();
+    if (who && !(task.assignees ?? []).some((a) => a.toLowerCase() === who.toLowerCase())) {
+      misses.push(`не призначена на ${who} (виконавці: ${task.assignees?.join(", ") || "немає"})`);
+    }
+    return { task, misses };
   }
 
   private me?: string;

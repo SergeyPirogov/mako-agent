@@ -109,7 +109,14 @@ export function renderInbox(app: App, token: string, notice?: string): string {
   const newTask =
     `<button type="button" class="soft new-task-btn" id="new-task-open">+ Задача</button>${newTaskDialog(app, token)}` +
     `<input type="search" id="board-filter" class="board-filter" placeholder="Пошук задач  /" title="Номер, назва, репозиторій, виконавець, мітка. Клавіша / — швидкий пошук" aria-label="Пошук задач на дошці" autocomplete="off">`;
-  const body = `<div class="board-head"><h1>Задачі</h1>${newTask}${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}
+  const explain = `<button type="button" class="link explain-open" id="explain-open" title="Перевірити, чому задачі з трекера немає на дошці">Не бачите задачу?</button>
+    <dialog id="explain" class="mdialog wide-form"><form id="explain-form">
+      <h2>Чому Mako не бачить задачу?</h2>
+      <label class="f">Посилання на задачу або її номер<input type="text" name="ref" required placeholder="https://gitlab…/group/project/-/issues/12 або group/project#12" autocomplete="off"></label>
+      <div id="explain-result" class="explain-result" aria-live="polite"></div>
+      <div class="dlg-actions"><button type="button" data-close>Закрити</button><button class="primary">Перевірити</button></div>
+    </form></dialog>`;
+  const body = `<div class="board-head"><h1>Задачі</h1>${newTask}${explain}${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}
     <div class="board" style="--cols:${columns.length}">${board}</div>`;
   const { sig, attention, search } = inboxSignature(app);
   return page({
