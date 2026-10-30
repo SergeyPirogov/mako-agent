@@ -26,6 +26,9 @@ export interface Task {
 
 export type Outcome = "success" | "no-changes" | "failed";
 
+/** Where an issue stands in its tracker, for tasks that left the search results. */
+export type IssueState = "open" | "closed" | "deleted";
+
 export interface Tracker {
   id: string;
   /** Display name: "Jira", "GitHub", "GitLab". */
@@ -39,4 +42,6 @@ export interface Tracker {
   listStatuses?(): Promise<string[]>;
   /** Which issues the tracker looks for, in words, for an empty search result. */
   describeFilter?(): Promise<string>;
+  /** Whether the issue is still open, closed or deleted. */
+  issueState?(task: Task): Promise<IssueState>;
 }

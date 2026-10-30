@@ -434,3 +434,6 @@ dialog.desc h2 { margin: 0 24px 4px 0; }
 dialog.desc .desc-actions { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .logo, nav a { white-space: nowrap; }
 @media (max-width: 600px) { .bar { gap: 10px; } .bar .ver { display: none; } }
+.s.gone { background: none; border: 1px dashed var(--mute); color: var(--mute); }
+.s.gone.deleted { border-color: var(--err); color: var(--err); }
+.kcard:has(.s.gone.deleted) .kc-title { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--fg) 40%, transparent); }

@@ -1,6 +1,6 @@
 import type { ProjectConfig } from "../config.js";
-import { requestJson, explainAccess } from "../http.js";
-import type { Outcome, Task, Tracker } from "../types.js";
+import { requestJson, explainAccess, HttpError } from "../http.js";
+import type { IssueState, Outcome, Task, Tracker } from "../types.js";
 
 export interface JiraTrackerConfig {
   type: "jira";
@@ -26,6 +26,16 @@ export class JiraTracker implements Tracker {
     this.baseUrl = (cfg.baseUrl ?? env("JIRA_BASE_URL")).replace(/\/$/, "");
     const auth = Buffer.from(`${env("JIRA_EMAIL")}:${env("JIRA_API_TOKEN")}`).toString("base64");
     this.headers = { Authorization: `Basic ${auth}` };
+  }
+
+  async issueState(task: Task): Promise<IssueState> {
+    try {
+      const issue = await requestJson<any>("GET", `${this.baseUrl}/rest/api/3/issue/${encodeURIComponent(task.id)}?fields=status`, this.headers);
+      return issue.fields?.status?.statusCategory?.key === "done" ? "closed" : "open";
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 404) return "deleted";
+      throw err;
+    }
   }
 
   private request<T>(method: string, path: string, body?: unknown): Promise<T> {

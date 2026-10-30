@@ -219,10 +219,10 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     // No terminal yet (the worktree is being prepared) or none at all (a background agent): show its log.
     r.status === "running" && !session ? `<a class="btn" href="/log?task=${encodeURIComponent(r.id)}">Хід роботи</a>` : "",
     r.status === "asking" || r.status === "snoozed" ? takeControl(app, r, token, "take") + form("later", "Відкласти") : "",
-    ["done", "failed", "cancelled"].includes(r.status) && r.sessionId && r.executor !== app.orchestrator?.terminalExecutor() && app.orchestrator?.terminalExecutor()
+    r.gone !== "deleted" && ["done", "failed", "cancelled"].includes(r.status) && r.sessionId && r.executor !== app.orchestrator?.terminalExecutor() && app.orchestrator?.terminalExecutor()
       ? `<form method="post" action="/retry" title="Відкрити ту саму розмову з агентом у терміналі Mako"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><input type="hidden" name="resume" value="1"><button class="${r.status === "done" ? "soft" : "primary"}">Продовжити в терміналі</button></form>`
       : "",
-    ["done", "failed", "cancelled"].includes(r.status) ? takeControl(app, r, token, "retry") : "",
+    r.gone !== "deleted" && ["done", "failed", "cancelled"].includes(r.status) ? takeControl(app, r, token, "retry") : "",
     r.status === "queued" || r.status === "handed-off"
       ? `<form method="post" action="/cancel" data-confirm="${esc(
           r.status === "handed-off"
@@ -245,6 +245,10 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
         : ""
       }`;
   const needsPermission = r.status === "failed" && Boolean(r.denied?.length);
+  const trackerName = app.orchestrator?.trackers.get(r.task.trackerId)?.name ?? "трекері";
+  const gone = r.gone
+    ? `<span class="s gone ${r.gone}" title="${r.gone === "deleted" ? "Задачі більше немає в трекері" : "Задачу закрили в трекері"}">${r.gone === "deleted" ? `🗑 Видалена в ${esc(trackerName)}` : `✓ Закрита в ${esc(trackerName)}`}</span>`
+    : "";
   const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle" || needsPermission;
   const draggable = col === "new" || col === "failed";
   return `<article class="kcard${attn ? " attn" : ""}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
@@ -252,10 +256,10 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
       ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}</div>
     ${description(r)}
-    <div class="kc-status">${needsPermission ? `<span class="s perm">🔒 Потрібні дозволи</span>` : status}</div>
+    <div class="kc-status">${gone ? (r.status === "cancelled" ? gone : `${status} ${gone}`) : needsPermission ? `<span class="s perm">🔒 Потрібні дозволи</span>` : status}</div>
     ${needsPermission
       ? `<div class="kc-perm"><div class="small muted">Агенту не дозволили:</div><ul>${r.denied!.slice(0, 3).map((d) => `<li><code>${esc(d)}</code></li>`).join("")}${r.denied!.length > 3 ? `<li class="muted">і ще ${r.denied!.length - 3}</li>` : ""}</ul></div>`
-      : r.error ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}
+      : r.error && !(r.gone && r.status === "cancelled") ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}
     ${actions ? `<div class="kc-actions">${actions}</div>` : ""}
   </article>`;
 }

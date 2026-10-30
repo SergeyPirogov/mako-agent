@@ -1,5 +1,5 @@
 import type { Config } from "./config.js";
-import type { Task, Tracker } from "./types.js";
+import type { IssueState, Task, Tracker } from "./types.js";
 import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
 import { createExecutor, type Executor } from "./executors/index.js";
@@ -13,7 +13,8 @@ import { findReview } from "./reviews.js";
 import { log } from "./log.js";
 
 export class Orchestrator {
-  private trackers: Map<string, Tracker>;
+  /** By id; replaced on reload. */
+  trackers: Map<string, Tracker>;
   private executors: Map<string, Executor>;
   private active = new Map<string, Promise<void>>();
   /** Unroutable tasks already reported, so the log is not repeated on every poll. */
@@ -192,9 +193,13 @@ export class Orchestrator {
           }
           this.onTaskSeen(task, tracker, route.repo.name);
         }
-        // A postponed task that left the query (closed, reassigned) no longer needs an answer.
+        // A task waiting for an answer that left the query: deleted or closed ones are marked on the board,
+        // the rest (reassigned, label removed) no longer need an answer and are forgotten.
         for (const rec of this.state.all()) {
-          if (rec.task.trackerId === tracker.id && rec.status === "snoozed" && !seen.has(rec.id)) {
+          if (rec.task.trackerId !== tracker.id || seen.has(rec.id) || !["asking", "snoozed"].includes(rec.status)) continue;
+          const state = await this.issueState(tracker, rec);
+          if (state === "closed" || state === "deleted") this.markGone(rec, state);
+          else if (state === "open") {
             log(rec.id, "no longer matches the tracker query, forgetting it");
             this.state.delete(rec.id);
           }
@@ -214,6 +219,43 @@ export class Orchestrator {
     if (every > 0 && Date.now() - this.lastHandoffCheck >= every) {
       this.lastHandoffCheck = Date.now();
       await this.checkHandoffs();
+      await this.checkGone();
+    }
+  }
+
+  /** Taken tasks are not in every search (the WIP limit pauses it), so their issues are looked up one by one. */
+  async checkGone(): Promise<void> {
+    for (const rec of this.state.all().filter((r) => ["queued", "running", "handed-off"].includes(r.status))) {
+      const tracker = this.trackers.get(rec.task.trackerId);
+      if (!tracker) continue;
+      const state = await this.issueState(tracker, rec);
+      if ((state === "closed" || state === "deleted") && rec.gone !== state) this.markGone(rec, state);
+      if (state === "open" && rec.gone) this.state.update(rec.id, { gone: undefined });
+    }
+  }
+
+  /** undefined when the tracker could not be asked (network, rights): better to wait than to drop a task. */
+  private async issueState(tracker: Tracker, rec: TaskRecord): Promise<IssueState | undefined> {
+    if (!tracker.issueState) return "open";
+    try {
+      return await tracker.issueState(rec.task);
+    } catch (err: any) {
+      log(rec.id, `issue check failed: ${err.message}`);
+      return undefined;
+    }
+  }
+
+  /** Not yet started: nothing to do any more. Already with an agent: the developer decides, the card says why. */
+  private markGone(rec: TaskRecord, state: "closed" | "deleted"): void {
+    const where = this.trackers.get(rec.task.trackerId)?.name ?? "трекері";
+    const what = state === "deleted" ? `Задачу видалено в ${where}` : `Задачу закрито в ${where}`;
+    log(rec.id, `${state} in the tracker`);
+    if (["asking", "snoozed", "queued"].includes(rec.status)) {
+      this.state.update(rec.id, { status: "cancelled", gone: state, error: what, finishedAt: new Date().toISOString() });
+      this.schedule();
+    } else {
+      this.state.update(rec.id, { gone: state });
+      inform(`🦈 ${rec.id}: ${what.toLowerCase()}`, "Агент ще працює над нею. Зупиніть або доведіть до кінця на дошці Mako.");
     }
   }
 
@@ -251,6 +293,11 @@ export class Orchestrator {
 
   private onTaskSeen(task: Task, tracker: Tracker, repo: string): void {
     const rec = this.state.get(task.id);
+    if (rec?.gone && rec.status === "cancelled") {
+      // Reopened or restored in the tracker: offer it again.
+      log(task.id, "is back in the tracker");
+      this.state.update(task.id, { task, status: "snoozed", snoozedUntil: 0, gone: undefined, error: undefined, archivedAt: undefined });
+    }
     // Pull only as much work as the WIP limit allows; the rest stays in the tracker for later polls.
     // With notifications off, every task waits in the inbox and the developer picks.
     const offers = this.cfg.notifications.enabled || this.cfg.notifications.autoTake;

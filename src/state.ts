@@ -38,6 +38,8 @@ export interface TaskRecord {
   resumeSession?: string;
   /** Tool calls the agent was refused in its last run; the developer has to allow them. */
   denied?: string[];
+  /** The issue was closed or deleted in the tracker after Mako picked it up. */
+  gone?: "closed" | "deleted";
   costUsd?: number;
   error?: string;
 }

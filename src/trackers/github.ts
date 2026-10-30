@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import type { ProjectConfig } from "../config.js";
-import { requestJson, explainAccess } from "../http.js";
-import type { Outcome, Task, Tracker } from "../types.js";
+import { requestJson, explainAccess, HttpError } from "../http.js";
+import type { IssueState, Outcome, Task, Tracker } from "../types.js";
 import { defaultLabels, labelChanges, normalizeAssignee, type LabelConfig } from "./labels.js";
 
 export interface GitHubTrackerConfig {
@@ -107,6 +107,16 @@ export class GitHubTracker implements Tracker {
 
   onFinish(task: Task, outcome: Outcome): Promise<void> {
     return this.applyLabels(task, labelChanges(this.labels, outcome));
+  }
+
+  async issueState(task: Task): Promise<IssueState> {
+    try {
+      const issue = await requestJson<any>("GET", `${this.apiUrl}${this.issuePath(task)}`, this.headers);
+      return issue.state === "closed" ? "closed" : "open";
+    } catch (err) {
+      if (err instanceof HttpError && (err.status === 404 || err.status === 410)) return "deleted";
+      throw err;
+    }
   }
 
   private issuePath(task: Task): string {
