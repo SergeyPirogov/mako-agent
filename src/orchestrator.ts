@@ -100,7 +100,7 @@ export class Orchestrator {
 
   /** Status or label changes in the tracker must not fail the agent's work: report them and carry on. */
   /** Status changes never stop the work; the card says whether the issue moved, and why not. */
-  private async updateTracker(task: Task, moment: "start" | Outcome, change: () => Promise<string | void>): Promise<void> {
+  private async updateTracker(task: Task, moment: "start" | Outcome | "merged", change: () => Promise<string | void>): Promise<void> {
     const tracker = this.trackers.get(task.trackerId);
     try {
       const name = await change();
@@ -230,7 +230,37 @@ export class Orchestrator {
     if (every > 0 && Date.now() - this.lastHandoffCheck >= every) {
       this.lastHandoffCheck = Date.now();
       await this.checkHandoffs();
+      await this.checkMerged();
       await this.checkGone();
+    }
+  }
+
+  /** PRs/MRs Mako opened: once merged, the issue gets its final status and the card says so. */
+  async checkMerged(): Promise<void> {
+    const recent = Date.now() - 30 * 24 * 3600_000;
+    const open = this.state
+      .all()
+      .filter((r) => r.prUrl && !r.reviewState && !r.archivedAt && ["running", "done", "handed-off"].includes(r.status))
+      .filter((r) => !r.finishedAt || Date.parse(r.finishedAt) > recent);
+    for (const rec of open) {
+      const tracker = this.trackers.get(rec.task.trackerId);
+      if (!tracker?.reviewState) continue;
+      const state = await tracker.reviewState(rec.prUrl!).catch((err: any) => {
+        log(rec.id, `review check failed: ${err.message}`);
+        return undefined;
+      });
+      if (state === "closed") {
+        log(rec.id, "review closed without merging");
+        this.state.update(rec.id, { reviewState: "closed" });
+      }
+      if (state !== "merged") continue;
+      log(rec.id, `review merged: ${rec.prUrl}`);
+      this.state.update(rec.id, { reviewState: "merged" });
+      if (tracker.onMerged) await this.updateTracker(rec.task, "merged", () => tracker.onMerged!(rec.task));
+      inform(
+        `✅ ${rec.id}: ${rec.prUrl!.includes("/merge_requests/") ? "MR" : "PR"} змерджено`,
+        rec.status === "running" ? "Агент ще в терміналі: натисніть «Завершити»" : rec.task.title,
+      );
     }
   }
 

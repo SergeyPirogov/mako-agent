@@ -15,7 +15,7 @@ export interface GitLabTrackerConfig {
    * Work item status names to set (GitLab 17.11+, Premium/Ultimate), e.g. "In progress";
    * null or missing leaves the status alone.
    */
-  transitions?: { onStart?: string | null; onSuccess?: string | null; onFailure?: string | null };
+  transitions?: { onStart?: string | null; onSuccess?: string | null; onFailure?: string | null; onMerged?: string | null };
   /** Keys are project paths: "group/subgroup/project"; every listed project is polled. */
   projects: Record<string, ProjectConfig>;
 }
@@ -110,15 +110,36 @@ export class GitLabTracker implements Tracker {
     await this.request("POST", `${this.issuePath(task)}/notes`, { body: text });
   }
 
-  statusFor(moment: "start" | Outcome): string | null | undefined {
+  statusFor(moment: "start" | Outcome | "merged"): string | null | undefined {
     const t = this.cfg.transitions;
+    if (moment === "merged") return t?.onMerged;
     return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
+  }
+
+  async reviewState(reviewUrl: string): Promise<"open" | "merged" | "closed"> {
+    const m = reviewUrl.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)/);
+    if (!m) throw new Error(`не схоже на MR GitLab: ${reviewUrl}`);
+    const mr = await this.request<{ state: string }>("GET", `${projectApi(m[1])}/merge_requests/${m[2]}`);
+    return mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open";
+  }
+
+  /**
+   * «Closes #N» closes the issue on merge, but its status may stay «In progress»: set the done status
+   * (configured, or the project's own «Done») and close it if GitLab has not yet.
+   */
+  async onMerged(task: Task): Promise<string | void> {
+    const configured = this.cfg.transitions?.onMerged;
+    const name = configured === undefined ? await this.guessStatus(/^done$|^closed$|completed|готово|виконано/i, "done") : configured;
+    const moved = await this.setStatus(task, name);
+    const issue = await this.request<{ state: string }>("GET", this.issuePath(task));
+    if (issue.state !== "closed") await this.request("PUT", this.issuePath(task), { state_event: "close" });
+    return moved;
   }
 
   async onStart(task: Task): Promise<string | void> {
     // Not set at all (not even "не змінювати"): the project's own «In progress», when it has one.
     const configured = this.cfg.transitions?.onStart;
-    const name = configured === undefined ? await this.guessStatus(/^in progress$|progress|в роботі|doing/i) : configured;
+    const name = configured === undefined ? await this.guessStatus(/^in progress$|progress|в роботі|doing/i, "in progress") : configured;
     const moved = await this.setStatus(task, name);
     await this.applyLabels(task, labelChanges(this.labels, "start"));
     return moved;
@@ -134,10 +155,10 @@ export class GitLabTracker implements Tracker {
   private statuses?: Promise<string[]>;
 
   /** A status of this GitLab by pattern; none when statuses are not available here (Free tier, older GitLab). */
-  private async guessStatus(pattern: RegExp): Promise<string | undefined> {
+  private async guessStatus(pattern: RegExp, exact = "in progress"): Promise<string | undefined> {
     this.statuses ??= this.listStatuses().catch(() => []);
     const all = await this.statuses;
-    return all.find((s) => s.toLowerCase() === "in progress") ?? all.find((s) => pattern.test(s));
+    return all.find((s) => s.toLowerCase() === exact) ?? all.find((s) => pattern.test(s));
   }
 
   /** Statuses of the project's issues, from the work item type definition. */

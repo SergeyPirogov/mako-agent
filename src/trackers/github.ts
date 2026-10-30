@@ -109,6 +109,13 @@ export class GitHubTracker implements Tracker {
     return this.applyLabels(task, labelChanges(this.labels, outcome));
   }
 
+  async reviewState(reviewUrl: string): Promise<"open" | "merged" | "closed"> {
+    const m = reviewUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (!m) throw new Error(`не схоже на PR GitHub: ${reviewUrl}`);
+    const pr = await this.request<{ state: string; merged: boolean }>("GET", `/repos/${m[1]}/pulls/${m[2]}`);
+    return pr.merged ? "merged" : pr.state === "closed" ? "closed" : "open";
+  }
+
   async describeReview(reviewUrl: string, title: string, description: string): Promise<void> {
     const m = reviewUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
     if (!m) throw new Error(`не схоже на PR GitHub: ${reviewUrl}`);

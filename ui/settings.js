@@ -374,6 +374,7 @@
         ${field({ label: "Статус, коли є PR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати" })}`;
       advanced = `
         ${field({ label: "Статус при помилці", path: `${p}.transitions.onFailure`, placeholder: "не змінювати" })}
+        ${field({ label: "Статус, коли PR змерджено", path: `${p}.transitions.onMerged`, placeholder: "не змінювати" })}
         ${field({ label: "Інша адреса Jira для цього трекера", path: `${p}.baseUrl`, placeholder: "як у секреті вище" })}`;
     } else {
       const isLab = type === "gitlab";
@@ -400,6 +401,7 @@
             hint: "Після мерджу MR із <code>Closes #N</code> задача закриється сама" })}` : ""}`;
       advanced = `
         ${isLab ? field({ label: "Статус при помилці", path: `${p}.transitions.onFailure`, placeholder: "не змінювати", list: `statuses-${ti}` }) : ""}
+        ${isLab ? field({ label: "Статус, коли MR змерджено", path: `${p}.transitions.onMerged`, placeholder: "автоматично: Done", list: `statuses-${ti}`, hint: "Mako також закриє задачу, якщо GitLab ще не закрив" }) : ""}
         ${field({ label: "Мітка «в роботі» (необовʼязково)", path: `${p}.labels.inProgress`, placeholder: "не ставити" })}
         ${field({ label: "Мітка «готово» (необовʼязково)", path: `${p}.labels.done`, placeholder: "не ставити" })}
         ${field({ label: "Мітка «помилка» (необовʼязково)", path: `${p}.labels.failed`, placeholder: "не ставити" })}

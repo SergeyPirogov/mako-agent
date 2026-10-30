@@ -48,6 +48,8 @@ export interface TaskRecord {
   reviewAnnounced?: boolean;
   /** Started over from scratch this many times: each attempt has its own slug, worktree and branch ("…-try2"). */
   attempt?: number;
+  /** What happened to the PR/MR in the end: merged, or closed without merging. */
+  reviewState?: "merged" | "closed";
   costUsd?: number;
   error?: string;
 }

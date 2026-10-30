@@ -475,3 +475,5 @@ form.take-pop label.tp-check { flex-direction: row; align-items: flex-start; gap
   border: 1px dashed var(--line); border-radius: 8px; cursor: pointer; }
 form.take-pop label.tp-check input { margin: 2px 0 0; accent-color: var(--accent); }
 form.take-pop label.tp-check small { display: block; color: var(--mute); font-size: 11.5px; margin-top: 2px; }
+.kc-review { font-size: 12px; font-weight: 600; }
+.kc-review.merged { color: var(--ok); } .kc-review.closed { color: var(--mute); font-weight: 400; }

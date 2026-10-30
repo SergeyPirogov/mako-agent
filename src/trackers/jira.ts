@@ -9,7 +9,7 @@ export interface JiraTrackerConfig {
   baseUrl?: string;
   jql: string;
   /** Status (or transition) names; null leaves the status unchanged. */
-  transitions?: { onStart?: string | null; onSuccess?: string | null; onFailure?: string | null };
+  transitions?: { onStart?: string | null; onSuccess?: string | null; onFailure?: string | null; onMerged?: string | null };
   projects: Record<string, ProjectConfig>;
 }
 
@@ -77,9 +77,14 @@ export class JiraTracker implements Tracker {
     await this.request("POST", `/rest/api/3/issue/${task.id}/comment`, { body: textToAdf(text) });
   }
 
-  statusFor(moment: "start" | Outcome): string | null | undefined {
+  statusFor(moment: "start" | Outcome | "merged"): string | null | undefined {
     const t = this.cfg.transitions;
+    if (moment === "merged") return t?.onMerged;
     return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
+  }
+
+  async onMerged(task: Task): Promise<string | void> {
+    return this.transition(task.id, this.cfg.transitions?.onMerged);
   }
 
   async onStart(task: Task): Promise<string | void> {
