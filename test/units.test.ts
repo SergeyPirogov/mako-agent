@@ -22,7 +22,7 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
 });
 
 test("branch names follow the pattern", () => {
-  assert.equal(branchName(DEFAULT_BRANCH_PATTERN, task("acme/web#17", "Розібрати результати нічного рану тестів")), "feat/17-rozibraty-rezultaty-nichnoho-ranu-testiv");
+  assert.equal(branchName(DEFAULT_BRANCH_PATTERN, task("acme/web#17", "Розібрати результати нічного рану тестів")), "feature/17-rozibraty-rezultaty-nichnoho-ranu-testiv");
   assert.equal(branchName("feature/{id}-{title}", task("acme/web#42", "Add dark mode toggle")), "feature/42-add-dark-mode-toggle");
   assert.equal(branchName("{type}/{id}", task("acme/web#9", "Checkout shows error", { labels: ["bug"] })), "fix/9");
   assert.equal(branchName("{type}/{id}-{title}", task("PROJ-12", "Login: wrong colour?", { meta: "Type: Bug" })), "fix/PROJ-12-login-wrong-colour");
@@ -37,7 +37,8 @@ test("titles become short git-safe slugs", () => {
   assert.equal(slugifyTitle("storefront-ui: PRODUCT_WITH_LONG_NAME sold out on stage, checkout shows error (@58929)"), "storefront-ui-product-with-long-name"); // at most 40 characters, whole words
   assert.equal(slugifyTitle("!!!"), "task");
   assert.equal(taskType(task("a#1", "Fix login")), "fix");
-  assert.equal(taskType(task("a#1", "Add login")), "feat");
+  assert.equal(taskType(task("a#1", "Add login")), "feature");
+  assert.equal(taskType(task("a#2", "Page is down", { meta: "Type: Incident" })), "fix", "GitLab incidents are bugs");
 });
 
 test("markdown renders GitLab descriptions safely", () => {

@@ -120,9 +120,9 @@ test("a task goes from the tracker through the agent to a pushed branch", async 
 
   const rec = orchestrator.state.get("acme/web#7")!;
   assert.equal(rec.status, "done", rec.error);
-  assert.equal(rec.branchName, "feat/7-add-a-hello-file");
-  assert.match(git(remote, "branch", "--list"), /feat\/7-add-a-hello-file/);
-  assert.equal(git(remote, "show", "feat/7-add-a-hello-file:hello.txt"), "hello");
+  assert.equal(rec.branchName, "feature/7-add-a-hello-file");
+  assert.match(git(remote, "branch", "--list"), /feature\/7-add-a-hello-file/);
+  assert.equal(git(remote, "show", "feature/7-add-a-hello-file:hello.txt"), "hello");
   assert.deepEqual(tracker.calls.filter((c) => !c.startsWith("comment") && !c.startsWith("assign")), ["start acme/web#7", "finish acme/web#7 success"]);
   assert.ok(tracker.calls.includes("assign acme/web#7"), "taking it assigns it to me");
   assert.ok(tracker.calls.some((c) => c.startsWith("comment acme/web#7")), "the issue gets a comment");

@@ -278,7 +278,7 @@
   // ---------- branch names: the same rules as src/git.ts ----------
 
   const DEFAULT_BRANCH = "{type}/{id}-{title}";
-  const BRANCH_HINT = "<code>{type}</code>: fix для багів, інакше feat · <code>{id}</code>: номер задачі · <code>{title}</code>: назва латиницею · <code>{slug}</code>: репозиторій-номер.";
+  const BRANCH_HINT = "<code>{type}</code>: fix для багів, feature для решти · <code>{id}</code>: номер задачі · <code>{title}</code>: назва латиницею · <code>{slug}</code>: репозиторій-номер.";
   const BRANCH_LIST = `<datalist id="branch-patterns">${["{type}/{id}-{title}", "feature/{id}-{title}", "feat/{id}-{title}", "fix/{id}-{title}", "{type}/{id}", "agent/{slug}"]
     .map((x) => `<option value="${x}">`).join("")}</datalist>`;
   const TRANSLIT = { а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ye", ж: "zh", з: "z", и: "y", і: "i", ї: "yi", й: "i", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ь: "", ю: "yu", я: "ya" };
@@ -286,7 +286,7 @@
     const title = "Розібрати результати нічного рану тестів"
       .toLowerCase().replace(/[а-яіїєґ]/g, (c) => TRANSLIT[c] ?? "").replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/)
       .reduce((acc, w) => (acc.full || (acc.out && acc.out.length + 1 + w.length > 40) ? { ...acc, full: true } : { out: acc.out ? `${acc.out}-${w}` : w }), { out: "" }).out;
-    return (pattern || DEFAULT_BRANCH).replace(/\{type\}/g, "feat").replace(/\{id\}/g, "17").replace(/\{title\}/g, title).replace(/\{slug\}/g, "market-autotests-17");
+    return (pattern || DEFAULT_BRANCH).replace(/\{type\}/g, "feature").replace(/\{id\}/g, "17").replace(/\{title\}/g, title).replace(/\{slug\}/g, "market-autotests-17");
   }
 
   function uniqueName(base, taken) {

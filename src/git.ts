@@ -29,10 +29,14 @@ export function slugifyTitle(title: string, max = 40): string {
 }
 
 /** fix for bugs (labels, Jira issue type, a title starting with "fix"), feat otherwise. */
-export function taskType(task: Task): "fix" | "feat" {
+/**
+ * fix/… for a bug (a bug label, Jira's Bug or GitLab's Incident type, a title starting with fix/bug),
+ * feature/… for everything else.
+ */
+export function taskType(task: Task): "fix" | "feature" {
   const text = [...task.labels, task.meta ?? ""].join(" ").toLowerCase();
-  if (/\b(bug|fix|defect|hotfix|баг|помилка)\b/.test(text) || /^\s*(fix|bug)/i.test(task.title)) return "fix";
-  return "feat";
+  if (/\b(bug|fix|defect|hotfix|incident|баг|помилка)\b/.test(text) || /^\s*(fix|bug)/i.test(task.title)) return "fix";
+  return "feature";
 }
 
 /**

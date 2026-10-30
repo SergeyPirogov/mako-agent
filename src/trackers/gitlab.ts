@@ -143,7 +143,9 @@ export class GitLabTracker implements Tracker {
       title: issue.title,
       description: issue.description ?? "",
       url: issue.web_url,
-      meta: issue.labels?.length ? `Labels: ${issue.labels.join(", ")}` : undefined,
+      meta: [issue.issue_type && `Type: ${String(issue.issue_type).replace(/^./, (c) => c.toUpperCase())}`, issue.labels?.length && `Labels: ${issue.labels.join(", ")}`]
+        .filter(Boolean)
+        .join(" | ") || undefined,
       labels: issue.labels ?? [],
       components: [],
       comments: notes.filter((n) => !n.system).map((n) => ({ author: n.author?.name ?? "unknown", body: n.body })),

@@ -27,7 +27,7 @@ export interface RepoConfig {
   setup: string;
   /** The task goes to this repo when it has any of these labels or (Jira) components. */
   match?: { labels?: string[]; components?: string[] };
-  /** Name of a task's branch: {type} (feat/fix) {id} {title} {slug}; this repo's own, or the general one. */
+  /** Name of a task's branch: {type} (feature/fix) {id} {title} {slug}; this repo's own, or the general one. */
   branchPattern: string;
 }
 
@@ -40,7 +40,7 @@ export interface TaskTemplate {
   titleContains: string[];
 }
 
-/** feat/12-add-dark-mode, fix/34-login-button: the usual names, with the type taken from the issue. */
+/** feature/12-add-dark-mode, fix/34-login-button: the usual names, with the type taken from the issue. */
 export const DEFAULT_BRANCH_PATTERN = "{type}/{id}-{title}";
 
 /** Where projects without a path of their own are cloned. */
