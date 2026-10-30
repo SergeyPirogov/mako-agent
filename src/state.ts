@@ -8,7 +8,7 @@ import type { ReviewInfo, Task } from "./types.js";
  * queued   – taken, waiting for a free agent slot
  * handed-off – passed to an interactive tool (Orca, a terminal); the developer finishes it there
  */
-export type TaskStatus = "asking" | "snoozed" | "queued" | "running" | "handed-off" | "done" | "failed" | "cancelled";
+export type TaskStatus = "asking" | "snoozed" | "queued" | "planned" | "running" | "handed-off" | "done" | "failed" | "cancelled";
 
 export interface TaskRecord {
   id: string;
@@ -58,6 +58,14 @@ export interface TaskRecord {
   branchName?: string;
   /** What the task came to, in Markdown, written when it finished; shown from the card. */
   summary?: string;
+  /** Plan before code: the agent proposes, the developer approves; then it works to the approved plan. */
+  planFirst?: boolean;
+  plan?: string;
+  planApproved?: boolean;
+  /** What the developer wants changed in the plan, for the next one. */
+  planFeedback?: string;
+  /** When it was merged, for the statistics. */
+  mergedAt?: string;
   costUsd?: number;
   error?: string;
 }

@@ -115,7 +115,7 @@
   async function check() {
     const state = await (await fetch("/api/inbox-state", { cache: "no-store" })).json();
     // Do not reload under an open "Куди відправити" menu.
-    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog.desc[open]")) return location.reload();
+    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog[open]")) return location.reload();
     search = state.search;
     drawClock();
     for (const el of document.querySelectorAll("[data-phase]")) {
@@ -172,5 +172,15 @@
     e.preventDefault();
     opt.querySelector("input").checked = true;
     opt.closest("form").requestSubmit();
+  });
+
+  // «+ Задача»
+  const newTask = document.getElementById("new-task");
+  document.getElementById("new-task-open")?.addEventListener("click", () => {
+    newTask.showModal();
+    newTask.querySelector("input[name=title]").focus();
+  });
+  newTask?.addEventListener("click", (e) => {
+    if (e.target === newTask || e.target.closest("[data-close]")) newTask.close();
   });
 })();

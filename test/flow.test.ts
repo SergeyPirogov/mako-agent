@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import os from "node:os";
@@ -231,4 +231,32 @@ test("the agent's answers to review threads are posted after the push, and fixed
   assert.equal(git(remote, "show", `${branch}:app.txt`), "v2", "the fix is pushed");
   assert.throws(() => git(remote, "show", `${branch}:.mako/review-replies.json`), "Mako's file is not committed");
   orchestrator.stop();
+});
+
+test("«+ Задача» with a plan first: plan, approve, then the agent works to it", async () => {
+  const { remote, orchestrator } = setup('cat > /dev/null; echo "plan followed" > done.txt; echo "Done as planned"');
+  // a stand-in for Claude in plan mode
+  const bin = mkdtempSync(path.join(dir, "bin-"));
+  writeFileSync(path.join(bin, "claude"), '#!/bin/sh\ncase "$*" in *plan*) cat > /dev/null; echo "## Як я це зроблю\\n1. Додати done.txt";; *) exit 1;; esac\n', { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bin}:${savedPath}`;
+  try {
+    const id = orchestrator.createTask({ title: "Write done.txt", description: "", repo: "web", executor: "agent", planFirst: true });
+    assert.equal(id, "mako#1");
+    await orchestrator.drain();
+    let rec = orchestrator.state.get(id)!;
+    assert.equal(rec.status, "planned", rec.error);
+    assert.match(rec.plan!, /Додати done\.txt/);
+    assert.equal(orchestrator.wip(), 1, "a task waiting for its plan holds a WIP slot");
+
+    assert.ok(orchestrator.answerPlan(id, "approve"));
+    await orchestrator.drain();
+    rec = orchestrator.state.get(id)!;
+    assert.equal(rec.status, "done", rec.error);
+    assert.match(readFileSync(orchestrator.state.logPath(rec.task).replace(/\.jsonl$/, ".prompt.md"), "utf8"), /## Approved plan[\s\S]*Додати done\.txt/);
+    assert.equal(git(remote, "show", `${rec.branchName}:done.txt`), "plan followed");
+  } finally {
+    process.env.PATH = savedPath;
+    orchestrator.stop();
+  }
 });

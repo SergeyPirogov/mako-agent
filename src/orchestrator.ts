@@ -9,12 +9,14 @@ import path from "node:path";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { routeTask } from "./routing.js";
+import { LocalTracker, LOCAL_TRACKER, localTask } from "./trackers/local.js";
 import { createTracker, type TrackerConfig } from "./trackers/index.js";
 import { findReview } from "./reviews.js";
 import { log, keepLogsIn, dropLog } from "./log.js";
 import { sessions, sessionIdFor } from "./sessions.js";
 import { stopTask } from "./executors/processes.js";
 import { commitMessage, reviewText, taskSummary } from "./commit-message.js";
+import { makePlan } from "./plan.js";
 
 export class Orchestrator {
   /** By id; replaced on reload. */
@@ -40,7 +42,7 @@ export class Orchestrator {
     readonly state: StateStore,
   ) {
     keepLogsIn(path.join(cfg.stateDir, "activity"));
-    this.trackers = new Map(trackers.map((t) => [t.id, t]));
+    this.trackers = withLocal(trackers);
     this.executors = new Map(Object.entries(cfg.executors).map(([name, c]) => [name, createExecutor(name, c)]));
   }
 
@@ -51,14 +53,14 @@ export class Orchestrator {
   /** Applies a new config from the settings page. Running agents keep the settings they started with. */
   reload(cfg: Config, trackers: Tracker[]): void {
     this.cfg = cfg;
-    this.trackers = new Map(trackers.map((t) => [t.id, t]));
+    this.trackers = withLocal(trackers);
     this.executors = new Map(Object.entries(cfg.executors).map(([name, c]) => [name, createExecutor(name, c)]));
     this.lastHandoffCheck = 0;
     this.schedule();
   }
 
   async start(): Promise<void> {
-    log("main", `Polling ${[...this.trackers.values()].map((t) => t.id).join(", ")} every ${this.cfg.pollIntervalSec}s`);
+    log("main", `Polling ${[...this.trackers.values()].filter((t) => t.id !== LOCAL_TRACKER).map((t) => t.id).join(", ")} every ${this.cfg.pollIntervalSec}s`);
     this.schedule(); // tasks queued before a restart
     this.reviewTimer = setInterval(() => void this.refreshReviews(), 60_000);
     void this.refreshReviews();
@@ -153,7 +155,7 @@ export class Orchestrator {
 
   /** Tasks taken and not finished: the Kanban "in progress" column that `wipLimit` caps. */
   wip(): number {
-    return this.state.all().filter((r) => r.status === "queued" || r.status === "running" || r.status === "handed-off").length;
+    return this.state.all().filter((r) => ["queued", "planned", "running", "handed-off"].includes(r.status)).length;
   }
 
   /** How many more tasks may be offered now; a task whose notification is on screen holds a slot. */
@@ -186,6 +188,7 @@ export class Orchestrator {
     const known = new Set(this.state.all().map((r) => r.id));
     try {
       for (const tracker of this.trackers.values()) {
+        if (tracker.id === LOCAL_TRACKER) continue; // tasks typed into Mako: nothing to search
         let tasks: Task[];
         try {
           tasks = await tracker.fetchTasks();
@@ -362,7 +365,7 @@ export class Orchestrator {
 
   private async reviewEnded(rec: TaskRecord, state: "merged" | "closed", tracker: Tracker): Promise<void> {
     if (rec.reviewState) return;
-    this.state.update(rec.id, { reviewState: state });
+    this.state.update(rec.id, { reviewState: state, ...(state === "merged" ? { mergedAt: new Date().toISOString() } : {}) });
     if (state === "closed") return log(rec.id, "review closed without merging");
     log(rec.id, `review merged: ${rec.prUrl}`);
     if (tracker.onMerged) await this.updateTracker(rec.task, "merged", () => tracker.onMerged!(rec.task));
@@ -561,7 +564,7 @@ export class Orchestrator {
   }
 
   /** Applies an answer from a notification or the inbox page. The first answer wins. */
-  decide(id: string, decision: Decision, choice: { repo?: string; executor?: string } = {}): boolean {
+  decide(id: string, decision: Decision, choice: { repo?: string; executor?: string; planFirst?: boolean } = {}): boolean {
     const rec = this.state.get(id);
     if (!rec || !["asking", "snoozed"].includes(rec.status)) return false;
     if (decision === "take") {
@@ -574,6 +577,7 @@ export class Orchestrator {
         queuedAt: Date.now(),
         chosenRepo,
         chosenExecutor,
+        planFirst: choice.planFirst || undefined,
         ...(chosenRepo ? { repo: chosenRepo } : {}),
       });
       this.schedule();
@@ -619,10 +623,16 @@ export class Orchestrator {
       rec.branchName ??
       (await git.currentBranch(path.join(repo.worktreesDir, task.slug))) ??
       git.branchName(repo.branchPattern, task, rec.attempt);
+    // Plan first: Claude in Mako's terminal plans and asks in the terminal itself; any other executor gets a
+    // plan from Claude that the developer approves on the board before the work starts.
+    const needsPlan = Boolean(rec.planFirst && !rec.planApproved && !rec.followUp);
+    const terminalPlan = needsPlan && this.isTerminalClaude(executor.name);
+    if (needsPlan && !terminalPlan) return this.planPhase(rec, tracker, repo, branch, buildPrompt(task, tracker, repo, executor));
     // A follow-up (fix CI, review comments, conflicts) continues the work in the same worktree.
     const prompt = rec.followUp
       ? `You are continuing work on ${task.id}: ${task.title} (${task.url}) in this worktree, on branch ${branch}.\n\n${rec.followUp}`
-      : buildPrompt(task, tracker, repo, executor);
+      : buildPrompt(task, tracker, repo, executor) +
+        (rec.planApproved && rec.plan ? `\n\n## Approved plan\n\nThe developer approved this plan. Follow it:\n\n${rec.plan}` : "");
     const promptFile = this.state.logPath(task).replace(/\.jsonl$/, ".prompt.md");
     writeFileSync(promptFile, prompt);
     this.state.update(task.id, {
@@ -652,6 +662,7 @@ export class Orchestrator {
             : undefined,
           resumeSessionId: rec.resumeSession,
           onSession: (sessionId) => this.state.update(task.id, { sessionId }),
+          planMode: terminalPlan,
         },
         prompt,
       );
@@ -737,7 +748,7 @@ export class Orchestrator {
   }
 
   /** Lets a failed or finished task be offered again (inbox "Повторити"). */
-  retry(id: string, choice: { repo?: string; executor?: string; resume?: boolean; fresh?: boolean } = {}): boolean {
+  retry(id: string, choice: { repo?: string; executor?: string; resume?: boolean; fresh?: boolean; planFirst?: boolean } = {}): boolean {
     const rec = this.state.get(id);
     if (!rec || !["failed", "done", "handed-off", "cancelled"].includes(rec.status)) return false;
     const project = this.trackers.get(rec.task.trackerId)?.projects[rec.task.project];
@@ -769,6 +780,8 @@ export class Orchestrator {
       chosenExecutor,
       resumeSession: resume ? rec.sessionId : undefined,
       denied: undefined,
+      // «Спершу план» on a retry: a new plan for this run.
+      ...(choice.planFirst ? { planFirst: true, planApproved: undefined, plan: undefined, planFeedback: undefined } : {}),
       ...(chosenRepo ? { repo: chosenRepo } : {}),
       // A fresh run, not the old hand-off: forget its branch and PR tracking.
       branch: undefined,
@@ -920,6 +933,71 @@ export class Orchestrator {
     return posted;
   }
 
+  private isTerminalClaude(executor: string): boolean {
+    const c: any = this.cfg.executors[executor];
+    return c?.type === "terminal" && /^claude(\.cmd|\.exe)?$/i.test(String(c.command ?? "claude").split(/[\\/]/).pop()!);
+  }
+
+  /** Claude reads the code and proposes a plan; the task waits as «План готовий» for the developer. */
+  private async planPhase(rec: TaskRecord, tracker: Tracker, repo: RepoConfig, branch: string, prompt: string): Promise<void> {
+    const { task } = rec;
+    this.state.update(task.id, { status: "running", startedAt: new Date().toISOString(), repo: repo.name, branchName: branch });
+    try {
+      const worktree = await git.prepareWorktree(repo, task.slug, (line) => log(task.id, line), branch);
+      log(task.id, rec.planFeedback ? "replanning with the developer's notes" : "Claude is writing a plan");
+      const ask = rec.planFeedback && rec.plan
+        ? `${prompt}\n\n## Your previous plan\n\n${rec.plan}\n\n## What the developer wants changed\n\n${rec.planFeedback}`
+        : prompt;
+      const plan = await makePlan(worktree, ask);
+      this.state.update(task.id, { status: "planned", plan, planFeedback: undefined, worktree });
+      log(task.id, "plan ready: waiting for the developer");
+      inform(`📝 ${task.id}: план готовий`, "Перегляньте й погодьте його на дошці Mako");
+    } catch (err: any) {
+      log(task.id, `plan failed: ${err.message}`);
+      this.state.update(task.id, { status: "failed", finishedAt: new Date().toISOString(), error: `План не складено: ${err.message}` });
+    }
+  }
+
+  /** The developer's answer to a plan: go, plan again with notes, or drop the task. */
+  answerPlan(id: string, answer: "approve" | "revise" | "reject", notes = ""): boolean {
+    const rec = this.state.get(id);
+    if (!rec || rec.status !== "planned") return false;
+    if (answer === "approve") {
+      log(id, "plan approved");
+      this.state.update(id, { status: "queued", queuedAt: Date.now(), planApproved: true });
+    } else if (answer === "revise") {
+      if (!notes.trim()) return false;
+      log(id, `plan to be revised: ${notes.trim().slice(0, 120)}`);
+      this.state.update(id, { status: "queued", queuedAt: Date.now(), planFeedback: notes.trim() });
+    } else {
+      log(id, "plan rejected");
+      this.state.update(id, { status: "cancelled", finishedAt: new Date().toISOString(), error: "План відхилено" });
+    }
+    this.schedule();
+    return true;
+  }
+
+  /** Executors for «+ Задача», the default first. */
+  executorChoices(): { name: string; label: string; default: boolean }[] {
+    return [...this.executors.values()]
+      .map((e) => ({ name: e.name, label: e.label, default: e.name === this.cfg.defaultExecutor }))
+      .sort((a, b) => Number(b.default) - Number(a.default));
+  }
+
+  /** «+ Задача»: a task written in Mako, taken right away (or planned first) in the chosen repo. */
+  createTask(input: { title: string; description: string; repo: string; executor?: string; planFirst?: boolean }): string {
+    const local = this.trackers.get(LOCAL_TRACKER)!;
+    if (!input.title.trim()) throw new Error("Вкажіть, що зробити");
+    if (!local.projects[input.repo]) throw new Error(`Немає репозиторію «${input.repo}»`);
+    const n = 1 + Math.max(0, ...this.state.all().filter((r) => r.task.trackerId === LOCAL_TRACKER).map((r) => Number(r.id.split("#")[1]) || 0));
+    const task = localTask(n, input.title.trim(), input.description.trim(), input.repo);
+    const executor = input.executor && this.executors.has(input.executor) ? input.executor : undefined;
+    log(task.id, `new task from Mako → ${input.repo}: ${task.title}`);
+    this.state.update(task.id, { task, repo: input.repo, status: "snoozed", snoozedUntil: Date.now() + 365 * 24 * 3600_000 });
+    this.decide(task.id, "take", { repo: input.repo, executor, planFirst: input.planFirst });
+    return task.id;
+  }
+
   /** Tasks whose background agent is being stopped to continue in the terminal. */
   private takeOvers = new Set<string>();
 
@@ -1018,6 +1096,13 @@ export class Orchestrator {
     this.schedule();
     return true;
   }
+}
+
+/** The configured trackers plus Mako's own, for tasks typed in on the board. */
+function withLocal(trackers: Tracker[]): Map<string, Tracker> {
+  const map = new Map(trackers.map((t) => [t.id, t] as [string, Tracker]));
+  map.set(LOCAL_TRACKER, new LocalTracker(trackers));
+  return map;
 }
 
 /** Where the agent leaves its answers to review threads; kept out of git by .git/info/exclude. */

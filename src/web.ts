@@ -146,19 +146,35 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge", "/plan", "/create-task"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
         const o = app.orchestrator;
         if (o && url.pathname === "/take") {
-          o.decide(id, "take", { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined });
+          o.decide(id, "take", { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, planFirst: form.get("planFirst") === "1" });
         }
         if (o && url.pathname === "/later") o.decide(id, "later");
         if (o && url.pathname === "/retry") {
-          o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1", fresh: form.get("fresh") === "1" });
+          o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1", fresh: form.get("fresh") === "1", planFirst: form.get("planFirst") === "1" });
         }
         if (o && url.pathname === "/cancel") o.cancel(id);
+        if (o && url.pathname === "/plan") {
+          o.answerPlan(id, form.get("answer") as "approve" | "revise" | "reject", form.get("notes") ?? "");
+        }
+        if (o && url.pathname === "/create-task") {
+          try {
+            o.createTask({
+              title: form.get("title") ?? "",
+              description: form.get("description") ?? "",
+              repo: form.get("repo") ?? "",
+              executor: form.get("executor") || undefined,
+              planFirst: form.get("planFirst") === "1",
+            });
+          } catch (err: any) {
+            return res.writeHead(303, { Location: `/?notice=${encodeURIComponent(err.message)}` }).end();
+          }
+        }
         if (o && (url.pathname === "/review-ask" || url.pathname === "/review-merge")) {
           // Board buttons: errors (CI already green, merge refused) come back as a notice on the board.
           const done = url.pathname === "/review-merge"

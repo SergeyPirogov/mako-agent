@@ -9,6 +9,7 @@ const LABELS: Record<TaskStatus, string> = {
   asking: "Нова",
   snoozed: "Відкладена",
   queued: "У черзі",
+  planned: "План готовий",
   running: "Виконується",
   "handed-off": "Передано",
   done: "Готово",
@@ -51,7 +52,7 @@ const COLUMNS: Column[] = [
 /** Which column a task is in: a finished task with an open PR/MR is not done until it is merged. */
 export function columnOf(r: TaskRecord): Column["key"] {
   if (r.status === "asking" || r.status === "snoozed") return "new";
-  if (r.status === "queued" || r.status === "running" || r.status === "handed-off") return "doing";
+  if (r.status === "queued" || r.status === "planned" || r.status === "running" || r.status === "handed-off") return "doing";
   if (r.status === "failed" || r.status === "cancelled") return "failed";
   return r.prUrl && !r.reviewState ? "review" : "done";
 }
@@ -105,7 +106,8 @@ export function renderInbox(app: App, token: string, notice?: string): string {
     .join("");
 
   const archiveLink = archived ? `<a class="link archive-link" href="/archive">Архів (${archived})</a>` : "";
-  const body = `<div class="board-head"><h1>Задачі</h1>${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}
+  const newTask = `<button type="button" class="soft new-task-btn" id="new-task-open">+ Задача</button>${newTaskDialog(app, token)}`;
+  const body = `<div class="board-head"><h1>Задачі</h1>${newTask}${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}
     <div class="board" style="--cols:${columns.length}">${board}</div>`;
   const { sig, attention, search } = inboxSignature(app);
   return page({
@@ -223,7 +225,7 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
     `<form method="post" action="/${action}">${hidden}${freshByDefault ? `<input type="hidden" name="fresh" value="1">` : ""}` +
     `<button class="${action === "take" ? "primary" : "soft"} take-main" title="${freshByDefault ? "З нуля: новий worktree і нова гілка від основної" : action === "retry" ? "У тому ж worktree, з того місця, де зупинились" : ""}">${verb}</button></form>`;
   const choices = app.orchestrator?.choicesFor(r.id);
-  if (!choices || (action === "take" && choices.executors.length < 2 && choices.repos.length < 2)) return quick;
+  if (!choices) return quick;
   const option = (value: string, label: string, selected: boolean) =>
     `<option value="${esc(value)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
   const executors = [...choices.executors]
@@ -241,6 +243,7 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
   return `<div class="take ${action}">${quick}<details class="take-menu"><summary class="take-more" title="Вибрати, куди відправити задачу">▾</summary>
     <form method="post" action="/${action}" class="take-pop">${hidden}
       <div class="tp-title">${verb}: хто виконує</div>
+      <label class="tp-check"><input type="checkbox" name="planFirst" value="1"><span>Спершу план<small>агент запропонує план, а працювати почне, коли ви його погодите</small></span></label>
       ${action === "retry" ? `<label class="tp-check"><input type="checkbox" name="fresh" value="1"${freshByDefault ? " checked" : ""}><span>З нуля в новому worktree<small>нова гілка від свіжої основної; стара спроба${r.prUrl ? " і її MR" : ""} лишаться</small></span></label>` : ""}
       ${repos}
       <fieldset class="tp-execs">${executors}</fieldset>
@@ -257,6 +260,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     // No terminal yet (the worktree is being prepared) or none at all (a background agent): show its log.
     r.status === "running" && !session ? `<a class="btn" href="/log?task=${encodeURIComponent(r.id)}">Хід роботи</a>` + takeOverForm(app, r, token) : "",
     r.status === "asking" || r.status === "snoozed" ? takeControl(app, r, token, "take") + form("later", "Відкласти") : "",
+    r.status === "planned" && r.plan ? planControls(r, token) : "",
     r.gone !== "deleted" && ["done", "failed", "cancelled"].includes(r.status) && r.sessionId && r.executor !== app.orchestrator?.terminalExecutor() && app.orchestrator?.terminalExecutor()
       ? `<form method="post" action="/retry" title="Відкрити ту саму розмову з агентом у терміналі Mako"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><input type="hidden" name="resume" value="1"><button class="${r.status === "done" ? "soft" : "primary"}">Продовжити в терміналі</button></form>`
       : "",
@@ -292,7 +296,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle" || needsPermission || (r.status === "running" && r.reviewState === "merged");
   const draggable = col === "new" || col === "failed";
   return `<article class="kcard${attn ? " attn" : ""}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
-    <div class="kc-top"><a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>
+    <div class="kc-top">${r.task.url ? `<a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>` : `<span class="kc-id" title="Задача, створена в Mako">${esc(r.id)}</span>`}
       ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}</div>
     ${description(r)}
@@ -343,7 +347,7 @@ function description(r: TaskRecord): string {
   const cut = short.length > 160 ? short.slice(0, 159).replace(/\s+\S*$/, "") + "…" : short;
   return `<button type="button" class="kc-desc" data-desc title="Показати повний опис">${esc(cut)}</button>
     <template class="kc-full"><h2>${esc(r.task.title)}</h2>
-      <p class="muted small"><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a></p>
+      <p class="muted small">${r.task.url ? `<a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a>` : `${esc(r.id)} · задача з Mako`}</p>
       <div class="desc-body">${renderMarkdown(full, r.task.url)}</div></template>`;
 }
 
@@ -442,7 +446,7 @@ function reviewBlock(app: App, r: TaskRecord, token: string): string {
 function summaryButton(app: App, r: TaskRecord): string {
   const when = r.finishedAt ? ` · ${new Date(r.finishedAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "";
   const text =
-    `<h2>Підсумок · ${esc(r.task.title)}</h2><p class="muted small"><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a>` +
+    `<h2>Підсумок · ${esc(r.task.title)}</h2><p class="muted small">${r.task.url ? `<a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a>` : esc(r.id)}` +
     `${r.prUrl ? ` · <a href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : ""}${when}</p>` +
     `<div class="desc-body">${renderMarkdown(r.summary!, r.task.url)}</div>`;
   const changes = app.orchestrator?.workspaceFor(r.id)
@@ -452,4 +456,40 @@ function summaryButton(app: App, r: TaskRecord): string {
     `<button type="button" class="link" data-desc title="Що зроблено, як перевірено, на що звернути увагу">Підсумок</button>` +
     `<template class="kc-full"${changes ? ` data-wide="1"` : ""}>${changes ? `<div class="sum-grid"><div class="sum-text">${text}</div>${changes}</div>` : text}</template>`
   );
+}
+
+/** «План готовий»: read the plan, then approve it, ask for changes, or drop the task. */
+function planControls(r: TaskRecord, token: string): string {
+  const hidden = `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">`;
+  const answer = (value: string, label: string, cls: string, extra = "") =>
+    `<form method="post" action="/plan"${extra}>${hidden}<input type="hidden" name="answer" value="${value}"><button class="${cls}">${label}</button></form>`;
+  const dialog =
+    `<h2>План · ${esc(r.task.title)}</h2><div class="desc-body">${renderMarkdown(r.plan!, r.task.url || "http://localhost/")}</div>` +
+    `<form method="post" action="/plan" class="plan-revise">${hidden}<input type="hidden" name="answer" value="revise">` +
+    `<label class="f">Що змінити в плані<textarea name="notes" rows="3" placeholder="Напр.: не чіпай API, спершу напиши тест, який відтворює баг" required></textarea></label>` +
+    `<button class="soft">Переплануй з урахуванням</button></form>`;
+  return (
+    `<button type="button" class="primary" data-desc>Переглянути план</button><template class="kc-full">${dialog}</template>` +
+    answer("approve", "Погодити", "success") +
+    answer("reject", "Відхилити", "danger-outline", ` data-confirm-title="Відхилити план?" data-confirm-ok="Відхилити" data-confirm="Задача перейде в «Не виконано», агент її не робитиме."`)
+  );
+}
+
+/** «+ Задача»: a task for the agent without an issue anywhere. */
+function newTaskDialog(app: App, token: string): string {
+  const repos = Object.keys(app.orchestrator?.trackers.get("mako")?.projects ?? {});
+  const choices = app.orchestrator?.executorChoices() ?? [];
+  if (!repos.length) return "";
+  return `<dialog id="new-task" class="mdialog wide-form"><form method="post" action="/create-task">
+    <input type="hidden" name="token" value="${esc(token)}">
+    <h2>Нова задача для агента</h2>
+    <label class="f">Що зробити<input type="text" name="title" required placeholder="Напр.: додай тест на оформлення замовлення" autocomplete="off"></label>
+    <label class="f">Подробиці<textarea name="description" rows="5" placeholder="Контекст, посилання, критерії готовності (Markdown)"></textarea></label>
+    <div class="grid">
+      <label class="f">Репозиторій<select name="repo">${repos.map((r) => `<option>${esc(r)}</option>`).join("")}</select></label>
+      <label class="f">Хто виконує<select name="executor">${choices.map((e) => `<option value="${esc(e.name)}"${e.default ? " selected" : ""}>${esc(e.label)}${e.default ? " · основний" : ""}</option>`).join("")}</select></label>
+    </div>
+    <label class="check"><input type="checkbox" name="planFirst" value="1"> Спершу план: агент запропонує, працювати почне після вашого погодження</label>
+    <div class="mactions"><button type="button" class="mcancel" data-close>Скасувати</button><button class="primary">Взяти в роботу</button></div>
+  </form></dialog>`;
 }

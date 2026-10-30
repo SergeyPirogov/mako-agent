@@ -55,6 +55,7 @@ export class TerminalExecutor implements Executor {
       ctx.resumeSessionId && this.isClaude
         ? ["--resume", ctx.resumeSessionId, RESUME_PROMPT]
         : expandArgs(this.cfg.args ?? ["{prompt}"], ctx, worktree, prompt);
+    if (ctx.planMode && this.isClaude && !args.includes("--permission-mode")) args.unshift("--permission-mode", "plan");
     if (this.cfg.claudeHooks ?? this.isClaude) {
       const settingsFile = ctx.promptFile.replace(/\.prompt\.md$/, ".claude-settings.json");
       writeFileSync(settingsFile, JSON.stringify(claudeHookSettings(`http://127.0.0.1:${ctx.ui.port}/hook/${id}?token=${hookToken}`)), { mode: 0o600 });

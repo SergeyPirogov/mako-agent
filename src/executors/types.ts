@@ -17,6 +17,8 @@ export interface ExecContext {
   resumeSessionId?: string;
   /** The agent reported its conversation id: it can be continued elsewhere even before it ends. */
   onSession?: (sessionId: string) => void;
+  /** Claude starts in plan mode: it proposes a plan in the terminal and waits for the developer's approval. */
+  planMode?: boolean;
 }
 
 /**

@@ -508,3 +508,13 @@ dialog.desc.wide .desc-in { height: 100%; padding: 0; }
 @media (max-width: 900px) { .sum-grid { grid-template-columns: 1fr; grid-template-rows: auto 60vh; overflow-y: auto; } .sum-text { border-right: 0; border-bottom: 1px solid var(--line); } }
 form.busy button { cursor: progress; }
 .s.review { background: color-mix(in srgb, var(--purple) 85%, #000); color: #fff; }
+
+/* «+ Задача» and plans */
+.board-head .new-task-btn { margin: 0; }
+dialog.mdialog.wide-form { width: min(620px, calc(100vw - 32px)); }
+dialog.mdialog.wide-form form { display: flex; flex-direction: column; gap: 12px; }
+dialog.mdialog.wide-form h2 { margin: 0; }
+.plan-revise { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.plan-revise button { align-self: flex-start; margin: 0; }
+.s.planned { background: color-mix(in srgb, var(--accent) 85%, #000); color: #fff; }
+span.kc-id { font-size: 12px; font-weight: 600; color: var(--mute); }
