@@ -96,7 +96,10 @@ export class JiraTracker implements Tracker {
   }
 
   async onMerged(task: Task): Promise<string | void> {
-    return this.transition(task.id, this.cfg.transitions?.onMerged);
+    const configured = this.cfg.transitions?.onMerged;
+    if (configured !== undefined) return this.transition(task.id, configured);
+    // Not set: «Done» when the workflow has it; Jira projects differ, so no transition is not an error.
+    return this.transition(task.id, "Done").catch(() => undefined);
   }
 
   async onStart(task: Task): Promise<string | void> {

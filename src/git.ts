@@ -225,5 +225,7 @@ async function detectHost(worktree: string): Promise<"github" | "gitlab" | "none
   const url = await runOk("git", ["remote", "get-url", "origin"], worktree);
   if (url.includes("github")) return "github";
   if (url.includes("gitlab")) return "gitlab";
+  // A self-hosted GitLab (git.company.com) does not say so in its name; a GitLab token in the settings does.
+  if (process.env.GITLAB_TOKEN) return "gitlab";
   return "none";
 }

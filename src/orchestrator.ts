@@ -9,6 +9,7 @@ import path from "node:path";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { routeTask } from "./routing.js";
+import { createTracker, type TrackerConfig } from "./trackers/index.js";
 import { findReview } from "./reviews.js";
 import { log, keepLogsIn, dropLog } from "./log.js";
 import { sessions, sessionIdFor } from "./sessions.js";
@@ -286,8 +287,9 @@ export class Orchestrator {
     const tracker = rec && this.trackers.get(rec.task.trackerId);
     if (!rec?.prUrl || !tracker) return rec;
     try {
-      if (tracker.reviewDetails) {
-        const review = await tracker.reviewDetails(rec.prUrl);
+      const host = this.reviewHost(rec.prUrl, tracker);
+      if (host?.reviewDetails) {
+        const review = await host.reviewDetails(rec.prUrl);
         const before = rec.review;
         this.reviewChecked.set(id, Date.now());
         // Only real changes are saved: each save redraws the board.
@@ -301,14 +303,57 @@ export class Orchestrator {
           inform(`💬 ${id}: нові коментарі в ${this.reviewKind(rec)}`, review.comments.at(-1)!.body.slice(0, 160));
         }
         if (review.state !== "open") await this.reviewEnded(this.state.get(id)!, review.state, tracker);
-      } else if (tracker.reviewState) {
-        const state = await tracker.reviewState(rec.prUrl);
+      } else if (host?.reviewState) {
+        const state = await host.reviewState(rec.prUrl);
         if (state !== "open") await this.reviewEnded(rec, state, tracker);
       }
     } catch (err: any) {
       log(id, `review check failed: ${err.message}`);
     }
     return this.state.get(id);
+  }
+
+  private hosts = new Map<string, Tracker>();
+
+  /**
+   * Who answers about a PR/MR: the task's own tracker when it is that GitLab/GitHub, otherwise a client for the
+   * MR's host with the GitLab/GitHub token from the settings, so Jira tasks with code in GitLab get CI,
+   * review threads and merge too.
+   */
+  private reviewHost(url: string, tracker: Tracker): Tracker | undefined {
+    const gitlab = /\/-\/merge_requests\/\d+/.test(url);
+    const github = /\/pull\/\d+/.test(url);
+    if ((gitlab && tracker.name === "GitLab") || (github && tracker.name === "GitHub")) return tracker;
+    const origin = new URL(url).origin;
+    const configured = [...this.trackers.values()].find(
+      (t) => t.name === (gitlab ? "GitLab" : "GitHub") && (this.cfg.trackers as any[]).some((c) => (c.id ?? c.type) === t.id && hostOf(c, gitlab) === origin),
+    );
+    if (configured) return configured;
+    const key = `${gitlab ? "gitlab" : "github"} ${origin}`;
+    if (!this.hosts.has(key)) {
+      const env = (name: string) => {
+        const v = process.env[name];
+        if (!v) throw new Error(`Для MR потрібен ${name}: додайте токен ${gitlab ? "GitLab" : "GitHub"} у Налаштуваннях`);
+        return v;
+      };
+      try {
+        const cfg = gitlab
+          ? { type: "gitlab" as const, baseUrl: origin, projects: {} }
+          : { type: "github" as const, apiUrl: origin === "https://github.com" ? undefined : `${origin}/api/v3`, projects: {} };
+        this.hosts.set(key, createTracker(cfg as TrackerConfig, env));
+      } catch (err: any) {
+        log("main", `no client for ${origin}: ${err.message}`);
+        return undefined;
+      }
+    }
+    return this.hosts.get(key);
+  }
+
+  /** Which host opens the MR when the repo says "auto": the tracker's own kind, or (Jira) a guess from the token. */
+  private hostHint(tracker: Tracker): "github" | "gitlab" | undefined {
+    if (tracker.name === "GitLab") return "gitlab";
+    if (tracker.name === "GitHub") return "github";
+    return undefined;
   }
 
   private reviewKind(rec: TaskRecord): string {
@@ -328,8 +373,9 @@ export class Orchestrator {
   async mergeReview(id: string): Promise<void> {
     const rec = this.state.get(id);
     const tracker = rec && this.trackers.get(rec.task.trackerId);
-    if (!rec?.prUrl || !tracker?.mergeReview) throw new Error("Немає MR, який Mako може змерджити");
-    await tracker.mergeReview(rec.prUrl);
+    const host = rec?.prUrl && tracker ? this.reviewHost(rec.prUrl, tracker) : undefined;
+    if (!rec?.prUrl || !host?.mergeReview) throw new Error("Немає MR, який Mako може змерджити");
+    await host.mergeReview(rec.prUrl);
     log(id, `merged from Mako: ${rec.prUrl}`);
     await this.refreshReview(id);
   }
@@ -352,7 +398,8 @@ export class Orchestrator {
       if (review.pipeline?.status !== "failed") throw new Error("CI не впав");
       const logs = [];
       for (const job of failed.slice(0, 3)) {
-        const log = job.id && tracker.jobLog ? await tracker.jobLog(rec.prUrl, job.id).catch(() => "") : "";
+        const host = this.reviewHost(rec.prUrl, tracker);
+        const log = job.id && host?.jobLog ? await host.jobLog(rec.prUrl, job.id).catch(() => "") : "";
         logs.push(`### ${job.name}${job.url ? ` (${job.url})` : ""}\n${log ? "```\n" + log.trim() + "\n```" : "(log not available)"}`);
       }
       text = `The CI pipeline of ${kindName} ${rec.prUrl} failed${review.pipeline.url ? ` (${review.pipeline.url})` : ""}.\n\n${logs.join("\n\n") || "No failed job details were available."}\n\nFind the cause, fix it in this worktree, run the same checks locally where you can, and commit.${tail}`;
@@ -754,11 +801,12 @@ export class Orchestrator {
       `${closing}`,
       `🦈 Mako · ${agent} · [${task.id}](${task.url})`,
     ].filter(Boolean).join("\n\n");
-    const url = await git.publish(repo, worktree, branch, { title: text.title, body: description, shortBody: closing }, hostOf(tracker));
+    const url = await git.publish(repo, worktree, branch, { title: text.title, body: description, shortBody: closing }, this.hostHint(tracker));
     let error = text.error;
-    if (url && tracker.describeReview) {
-      // Push options take one line only: the full description goes through the tracker's API.
-      await tracker.describeReview(url, text.title, description).catch((err: any) => {
+    const host = url ? this.reviewHost(url, tracker) : undefined;
+    if (url && host?.describeReview) {
+      // Push options take one line only: the full description goes through the host's API.
+      await host.describeReview(url, text.title, description).catch((err: any) => {
         log(task.id, `review description not set: ${err.message}`);
         error = `опис не записано: ${err.message}`;
       });
@@ -925,6 +973,12 @@ export class Orchestrator {
   }
 }
 
-function hostOf(tracker: Tracker): "github" | "gitlab" | undefined {
-  return tracker.name === "GitLab" ? "gitlab" : tracker.name === "GitHub" ? "github" : undefined;
+/** The web origin of a configured GitLab/GitHub tracker, to match it with an MR's URL. */
+function hostOf(cfg: any, gitlab: boolean): string {
+  try {
+    if (gitlab) return new URL(cfg.baseUrl ?? "https://gitlab.com").origin;
+    return cfg.apiUrl ? new URL(cfg.apiUrl).origin : "https://github.com";
+  } catch {
+    return "";
+  }
 }

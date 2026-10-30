@@ -2,6 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { parseConfig } from "../src/config.ts";
@@ -161,4 +162,41 @@ test("«Взяти» assigns the task to me; a colleague's task is not offered",
   assert.equal(orchestrator.state.get("acme/web#10")?.status, "done");
   assert.ok(tracker.calls.includes("assign acme/web#10"));
   orchestrator.stop();
+});
+
+test("a Jira task with its MR in GitLab gets CI, threads and merge from GitLab", async () => {
+  // GitLab's API for one MR, as far as Mako reads it.
+  let merged = false;
+  const server = http.createServer((req, res) => {
+    res.setHeader("content-type", "application/json");
+    if (req.headers["private-token"] !== "glpat-test") return res.writeHead(401).end("{}");
+    if (req.url?.endsWith("/merge") && req.method === "PUT") return (merged = true), res.end("{}");
+    if (req.url?.includes("/discussions")) {
+      return res.end(JSON.stringify([{ id: "d1", notes: [{ id: 5, system: false, resolvable: true, resolved: false, author: { name: "Ann" }, body: "Rename it" }] }]));
+    }
+    if (req.url?.includes("/pipelines/")) return res.end(JSON.stringify([{ id: 1, name: "unit", stage: "test", status: "failed", web_url: "u" }]));
+    res.end(JSON.stringify({ state: merged ? "merged" : "opened", project_id: 1, web_url: "w", has_conflicts: false, detailed_merge_status: "mergeable", head_pipeline: { id: 9, status: "failed", web_url: "p" } }));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as any).port;
+  process.env.GITLAB_TOKEN = "glpat-test";
+  try {
+    const { tracker, orchestrator } = setup("true");
+    // the task's tracker knows nothing about MRs, like Jira
+    Object.defineProperty(tracker, "name", { value: "Jira" });
+    (tracker as any).reviewDetails = undefined;
+    const t = issue(12, "Jira task");
+    orchestrator.state.update(t.id, { task: t, status: "done", repo: "web", prUrl: `http://127.0.0.1:${port}/acme/web/-/merge_requests/3` });
+    const rec = await orchestrator.refreshReview(t.id);
+    assert.equal(rec?.review?.pipeline?.status, "failed");
+    assert.deepEqual(rec?.review?.pipeline?.failed.map((j) => j.name), ["unit"]);
+    assert.equal(rec?.review?.comments[0]?.body, "Rename it");
+    await orchestrator.mergeReview(t.id);
+    assert.equal(orchestrator.state.get(t.id)?.reviewState, "merged");
+    assert.ok(tracker.calls.includes("merged acme/web#12"), "the Jira issue moves on after the merge");
+    orchestrator.stop();
+  } finally {
+    delete process.env.GITLAB_TOKEN;
+    server.close();
+  }
 });
