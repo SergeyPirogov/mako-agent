@@ -732,3 +732,26 @@ main.wide.bare { height: 100vh; padding: 10px 12px 12px; } /* the terminal insid
 .ask-opts button { margin: 0; font-size: 13px; }
 
 .ws-insp .kc-actions a.btn[href^="/session/"] { display: none; } /* the terminal is right next to it */
+
+/* «Робоче місце» on a laptop: the page is exactly the window, the terminal gets the width */
+main:has(.mail) { height: calc(100vh - 49px); padding: 10px 16px 12px; display: flex; flex-direction: column; }
+main:has(.mail) .board-head { margin-bottom: 8px; gap: 10px; }
+main:has(.mail) .board-head h1 { font-size: 16px; }
+main:has(.mail) .notice { margin-bottom: 8px; }
+.mail { flex: 1; min-height: 0; grid-template-columns: minmax(220px, 290px) minmax(0, 1fr); }
+.mail-list, .mail-detail { max-height: none; min-height: 0; }
+/* below a big screen the details float over the terminal when opened, and start folded */
+@media (max-width: 1399px) {
+  .ws-split, .ws-split.no-insp { grid-template-columns: minmax(0, 1fr); }
+  .ws-insp { position: absolute; top: 0; right: 0; bottom: 0; width: min(360px, 92%); background: var(--card); z-index: 3;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, .18); }
+}
+/* the terminal page inside it: one compact row of title and buttons */
+main.wide.bare .session-head { flex-wrap: nowrap; margin-bottom: 4px; }
+main.wide.bare .session-head > div:first-child { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+main.wide.bare .session-actions { flex: none; }
+main.wide.bare .session-actions button, main.wide.bare .session-actions .btn { padding: 3px 10px; font-size: 12.5px; height: 28px; }
+main.wide.bare #status-msg { min-height: 0; margin-bottom: 4px; font-size: 12px; }
+main.wide.bare .ask-bar { padding: 8px 10px; }
+main.wide.bare .ask-opts button { padding: 3px 10px; font-size: 12.5px; }
+main.wide.bare .session-head { padding-right: 78px; } /* room for «Деталі», which sits over the frame's corner */

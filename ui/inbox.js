@@ -307,7 +307,9 @@
   const keep = (k, v) => { try { sessionStorage.setItem(k, v); } catch {} };
   const read = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
   if (split) {
-    split.classList.toggle("no-insp", read("mako.wsInsp") === "hidden");
+    // Your choice, else open on a big screen and folded on a laptop (where the details float over the terminal).
+    const saved = read("mako.wsInsp");
+    split.classList.toggle("no-insp", saved ? saved === "hidden" : !matchMedia("(min-width: 1400px)").matches);
     split.addEventListener("click", (e) => {
       if (!e.target.closest("[data-ws-insp]")) return;
       split.classList.toggle("no-insp");

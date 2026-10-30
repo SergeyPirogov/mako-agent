@@ -92,7 +92,13 @@ export class Session {
   screen(): string[] {
     const b = this.screenTerm.buffer.active;
     const lines: string[] = [];
-    for (let y = b.baseY; y < b.baseY + this.screenTerm.rows; y++) lines.push(b.getLine(y)?.translateToString(true) ?? "");
+    for (let y = b.baseY; y < b.baseY + this.screenTerm.rows; y++) {
+      const line = b.getLine(y);
+      const text = line?.translateToString(true) ?? "";
+      // A line the terminal wrapped continues the one above: a narrow terminal must not cut the question.
+      if (line?.isWrapped && lines.length) lines[lines.length - 1] += text;
+      else lines.push(text);
+    }
     while (lines.length && !lines.at(-1)!.trim()) lines.pop();
     return lines;
   }
