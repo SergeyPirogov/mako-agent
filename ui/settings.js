@@ -675,7 +675,10 @@
             ${field({ label: "Агент в Orca", path: `${p}.agent`, placeholder: "claude", hint: "claude, codex, cursor, opencode…" })}
             ${field({ label: "Setup-хуки репозиторію", path: `${p}.setup`, kind: "select", options: [["", "як у репозиторії"], ["run", "запускати"], ["skip", "пропускати"]] })}
             ${field({ label: "Команда", path: `${p}.command`, placeholder: "orca", hint: "Mako шукає її й усередині Orca.app" })}
-            ${field({ label: "Привʼязувати задачу до workspace", path: `${p}.linkIssue`, kind: "check", type: "booltrue" })}`;
+            ${field({ label: "Привʼязувати задачу до workspace", path: `${p}.linkIssue`, kind: "check", type: "booltrue" })}
+            ${field({ label: "Що сказати агенту в Orca після опису задачі", path: `${p}.instructions`, kind: "textarea", wide: true,
+          placeholder: "Порожньо: виконай задачу, закоміть, запуш гілку задачі й відкрий MR у основну гілку з Closes #N, у кінці дай посилання на MR",
+          hint: "Mako чекає на MR з гілки задачі, щоб перевести статус далі, тож інструкція має закінчуватись MR. Підстановки: <code>{branch}</code> <code>{baseBranch}</code> <code>{taskId}</code> <code>{title}</code> <code>{url}</code> <code>{closingRef}</code>" })}`;
         } else {
           fields = `
             ${field({ label: "Режим", path: `${p}.mode`, kind: "select", rerender: true,
@@ -742,6 +745,9 @@
         ${field({ label: "Setup-хуки репозиторію", path: `${p}.setup`, kind: "select", options: [["", "як у репозиторії"], ["run", "запускати"], ["skip", "пропускати"]] })}
         ${field({ label: "Команда", path: `${p}.command`, placeholder: "orca", hint: "Mako шукає її й усередині Orca.app" })}
         ${field({ label: "Привʼязувати задачу до workspace", path: `${p}.linkIssue`, kind: "check", type: "booltrue" })}
+        ${field({ label: "Що сказати агенту в Orca після опису задачі", path: `${p}.instructions`, kind: "textarea", wide: true,
+          placeholder: "Порожньо: виконай задачу, закоміть, запуш гілку задачі й відкрий MR у основну гілку з Closes #N, у кінці дай посилання на MR",
+          hint: "Mako чекає на MR з гілки задачі, щоб перевести статус далі, тож інструкція має закінчуватись MR. Підстановки: <code>{branch}</code> <code>{baseBranch}</code> <code>{taskId}</code> <code>{title}</code> <code>{url}</code> <code>{closingRef}</code>" })}
       </div></div>`;
   }
 

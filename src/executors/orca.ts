@@ -18,6 +18,12 @@ export interface OrcaExecutorConfig {
   setup?: "run" | "skip" | "inherit";
   /** Link the tracker issue to the Orca workspace (`--reference <url>`). */
   linkIssue?: boolean;
+  /**
+   * What the agent in Orca is told to do with the task, after its description; the default has it finish with
+   * a pushed branch and an MR, which is what Mako watches for. Placeholders: {branch} {baseBranch} {taskId}
+   * {title} {url} {closingRef}.
+   */
+  instructions?: string;
   extraArgs?: string[];
 }
 
@@ -42,7 +48,7 @@ export class OrcaExecutor implements Executor {
       "--branch", ctx.branch,
       "--base-branch", ctx.repo.baseBranch,
       "--agent", this.cfg.agent ?? "claude",
-      "--prompt", prompt,
+      "--prompt", `${prompt}\n\n${handoffInstructions(this.cfg.instructions, ctx)}`,
       "--setup", this.cfg.setup ?? "inherit",
       "--no-parent",
       "--json",
@@ -245,3 +251,30 @@ async function findWorkspace(command: string, ctx: ExecContext): Promise<{ path?
   }
   return undefined;
 }
+
+/** The end of the job for an agent in Orca: commit, push the task's branch and open the MR Mako waits for. */
+export const DEFAULT_HANDOFF = `## Finish with a merge request
+Take the task all the way to a merge request yourself:
+1. Implement it and check it (tests, linters) as described above.
+2. Commit on the branch {branch}, with messages that start with "{taskId}: ".
+3. Push the branch: git push -u origin {branch}
+4. Open a merge request from {branch} into {baseBranch}: a clear title, what changed and how you checked it,
+   and the line "{closingRef}" at the end of the description.
+   GitLab: \`glab mr create --target-branch {baseBranch} --fill\` when glab is installed, otherwise
+   \`git push -o merge_request.create -o merge_request.target={baseBranch} -o merge_request.title="…" origin {branch}\`.
+   GitHub: \`gh pr create --base {baseBranch} --fill\`.
+5. Reply with the link to the merge request.
+Mako watches the branch: once the merge request exists, it moves the issue on and comments with the link.`;
+
+export function handoffInstructions(custom: string | undefined, ctx: Pick<ExecContext, "task" | "branch" | "repo">): string {
+  const values: Record<string, string> = {
+    branch: ctx.branch,
+    baseBranch: ctx.repo.baseBranch,
+    taskId: ctx.task.id,
+    title: ctx.task.title,
+    url: ctx.task.url,
+    closingRef: ctx.task.closingRef ?? ctx.task.url,
+  };
+  return (custom?.trim() || DEFAULT_HANDOFF).replace(/\{(\w+)\}/g, (all, key) => values[key] ?? all);
+}
+

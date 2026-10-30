@@ -203,3 +203,13 @@ test("«Диспетчер для Orca»: every task goes to Orca, no plan or au
   assert.doesNotMatch(html, /take-menu|id="new-task-open"/, "no executor menu, no «+ Задача»");
   o.stop();
 });
+
+test("handing a task to Orca tells the agent to finish with a merge request from the task's branch", async () => {
+  const { handoffInstructions } = await import("../src/executors/orca.ts");
+  const ctx = { task: task("acme/web#12", "Fix cart", { closingRef: "Closes acme/web#12" }), branch: "fix/12-fix-cart", repo: { baseBranch: "main" } as any };
+  const text = handoffInstructions(undefined, ctx);
+  assert.match(text, /git push -u origin fix\/12-fix-cart/);
+  assert.match(text, /merge request from fix\/12-fix-cart into main/);
+  assert.match(text, /"Closes acme\/web#12"/);
+  assert.equal(handoffInstructions("Візьми {taskId}, зроби й відкрий MR з {branch} у {baseBranch}. {unknown}", ctx), "Візьми acme/web#12, зроби й відкрий MR з fix/12-fix-cart у main. {unknown}");
+});
