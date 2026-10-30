@@ -40,6 +40,8 @@ export interface TaskRecord {
   denied?: string[];
   /** The issue was closed or deleted in the tracker after Mako picked it up. */
   gone?: "closed" | "deleted";
+  /** What happened to the issue's status in the tracker at the last step, shown on the card. */
+  trackerStatus?: { ok: boolean; text: string };
   costUsd?: number;
   error?: string;
 }

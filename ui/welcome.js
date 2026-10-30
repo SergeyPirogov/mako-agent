@@ -182,6 +182,8 @@
         ${t ? `<span class="${t.count ? "ok-text" : "warn"}">${t.count ? `✓ Знайдено задач: ${t.count}` : "Підключення працює, але задач зараз немає"}</span>` : ""}</div>
       ${t?.sample?.length ? `<ul class="wz-sample">${t.sample.map((s) => `<li><span class="muted">${h(s.id)}</span> ${h(s.title)}</li>`).join("")}</ul>` : ""}
       ${t && !t.count && t.filter ? `<p class="small muted">Фільтр: ${h(t.filter)}</p>` : ""}
+      ${t?.statuses?.length ? `<p class="small muted">Статуси задач у ${NAMES[d.type]}: ${t.statuses.map(h).join(", ")}. Mako перемикатиме їх сам: «в роботі», коли агент почав, і «на ревʼю», коли є MR. Змінити можна в Налаштуваннях.</p>` : ""}
+      ${t?.statusError ? `<p class="small warn">${h(t.statusError)}</p>` : ""}
       ${nav(t ? "Далі" : "Перевірити й далі")}`;
   }
 
@@ -288,6 +290,12 @@
       const config = structuredClone(fresh.config);
       config.trackers ??= [];
       const t = tracker({ repoPath: d.repoPath.trim(), baseBranch: d.baseBranch });
+      // Statuses the issue moves through, picked from the tracker's own list when the names are recognisable.
+      const statuses = d.test?.statuses ?? [];
+      const pick = (re) => statuses.find((x) => re.test(x));
+      const onStart = pick(/progress|в роботі|doing|in work|розробці/i);
+      const onSuccess = pick(/review|ревʼю|рев'ю|ревю|перевір|testing|qa/i);
+      if (onStart || onSuccess) t.transitions = { onStart: onStart ?? null, onSuccess: onSuccess ?? null, onFailure: null };
       // Several trackers of one kind need their own ids.
       const ids = new Set(config.trackers.map((x) => x.id ?? x.type));
       if (ids.has(t.type)) {

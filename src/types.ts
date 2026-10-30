@@ -44,4 +44,6 @@ export interface Tracker {
   describeFilter?(): Promise<string>;
   /** Whether the issue is still open, closed or deleted. */
   issueState?(task: Task): Promise<IssueState>;
+  /** For trackers with statuses: which one a moment moves the issue to; empty when none is set. */
+  statusFor?(moment: "start" | Outcome): string | null | undefined;
 }

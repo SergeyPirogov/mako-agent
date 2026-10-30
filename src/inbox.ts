@@ -207,10 +207,9 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
       : "";
   return `<div class="take ${action}">${quick}<details class="take-menu"><summary class="take-more" title="Вибрати, куди відправити задачу">▾</summary>
     <form method="post" action="/${action}" class="take-pop">${hidden}
-      <div class="tp-title">Куди відправити</div>
-      <fieldset class="tp-execs"><legend>Хто виконує</legend>${executors}</fieldset>
+      <div class="tp-title">${verb}: хто виконує</div>
       ${repos}
-      <button class="primary">${verb}</button>
+      <fieldset class="tp-execs">${executors}</fieldset>
     </form></details></div>`;
 }
 
@@ -262,6 +261,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     <div class="kc-title">${esc(r.task.title)}</div>
     ${description(r)}
     <div class="kc-status">${gone ? (r.status === "cancelled" ? gone : `${status} ${gone}`) : needsPermission ? `<span class="s perm">🔒 Потрібні дозволи</span>` : status}</div>
+    ${r.trackerStatus ? `<div class="kc-tstatus${r.trackerStatus.ok ? "" : " warn"}" title="${esc(r.trackerStatus.text)}">${r.trackerStatus.ok ? "" : "⚠ "}${esc(r.trackerStatus.text.length > 140 ? r.trackerStatus.text.slice(0, 139) + "…" : r.trackerStatus.text)}${!r.trackerStatus.ok && /Налаштуваннях/.test(r.trackerStatus.text) ? ` <a href="/settings">Вибрати</a>` : ""}</div>` : ""}
     ${needsPermission
       ? `<div class="kc-perm"><div class="small muted">Агенту не дозволили:</div><ul>${r.denied!.slice(0, 3).map((d) => `<li><code>${esc(d)}</code></li>`).join("")}${r.denied!.length > 3 ? `<li class="muted">і ще ${r.denied!.length - 3}</li>` : ""}</ul></div>`
       : r.error && !(r.gone && r.status === "cancelled") ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}

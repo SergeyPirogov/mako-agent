@@ -170,5 +170,13 @@
     }
     dlg.showModal();
   });
-})();
 
+  // «Взяти ▾»: picking who runs it is the decision, no second button.
+  document.addEventListener("click", (e) => {
+    const opt = e.target.closest("form.take-pop label.tp-opt");
+    if (!opt) return;
+    e.preventDefault();
+    opt.querySelector("input").checked = true;
+    opt.closest("form").requestSubmit();
+  });
+})();

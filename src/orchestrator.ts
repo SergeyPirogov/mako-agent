@@ -1,5 +1,5 @@
 import type { Config } from "./config.js";
-import type { IssueState, Task, Tracker } from "./types.js";
+import type { IssueState, Outcome, Task, Tracker } from "./types.js";
 import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
 import { createExecutor, type Executor } from "./executors/index.js";
@@ -98,11 +98,21 @@ export class Orchestrator {
   }
 
   /** Status or label changes in the tracker must not fail the agent's work: report them and carry on. */
-  private async updateTracker(task: Task, change: () => Promise<void>): Promise<void> {
+  /** Status changes never stop the work; the card says whether the issue moved, and why not. */
+  private async updateTracker(task: Task, moment: "start" | Outcome, change: () => Promise<void>): Promise<void> {
+    const tracker = this.trackers.get(task.trackerId);
+    const name = tracker?.statusFor?.(moment);
     try {
       await change();
+      if (name) {
+        log(task.id, `tracker status → ${name}`);
+        this.state.update(task.id, { trackerStatus: { ok: true, text: `Статус у ${tracker!.name}: «${name}»` } });
+      } else if (tracker?.statusFor && moment === "start") {
+        this.state.update(task.id, { trackerStatus: { ok: false, text: `Статус у ${tracker.name} не змінюється: у Налаштуваннях не вибрано, на який` } });
+      }
     } catch (err: any) {
       log(task.id, `tracker status not updated: ${err.message}`);
+      this.state.update(task.id, { trackerStatus: { ok: false, text: `Статус у ${tracker?.name ?? "трекері"} не змінено: ${err.message}` } });
       inform(`⚠ ${task.id}: статус у трекері не змінено`, String(err.message).slice(0, 200));
     }
   }
@@ -283,7 +293,7 @@ export class Orchestrator {
         const link = review.url ?? name;
         log(rec.id, `review found: ${link}`);
         await tracker.comment(rec.task, `🦈 Mako: ${name} opened for this issue: ${link}`);
-        await this.updateTracker(rec.task, () => tracker.onFinish(rec.task, "success"));
+        await this.updateTracker(rec.task, "success", () => tracker.onFinish(rec.task, "success"));
         this.state.update(rec.id, { status: "done", prUrl: review.url, finishedAt: new Date().toISOString() });
         inform(`✅ ${rec.id}: є ${review.kind === "pull" ? "PR" : "MR"}`, link);
       } catch (err: any) {
@@ -396,7 +406,7 @@ export class Orchestrator {
     });
 
     try {
-      await this.updateTracker(task, () => tracker.onStart(task));
+      await this.updateTracker(task, "start", () => tracker.onStart(task));
       log(task.id, `starting ${executor.name} (${executor.label}) for repo ${repo.name}`);
       const result = await executor.run(
         {
@@ -464,7 +474,7 @@ export class Orchestrator {
           ? `Changes pushed to branch ${branch}.`
           : `No code changes were committed.`;
       await tracker.comment(task, `🦈 Mako: ${executor.label} finished.\n\n${outcome}\n\n${result.summary}`);
-      await this.updateTracker(task, () => tracker.onFinish(task, changed ? "success" : "no-changes"));
+      await this.updateTracker(task, changed ? "success" : "no-changes", () => tracker.onFinish(task, changed ? "success" : "no-changes"));
       this.state.update(task.id, {
         status: "done",
         finishedAt: new Date().toISOString(),
@@ -484,7 +494,7 @@ export class Orchestrator {
       log(task.id, `failed: ${err.message}`);
       this.state.update(task.id, { status: "failed", finishedAt: new Date().toISOString(), error: err.message });
       await tracker.comment(task, `🦈 Mako: ${executor.label} failed:\n\n${String(err.message).slice(0, 3000)}`).catch(() => {});
-      await tracker.onFinish(task, "failed").catch(() => {});
+      await this.updateTracker(task, "failed", () => tracker.onFinish(task, "failed"));
       inform(`❌ ${task.id} не вдалося`, String(err.message).slice(0, 200));
     }
   }

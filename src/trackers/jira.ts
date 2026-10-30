@@ -77,6 +77,11 @@ export class JiraTracker implements Tracker {
     await this.request("POST", `/rest/api/3/issue/${task.id}/comment`, { body: textToAdf(text) });
   }
 
+  statusFor(moment: "start" | Outcome): string | null | undefined {
+    const t = this.cfg.transitions;
+    return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
+  }
+
   async onStart(task: Task): Promise<void> {
     await this.transition(task.id, this.cfg.transitions?.onStart);
   }

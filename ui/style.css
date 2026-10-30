@@ -444,9 +444,11 @@ main.wide ol.tlog { flex: 1; min-height: 0; overflow-y: auto; }
 main.wide .tlog-foot { margin: 8px 0 0; }
 main.wide:has(ol.tlog) > p { margin: 0 0 10px; }
 form.take-pop fieldset.tp-execs { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-form.take-pop fieldset.tp-execs legend { font-size: 12px; color: var(--mute); padding: 0; margin-bottom: 4px; }
+
 form.take-pop label.tp-opt { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--fg); padding: 6px 8px; border-radius: 8px; cursor: pointer; }
 form.take-pop label.tp-opt:hover { background: var(--bg); }
 form.take-pop label.tp-opt:has(input:checked) { background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
 form.take-pop label.tp-opt input { margin: 0; accent-color: var(--accent); }
 form.take-pop label.tp-opt .badge { margin-left: auto; }
+.kc-tstatus { font-size: 12px; color: var(--mute); overflow-wrap: anywhere; }
+.kc-tstatus.warn { color: var(--warn); }

@@ -110,6 +110,11 @@ export class GitLabTracker implements Tracker {
     await this.request("POST", `${this.issuePath(task)}/notes`, { body: text });
   }
 
+  statusFor(moment: "start" | Outcome): string | null | undefined {
+    const t = this.cfg.transitions;
+    return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
+  }
+
   async onStart(task: Task): Promise<void> {
     await this.setStatus(task, this.cfg.transitions?.onStart);
     await this.applyLabels(task, labelChanges(this.labels, "start"));
