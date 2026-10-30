@@ -65,6 +65,25 @@ export function detectBaseBranch(repoPath: string): string | undefined {
   return ["main", "master", "develop"].find((b) => existsSync(path.join(gitDir, "refs/remotes/origin", b)) || packed.includes(` refs/remotes/origin/${b}\n`));
 }
 
+/** One local repository as Mako uses it, from its settings (`r`) and the defaults. */
+export function repoConfig(name: string, r: any, cloneUrl: string | undefined, projectsDir: string, branchPattern?: string): RepoConfig {
+  const repoPath = r.repoPath ? resolvePath(r.repoPath) : path.join(projectsDir, name);
+  return {
+    name,
+    repoPath,
+    cloneUrl: r.cloneUrl || cloneUrl,
+    baseBranch: r.baseBranch || detectBaseBranch(repoPath) || "main",
+    baseAuto: !r.baseBranch,
+    worktreesDir: resolvePath(r.worktreesDir ?? path.join(repoPath, "..", ".worktrees", name)),
+    pullRequest: r.pullRequest ?? "auto",
+    extraInstructions: r.extraInstructions,
+    match: r.match,
+    executor: r.executor,
+    setup: typeof r.setup === "string" && r.setup.trim() ? r.setup.trim() : "auto",
+    branchPattern: (r.branchPattern || branchPattern || DEFAULT_BRANCH_PATTERN).trim(),
+  };
+}
+
 /** SSH address of a GitLab/GitHub tracker project ("group/app"), the way developers usually clone. */
 export function defaultCloneUrl(tracker: any, projectKey: string): string | undefined {
   if (!projectKey.includes("/")) return undefined; // a Jira key says nothing about where the code is
@@ -115,6 +134,8 @@ export interface Config {
   archiveAfterDays: number;
   /** Where repos without a path of their own live (cloned by Mako): ~/mako/projects. */
   projectsDir: string;
+  /** The general branch name pattern, for repos Mako sets up itself. */
+  branchPattern: string;
   /** Named ways to run an agent; repos pick one with `executor`. */
   executors: Record<string, ExecutorConfig>;
   defaultExecutor: string;
@@ -173,27 +194,13 @@ export function parseConfig(raw: any, dryRun = false): Config {
       // An empty `repos` (a repo whose settings are all defaults, from older settings pages) is the short form too.
       const rawRepos: Record<string, any> = p.repos && Object.keys(p.repos).length ? p.repos : { [key.split("/").pop()!]: p };
       const repos: Record<string, RepoConfig> = {};
-      for (const [name, r] of Object.entries<any>(rawRepos)) {
-        const repoPath = r.repoPath ? resolvePath(r.repoPath) : path.join(projectsDir, name);
-        repos[name] = {
-          name,
-          repoPath,
-          cloneUrl: r.cloneUrl || (rawRepos === p.repos && Object.keys(rawRepos).length > 1 ? undefined : defaultCloneUrl(t, key)),
-          baseBranch: r.baseBranch || detectBaseBranch(repoPath) || "main",
-          baseAuto: !r.baseBranch,
-          worktreesDir: resolvePath(r.worktreesDir ?? path.join(repoPath, "..", ".worktrees", name)),
-          pullRequest: r.pullRequest ?? "auto",
-          extraInstructions: r.extraInstructions,
-          match: r.match,
-          executor: r.executor,
-          setup: typeof r.setup === "string" && r.setup.trim() ? r.setup.trim() : "auto",
-          branchPattern: (r.branchPattern || raw.branchPattern || DEFAULT_BRANCH_PATTERN).trim(),
-        };
-      }
+      const several = rawRepos === p.repos && Object.keys(rawRepos).length > 1;
+      for (const [name, r] of Object.entries<any>(rawRepos)) repos[name] = repoConfig(name, r, several ? undefined : defaultCloneUrl(t, key), projectsDir, raw.branchPattern);
       if (p.default && !repos[p.default]) throw new Error(`Project ${key}: default repo "${p.default}" is not in repos`);
       projects[key] = { repos, default: p.default };
     }
-    if (!Object.keys(projects).length) throw new Error(`Tracker ${t.id ?? t.type} has no projects`);
+    // allProjects: the projects come from the issues assigned to me, so none have to be listed.
+    if (!Object.keys(projects).length && !t.allProjects) throw new Error(`Tracker ${t.id ?? t.type} has no projects`);
     return { ...t, projects };
   });
   if (!trackers.length) throw new Error("Config has no trackers");
@@ -221,6 +228,7 @@ export function parseConfig(raw: any, dryRun = false): Config {
     handoffCheckMin: raw.handoffCheckMin ?? 5,
     archiveAfterDays: Math.max(0, Number(raw.archiveAfterDays ?? 2) || 0),
     projectsDir,
+    branchPattern: (raw.branchPattern || DEFAULT_BRANCH_PATTERN).trim(),
     stateDir: path.resolve(raw.stateDir ?? ".mako"),
     notifications: {
       enabled: n.enabled ?? true,

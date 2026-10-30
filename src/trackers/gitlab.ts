@@ -19,6 +19,8 @@ export interface GitLabTrackerConfig {
   transitions?: { onStart?: string | null; onSuccess?: string | null; onFailure?: string | null; onMerged?: string | null };
   /** Keys are project paths: "group/subgroup/project"; every listed project is polled. */
   projects: Record<string, ProjectConfig>;
+  /** Also every issue assigned to me in any project: Mako sets up (and clones) the project when it sees one. */
+  allProjects?: boolean;
 }
 
 export class GitLabTracker implements Tracker {
@@ -34,7 +36,7 @@ export class GitLabTracker implements Tracker {
     this.projects = cfg.projects;
     this.apiUrl = (cfg.baseUrl ?? "https://gitlab.com").replace(/\/$/, "") + "/api/v4";
     this.labels = { ...defaultLabels, ...cfg.labels };
-    if (!this.labels.trigger && !normalizeAssignee(cfg.assignee)) {
+    if (!this.labels.trigger && !normalizeAssignee(cfg.assignee) && !cfg.allProjects) {
       throw new Error(`${this.name}: без мітки для агента вкажіть «Лише призначені на» (ваш нік або me), інакше Mako братиме всі задачі проєкту`);
     }
     this.headers = { "PRIVATE-TOKEN": env("GITLAB_TOKEN") };
@@ -56,6 +58,19 @@ export class GitLabTracker implements Tracker {
 
   async fetchTasks(): Promise<Task[]> {
     const tasks: Task[] = [];
+    if (this.cfg.allProjects) {
+      // Everything assigned to me, whatever the project; a listed project with its own filters is read below.
+      const query = new URLSearchParams({ scope: "assigned_to_me", state: "opened", per_page: "50" });
+      if (this.labels.trigger) query.set("labels", this.labels.trigger);
+      for (const issue of await this.request<any[]>("GET", `/issues?${query}`)) {
+        const projectPath = issueProject(issue);
+        if (!projectPath || this.projects[projectPath]) continue;
+        const notes = issue.user_notes_count
+          ? await this.request<any[]>("GET", `${projectApi(projectPath)}/issues/${issue.iid}/notes?sort=asc&per_page=100`)
+          : [];
+        tasks.push(this.toTask(projectPath, issue, notes));
+      }
+    }
     for (const projectPath of Object.keys(this.projects)) {
       const query = new URLSearchParams({ state: "opened", per_page: "50" });
       if (this.labels.trigger) query.set("labels", this.labels.trigger);
@@ -74,6 +89,12 @@ export class GitLabTracker implements Tracker {
 
   async browseTasks(): Promise<Task[]> {
     const tasks: Task[] = [];
+    if (this.cfg.allProjects) {
+      for (const issue of await this.request<any[]>("GET", "/issues?scope=assigned_to_me&state=opened&order_by=updated_at&per_page=100")) {
+        const projectPath = issueProject(issue);
+        if (projectPath && !this.projects[projectPath]) tasks.push(this.toTask(projectPath, issue));
+      }
+    }
     for (const projectPath of Object.keys(this.projects)) {
       const issues = await this.request<any[]>("GET", `${projectApi(projectPath)}/issues?state=opened&order_by=updated_at&per_page=100`);
       tasks.push(...issues.map((i) => this.toTask(projectPath, i)));
@@ -150,7 +171,7 @@ export class GitLabTracker implements Tracker {
       : [];
     const task = this.toTask(projectPath, issue, notes);
     const misses: string[] = [];
-    if (!this.projects[projectPath]) misses.push(`проєкт ${projectPath} не доданий у Налаштуваннях (є: ${projects.join(", ")})`);
+    if (!this.projects[projectPath] && !this.cfg.allProjects) misses.push(`проєкт ${projectPath} не доданий у Налаштуваннях (є: ${projects.join(", ")}); або увімкніть «Мої задачі з усіх проєктів»`);
     if (issue.state !== "opened") misses.push("задача закрита");
     if (this.labels.trigger && !task.labels.includes(this.labels.trigger)) misses.push(`немає мітки «${this.labels.trigger}» (є: ${task.labels.join(", ") || "жодної"})`);
     const who = await this.assignee();
@@ -164,7 +185,8 @@ export class GitLabTracker implements Tracker {
 
   /** The configured assignee; "me" is resolved once to the token owner's username. */
   private async assignee(): Promise<string | undefined> {
-    const a = normalizeAssignee(this.cfg.assignee);
+    // «Мої задачі з усіх проєктів» without a label: my issues in the listed projects too.
+    const a = normalizeAssignee(this.cfg.assignee) ?? (this.cfg.allProjects && !this.labels.trigger ? "me" : undefined);
     if (a?.toLowerCase() !== "me") return a;
     this.me ??= (await this.request<{ username: string }>("GET", "/user")).username;
     return this.me;
@@ -399,3 +421,11 @@ export class GitLabTracker implements Tracker {
 function projectApi(projectPath: string): string {
   return `/projects/${encodeURIComponent(projectPath)}`;
 }
+
+/** «group/sub/app» of an issue from the instance-wide list: its full reference, else its web address. */
+function issueProject(issue: any): string | undefined {
+  const ref = issue.references?.full as string | undefined;
+  if (ref?.includes("#")) return ref.slice(0, ref.lastIndexOf("#"));
+  return (issue.web_url as string | undefined)?.match(/^https?:\/\/[^/]+\/(.+?)\/-\/(?:issues|work_items)\//)?.[1];
+}
+

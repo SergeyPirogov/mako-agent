@@ -52,6 +52,7 @@ function makoView(o: Orchestrator, tracker: Tracker, task: Task, inQuery: boolea
   if (!inQuery) return { kind: "skipped", text: "не підходить під фільтр Mako" };
   const owners = (task.assignees ?? []).map((a) => a.toLowerCase());
   if (me && owners.length && !owners.includes(me.toLowerCase())) return { kind: "skipped", text: "призначена на інших" };
+  o.ensureProject(tracker, task.project);
   const project = tracker.projects[task.project];
   const route = project ? routeTask(task, project) : undefined;
   if (!route?.repo) return { kind: "skipped", text: `немає репозиторію${route ? `: ${route.reason}` : ""}` };
@@ -87,6 +88,7 @@ export async function adoptTask(o: Orchestrator, ref: string): Promise<string> {
       if (!o.retry(task.id, { fresh: true })) throw new Error(`${task.id} зараз не можна повторити`);
       return task.id;
     }
+    o.ensureProject(tracker, task.project);
     const project = tracker.projects[task.project];
     const route = project ? routeTask(task, project) : undefined;
     if (!route?.repo) throw new Error(`Для ${task.id} немає репозиторію: ${route?.reason ?? "проєкт не доданий у Налаштуваннях"}`);

@@ -155,7 +155,7 @@
     if (!m.trackers.length) errs.push("Додайте хоча б один трекер");
     m.trackers.forEach((t, ti) => {
       const name = `${TRACKERS[t.conf.type]} #${ti + 1}`;
-      if (!t.projects.length) errs.push(`${name}: додайте проєкт`);
+      if (!t.projects.length && !t.conf.allProjects) errs.push(`${name}: додайте проєкт або увімкніть «Мої задачі з усіх проєктів»`);
       dup(t.projects.map((p) => p.key.trim()), `${name}, проєкти`);
       t.projects.forEach((p) => {
         p.repos.forEach((r) => {
@@ -441,6 +441,8 @@
           ? `<div class="f"><span>Мітка для агента</span><span class="muted small" style="padding:8px 0">не потрібна: беруться всі відкриті задачі, призначені на вас</span></div>`
           : field({ label: "Мітка для агента", path: `${p}.labels.trigger`, placeholder: DEFAULT_LABELS.trigger, hint: "Задачі з цією міткою потрапляють до Mako. Інших міток Mako не ставить" })}
         ${field({ label: "Брати всі мої задачі, без мітки", path: `${p}.labels.trigger`, kind: "check", type: "nullflag", wide: true, rerender: true })}
+        ${field({ label: `Мої задачі з усіх проєктів: проєкт задачі Mako визначить сам, знайде ваш клон або склонує в ${h(model.general.projectsDir || "~/mako/projects")}`, path: `${p}.allProjects`, kind: "check", type: "bool", wide: true, rerender: true,
+          hint: "Тоді нижче потрібні лише проєкти зі своїми налаштуваннями (шлях, гілка, виконавець)" })}
         ${field({ label: "«Взяти» призначає задачу на мене (колеги бачать, що її взято, і Mako їм її не пропонує)", path: `${p}.assignOnTake`, kind: "check", type: "booltrue", wide: true })}
         ${field({ label: "Не пропонувати задачі, призначені на інших (зніміть, якщо на задачі завжди призначають кількох, напр. розробника й QA)", path: `${p}.skipOthersTasks`, kind: "check", type: "booltrue", wide: true })}
         ${isLab ? `${statusList}

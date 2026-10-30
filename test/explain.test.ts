@@ -26,6 +26,11 @@ before(async () => {
     res.setHeader("content-type", "application/json");
     const url = new URL(req.url!, "http://x");
     if (url.pathname === "/api/v4/user") return res.end(JSON.stringify({ id: 5, username: "me" }));
+    // instance-wide: what is assigned to me, in a project the settings do not list
+    if (url.pathname === "/api/v4/issues") return res.end(JSON.stringify([
+      { iid: 7, id: 701, state: "opened", title: "Fix the cart", labels: [], assignees: [{ username: "me" }], references: { full: "shop/storefront#7" }, web_url: `${base}/shop/storefront/-/issues/7` },
+      { iid: 8, id: 801, state: "opened", title: "Two frontends", labels: [], assignees: [{ username: "me" }], references: { full: "admin/storefront#8" }, web_url: `${base}/admin/storefront/-/issues/8` },
+    ]));
     const one = url.pathname.match(/\/issues\/(\d+)$/);
     if (one) return issues[+one[1]] ? res.end(JSON.stringify({ ...issues[+one[1]], web_url: `${base}/acme/web/-/issues/${one[1]}` })) : res.writeHead(404).end("{}");
     const web = (i: any) => ({ ...i, web_url: `${base}/acme/web/-/issues/${i.iid}` });
@@ -112,6 +117,33 @@ test("«Трекер» lists every open issue with its assignees and what Mako d
   } finally {
     o.stop();
     await o.drain();
+  }
+});
+
+test("«Мої задачі з усіх проєктів»: an issue assigned to me in a project nobody listed is found and gets its repo", async () => {
+  const cfg = parseConfig({
+    stateDir: path.join(dir, "state3"),
+    projectsDir: path.join(dir, "projects"),
+    planFirst: false,
+    notifications: { enabled: false, inboxPort: 0 },
+    executors: { agent: { type: "command", command: "true" } },
+    trackers: [{ type: "gitlab", baseUrl: base, allProjects: true, labels: { trigger: null }, projects: {} }],
+  });
+  const tracker = createTracker(cfg.trackers[0], () => "token");
+  const o = new Orchestrator(cfg, [tracker], new StateStore(cfg.stateDir));
+  (o as any).decide = () => {}; // look, do not run
+  try {
+    await o.poll();
+    const a = o.state.get("shop/storefront#7")!;
+    assert.ok(a, "found without the project being in the settings");
+    const repo = tracker.projects["shop/storefront"].repos[a.repo!];
+    assert.equal(repo.repoPath, path.join(dir, "projects", "storefront"));
+    assert.match(repo.cloneUrl!, /:shop\/storefront\.git$/);
+    // another «storefront» in another group gets its own folder
+    const b = o.state.get("admin/storefront#8")!;
+    assert.equal(tracker.projects["admin/storefront"].repos[b.repo!].repoPath, path.join(dir, "projects", "admin-storefront"));
+  } finally {
+    o.stop();
   }
 });
 

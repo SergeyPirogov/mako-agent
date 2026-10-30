@@ -15,6 +15,8 @@ export interface GitHubTrackerConfig {
   assignee?: string;
   /** Keys are "owner/repo"; every listed repository is polled. */
   projects: Record<string, ProjectConfig>;
+  /** Also every issue assigned to me in any repository: Mako sets up (and clones) the repository when it sees one. */
+  allProjects?: boolean;
 }
 
 export class GitHubTracker implements Tracker {
@@ -30,7 +32,7 @@ export class GitHubTracker implements Tracker {
     this.projects = cfg.projects;
     this.apiUrl = (cfg.apiUrl ?? "https://api.github.com").replace(/\/$/, "");
     this.labels = { ...defaultLabels, ...cfg.labels };
-    if (!this.labels.trigger && !normalizeAssignee(cfg.assignee)) {
+    if (!this.labels.trigger && !normalizeAssignee(cfg.assignee) && !cfg.allProjects) {
       throw new Error(`${this.name}: без мітки для агента вкажіть «Лише призначені на» (ваш нік або me), інакше Mako братиме всі задачі проєкту`);
     }
     this.headers = { Authorization: `Bearer ${githubToken(env)}`, "X-GitHub-Api-Version": "2022-11-28" };
@@ -49,6 +51,16 @@ export class GitHubTracker implements Tracker {
 
   async fetchTasks(): Promise<Task[]> {
     const tasks: Task[] = [];
+    if (this.cfg.allProjects) {
+      const query = new URLSearchParams({ filter: "assigned", state: "open", per_page: "50" });
+      if (this.labels.trigger) query.set("labels", this.labels.trigger);
+      for (const issue of await this.request<any[]>("GET", `/issues?${query}`)) {
+        const repo = issue.repository?.full_name as string | undefined;
+        if (!repo || issue.pull_request || this.projects[repo]) continue;
+        const comments = issue.comments ? await this.request<any[]>("GET", `/repos/${repo}/issues/${issue.number}/comments?per_page=100`) : [];
+        tasks.push(this.toTask(repo, issue, comments));
+      }
+    }
     for (const repo of Object.keys(this.projects)) {
       const query = new URLSearchParams({ state: "open", per_page: "50" });
       if (this.labels.trigger) query.set("labels", this.labels.trigger);
@@ -67,6 +79,12 @@ export class GitHubTracker implements Tracker {
 
   async browseTasks(): Promise<Task[]> {
     const tasks: Task[] = [];
+    if (this.cfg.allProjects) {
+      for (const issue of await this.request<any[]>("GET", "/issues?filter=assigned&state=open&sort=updated&per_page=100")) {
+        const repo = issue.repository?.full_name as string | undefined;
+        if (repo && !issue.pull_request && !this.projects[repo]) tasks.push(this.toTask(repo, issue));
+      }
+    }
     for (const repo of Object.keys(this.projects)) {
       const issues = await this.request<any[]>("GET", `/repos/${repo}/issues?state=open&sort=updated&per_page=100`);
       tasks.push(...issues.filter((i) => !i.pull_request).map((i) => this.toTask(repo, i)));
@@ -86,7 +104,7 @@ export class GitHubTracker implements Tracker {
     const comments = issue.comments ? await this.request<any[]>("GET", `/repos/${repo}/issues/${m[2]}/comments?per_page=100`) : [];
     const task = this.toTask(repo, issue, comments);
     const misses: string[] = [];
-    if (!this.projects[repo]) misses.push(`репозиторій ${repo} не доданий у Налаштуваннях (є: ${repos.join(", ")})`);
+    if (!this.projects[repo] && !this.cfg.allProjects) misses.push(`репозиторій ${repo} не доданий у Налаштуваннях (є: ${repos.join(", ")}); або увімкніть «Мої задачі з усіх проєктів»`);
     if (issue.state !== "open") misses.push("issue закрите");
     if (issue.pull_request) misses.push("це pull request, а не issue");
     if (this.labels.trigger && !task.labels.includes(this.labels.trigger)) misses.push(`немає мітки «${this.labels.trigger}» (є: ${task.labels.join(", ") || "жодної"})`);
@@ -131,7 +149,8 @@ export class GitHubTracker implements Tracker {
 
   /** The configured assignee; "me" is resolved once to the token owner's login. */
   private async assignee(): Promise<string | undefined> {
-    const a = normalizeAssignee(this.cfg.assignee);
+    // «Мої задачі з усіх проєктів» without a label: my issues in the listed projects too.
+    const a = normalizeAssignee(this.cfg.assignee) ?? (this.cfg.allProjects && !this.labels.trigger ? "me" : undefined);
     if (a?.toLowerCase() !== "me") return a;
     this.me ??= (await this.request<{ login: string }>("GET", "/user")).login;
     return this.me;

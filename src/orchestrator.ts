@@ -18,6 +18,8 @@ import { ReviewDesk } from "./review-desk.js";
 import { TrackerSync } from "./tracker-sync.js";
 import { Planning } from "./planning.js";
 import { fetchAttachments } from "./attachments.js";
+import { defaultCloneUrl, repoConfig } from "./config.js";
+import { findRepos } from "./onboarding.js";
 
 export class Orchestrator {
   /** By id; replaced on reload. */
@@ -48,6 +50,11 @@ export class Orchestrator {
     keepLogsIn(path.join(cfg.stateDir, "activity"));
     this.trackers = withLocal(trackers);
     this.executors = new Map(Object.entries(cfg.executors).map(([name, c]) => [name, createExecutor(name, c)]));
+    // Tasks on the board from projects Mako set up itself: the projects again, as before the restart.
+    for (const r of state.all()) {
+      const tracker = !r.archivedAt ? this.trackers.get(r.task.trackerId) : undefined;
+      if (tracker && !tracker.projects[r.task.project]) this.ensureProject(tracker, r.task.project);
+    }
   }
 
   executorFor(repo: RepoConfig): Executor {
@@ -226,6 +233,7 @@ export class Orchestrator {
             }
             continue;
           }
+          this.ensureProject(tracker, task.project);
           const route = routeTask(task, tracker.projects[task.project]);
           if (!route.repo) {
             if (this.unroutable.get(task.id) !== route.reason) log(task.id, `skipped: ${route.reason}`);
@@ -259,6 +267,26 @@ export class Orchestrator {
     }
     this.schedule();
     await this.maybeCheckHandoffs();
+  }
+
+  /**
+   * «Мої задачі з усіх проєктів»: a project Mako has not seen gets a repo of its own, the clone the developer
+   * already has (found the way the first-run wizard finds it) or ~/mako/projects/<name>, cloned on «Взяти».
+   * Projects listed in the settings keep their own settings.
+   */
+  ensureProject(tracker: Tracker, project: string): boolean {
+    if (tracker.projects[project]) return true;
+    const raw = (this.cfg.trackers as any[]).find((t) => (t.id ?? t.type) === tracker.id);
+    if (!raw?.allProjects || !project.includes("/")) return false;
+    const taken = new Set(Object.values(this.trackers.get(tracker.id)?.projects ?? {}).flatMap((p) => Object.values(p.repos).map((r) => r.repoPath)));
+    const base = project.split("/").pop()!;
+    // Two projects called «frontend» in different groups must not share a folder.
+    const name = [base, project.split("/").slice(-2).join("-"), project.replace(/\//g, "-")].find((n) => !taken.has(path.join(this.cfg.projectsDir, n)))!;
+    const existing = findRepos(project, 1)[0];
+    const repo = repoConfig(name, existing ? { repoPath: existing } : {}, defaultCloneUrl(raw, project), this.cfg.projectsDir, this.cfg.branchPattern);
+    tracker.projects[project] = { repos: { [name]: repo } };
+    log(tracker.id, `new project ${project} → ${existing ? `your clone ${existing}` : `${repo.repoPath} (cloned on «Взяти»)`}`);
+    return true;
   }
 
   /**
@@ -612,6 +640,7 @@ export class Orchestrator {
       });
       if (!found) continue;
       const { task } = found;
+      this.ensureProject(tracker, task.project);
       const reasons = [...found.misses];
       const rec = this.state.get(task.id);
       if (rec) {
