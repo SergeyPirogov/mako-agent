@@ -17,6 +17,11 @@ const LABELS: Record<TaskStatus, string> = {
   cancelled: "Скасовано",
 };
 
+/** A task Mako has not asked about yet is kept as «snoozed until now»: on the board it is new, not postponed. */
+const postponed = (r: TaskRecord) => r.status === "snoozed" && (r.snoozedUntil ?? 0) > Date.now();
+const stateClass = (r: TaskRecord) => (r.status === "snoozed" && !postponed(r) ? "asking" : r.status);
+const stateLabel = (r: TaskRecord) => LABELS[stateClass(r)];
+
 const SESSION_LABELS = { starting: "запуск", working: "працює", waiting: "чекає на вас", idle: "можна перевіряти", exited: "завершую…" };
 
 /** Changes whenever the inbox would look different; the page polls it to refresh itself. */
@@ -195,8 +200,8 @@ export function renderMailBoard(app: App, token: string, notice: string | undefi
 
 function mailItem(app: App, r: TaskRecord, on: boolean): string {
   const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
-  const dot = session ? session.status : columnOf(r) === "review" ? "review" : r.status;
-  const label = session ? SESSION_LABELS[session.status] : columnOf(r) === "review" ? "на ревʼю" : LABELS[r.status].toLowerCase();
+  const dot = session ? session.status : columnOf(r) === "review" ? "review" : stateClass(r);
+  const label = session ? SESSION_LABELS[session.status] : columnOf(r) === "review" ? "на ревʼю" : stateLabel(r).toLowerCase();
   const ci = r.review?.pipeline ? ` · CI ${r.review.pipeline.status === "success" ? "✓" : r.review.pipeline.status === "failed" ? "✗" : "…"}` : "";
   // What the agent asks, read off its screen: «питає: Would you like to proceed?»
   const asks = session && (session.status === "waiting" || session.status === "idle") ? session.choice()?.question : undefined;
@@ -408,9 +413,9 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>${session.message && session.status === "waiting" ? ` <span class="muted">${esc(session.message)}</span>` : ""}`
     : columnOf(r) === "review"
     ? `<span class="s review">На ревʼю</span>`
-    : `<span class="s ${r.status}">${LABELS[r.status]}</span>${
+    : `<span class="s ${stateClass(r)}">${stateLabel(r)}</span>${
         r.status === "handed-off" ? ` <span class="muted">чекає PR з <code>${esc(r.branch ?? "")}</code></span>`
-        : r.status === "snoozed" && r.snoozedUntil ? ` <span class="muted">до ${new Date(r.snoozedUntil).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}</span>`
+        : postponed(r) ? ` <span class="muted">до ${new Date(r.snoozedUntil!).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}</span>`
         : ""
       }`;
   const needsPermission = r.status === "failed" && Boolean(r.denied?.length);

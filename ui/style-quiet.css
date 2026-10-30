@@ -50,7 +50,10 @@ form { display: inline; }
 /* a status is a dot and words, not a filled pill: colour marks the state, the text stays readable */
 .s { font-size: 12px; color: var(--mute); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
 .s::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
-.s.asking::before, .s.running::before, .s.working::before, .s.planned::before { background: var(--accent); }
+.s.running::before, .s.working::before, .s.planned::before { background: var(--accent); }
+/* new: an open ring in the accent (not started yet, yours to take); postponed: a grey ring */
+.s.asking::before { background: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.s.snoozed::before { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .s.done::before, .s.idle::before { background: var(--ok); }
 .s.handed-off::before, .s.review::before { background: var(--purple); }
 .s.failed::before { background: var(--err); } .s.failed { color: var(--err); }

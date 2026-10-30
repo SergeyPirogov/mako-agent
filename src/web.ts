@@ -95,9 +95,9 @@ export function startWebUi(app: App, port: number): http.Server {
         return res.writeHead(303, { Location: "/welcome" }).end();
       }
       if (req.method === "GET" && url.pathname === "/") {
-        // «Вигляд: Пошта» lays the board out as a list and the chosen task.
+        // «Робоче місце» (the default) lays the board out as a list and the chosen task; the kanban is a choice.
         const notice = url.searchParams.get("notice") ?? undefined;
-        const mail = /(?:^|;\s*)mako-look=mail(?:;|$)/.test(req.headers.cookie ?? "");
+        const mail = !/(?:^|;\s*)mako-look=(?:classic|quiet)(?:;|$)/.test(req.headers.cookie ?? "");
         return send(200, "text/html", mail ? renderMailBoard(app, token, notice, url.searchParams.get("task") ?? undefined) : renderInbox(app, token, notice));
       }
       if (req.method === "GET" && url.pathname === "/welcome") {
