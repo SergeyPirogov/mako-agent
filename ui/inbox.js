@@ -47,24 +47,6 @@
   drawClock();
   setInterval(drawClock, 1000);
 
-  // Forms that need a "are you sure" go through Mako's in-page dialog.
-  document.addEventListener("submit", async (e) => {
-    const form = e.target;
-    if (!form.dataset?.confirm || form.dataset.confirmed) return;
-    e.preventDefault();
-    const ok = await makoConfirm({
-      title: "Скасувати задачу?",
-      body: form.dataset.confirm,
-      confirm: "Скасувати задачу",
-      cancel: "Ні",
-      tone: "danger",
-    });
-    if (ok) {
-      form.dataset.confirmed = "1";
-      form.submit();
-    }
-  });
-
   // The board scrolls sideways, which would clip a menu inside it: float the open menu over the page instead.
   document.addEventListener(
     "toggle",

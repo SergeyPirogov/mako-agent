@@ -467,3 +467,6 @@ form.take-pop label.tp-opt .badge { margin-left: auto; }
 .desc-body th { background: var(--bg); font-weight: 600; }
 .desc-body img { max-width: 100%; border-radius: 6px; border: 1px solid var(--line); }
 .desc-body hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+.archive-tools { display: flex; align-items: center; gap: 16px; }
+.archive-tools button { margin: 0; }
+table.archive .act form + form button { margin-left: 6px; }

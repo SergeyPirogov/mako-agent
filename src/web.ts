@@ -146,7 +146,7 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -171,6 +171,10 @@ export function startWebUi(app: App, port: number): void {
           o.archive(column ? o.state.all().filter((r) => !r.archivedAt && statuses.includes(r.status)).map((r) => r.id) : [id]);
         }
         if (o && url.pathname === "/unarchive") o.unarchive(id);
+        if (o && url.pathname === "/delete") {
+          o.remove(form.get("all") ? o.state.all().filter((r) => r.archivedAt).map((r) => r.id) : [id]);
+          return res.writeHead(303, { Location: "/archive" }).end();
+        }
         const back = form.get("back");
         if (back === "/archive") return res.writeHead(303, { Location: "/archive" }).end();
         if (o && url.pathname === "/search-now") o.searchNow();

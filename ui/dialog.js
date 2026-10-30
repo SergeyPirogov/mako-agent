@@ -30,4 +30,22 @@
       // A destructive action starts on "no", so Enter does not destroy by accident.
       dialog.querySelector(tone === "danger" ? ".mcancel" : ".mok").focus();
     });
+
+  // Forms with data-confirm ask first. data-confirm-title, -ok and -tone describe the action; the defaults fit «Скасувати».
+  document.addEventListener("submit", async (e) => {
+    const form = e.target;
+    if (!form.dataset?.confirm || form.dataset.confirmed) return;
+    e.preventDefault();
+    const ok = await window.makoConfirm({
+      title: form.dataset.confirmTitle || "Скасувати задачу?",
+      body: form.dataset.confirm,
+      confirm: form.dataset.confirmOk || "Скасувати задачу",
+      cancel: "Ні",
+      tone: form.dataset.confirmTone || "danger",
+    });
+    if (ok) {
+      form.dataset.confirmed = "1";
+      form.submit();
+    }
+  });
 })();

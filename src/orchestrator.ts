@@ -653,6 +653,18 @@ export class Orchestrator {
     return true;
   }
 
+  /** Forgets archived tasks for good; one still matching the tracker query will be offered again. */
+  remove(ids: string[]): number {
+    let n = 0;
+    for (const id of ids) {
+      if (!this.state.get(id)?.archivedAt) continue;
+      this.state.delete(id);
+      n++;
+    }
+    if (n) log("main", `deleted ${n} archived task(s)`);
+    return n;
+  }
+
   /** Stops waiting for a task that is queued or handed off (e.g. its Orca workspace was deleted); frees its WIP slot. */
   cancel(id: string, reason = "Скасовано вручну"): boolean {
     const rec = this.state.get(id);

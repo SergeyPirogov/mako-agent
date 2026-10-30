@@ -118,6 +118,8 @@ export function renderArchive(app: App, token: string): string {
         r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">PR ↗</a>` : "",
         `<form method="post" action="/unarchive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">` +
           `<input type="hidden" name="back" value="/archive"><button>Повернути на дошку</button></form>`,
+        `<form method="post" action="/delete" data-confirm-title="Видалити задачу?" data-confirm-ok="Видалити" data-confirm="${esc(DELETE_NOTE)}">` +
+          `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Видалити</button></form>`,
       ].join("");
       return `<tr><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
         <td><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a> ${route(app, r)}<div class="muted">${esc(r.task.title)}</div>
@@ -125,10 +127,16 @@ export function renderArchive(app: App, token: string): string {
         <td class="muted small">${day(r.archivedAt!)}</td><td class="act">${actions}</td></tr>`;
     })
     .join("");
-  const body = `<div class="board-head"><h1>Архів</h1><a class="link" href="/">← До дошки</a></div>
+  const body = `<div class="board-head"><h1>Архів</h1><div class="archive-tools">${records.length
+      ? `<form method="post" action="/delete" data-confirm-title="Видалити весь архів?" data-confirm-ok="Видалити всі (${records.length})" data-confirm="${esc(DELETE_NOTE)}">` +
+        `<input type="hidden" name="all" value="1"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Видалити всі</button></form>`
+      : ""}<a class="link" href="/">← До дошки</a></div></div>
     ${rows ? `<table class="tasks archive">${rows}</table>` : `<p class="muted">Архів порожній. На дошці кнопка «В архів» прибирає виконані й невиконані задачі сюди.</p>`}`;
   return page({ title: "Архів", active: "inbox", token, body });
 }
+
+const DELETE_NOTE =
+  "Mako забуде задачу: її журнал і рішення зникнуть. Задача в трекері, гілка й worktree лишаться. Якщо вона й далі підходить під фільтр, Mako запропонує її знову.";
 
 /** Within a column: what needs you first, then the most recent. */
 function columnOrder(col: Column["key"]) {
@@ -326,5 +334,5 @@ function plainText(md: string): string {
 function takeOverForm(app: App, r: TaskRecord, token: string, primary = false): string {
   const terminal = app.orchestrator?.terminalExecutor();
   if (!terminal || r.executor === terminal || !r.sessionId) return "";
-  return `<form method="post" action="/takeover" data-confirm="Фоновий агент зупиниться, і та сама розмова відкриється в терміналі Mako: ви побачите, що він робить, і зможете дати дозволи."><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="${primary ? "primary" : "soft"}">Перейти в термінал</button></form>`;
+  return `<form method="post" action="/takeover" data-confirm-title="Перейти в термінал?" data-confirm-ok="Перейти" data-confirm-tone="primary" data-confirm="Фоновий агент зупиниться, і та сама розмова відкриється в терміналі Mako: ви побачите, що він робить, і зможете дати дозволи."><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="${primary ? "primary" : "soft"}">Перейти в термінал</button></form>`;
 }
