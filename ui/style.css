@@ -286,12 +286,15 @@ dialog.mdialog .mbody { margin: 0 0 18px; color: var(--mute); line-height: 1.5; 
 .mactions .mok.danger:hover { background: color-mix(in srgb, var(--err) 85%, #000); }
 
 /* "Взяти ▾": choose where the task goes */
-.take { display: inline-flex; position: relative; }
+.take { display: inline-flex; align-items: stretch; position: relative; }
+.take > form { display: flex; }
 .take > form .take-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-details.take-menu > summary.take-more { list-style: none; cursor: pointer; padding: 4px 9px; font-size: 13px; border-radius: 0 6px 6px 0;
-  background: var(--accent); color: #fff; border-left: 1px solid color-mix(in srgb, #fff 35%, var(--accent)); line-height: 1.45; }
+details.take-menu { display: flex; }
+details.take-menu > summary.take-more { list-style: none; cursor: pointer; display: flex; align-items: center; padding: 0 8px; font-size: 11px;
+  border-radius: 0 6px 6px 0; background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent);
+  border-left-color: color-mix(in srgb, var(--accent-fg) 40%, var(--accent)); transition: background .12s; }
 details.take-menu > summary::-webkit-details-marker { display: none; }
-details.take-menu[open] > summary.take-more { background: color-mix(in srgb, var(--accent) 80%, #000); }
+details.take-menu > summary.take-more:hover, details.take-menu[open] > summary.take-more { background: color-mix(in srgb, var(--accent) 86%, #000); }
 form.take-pop { display: flex; flex-direction: column; gap: 10px; position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: 270px;
   padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.18); }
 form.take-pop .tp-title { font-weight: 600; font-size: 13px; }
@@ -299,9 +302,9 @@ form.take-pop label { display: flex; flex-direction: column; gap: 4px; font-size
 form.take-pop button { align-self: flex-end; margin: 0; }
 .kcard:has(details.take-menu[open]) { z-index: 21; position: relative; }
 
-.take.retry > form .take-main { border-right: 0; }
-.take.retry details.take-menu > summary.take-more { background: var(--card); color: var(--fg); border: 1px solid var(--line); border-left: 1px solid var(--line); }
-.take.retry details.take-menu[open] > summary.take-more { background: var(--bg); }
+.take.retry > form .take-main { border-right-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.take.retry details.take-menu > summary.take-more { background: var(--card); color: var(--accent); border-color: var(--accent); border-left: 0; }
+.take.retry details.take-menu > summary.take-more:hover, .take.retry details.take-menu[open] > summary.take-more { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
 .s.cancelled { background: none; border: 1px solid var(--line); color: var(--mute); }
 .kc-actions .danger-outline { padding: 4px 12px; font-size: 13px; }
 
