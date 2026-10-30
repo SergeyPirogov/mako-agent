@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { run } from "../shell.js";
 import { findCommand } from "./find-command.js";
+import { log } from "../log.js";
 import type { ExecContext, ExecOutcome, Executor } from "./types.js";
 
 export interface OrcaExecutorConfig {
@@ -53,6 +54,7 @@ export class OrcaExecutor implements Executor {
         throw new Error(`Не вдалося запустити ${command}: ${err.message}`);
       });
 
+    await ensureOrcaRunning(command, ctx);
     let r = await orca(withLink);
     let failure = r.code === 0 ? undefined : orcaError(r.stdout || r.stderr);
 
@@ -132,6 +134,38 @@ function resolveOrca(configured: string | undefined): string {
       "Або вкажіть повний шлях у Налаштуваннях Mako → «Хто виконує задачі» → Orca → «Команда». " +
       "Якщо Orca вам не потрібна, виберіть для репозиторію інший виконавець, наприклад «Термінал у Mako».",
   );
+}
+
+/**
+ * The CLI talks to the Orca app, so a closed app fails every hand-off. On macOS Mako opens Orca and waits
+ * (up to a minute) until the CLI answers; elsewhere it says to open it.
+ */
+async function ensureOrcaRunning(command: string, ctx: ExecContext): Promise<void> {
+  const answers = async () =>
+    (await run(command, ["worktree", "list", "--repo", `path:${ctx.repo.repoPath}`, "--json"], ctx.repo.repoPath).catch(() => undefined))?.code === 0;
+  if (await answers()) return;
+  if (process.platform !== "darwin") {
+    if (await appRunning()) return; // running, but something else is wrong: the hand-off reports it
+    throw new Error("Orca не запущена. Відкрийте Orca і натисніть «Повторити».");
+  }
+  if (await appRunning()) return;
+  log(ctx.task.id, "Orca не запущена: відкриваю Orca і чекаю, поки вона підніметься");
+  const opened = await run("open", ["-a", "Orca"], ctx.repo.repoPath).catch(() => undefined);
+  if (opened?.code !== 0) throw new Error("Orca не запущена, і Mako не зміг її відкрити. Відкрийте Orca і натисніть «Повторити».");
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    if (await answers()) {
+      log(ctx.task.id, "Orca запущена");
+      return;
+    }
+  }
+  // Up but not answering for this repo (not added in Orca?): the hand-off itself says what is wrong.
+}
+
+async function appRunning(): Promise<boolean> {
+  // The app's own process name, not any command line that mentions it.
+  const name = process.platform === "darwin" ? "Orca" : "orca-ide";
+  return (await run("pgrep", ["-x", name], os.homedir()).catch(() => undefined))?.code === 0;
 }
 
 const UNKNOWN_OUTCOME = "agent_session_operation_unknown";
