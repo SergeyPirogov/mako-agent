@@ -1,6 +1,6 @@
 import type { ProjectConfig } from "../config.js";
-import { requestJson, explainAccess, HttpError } from "../http.js";
-import type { IssueState, Outcome, Task, Tracker } from "../types.js";
+import { requestJson, requestFile, explainAccess, HttpError } from "../http.js";
+import type { Attachment, IssueState, Outcome, Task, Tracker } from "../types.js";
 
 export interface JiraTrackerConfig {
   type: "jira";
@@ -85,7 +85,7 @@ export class JiraTracker implements Tracker {
     const data = await this.request<{ issues: any[] }>("POST", "/rest/api/3/search/jql", {
       jql,
       maxResults,
-      fields: ["summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee"],
+      fields: ["summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "attachment"],
     });
     return data.issues.map((i) => ({
       id: i.key,
@@ -105,6 +105,9 @@ export class JiraTracker implements Tracker {
       closingRef: i.key,
       assignees: i.fields.assignee?.accountId ? [i.fields.assignee.accountId] : [],
       assigneeNames: i.fields.assignee?.displayName ? [i.fields.assignee.displayName] : undefined,
+      attachments: (i.fields.attachment ?? [])
+        .filter((a: any) => a?.content)
+        .map((a: any) => ({ name: a.filename ?? "file", url: a.content, where: "вкладення задачі" })),
     }));
   }
 
@@ -121,6 +124,10 @@ export class JiraTracker implements Tracker {
   async listProjects(): Promise<{ key: string; name: string }[]> {
     const page = await this.request<{ values: { key: string; name: string }[] }>("GET", "/rest/api/3/project/search?maxResults=100&orderBy=-lastIssueUpdatedTime");
     return page.values.map((p) => ({ key: p.key, name: `${p.key} — ${p.name}` }));
+  }
+
+  async downloadAttachment(a: Attachment, maxBytes: number): Promise<Buffer> {
+    return requestFile(a.url, this.headers, maxBytes);
   }
 
   /** Statuses of the configured projects' workflows, for the settings page to suggest. */

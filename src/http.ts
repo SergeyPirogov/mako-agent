@@ -35,6 +35,21 @@ export async function requestText(url: string, headers: Record<string, string>):
   return text;
 }
 
+/** A file (an issue's attachment), at most `maxBytes`: a bigger one is refused before it is read in full. */
+export async function requestFile(url: string, headers: Record<string, string>, maxBytes: number): Promise<Buffer> {
+  const res = await fetch(url, { headers, redirect: "follow" });
+  if (!res.ok) throw new HttpError(res.status, "", `GET ${url} -> ${res.status}`);
+  const size = Number(res.headers.get("content-length") ?? 0);
+  if (size > maxBytes) throw new Error(`${Math.round(size / 1e6)} МБ, більше за ліміт`);
+  const data = Buffer.from(await res.arrayBuffer());
+  if (data.length > maxBytes) throw new Error(`${Math.round(data.length / 1e6)} МБ, більше за ліміт`);
+  // Some hosts answer a missing permission with their sign-in page instead of an error.
+  if ((res.headers.get("content-type") ?? "").includes("text/html") && !/\.html?$/i.test(new URL(url).pathname)) {
+    throw new Error("замість файлу прийшла сторінка входу: токен не має доступу");
+  }
+  return data;
+}
+
 /** Turns a raw 401/403/404 from a tracker into a message that says what to fix; other errors pass through. */
 export function explainAccess(err: unknown, explain: (status: number, body: string) => string | undefined): never {
   if (err instanceof HttpError) {

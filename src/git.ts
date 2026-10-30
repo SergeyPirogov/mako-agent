@@ -78,10 +78,30 @@ export async function removeWorktree(repo: RepoConfig, dir: string, branch: stri
 }
 
 /**
+ * One git operation at a time per repo: two tasks starting together would otherwise race for .git/config and
+ * refs locks («could not lock config file»), or both clone into the same folder.
+ */
+const repoQueues = new Map<string, Promise<unknown>>();
+function inRepoQueue<T>(repoPath: string, work: () => Promise<T>): Promise<T> {
+  const key = path.resolve(repoPath);
+  const result = (repoQueues.get(key) ?? Promise.resolve()).then(work, work);
+  const settled = result.then(() => undefined, () => undefined);
+  repoQueues.set(key, settled);
+  void settled.then(() => {
+    if (repoQueues.get(key) === settled) repoQueues.delete(key);
+  });
+  return result;
+}
+
+/**
  * Makes sure the repo has a local clone: clones it from `cloneUrl` when its folder has none, without prompts
  * (an SSH key or a credential helper has to do), and settles the base branch when it is not set.
  */
-export async function ensureClone(repo: RepoConfig, log?: (line: string) => void): Promise<void> {
+export function ensureClone(repo: RepoConfig, log?: (line: string) => void): Promise<void> {
+  return inRepoQueue(repo.repoPath, () => cloneIfMissing(repo, log));
+}
+
+async function cloneIfMissing(repo: RepoConfig, log?: (line: string) => void): Promise<void> {
   if (!existsSync(path.join(repo.repoPath, ".git"))) {
     if (existsSync(repo.repoPath) && readdirSync(repo.repoPath).length) {
       throw new Error(`${repo.repoPath} не порожня і не git-репозиторій: вкажіть у Налаштуваннях інший шлях`);
@@ -164,7 +184,11 @@ function runShell(command: string, cwd: string, timeoutMs: number): Promise<{ ok
   });
 }
 
-async function createWorktree(repo: RepoConfig, slug: string, branch: string): Promise<string> {
+function createWorktree(repo: RepoConfig, slug: string, branch: string): Promise<string> {
+  return inRepoQueue(repo.repoPath, () => addWorktree(repo, slug, branch));
+}
+
+async function addWorktree(repo: RepoConfig, slug: string, branch: string): Promise<string> {
   const dir = path.join(repo.worktreesDir, slug);
   if (existsSync(dir)) return dir;
 

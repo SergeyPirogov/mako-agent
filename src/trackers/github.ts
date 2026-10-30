@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import type { ProjectConfig } from "../config.js";
-import { requestJson, explainAccess, HttpError } from "../http.js";
-import type { IssueState, Outcome, ReviewInfo, Task, Tracker } from "../types.js";
+import { requestJson, requestFile, explainAccess, HttpError } from "../http.js";
+import type { Attachment, IssueState, Outcome, ReviewInfo, Task, Tracker } from "../types.js";
+import { linkedFiles } from "./attachments.js";
 import { defaultLabels, labelChanges, normalizeAssignee, type LabelConfig } from "./labels.js";
 
 export interface GitHubTrackerConfig {
@@ -96,7 +97,19 @@ export class GitHubTracker implements Tracker {
     return { task, misses };
   }
 
+  async downloadAttachment(a: Attachment, maxBytes: number): Promise<Buffer> {
+    return requestFile(a.url, { ...this.headers, Accept: "*/*" }, maxBytes);
+  }
+
   private toTask(repo: string, issue: any, comments: any[] = []): Task {
+    const task = this.taskOf(repo, issue, comments);
+    // Files dropped into an issue: github.com/user-attachments, …/assets, user-images.githubusercontent.com.
+    const ours = (url: string) =>
+      /^https:\/\/(github\.com\/(user-attachments\/|[^/]+\/[^/]+\/assets\/)|(private-)?user-images\.githubusercontent\.com\/)/.test(url) ? url : undefined;
+    return { ...task, attachments: linkedFiles(task, ours) };
+  }
+
+  private taskOf(repo: string, issue: any, comments: any[]): Task {
     return {
       id: `${repo}#${issue.number}`,
       slug: `${repo.split("/")[1]}-${issue.number}`,

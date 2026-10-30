@@ -17,6 +17,7 @@ import { learn } from "./memory.js";
 import { ReviewDesk } from "./review-desk.js";
 import { TrackerSync } from "./tracker-sync.js";
 import { Planning } from "./planning.js";
+import { fetchAttachments } from "./attachments.js";
 
 export class Orchestrator {
   /** By id; replaced on reload. */
@@ -382,7 +383,8 @@ export class Orchestrator {
     // plan from Claude that the developer approves on the board before the work starts.
     const needsPlan = Boolean(rec.planFirst && !rec.planApproved && !rec.followUp);
     const terminalPlan = needsPlan && this.planning.isTerminalClaude(executor.name);
-    const context = this.planning.promptContext(rec, repo);
+    let context = this.planning.promptContext(rec, repo);
+    if (!rec.followUp && task.attachments?.length) context += await this.attachmentsFor(task, tracker, repo, executor, branch);
     if (needsPlan && !terminalPlan) return this.planning.planPhase(rec, tracker, repo, branch, buildPrompt(task, tracker, repo, executor) + context);
     // A follow-up (fix CI, review comments, conflicts) continues the work in the same worktree.
     const prompt = rec.followUp
@@ -611,6 +613,28 @@ export class Orchestrator {
       return { id: task.id, title: task.title, url: task.url, reasons, ok: !reasons.length };
     }
     return { reasons: ["Не впізнав задачу. Вставте посилання на неї (…/-/issues/12) або group/project#12"], ok: false };
+  }
+
+  /**
+   * The task's files for the agent: in the worktree's .mako/attachments when Mako makes the worktree (it is
+   * prepared a little earlier for that), else in Mako's own folder, with absolute paths in the prompt.
+   */
+  private async attachmentsFor(task: Task, tracker: Tracker, repo: RepoConfig, executor: Executor, branch: string): Promise<string> {
+    const conf: any = this.cfg.executors[executor.name] ?? {};
+    const inWorktree = conf.type === "terminal" || conf.type === "claude-headless" || (conf.type === "command" && conf.worktree !== false);
+    const say = (line: string) => log(task.id, line);
+    try {
+      if (inWorktree) {
+        const worktree = await git.prepareWorktree(repo, task.slug, say, branch);
+        await git.excludeLocal(worktree, ".mako/");
+        return await fetchAttachments(task, tracker, path.join(worktree, ".mako", "attachments"), ".mako/attachments", say);
+      }
+      const dir = path.join(this.cfg.stateDir, "attachments", task.slug);
+      return await fetchAttachments(task, tracker, dir, dir, say);
+    } catch (err: any) {
+      say(`attachments skipped: ${err.message}`);
+      return "";
+    }
   }
 
   /** «+ Задача»: a task written in Mako, taken right away (or planned first) in the chosen repo. */

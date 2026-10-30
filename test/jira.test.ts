@@ -54,11 +54,13 @@ before(async () => {
                 components: [],
                 comment: { comments: [{ author: { displayName: "Ann" }, body: adf("Repro on stage only") }] },
                 assignee: i.assignee ? { accountId: i.assignee } : null,
+                attachment: [{ filename: "spec.pdf", content: `${baseUrl}/rest/api/3/attachment/content/10` }],
               },
             })),
         });
       }
       if (url.pathname === "/rest/api/3/myself") return send({ accountId: "acc-me" });
+      if (url.pathname === "/rest/api/3/attachment/content/10") return res.end("%PDF");
       if (url.pathname === "/rest/api/3/project/search") return send({ values: [{ key: "PROJ", name: "Checkout" }, { key: "OPS", name: "Operations" }] });
       if (url.pathname === "/rest/api/3/project/PROJ/statuses") return send([{ name: "Bug", statuses: jira.workflow.map((name) => ({ name })) }]);
       const m = url.pathname.match(/^\/rest\/api\/3\/issue\/([A-Z]+-\d+)(\/\w+)?$/);
@@ -121,6 +123,8 @@ test("Jira: issues come with text from ADF, comments, labels and who they are as
   assert.deepEqual(task.comments, [{ author: "Ann", body: "Repro on stage only" }]);
   assert.equal(task.meta, "Type: Bug | Priority: High");
   assert.deepEqual(task.assignees, ["acc-me"]);
+  assert.deepEqual(task.attachments, [{ name: "spec.pdf", url: `${baseUrl}/rest/api/3/attachment/content/10`, where: "вкладення задачі" }]);
+  assert.equal((await tracker.downloadAttachment(task.attachments![0], 1000)).toString(), "%PDF");
   assert.equal(task.url, `${baseUrl}/browse/PROJ-1`);
   assert.deepEqual(await tracker.listStatuses(), ["To Do", "In Progress", "In Review", "Done"]);
   assert.equal(await tracker.whoAmI(), "acc-me");

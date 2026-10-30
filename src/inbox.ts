@@ -309,7 +309,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   return `<article class="kcard${attn ? " attn" : ""}" data-search="${esc(haystack)}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
     <div class="kc-top">${r.task.url ? `<a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer" title="${esc(r.id)}">${esc(shortId(r.id))}</a>` : `<span class="kc-id" title="Задача, створена в Mako">${esc(r.id)}</span>`}
       ${route(app, r)}</div>
-    <div class="kc-title">${esc(r.task.title)}</div>
+    <div class="kc-title">${esc(r.task.title)}${attachmentsMark(r)}</div>
     ${description(r)}
     <div class="kc-status">${gone ? (r.status === "cancelled" ? gone : `${status} ${gone}`) : needsPermission ? `<span class="s perm">🔒 Потрібні дозволи</span>` : status}</div>
     ${r.status === "running" && !session ? `<div class="kc-phase muted" data-phase="${esc(r.id)}" title="${esc(phase(recentLog(r.id).at(-1)?.text ?? ""))}">${esc(phase(recentLog(r.id).at(-1)?.text ?? "")) || "&nbsp;"}</div>` : ""}
@@ -388,6 +388,14 @@ function reviewKind(app: App, r: TaskRecord): string {
   if (r.prUrl?.includes("/merge_requests/")) return "MR";
   if (r.prUrl?.includes("/pull/")) return "PR";
   return app.orchestrator?.trackers.get(r.task.trackerId)?.name === "GitLab" ? "MR" : "PR";
+}
+
+/** «📎 2» after the title: the issue has files, and the agent gets them. */
+function attachmentsMark(r: TaskRecord): string {
+  const files = r.task.attachments ?? [];
+  if (!files.length) return "";
+  const list = files.map((a) => `${a.name} (${a.where})`).join("\n");
+  return ` <span class="kc-files" title="${esc(`Файли задачі, агент отримає їх:\n${list}`)}">📎 ${files.length}</span>`;
 }
 
 /** «group/market-autotests#31» → «market-autotests#31»: the group repeats on every card of a project. */

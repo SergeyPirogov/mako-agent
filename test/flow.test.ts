@@ -479,3 +479,35 @@ test("a repo that cannot be cloned fails with the reason, not a crash", async ()
   assert.ok(!existsSync(path.join(base, "projects", "web")), "no half-made folder is left");
   orchestrator.stop();
 });
+
+test("the issue's files are downloaded into the worktree for the agent, listed in the prompt, never committed", async () => {
+  // the agent proves it can see the file: copies its text into the change
+  const { orchestrator, tracker, remote } = setup('cat .mako/attachments/error.log > seen.txt; echo "looked at the screenshot"');
+  try {
+    const files: Record<string, string> = { "https://git.example/acme/web/uploads/aa/error.log": "TypeError at checkout", "https://git.example/acme/web/uploads/bb/screen.png": "PNG" };
+    (tracker as any).downloadAttachment = async (a: { url: string }) => {
+      if (!files[a.url]) throw new Error("404");
+      return Buffer.from(files[a.url]);
+    };
+    const t = {
+      ...issue(26, "Checkout crashes"),
+      attachments: [
+        { name: "error.log", url: "https://git.example/acme/web/uploads/aa/error.log", where: "опис" },
+        { name: "screen.png", url: "https://git.example/acme/web/uploads/bb/screen.png", where: "коментар Ann: «до/після»" },
+        { name: "gone.png", url: "https://git.example/acme/web/uploads/cc/gone.png", where: "опис" },
+      ],
+    };
+    tracker.issues = [t];
+    await orchestrator.poll();
+    await orchestrator.drain();
+    const rec = orchestrator.state.get(t.id)!;
+    assert.equal(rec.status, "done", rec.error);
+    assert.equal(git(remote, "show", `${rec.branchName}:seen.txt`), "TypeError at checkout", "the agent read the file");
+    const prompt = readFileSync(orchestrator.state.logPath(rec.task).replace(/\.jsonl$/, ".prompt.md"), "utf8");
+    assert.match(prompt, /## Attachments[\s\S]*`\.mako\/attachments\/error\.log` \(опис\)[\s\S]*`\.mako\/attachments\/screen\.png` \(коментар Ann: «до\/після»\)/);
+    assert.doesNotMatch(prompt, /gone\.png/, "a file that did not download is not promised to the agent");
+    assert.throws(() => git(remote, "show", `${rec.branchName}:.mako/attachments/screen.png`), "attachments are not committed");
+  } finally {
+    orchestrator.stop();
+  }
+});

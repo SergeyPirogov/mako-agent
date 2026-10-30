@@ -26,6 +26,15 @@ export interface Task {
   assignees?: string[];
   /** The same people by name, where `assignees` are ids (Jira). */
   assigneeNames?: string[];
+  /** Files of the issue (images and files in the description and comments, Jira attachments), for the agent. */
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  name: string;
+  url: string;
+  /** Where the issue mentions it: «опис», «коментар Ann». */
+  where: string;
 }
 
 export type Outcome = "success" | "no-changes" | "failed";
@@ -65,6 +74,8 @@ export interface Tracker {
   onFinish(task: Task, outcome: Outcome): Promise<string | void>;
   /** Every open issue of the configured projects, Mako's label and assignee filters aside, recent first: «Трекер». */
   browseTasks?(): Promise<Task[]>;
+  /** Downloads one of a task's attachments with the tracker's credentials. */
+  downloadAttachment?(attachment: Attachment, maxBytes: number): Promise<Buffer>;
   /** One issue read directly by its link or number, and which of the tracker's own filters leave it out. */
   inspectTask?(ref: string): Promise<{ task: Task; misses: string[] } | undefined>;
   /** Projects the token can see, most active first, for the settings page to offer: key and a readable name. */

@@ -588,3 +588,4 @@ form.mem-card { display: block; }
   .tr-table td.tr-task { grid-column: 1 / -1; border-top: 1px solid var(--line); } }
 .tr-table th { text-align: left; font-size: 12px; color: var(--mute); font-weight: 600; padding: 10px; }
 #tr-search { width: 280px; }
+.kc-files { font-size: 12px; color: var(--mute); white-space: nowrap; cursor: default; }

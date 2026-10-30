@@ -14,7 +14,8 @@ import { browseTrackers, adoptTask } from "../src/browse.ts";
 const issues: Record<number, any> = {
   1: { iid: 1, id: 101, state: "opened", title: "Dev and QA on it", labels: ["claude-agent"], assignees: [{ username: "dev" }, { username: "qa" }] },
   2: { iid: 2, id: 102, state: "opened", title: "Mine, but hidden from search", labels: ["claude-agent"], assignees: [{ username: "dev" }, { username: "me" }] },
-  3: { iid: 3, id: 103, state: "opened", title: "No label", labels: [], assignees: [] },
+  3: { iid: 3, id: 103, state: "opened", title: "No label", labels: [], assignees: [],
+    description: "Broken: ![до](/uploads/0123456789abcdef0123456789abcdef/before.png) and [log](https://elsewhere.dev/uploads/0123456789abcdef0123456789abcdef/x.log)" },
 };
 let server: http.Server;
 let dir = "";
@@ -32,6 +33,9 @@ before(async () => {
     if (url.pathname.endsWith("/issues") && url.searchParams.get("order_by") === "updated_at") return res.end(JSON.stringify(Object.values(issues).map(web)));
     if (url.pathname.endsWith("/issues")) return res.end(JSON.stringify([issues[1]].map(web)));
     if (url.pathname.endsWith("/notes")) return res.end("[]");
+    if (url.pathname === "/api/v4/projects/acme%2Fweb/uploads/0123456789abcdef0123456789abcdef/before.png") {
+      return req.headers["private-token"] === "token" ? res.end("PNGDATA") : res.writeHead(401).end("{}");
+    }
     res.writeHead(404).end("{}");
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -90,6 +94,13 @@ test("«Трекер» lists every open issue with its assignees and what Mako d
     assert.deepEqual(byId["acme/web#1"].task.assignees, ["dev", "qa"]);
     assert.deepEqual([byId["acme/web#1"].mako.kind, byId["acme/web#1"].mako.text], ["skipped", "призначена на інших"]);
     assert.deepEqual([byId["acme/web#3"].mako.kind, byId["acme/web#3"].mako.text], ["skipped", "не підходить під фільтр Mako"]);
+
+    // the screenshot in #3's description is GitLab's own upload; a link to another server is not
+    const atts = byId["acme/web#3"].task.attachments!;
+    assert.deepEqual(atts.map((a) => [a.name, a.where]), [["before.png", "опис: «до»"]]);
+    assert.equal(atts[0].url, `${base}/acme/web/uploads/0123456789abcdef0123456789abcdef/before.png`);
+    assert.equal((await tracker.downloadAttachment!(atts[0], 1000)).toString(), "PNGDATA");
+    await assert.rejects(tracker.downloadAttachment!(atts[0], 3), /ліміт/);
 
     const id = await adoptTask(o, `${base}/acme/web/-/issues/3`);
     assert.equal(id, "acme/web#3");

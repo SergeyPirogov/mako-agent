@@ -1,6 +1,7 @@
 import type { ProjectConfig } from "../config.js";
-import { requestJson, requestText, explainAccess, HttpError } from "../http.js";
-import type { IssueState, Outcome, ReviewInfo, Task, Tracker } from "../types.js";
+import { requestJson, requestText, requestFile, explainAccess, HttpError } from "../http.js";
+import type { Attachment, IssueState, Outcome, ReviewInfo, Task, Tracker } from "../types.js";
+import { linkedFiles } from "./attachments.js";
 import { defaultLabels, labelChanges, normalizeAssignee, type LabelConfig } from "./labels.js";
 
 export interface GitLabTrackerConfig {
@@ -80,7 +81,39 @@ export class GitLabTracker implements Tracker {
     return tasks;
   }
 
+  private get webUrl(): string {
+    return this.apiUrl.replace(/\/api\/v4$/, "");
+  }
+
+  /** Uploads of this GitLab, as absolute links: /uploads/<secret>/<file> of the project, or /-/project/<id>/uploads/…. */
+  private uploadUrl(projectPath: string, url: string): string | undefined {
+    const m = url.match(/^(?:https?:\/\/[^/]+)?(\/(?:[^()\s]*?\/)?(?:-\/project\/\d+\/)?uploads\/[0-9a-f]{16,}\/[^?#\s]+)/);
+    if (!m) return undefined;
+    if (/^https?:/.test(url) && !url.startsWith(this.webUrl)) return undefined; // someone else's server
+    const tail = m[1];
+    // «/uploads/…» in a description is relative to the project.
+    return tail.startsWith("/uploads/") ? `${this.webUrl}/${projectPath}${tail}` : `${this.webUrl}${tail}`;
+  }
+
+  async downloadAttachment(a: Attachment, maxBytes: number): Promise<Buffer> {
+    const m = a.url.slice(this.webUrl.length).match(/^\/(?:-\/project\/(\d+)|(.+?))\/uploads\/([0-9a-f]+)\/(.+)$/);
+    if (!m) throw new Error("не схоже на файл GitLab");
+    const project = m[1] ?? encodeURIComponent(m[2]);
+    // The uploads API (GitLab 17.4+) takes the token; older ones serve the file at its own address.
+    try {
+      return await requestFile(`${this.apiUrl}/projects/${project}/uploads/${m[3]}/${m[4]}`, this.headers, maxBytes);
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      return requestFile(a.url, this.headers, maxBytes);
+    }
+  }
+
   private toTask(projectPath: string, issue: any, notes: any[] = []): Task {
+    const task = this.taskOf(projectPath, issue, notes);
+    return { ...task, attachments: linkedFiles(task, (url) => this.uploadUrl(projectPath, url)) };
+  }
+
+  private taskOf(projectPath: string, issue: any, notes: any[]): Task {
     return {
       id: `${projectPath}#${issue.iid}`,
       slug: `${projectPath.split("/").pop()}-${issue.iid}`,
