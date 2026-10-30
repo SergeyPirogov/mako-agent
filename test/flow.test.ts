@@ -1,0 +1,146 @@
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
+import { parseConfig } from "../src/config.ts";
+import { Orchestrator } from "../src/orchestrator.ts";
+import { StateStore } from "../src/state.ts";
+import { setNotificationHost } from "../src/notify.ts";
+import type { IssueState, Outcome, ReviewInfo, Task, Tracker } from "../src/types.ts";
+
+// The whole loop on real git repos in a temp folder: a tracker in memory, a shell script as the agent.
+let dir: string;
+const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+const notices: string[] = [];
+
+class FakeTracker implements Tracker {
+  readonly id = "gitlab";
+  readonly name = "GitLab";
+  issues: Task[] = [];
+  state = new Map<string, IssueState>();
+  review: ReviewInfo["state"] = "open";
+  calls: string[] = [];
+  constructor(readonly projects: Tracker["projects"]) {}
+  async fetchTasks() {
+    return this.issues.filter((t) => (this.state.get(t.id) ?? "open") === "open");
+  }
+  async comment(task: Task, text: string) {
+    this.calls.push(`comment ${task.id}: ${text.split("\n")[0]}`);
+  }
+  async onStart(task: Task) {
+    this.calls.push(`start ${task.id}`);
+    return "In progress";
+  }
+  async onFinish(task: Task, outcome: Outcome) {
+    this.calls.push(`finish ${task.id} ${outcome}`);
+  }
+  async issueState(task: Task) {
+    return this.state.get(task.id) ?? "open";
+  }
+  async reviewDetails(): Promise<ReviewInfo> {
+    return { state: this.review, conflicts: false, mergeable: this.review === "open", comments: [], checkedAt: Date.now() };
+  }
+  async onMerged(task: Task) {
+    this.calls.push(`merged ${task.id}`);
+    return "Done";
+  }
+}
+
+const issue = (n: number, title: string): Task => ({
+  id: `acme/web#${n}`,
+  slug: `web-${n}`,
+  trackerId: "gitlab",
+  project: "acme/web",
+  title,
+  description: "Make it so",
+  url: `https://git.example/acme/web/-/issues/${n}`,
+  labels: [],
+  components: [],
+  comments: [],
+});
+
+function setup(agentScript: string) {
+  const base = mkdtempSync(path.join(dir, "case-"));
+  const remote = path.join(base, "remote.git");
+  const repo = path.join(base, "web");
+  execFileSync("git", ["init", "-q", "--bare", "-b", "main", remote]);
+  execFileSync("git", ["clone", "-q", remote, repo]);
+  git(repo, "config", "user.email", "t@t");
+  git(repo, "config", "user.name", "Test");
+  writeFileSync(path.join(repo, "README.md"), "# web\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-qm", "init");
+  git(repo, "push", "-q", "origin", "main");
+  const agent = path.join(base, "agent.sh");
+  writeFileSync(agent, `#!/bin/sh\n${agentScript}\n`, { mode: 0o755 });
+  const cfg = parseConfig({
+    stateDir: path.join(base, "state"),
+    wipLimit: 2,
+    handoffCheckMin: 0,
+    branchPattern: "{type}/{id}-{title}",
+    notifications: { enabled: false, autoTake: true, inboxPort: 0 },
+    executors: { agent: { type: "command", command: agent, mode: "managed" } },
+    defaultExecutor: "agent",
+    trackers: [{ type: "gitlab", projects: { "acme/web": { repoPath: repo, baseBranch: "main", pullRequest: "none", setup: "none" } } }],
+  });
+  const tracker = new FakeTracker(cfg.trackers[0].projects);
+  const orchestrator = new Orchestrator(cfg, [tracker], new StateStore(cfg.stateDir));
+  return { remote, repo, tracker, orchestrator };
+}
+
+before(() => {
+  dir = mkdtempSync(path.join(os.tmpdir(), "mako-test-"));
+  // No real Claude for commit messages and summaries: the fallbacks are used.
+  process.env.PATH = "/usr/bin:/bin";
+  process.env.HOME = dir;
+  setNotificationHost({ ask: async () => "take", inform: (title) => void notices.push(title) });
+});
+after(() => rmSync(dir, { recursive: true, force: true }));
+
+test("a task goes from the tracker through the agent to a pushed branch", async () => {
+  const { remote, tracker, orchestrator } = setup('echo "hello" > hello.txt; echo "Added hello.txt"');
+  tracker.issues = [issue(7, "Add a hello file")];
+  await orchestrator.poll();
+  await orchestrator.drain();
+
+  const rec = orchestrator.state.get("acme/web#7")!;
+  assert.equal(rec.status, "done", rec.error);
+  assert.equal(rec.branchName, "feat/7-add-a-hello-file");
+  assert.match(git(remote, "branch", "--list"), /feat\/7-add-a-hello-file/);
+  assert.equal(git(remote, "show", "feat/7-add-a-hello-file:hello.txt"), "hello");
+  assert.deepEqual(tracker.calls.filter((c) => !c.startsWith("comment")), ["start acme/web#7", "finish acme/web#7 success"]);
+  assert.ok(tracker.calls.some((c) => c.startsWith("comment acme/web#7")), "the issue gets a comment");
+  assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «In progress»");
+  assert.ok(rec.summary?.includes("Added hello.txt"), "the summary falls back to the agent's message");
+  orchestrator.stop();
+});
+
+test("a task deleted in the tracker is marked, not silently dropped", async () => {
+  const { tracker, orchestrator } = setup("true");
+  const t = issue(8, "Will be deleted");
+  tracker.issues = [t];
+  orchestrator.state.update(t.id, { task: t, status: "snoozed", snoozedUntil: Date.now() + 3600_000, repo: "web" });
+  tracker.state.set(t.id, "deleted");
+  await orchestrator.poll();
+  const rec = orchestrator.state.get(t.id)!;
+  assert.equal(rec.status, "cancelled");
+  assert.equal(rec.gone, "deleted");
+  orchestrator.stop();
+});
+
+test("a merged MR moves the task to its final status", async () => {
+  const { tracker, orchestrator } = setup("true");
+  const t = issue(9, "Merged");
+  orchestrator.state.update(t.id, { task: t, status: "done", repo: "web", prUrl: "https://git.example/acme/web/-/merge_requests/1" });
+  await orchestrator.refreshReview(t.id);
+  assert.equal(orchestrator.state.get(t.id)!.reviewState, undefined, "still open");
+  tracker.review = "merged";
+  await orchestrator.refreshReview(t.id);
+  const rec = orchestrator.state.get(t.id)!;
+  assert.equal(rec.reviewState, "merged");
+  assert.ok(tracker.calls.includes("merged acme/web#9"));
+  assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «Done»");
+  orchestrator.stop();
+});

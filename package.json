@@ -1,6 +1,6 @@
 {
   "name": "mako-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Watches Jira, GitHub and GitLab for tasks and hands them to your AI agent, with a menu bar app",
   "type": "module",
   "bin": {
@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
     "app": "tsc && electron .",
     "app:build": "tsc && electron-builder --dir",
     "app:dmg": "tsc && electron-builder --mac dmg",
@@ -50,7 +51,8 @@
       "dist/**/*",
       "ui/**/*",
       "assets/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/node-pty/build/**"
     ],
     "asarUnpack": [
       "node_modules/node-pty/**"
