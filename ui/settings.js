@@ -606,6 +606,7 @@
         ${field({ label: "Агентів одночасно", path: "general.maxConcurrent", kind: "number", type: "number",
           placeholder: String(model.general.wipLimit || 1), hint: "За замовчуванням дорівнює WIP-ліміту" })}
         ${field({ label: "Ліміт часу на задачу, хв", path: "general.taskTimeoutMin", kind: "number", type: "number", placeholder: "45", hint: "Для фонових виконавців" })}
+        ${field({ label: "Спершу план: агент пропонує план, а працює після вашого погодження (для окремої задачі вимикається в «Взяти ▾»)", path: "general.planFirst", kind: "check", type: "booltrue", wide: true })}
         ${field({ label: "Назва гілки задачі", path: "general.branchPattern", wide: true, placeholder: DEFAULT_BRANCH, list: "branch-patterns", rerender: true,
           hint: `${BRANCH_HINT} Наприклад: <code>${h(branchExample(model.general.branchPattern))}</code>` })}
       </div></div>${BRANCH_LIST}`;

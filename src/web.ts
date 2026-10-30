@@ -157,11 +157,11 @@ export function startWebUi(app: App, port: number): void {
         const id = form.get("id") ?? "";
         const o = app.orchestrator;
         if (o && url.pathname === "/take") {
-          o.decide(id, "take", { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, planFirst: form.get("planFirst") === "1" });
+          o.decide(id, "take", { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, planFirst: planChoice(form) });
         }
         if (o && url.pathname === "/later") o.decide(id, "later");
         if (o && url.pathname === "/retry") {
-          o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1", fresh: form.get("fresh") === "1", planFirst: form.get("planFirst") === "1" });
+          o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1", fresh: form.get("fresh") === "1", planFirst: planChoice(form) });
         }
         if (o && url.pathname === "/cancel") o.cancel(id);
         if (o && url.pathname === "/plan") {
@@ -174,7 +174,7 @@ export function startWebUi(app: App, port: number): void {
               description: form.get("description") ?? "",
               repo: form.get("repo") ?? "",
               executor: form.get("executor") || undefined,
-              planFirst: form.get("planFirst") === "1",
+              planFirst: planChoice(form),
             });
           } catch (err: any) {
             return res.writeHead(303, { Location: `/?notice=${encodeURIComponent(err.message)}` }).end();
@@ -343,4 +343,9 @@ async function checkRepoPath(
   const head = await run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], resolved).catch(() => undefined);
   const defaultBranch = head?.code === 0 ? head.stdout.trim().replace(/^origin\//, "") : undefined;
   return { exists: true, git: true, hasBase: ref?.code === 0, defaultBranch, resolved };
+}
+
+/** «Спершу план» as the developer set it in a form that shows the checkbox; undefined means the setting decides. */
+function planChoice(form: URLSearchParams): boolean | undefined {
+  return form.has("planShown") ? form.get("planFirst") === "1" : undefined;
 }

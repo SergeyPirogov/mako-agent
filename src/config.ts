@@ -65,6 +65,8 @@ export interface Config {
   executors: Record<string, ExecutorConfig>;
   defaultExecutor: string;
   dryRun: boolean;
+  /** Every taken task starts with a plan the developer approves (default); a task can opt out when taken. */
+  planFirst: boolean;
 }
 
 /** Absolute path, with a leading ~/ meaning the home folder (as people type it in the settings page). */
@@ -163,5 +165,6 @@ export function parseConfig(raw: any, dryRun = false): Config {
     executors,
     defaultExecutor,
     dryRun,
+    planFirst: raw.planFirst ?? true,
   };
 }

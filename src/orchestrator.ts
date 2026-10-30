@@ -577,7 +577,8 @@ export class Orchestrator {
         queuedAt: Date.now(),
         chosenRepo,
         chosenExecutor,
-        planFirst: choice.planFirst || undefined,
+        // Unless the developer said otherwise when taking it, the setting decides.
+        planFirst: (choice.planFirst ?? this.cfg.planFirst) || undefined,
         ...(chosenRepo ? { repo: chosenRepo } : {}),
       });
       this.schedule();
@@ -781,7 +782,12 @@ export class Orchestrator {
       resumeSession: resume ? rec.sessionId : undefined,
       denied: undefined,
       // «Спершу план» on a retry: a new plan for this run.
-      ...(choice.planFirst ? { planFirst: true, planApproved: undefined, plan: undefined, planFeedback: undefined } : {}),
+      // A new plan for a run from scratch (or when asked); the same worktree keeps the plan already approved.
+      ...((choice.planFirst ?? (choice.fresh && this.cfg.planFirst)) && !resume
+        ? { planFirst: true, planApproved: undefined, plan: undefined, planFeedback: undefined }
+        : choice.planFirst === false
+          ? { planFirst: undefined }
+          : {}),
       ...(chosenRepo ? { repo: chosenRepo } : {}),
       // A fresh run, not the old hand-off: forget its branch and PR tracking.
       branch: undefined,

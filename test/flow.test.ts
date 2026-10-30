@@ -90,6 +90,7 @@ function setup(agentScript: string) {
     wipLimit: 2,
     handoffCheckMin: 0,
     branchPattern: "{type}/{id}-{title}",
+    planFirst: false, // the plan has its own test
     notifications: { enabled: false, autoTake: true, inboxPort: 0 },
     executors: { agent: { type: "command", command: agent, mode: "managed" } },
     defaultExecutor: "agent",

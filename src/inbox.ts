@@ -243,7 +243,7 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
   return `<div class="take ${action}">${quick}<details class="take-menu"><summary class="take-more" title="Вибрати, куди відправити задачу">▾</summary>
     <form method="post" action="/${action}" class="take-pop">${hidden}
       <div class="tp-title">${verb}: хто виконує</div>
-      <label class="tp-check"><input type="checkbox" name="planFirst" value="1"><span>Спершу план<small>агент запропонує план, а працювати почне, коли ви його погодите</small></span></label>
+      <input type="hidden" name="planShown" value="1"><label class="tp-check"><input type="checkbox" name="planFirst" value="1"${planDefault(app, r, action) ? " checked" : ""}><span>Спершу план<small>агент запропонує план, а працювати почне, коли ви його погодите</small></span></label>
       ${action === "retry" ? `<label class="tp-check"><input type="checkbox" name="fresh" value="1"${freshByDefault ? " checked" : ""}><span>З нуля в новому worktree<small>нова гілка від свіжої основної; стара спроба${r.prUrl ? " і її MR" : ""} лишаться</small></span></label>` : ""}
       ${repos}
       <fieldset class="tp-execs">${executors}</fieldset>
@@ -489,7 +489,13 @@ function newTaskDialog(app: App, token: string): string {
       <label class="f">Репозиторій<select name="repo">${repos.map((r) => `<option>${esc(r)}</option>`).join("")}</select></label>
       <label class="f">Хто виконує<select name="executor">${choices.map((e) => `<option value="${esc(e.name)}"${e.default ? " selected" : ""}>${esc(e.label)}${e.default ? " · основний" : ""}</option>`).join("")}</select></label>
     </div>
-    <label class="check"><input type="checkbox" name="planFirst" value="1"> Спершу план: агент запропонує, працювати почне після вашого погодження</label>
+    <input type="hidden" name="planShown" value="1"><label class="check"><input type="checkbox" name="planFirst" value="1"${app.cfg?.planFirst !== false ? " checked" : ""}> Спершу план: агент запропонує, працювати почне після вашого погодження</label>
     <div class="mactions"><button type="button" class="mcancel" data-close>Скасувати</button><button class="primary">Взяти в роботу</button></div>
   </form></dialog>`;
+}
+
+/** The «Спершу план» checkbox as it starts: the setting for new work; a retry in the same worktree keeps an approved plan. */
+function planDefault(app: App, r: TaskRecord, action: "take" | "retry"): boolean {
+  if (app.cfg?.planFirst === false) return false;
+  return action === "take" || !r.planApproved;
 }
