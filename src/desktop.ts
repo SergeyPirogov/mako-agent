@@ -1,7 +1,8 @@
 // Desktop app: Mako in the menu bar (tray) with its own window and native notifications.
 import { app, BrowserWindow, Menu, Notification, Tray, dialog, nativeImage, shell, type MenuItemConstructorOptions } from "electron";
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startMako, type Runtime } from "./runtime.js";
@@ -27,8 +28,10 @@ else void main();
 
 async function main(): Promise<void> {
   fixPath();
-  // Config, .env and state live in the app's own folder: ~/Library/Application Support/Mako on macOS.
-  const home = process.env.MAKO_HOME ?? app.getPath("userData");
+  // Config, .env and state live in the app's own folder: ~/Library/Application Support/Mako on macOS,
+  // unless the `mako` command (install.sh) is already set up in ~/.mako: then both share one setup.
+  const cliHome = path.join(os.homedir(), ".mako");
+  const home = process.env.MAKO_HOME ?? (existsSync(path.join(cliHome, "mako.config.json")) ? cliHome : app.getPath("userData"));
   mkdirSync(home, { recursive: true });
   process.chdir(home);
 
@@ -240,7 +243,7 @@ async function main(): Promise<void> {
     const items: MenuItemConstructorOptions[] = [
       { label: view.configured ? `Mako · ${view.headline}` : `Mako · ${view.headline}`, enabled: false },
     ];
-    if (!view.configured) items.push({ label: "Налаштувати…", click: () => openWindow("/settings") });
+    if (!view.configured) items.push({ label: "Налаштувати…", click: () => openWindow("/welcome") });
     if (view.clock) {
       items.push({ label: `🕐 ${view.clock}`, enabled: false });
       if (view.canSearch) items.push({ label: "Шукати задачі зараз", click: () => runtime.app.orchestrator?.searchNow() });
@@ -292,7 +295,7 @@ async function main(): Promise<void> {
   // Handle used by the automated UI test; harmless otherwise.
   (globalThis as any).makoDesktop = { tray, menu: () => menuTemplate(trayView()), view: trayView, openWindow };
 
-  if (!runtime.app.orchestrator) openWindow("/settings");
+  if (!runtime.app.orchestrator) openWindow(runtime.app.settings().configured ? "/settings" : "/welcome");
 
   app.on("second-instance", () => openWindow("/"));
   app.on("activate", () => openWindow("/"));

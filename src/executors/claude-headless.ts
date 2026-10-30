@@ -19,7 +19,7 @@ export class ClaudeHeadlessExecutor implements Executor {
   readonly managed = true;
 
   constructor(readonly name: string, private cfg: ClaudeHeadlessConfig) {
-    this.label = cfg.label ?? "Claude Code";
+    this.label = cfg.label ?? "Claude Code у фоні";
   }
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
@@ -44,6 +44,10 @@ export class ClaudeHeadlessExecutor implements Executor {
           if (!line) continue;
           try {
             const event = JSON.parse(line);
+            for (const item of event.type === "assistant" ? event.message?.content ?? [] : []) {
+              if (item.type === "text" && item.text?.trim()) log(ctx.task.id, `🤖 ${oneLine(item.text, 300)}`);
+              if (item.type === "tool_use") log(ctx.task.id, `→ ${item.name}${toolHint(item.input)}`);
+            }
             if (event.type === "result") {
               result = {
                 kind: "completed",
@@ -80,4 +84,15 @@ export class ClaudeHeadlessExecutor implements Executor {
       );
     });
   }
+}
+
+function oneLine(text: string, max: number): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
+/** "→ Bash: npm test" rather than the whole tool input. */
+function toolHint(input: any): string {
+  const v = input?.command ?? input?.file_path ?? input?.pattern ?? input?.path ?? input?.url;
+  return typeof v === "string" ? `: ${oneLine(v, 160)}` : "";
 }

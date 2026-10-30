@@ -24,8 +24,8 @@ export function startMako(opts: { configPath: string; envPath: string; openSetti
   if (port) {
     startWebUi(app, port);
     if (!app.orchestrator) {
-      log("main", `${app.problem}. Open ${url("/settings")}`);
-      if (opts.openSettingsOnFirstRun) openUrl(url("/settings")!);
+      log("main", `${app.problem}. Open ${url("/welcome")}`);
+      if (opts.openSettingsOnFirstRun) openUrl(url("/welcome")!);
     }
   } else if (!app.orchestrator) {
     throw new Error(app.problem ?? "Mako is not configured");

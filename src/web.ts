@@ -9,12 +9,13 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
-import { renderInbox, renderArchive, inboxSignature } from "./inbox.js";
+import { renderInbox, renderArchive, inboxSignature, renderTaskLog } from "./inbox.js";
 import { page, esc, setVersion } from "./ui-layout.js";
 import { execFileSync } from "node:child_process";
 import { sessions, type SessionEvent } from "./sessions.js";
 import { collectChanges, readWorktreeFile } from "./changes.js";
 import { log } from "./log.js";
+import { doctor, findRepos } from "./onboarding.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -29,6 +30,7 @@ const STATIC: Record<string, [string, string]> = {
   "inbox.js": [path.join(UI_DIR, "inbox.js"), "text/javascript"],
   "dialog.js": [path.join(UI_DIR, "dialog.js"), "text/javascript"],
   "changes.js": [path.join(UI_DIR, "changes.js"), "text/javascript"],
+  "welcome.js": [path.join(UI_DIR, "welcome.js"), "text/javascript"],
   "vendor/xterm.js": [require.resolve("@xterm/xterm/lib/xterm.js"), "text/javascript"],
   "vendor/xterm.css": [require.resolve("@xterm/xterm/css/xterm.css"), "text/css"],
   "vendor/addon-fit.js": [require.resolve("@xterm/addon-fit/lib/addon-fit.js"), "text/javascript"],
@@ -78,7 +80,16 @@ export function startWebUi(app: App, port: number): void {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
 
     try {
+      // Until Mako is configured, the board has nothing to show: start with the setup wizard.
+      if (req.method === "GET" && url.pathname === "/" && !app.settings().configured) {
+        return res.writeHead(303, { Location: "/welcome" }).end();
+      }
       if (req.method === "GET" && url.pathname === "/") return send(200, "text/html", renderInbox(app, token));
+      if (req.method === "GET" && url.pathname === "/welcome") {
+        const body = `<div id="welcome" class="wz"><p class="muted">Завантаження…</p></div>`;
+        return send(200, "text/html", page({ title: "Початок роботи", active: "settings", token, body, script: "/ui/welcome.js" }));
+      }
+      if (req.method === "GET" && url.pathname === "/log") return send(200, "text/html", renderTaskLog(app, url.searchParams.get("task") ?? "", token));
       if (req.method === "GET" && url.pathname === "/archive") return send(200, "text/html", renderArchive(app, token));
       if (req.method === "GET" && url.pathname === "/settings") {
         const body = `<div id="app"><p class="muted">Завантаження…</p></div>`;
@@ -162,6 +173,10 @@ export function startWebUi(app: App, port: number): void {
       if (url.pathname.startsWith("/api/")) {
         if (req.headers["x-mako-token"] !== token) return json(403, { error: "Bad token: reload the page" });
         if (req.method === "GET" && url.pathname === "/api/settings") return json(200, app.settings());
+        if (req.method === "GET" && url.pathname === "/api/doctor") return json(200, await doctor());
+        if (req.method === "GET" && url.pathname === "/api/find-repo") {
+          return json(200, { paths: findRepos(url.searchParams.get("project") ?? "") });
+        }
         if (req.method === "GET" && url.pathname === "/api/check-path") {
           return json(200, await checkRepoPath(url.searchParams.get("path") ?? "", url.searchParams.get("base") || "main"));
         }
@@ -252,11 +267,16 @@ function renderSession(id: string, token: string): string {
 }
 
 /** Live check for the settings page: does the repo path exist, is it git, does origin/<base> exist locally. */
-async function checkRepoPath(input: string, base: string): Promise<{ exists: boolean; git: boolean; hasBase?: boolean; resolved: string }> {
+async function checkRepoPath(
+  input: string,
+  base: string,
+): Promise<{ exists: boolean; git: boolean; hasBase?: boolean; defaultBranch?: string; resolved: string }> {
   const resolved = path.resolve(input.startsWith("~/") ? path.join(homedir(), input.slice(2)) : input);
   if (!input || !existsSync(resolved) || !statSync(resolved).isDirectory()) return { exists: false, git: false, resolved };
   const top = await run("git", ["rev-parse", "--show-toplevel"], resolved).catch(() => undefined);
   if (!top || top.code !== 0) return { exists: true, git: false, resolved };
   const ref = await run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${base}`], resolved).catch(() => undefined);
-  return { exists: true, git: true, hasBase: ref?.code === 0, resolved };
+  const head = await run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], resolved).catch(() => undefined);
+  const defaultBranch = head?.code === 0 ? head.stdout.trim().replace(/^origin\//, "") : undefined;
+  return { exists: true, git: true, hasBase: ref?.code === 0, defaultBranch, resolved };
 }

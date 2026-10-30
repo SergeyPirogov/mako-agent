@@ -17,7 +17,7 @@
     "postinstall": "node scripts/postinstall.cjs"
   },
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -59,14 +59,16 @@
       "category": "public.app-category.developer-tools",
       "icon": "assets/icon.png",
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ],
       "identity": "-",
       "hardenedRuntime": false,
       "extendInfo": {
         "LSUIElement": true,
         "NSUserNotificationAlertStyle": "alert"
-      }
+      },
+      "artifactName": "Mako-${version}-${arch}.${ext}"
     },
     "linux": {
       "target": [

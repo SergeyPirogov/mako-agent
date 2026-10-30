@@ -1,0 +1,48 @@
+# Builds Mako.app for Apple Silicon and Intel Macs and attaches the .dmg/.zip to the GitHub Release.
+# Cut a release: npm version patch && git push --follow-tags
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Runs on the target arch, so node-pty's native module and spawn-helper match it;
+      # postinstall restores spawn-helper's execute bit.
+      - run: npm ci
+      - run: npx tsc
+      - name: Build Mako.app (ad-hoc signed, not notarized)
+        run: npx electron-builder --mac dmg zip --${{ matrix.arch }} --publish never
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            release/*.dmg
+            release/*.zip
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: Mako-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip

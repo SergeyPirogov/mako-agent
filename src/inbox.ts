@@ -2,6 +2,7 @@ import type { App } from "./app.js";
 import type { TaskRecord, TaskStatus } from "./state.js";
 import { esc, page } from "./ui-layout.js";
 import { sessions, sessionIdFor, attentionSessions } from "./sessions.js";
+import { recentLog } from "./log.js";
 
 const LABELS: Record<TaskStatus, string> = {
   asking: "Нова",
@@ -215,6 +216,8 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
   const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
   const actions = [
     session ? `<a class="btn" href="/session/${esc(session.id)}">Термінал</a>` : "",
+    // No terminal yet (the worktree is being prepared) or none at all (a background agent): show its log.
+    r.status === "running" && !session ? `<a class="btn" href="/log?task=${encodeURIComponent(r.id)}">Хід роботи</a>` : "",
     r.status === "asking" || r.status === "snoozed" ? takeControl(app, r, token, "take") + form("later", "Відкласти") : "",
     r.status === "failed" || r.status === "cancelled" ? takeControl(app, r, token, "retry") : "",
     r.status === "queued" || r.status === "handed-off"
@@ -234,6 +237,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     ? `<span class="s ${session.status}">${SESSION_LABELS[session.status]}</span>${session.message && session.status === "waiting" ? ` <span class="muted">${esc(session.message)}</span>` : ""}`
     : `<span class="s ${r.status}">${LABELS[r.status]}</span>${
         r.status === "handed-off" ? ` <span class="muted">чекає PR з <code>${esc(r.branch ?? "")}</code></span>`
+        : r.status === "running" && recentLog(r.id).length ? ` <span class="muted kc-phase">${esc(phase(recentLog(r.id).at(-1)!.text))}</span>`
         : r.status === "snoozed" && r.snoozedUntil ? ` <span class="muted">до ${new Date(r.snoozedUntil).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}</span>`
         : ""
       }`;
@@ -247,4 +251,25 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     ${r.error ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}
     ${actions ? `<div class="kc-actions">${actions}</div>` : ""}
   </article>`;
+}
+
+/** The latest step of a running task in a few words. */
+function phase(line: string): string {
+  const t = line.replace(/\s+/g, " ").trim();
+  return t.length > 90 ? t.slice(0, 89) + "…" : t;
+}
+
+/** What a task without a terminal is doing: Mako's own steps and, for background agents, their actions. */
+export function renderTaskLog(app: App, id: string, token: string): string {
+  const r = app.orchestrator?.state.get(id);
+  const lines = recentLog(id);
+  const time = (at: number) => new Date(at).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const live = r?.status === "running" || r?.status === "queued";
+  const body = `<div class="board-head"><h1>Хід роботи</h1><a class="link" href="/">← До дошки</a></div>
+    ${r ? `<p><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a> ${esc(r.task.title)} · <span class="s ${r.status}">${LABELS[r.status]}</span></p>` : ""}
+    ${lines.length
+      ? `<ol class="tlog">${[...lines].reverse().map((l) => `<li><span class="muted">${time(l.at)}</span> ${esc(l.text)}</li>`).join("")}</ol>`
+      : `<p class="muted">Поки що записів немає${live ? "" : " (журнал зберігається, доки Mako запущений)"}.</p>`}
+    ${live ? `<p class="small muted">Нові записи зверху, сторінка оновлюється сама.</p>` : ""}`;
+  return page({ title: `Хід роботи ${id}`, active: "inbox", token, body, refresh: live ? 3 : undefined });
 }
