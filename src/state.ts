@@ -56,6 +56,8 @@ export interface TaskRecord {
   followUp?: string;
   /** The task's branch, named from the pattern when it first ran; kept for later runs and the MR. */
   branchName?: string;
+  /** What the task came to, in Markdown, written when it finished; shown from the card. */
+  summary?: string;
   costUsd?: number;
   error?: string;
 }

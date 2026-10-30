@@ -13,7 +13,7 @@ import { findReview } from "./reviews.js";
 import { log } from "./log.js";
 import { sessions, sessionIdFor } from "./sessions.js";
 import { stopTask } from "./executors/processes.js";
-import { commitMessage, reviewText } from "./commit-message.js";
+import { commitMessage, reviewText, taskSummary } from "./commit-message.js";
 
 export class Orchestrator {
   /** By id; replaced on reload. */
@@ -624,12 +624,15 @@ export class Orchestrator {
       if (!announced) await tracker.comment(task, `🦈 Mako: ${executor.label} finished.\n\n${outcome}\n\n${result.summary}`);
       else if (pushedNow) await tracker.comment(task, `🦈 Mako: ${executor.label} finished and pushed the last changes to ${prUrl}\n\n${result.summary}`);
       await this.updateTracker(task, changed ? "success" : "no-changes", () => tracker.onFinish(task, changed ? "success" : "no-changes"));
+      const summary = await taskSummary(worktree, repo.baseBranch, task, result.summary, prUrl).catch((err: any) => ({ text: result.summary, error: err.message }));
+      if (summary.error) log(task.id, `summary not written by Claude: ${summary.error}`);
       this.state.update(task.id, {
         status: "done",
         finishedAt: new Date().toISOString(),
         prUrl,
         sessionId: result.sessionId,
         costUsd: result.costUsd,
+        summary: summary.text || undefined,
       });
       log(task.id, `done: ${outcome}`);
       inform(`✅ ${task.id} готово`, changed ? outcome : "Агент не вніс змін, див. коментар у задачі");

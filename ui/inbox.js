@@ -155,6 +155,7 @@
       const foot = actions.cloneNode(true);
       foot.classList.add("desc-actions");
       foot.querySelectorAll("details[open]").forEach((d) => (d.open = false));
+      foot.querySelectorAll("[data-desc], template").forEach((el) => el.remove()); // already open
       dlg.querySelector(".desc-in").append(foot);
     }
     dlg.showModal();

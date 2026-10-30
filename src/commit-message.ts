@@ -65,6 +65,46 @@ export async function reviewText(worktree: string, baseBranch: string, task: Tas
   return { title: title.replace(/^#+\s*|^title:\s*/i, "").trim().slice(0, 120) || fallback.title, summary: rest.join("\n").trim() };
 }
 
+/**
+ * What the task came to, for the developer reading the card later: written by Claude from the agent's final
+ * message, the commits and the diff. Falls back to the agent's own message.
+ */
+export async function taskSummary(
+  worktree: string,
+  baseBranch: string,
+  task: Task,
+  agentText: string,
+  reviewUrl?: string,
+): Promise<Written> {
+  const base = (await run("git", ["merge-base", `origin/${baseBranch}`, "HEAD"], worktree).catch(() => undefined))?.stdout.trim();
+  const commits = base ? (await run("git", ["log", "--format=- %s", `${base}..HEAD`], worktree)).stdout : "";
+  const stat = base ? (await run("git", ["diff", "--stat", base, "HEAD"], worktree)).stdout : "";
+  const diff = base ? (await run("git", ["diff", base, "HEAD"], worktree)).stdout : "";
+  return write(
+    worktree,
+    [
+      "Summarize, in Ukrainian, what was done for this task, for the developer who will read it later on a task board.",
+      "Use Markdown with these sections, each short (bullets, at most ~6 per section), skipping a section that has nothing:",
+      "## Що зроблено",
+      "## Як перевірено",
+      "## На що звернути увагу (open questions, risks, follow-ups, anything left undone)",
+      "Base it on the agent's final message and the actual changes below. Do not invent checks that are not mentioned. Answer with the summary only.",
+      "",
+      `Task: ${task.id} — ${task.title}`,
+      reviewUrl ? `Merge request: ${reviewUrl}` : "No merge request was opened.",
+      "",
+      "Agent's final message:",
+      agentText.slice(0, 8000) || "(none)",
+      "",
+      "Commits:",
+      commits || "(none)",
+      stat,
+      clip(diff),
+    ].join("\n"),
+    agentText.trim(),
+  );
+}
+
 async function write(cwd: string, prompt: string, fallback: string): Promise<Written> {
   const claude = findCommand("claude");
   if (!claude) return { text: fallback, error: "Claude Code не знайдено" };

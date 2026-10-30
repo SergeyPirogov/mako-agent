@@ -253,6 +253,11 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
             : "Задача не запуститься і звільнить місце в роботі.",
         )}"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Скасувати</button></form>`
       : "",
+    r.summary
+      ? `<button type="button" class="link" data-desc title="Що зроблено, як перевірено, на що звернути увагу">Підсумок</button>` +
+        `<template class="kc-full"><h2>Підсумок · ${esc(r.task.title)}</h2><p class="muted small"><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a>${r.prUrl ? ` · <a href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : ""}${r.finishedAt ? ` · ${new Date(r.finishedAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : ""}</p>` +
+        `<div class="desc-body">${renderMarkdown(r.summary, r.task.url)}</div></template>`
+      : "",
     app.orchestrator?.workspaceFor(r.id) ? `<a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "",
     r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : "",
     ["done", "failed", "cancelled"].includes(r.status)
