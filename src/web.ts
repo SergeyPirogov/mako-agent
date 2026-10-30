@@ -1,6 +1,9 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { run } from "./shell.js";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -113,6 +116,9 @@ export function startWebUi(app: App, port: number): void {
       if (url.pathname.startsWith("/api/")) {
         if (req.headers["x-mako-token"] !== token) return json(403, { error: "Bad token: reload the page" });
         if (req.method === "GET" && url.pathname === "/api/settings") return json(200, app.settings());
+        if (req.method === "GET" && url.pathname === "/api/check-path") {
+          return json(200, await checkRepoPath(url.searchParams.get("path") ?? "", url.searchParams.get("base") || "main"));
+        }
         const body = JSON.parse((await readBody(req)) || "{}");
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           return json(200, { ok: true, ...app.save(body.config, body.secrets ?? {}), problem: app.problem });
@@ -197,4 +203,14 @@ function renderSession(id: string, token: string): string {
     <div class="session-body"><div id="term"></div>
       <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>`;
   return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script>', data: { session: id } });
+}
+
+/** Live check for the settings page: does the repo path exist, is it git, does origin/<base> exist locally. */
+async function checkRepoPath(input: string, base: string): Promise<{ exists: boolean; git: boolean; hasBase?: boolean; resolved: string }> {
+  const resolved = path.resolve(input.startsWith("~/") ? path.join(homedir(), input.slice(2)) : input);
+  if (!input || !existsSync(resolved) || !statSync(resolved).isDirectory()) return { exists: false, git: false, resolved };
+  const top = await run("git", ["rev-parse", "--show-toplevel"], resolved).catch(() => undefined);
+  if (!top || top.code !== 0) return { exists: true, git: false, resolved };
+  const ref = await run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${base}`], resolved).catch(() => undefined);
+  return { exists: true, git: true, hasBase: ref?.code === 0, resolved };
 }

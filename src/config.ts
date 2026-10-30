@@ -1,4 +1,5 @@
 import { readFileSync, existsSync, writeFileSync, renameSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { TrackerConfig } from "./trackers/index.js";
 import type { ExecutorConfig } from "./executors/index.js";
@@ -61,6 +62,11 @@ export interface Config {
   dryRun: boolean;
 }
 
+/** Absolute path, with a leading ~/ meaning the home folder (as people type it in the settings page). */
+export function resolvePath(p: string): string {
+  return path.resolve(p.startsWith("~/") ? path.join(os.homedir(), p.slice(2)) : p);
+}
+
 export function env(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing env variable ${name} (see .env.example)`);
@@ -99,9 +105,9 @@ export function parseConfig(raw: any, dryRun = false): Config {
         if (!r.repoPath) throw new Error(`Project ${key}, repo ${name}: repoPath is required`);
         repos[name] = {
           name,
-          repoPath: path.resolve(r.repoPath),
+          repoPath: resolvePath(r.repoPath),
           baseBranch: r.baseBranch ?? "main",
-          worktreesDir: path.resolve(r.worktreesDir ?? path.join(r.repoPath, "..", ".worktrees", name)),
+          worktreesDir: resolvePath(r.worktreesDir ?? path.join(resolvePath(r.repoPath), "..", ".worktrees", name)),
           pullRequest: r.pullRequest ?? "auto",
           extraInstructions: r.extraInstructions,
           match: r.match,
