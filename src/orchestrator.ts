@@ -10,7 +10,7 @@ import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { routeTask } from "./routing.js";
 import { findReview } from "./reviews.js";
-import { log } from "./log.js";
+import { log, keepLogsIn, dropLog } from "./log.js";
 import { sessions, sessionIdFor } from "./sessions.js";
 import { stopTask } from "./executors/processes.js";
 import { commitMessage, reviewText, taskSummary } from "./commit-message.js";
@@ -38,6 +38,7 @@ export class Orchestrator {
     trackers: Tracker[],
     readonly state: StateStore,
   ) {
+    keepLogsIn(path.join(cfg.stateDir, "activity"));
     this.trackers = new Map(trackers.map((t) => [t.id, t]));
     this.executors = new Map(Object.entries(cfg.executors).map(([name, c]) => [name, createExecutor(name, c)]));
   }
@@ -877,6 +878,7 @@ export class Orchestrator {
         rmSync(f, { force: true });
       }
       this.state.delete(id);
+      dropLog(id);
       n++;
     }
     if (n) log("main", `deleted ${n} archived task(s)`);
