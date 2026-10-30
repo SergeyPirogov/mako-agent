@@ -186,6 +186,12 @@ export class GitLabTracker implements Tracker {
     return res.data as T;
   }
 
+  async describeReview(reviewUrl: string, title: string, description: string): Promise<void> {
+    const m = reviewUrl.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)/);
+    if (!m) throw new Error(`не схоже на MR GitLab: ${reviewUrl}`);
+    await this.request("PUT", `${projectApi(m[1])}/merge_requests/${m[2]}`, { title, description });
+  }
+
   async issueState(task: Task): Promise<IssueState> {
     try {
       const issue = await requestJson<any>("GET", `${this.apiUrl}${this.issuePath(task)}`, this.headers);

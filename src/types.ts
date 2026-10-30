@@ -47,4 +47,6 @@ export interface Tracker {
   issueState?(task: Task): Promise<IssueState>;
   /** For trackers with statuses: which one a moment moves the issue to; empty when none is set. */
   statusFor?(moment: "start" | Outcome): string | null | undefined;
+  /** Sets the title and full (multi-line) description of a PR/MR opened for one of its issues. */
+  describeReview?(reviewUrl: string, title: string, description: string): Promise<void>;
 }

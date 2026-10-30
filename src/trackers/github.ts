@@ -109,6 +109,12 @@ export class GitHubTracker implements Tracker {
     return this.applyLabels(task, labelChanges(this.labels, outcome));
   }
 
+  async describeReview(reviewUrl: string, title: string, description: string): Promise<void> {
+    const m = reviewUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (!m) throw new Error(`не схоже на PR GitHub: ${reviewUrl}`);
+    await this.request("PATCH", `/repos/${m[1]}/pulls/${m[2]}`, { title, body: description });
+  }
+
   async issueState(task: Task): Promise<IssueState> {
     try {
       const issue = await requestJson<any>("GET", `${this.apiUrl}${this.issuePath(task)}`, this.headers);

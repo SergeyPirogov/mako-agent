@@ -113,10 +113,12 @@
         reviewLink.hidden = false;
       }
       publishBtn.textContent = `Оновити ${review}`;
-      const subject = data.message ? `«${data.message.split("\n")[0]}»` : "без нових змін";
-      statusMsg.textContent = data.url
-        ? `${data.updated ? `${review} оновлено` : `${review} відкрито`}: коміт ${subject}. Коли його змерджать, натисніть «Завершити».`
-        : `Гілку запушено (коміт ${subject}), але ${review} не відкрито: перевірте налаштування репозиторію.`;
+      const commit = data.message ? ` (новий коміт «${data.message.split("\n")[0]}»)` : "";
+      statusMsg.textContent =
+        (data.url
+          ? `${data.updated ? `${review} оновлено` : `${review} відкрито`}: «${data.title}»${commit}. Коли його змерджать, натисніть «Завершити».`
+          : `Гілку запушено${commit}, але ${review} не відкрито: перевірте налаштування репозиторію.`) +
+        (data.warning ? ` ⚠ ${data.warning}` : "");
     } catch (err) {
       publishBtn.textContent = label;
       statusMsg.textContent = `${review} не створено: ${err.message}`;
