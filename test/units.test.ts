@@ -145,3 +145,12 @@ test("the agent's menu is read off its screen: Claude's plan approval", async ()
   // a plan's own numbered steps are not a menu: no question right above them
   assert.equal(parseChoice(["Plan:", " 1. cd frontend && npm test", " 2. Start the dev server"]), undefined);
 });
+
+test("a GitLab screenshot in a description comes through Mako, its size note is not shown as text", () => {
+  const md = "Скрол зʼявився\n\n![image](/uploads/0123456789abcdef/shot.png){width=467 height=600}";
+  const html = renderMarkdown(md, "https://git.kbyte.app/ecom/tests/moq/-/work_items/4", (url) =>
+    url === "https://git.kbyte.app/ecom/tests/moq/uploads/0123456789abcdef/shot.png" ? "/attachment?task=moq%234&i=0" : undefined,
+  );
+  assert.match(html, /<img src="\/attachment\?task=moq%234&amp;i=0"/);
+  assert.doesNotMatch(html, /width=467/);
+});

@@ -153,6 +153,25 @@ export function startWebUi(app: App, port: number): http.Server {
         if (!ws) return json(404, { error: "Для цієї задачі ще немає worktree" });
         return json(200, readWorktreeFile(ws.worktree, url.searchParams.get("path") ?? ""));
       }
+      if (req.method === "GET" && url.pathname === "/attachment") {
+        // A task's file (a screenshot in its description) fetched with the tracker's token, kept for a while.
+        const rec = app.orchestrator?.state.get(url.searchParams.get("task") ?? "");
+        const a = rec?.task.attachments?.[Number(url.searchParams.get("i"))];
+        const tracker = rec && app.orchestrator?.trackers.get(rec.task.trackerId);
+        if (!rec || !a || !tracker?.downloadAttachment) return send(404, "text/plain", "Немає такого файлу");
+        try {
+          let data = fileCache.get(a.url);
+          if (!data) {
+            data = await tracker.downloadAttachment(a, 15_000_000);
+            fileCache.set(a.url, data);
+            if (fileCache.size > 40) fileCache.delete(fileCache.keys().next().value!);
+          }
+          res.writeHead(200, { "Content-Type": fileType(a.name), "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff" });
+          return res.end(data);
+        } catch (err: any) {
+          return send(502, "text/plain", `Не вдалось завантажити ${a.name}: ${err.message}`);
+        }
+      }
       const sessionPage = url.pathname.match(/^\/session\/([\w.-]+)$/);
       if (req.method === "GET" && sessionPage) {
         // ?embed=1: inside «Пошта» on the board, without Mako's header
@@ -402,6 +421,15 @@ async function checkRepoPath(
   const wanted = base || defaultBranch;
   const ref = wanted ? await run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${wanted}`], resolved).catch(() => undefined) : undefined;
   return { exists: true, git: true, hasBase: ref?.code === 0, defaultBranch, resolved };
+}
+
+const fileCache = new Map<string, Buffer>();
+
+/** Images shown as images; anything else is offered as a download, never run as a page. */
+function fileType(name: string): string {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  const images: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+  return images[ext] ?? "application/octet-stream";
 }
 
 /** Back to the board as it was: «Пошта» keeps the chosen task (?task=…) after a button on it. */

@@ -218,7 +218,18 @@ function mailInfo(app: App, r: TaskRecord, token: string): string {
   const time = (at: number) => new Date(at).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
   return `${card(app, r, token, columnOf(r))}
     ${lines.length ? `<h3 class="mail-h">Хід роботи</h3><ol class="mail-log">${lines.map((l) => `<li><span class="muted">${time(l.at)}</span> ${esc(l.text)}</li>`).join("")}</ol>` : ""}
-    ${full ? `<h3 class="mail-h">Опис</h3><div class="desc-body">${renderMarkdown(full, r.task.url || "http://localhost/")}</div>` : ""}`;
+    ${full ? `<h3 class="mail-h">Опис</h3><div class="desc-body">${renderMarkdown(full, r.task.url || "http://localhost/", localFiles(r))}</div>` : ""}`;
+}
+
+/** The task's files (screenshots in its description) through Mako, which has the tracker's token. */
+function localFiles(r: TaskRecord): ((url: string) => string | undefined) | undefined {
+  const files = r.task.attachments ?? [];
+  if (!files.length) return undefined;
+  const tail = (url: string) => url.match(/\/uploads\/[0-9a-f]+\/[^?#]+/)?.[0] ?? url;
+  return (url) => {
+    const i = files.findIndex((a) => a.url === url || tail(a.url) === tail(url));
+    return i < 0 ? undefined : `/attachment?task=${encodeURIComponent(r.id)}&i=${i}`;
+  };
 }
 
 /** «5 хв», «2 год», «вчора»: how long ago, for the list. */
@@ -458,7 +469,7 @@ function description(r: TaskRecord): string {
   return `<button type="button" class="kc-desc" data-desc title="Показати повний опис">${esc(cut)}</button>
     <template class="kc-full"><h2>${esc(r.task.title)}</h2>
       <p class="muted small">${r.task.url ? `<a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a>` : `${esc(r.id)} · задача з Mako`}</p>
-      <div class="desc-body">${renderMarkdown(full, r.task.url)}</div></template>`;
+      <div class="desc-body">${renderMarkdown(full, r.task.url, localFiles(r))}</div></template>`;
 }
 
 /** Markdown without its markup, for a one-paragraph preview. */

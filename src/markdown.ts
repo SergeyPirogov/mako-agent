@@ -6,7 +6,7 @@ import { esc } from "./ui-layout.js";
  * is shown as text and only http(s)/mailto links survive, so a description cannot run code in Mako's pages.
  * Relative links and GitLab uploads resolve against the issue's own page.
  */
-export function renderMarkdown(md: string, issueUrl: string): string {
+export function renderMarkdown(md: string, issueUrl: string, localFile?: (url: string) => string | undefined): string {
   const marked = new Marked({ gfm: true, breaks: true, async: false });
   marked.use({
     renderer: {
@@ -20,11 +20,15 @@ export function renderMarkdown(md: string, issueUrl: string): string {
       image({ href, title, text }: Tokens.Image) {
         const url = safeUrl(href, issueUrl);
         if (!url || url.startsWith("mailto:")) return esc(text);
-        return `<a href="${esc(url)}" target="_blank" rel="noreferrer"><img src="${esc(url)}" alt="${esc(text)}"${title ? ` title="${esc(title)}"` : ""} loading="lazy"></a>`;
+        // The tracker's own uploads need its login: Mako serves them with the token (`localFile`).
+        const src = localFile?.(url) ?? url;
+        return `<a href="${esc(src)}" target="_blank" rel="noreferrer"><img src="${esc(src)}" alt="${esc(text)}"${title ? ` title="${esc(title)}"` : ""} loading="lazy"></a>`;
       },
     },
   });
-  return marked.parse(md.replace(/<!--[\s\S]*?-->/g, "")) as string;
+  // GitLab's «![image](…){width=467 height=600}»: the size is for GitLab's own page, not text to show.
+  const clean = md.replace(/<!--[\s\S]*?-->/g, "").replace(/(!\[[^\]]*\]\([^)]*\))\{[^}\n]*\}/g, "$1");
+  return marked.parse(clean) as string;
 }
 
 function safeUrl(href: string, issueUrl: string): string | undefined {
