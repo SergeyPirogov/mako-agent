@@ -3,6 +3,7 @@ import type { TaskRecord, TaskStatus } from "./state.js";
 import { esc, page } from "./ui-layout.js";
 import { sessions, sessionIdFor, attentionSessions } from "./sessions.js";
 import { recentLog } from "./log.js";
+import { renderMarkdown } from "./markdown.js";
 
 const LABELS: Record<TaskStatus, string> = {
   asking: "Нова",
@@ -305,57 +306,21 @@ function description(r: TaskRecord): string {
   return `<button type="button" class="kc-desc" data-desc title="Показати повний опис">${esc(cut)}</button>
     <template class="kc-full"><h2>${esc(r.task.title)}</h2>
       <p class="muted small"><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a></p>
-      <div class="desc-body">${richText(full)}</div></template>`;
+      <div class="desc-body">${renderMarkdown(full, r.task.url)}</div></template>`;
 }
 
 /** Markdown without its markup, for a one-paragraph preview. */
 function plainText(md: string): string {
-  return md
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+  // Rendered first, so only real Markdown markup goes (PRODUCT_WITH_LONG_NAME keeps its underscores).
+  return renderMarkdown(md.replace(/```[\s\S]*?```/g, " "), "http://localhost/")
+    .replace(/<img[^>]*>/g, " ")
+    .replace(/<\/?(em|strong|code|a|del|b|i)\b[^>]*>/g, "") // inline: no gap before punctuation
     .replace(/<[^>]+>/g, " ")
-    .replace(/^\s{0,3}(#{1,6}|[-*+>]|\d+\.)\s+/gm, "")
-    .replace(/[*_`~]+/g, "")
+    .replace(/&(amp|lt|gt|quot|#39);/g, (_, e: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[e]!)
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/** The description as safe HTML: escaped, with code blocks, headings, lists, bold, inline code and links. */
-function richText(md: string): string {
-  const inline = (t: string) =>
-    esc(t)
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noreferrer">$2</a>');
-  const out: string[] = [];
-  const blocks = md.replace(/<!--[\s\S]*?-->/g, "").split(/```/);
-  blocks.forEach((block, i) => {
-    if (i % 2) return out.push(`<pre>${esc(block.replace(/^[\w-]*\n/, ""))}</pre>`);
-    let list: string[] = [];
-    const flush = () => {
-      if (list.length) out.push(`<ul>${list.map((li) => `<li>${inline(li)}</li>`).join("")}</ul>`);
-      list = [];
-    };
-    for (const para of block.split(/\n{2,}/)) {
-      for (const line of para.split("\n")) {
-        const item = line.match(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ x]\]\s+)?(.*)$/);
-        if (item) {
-          list.push(item[1]);
-          continue;
-        }
-        flush();
-        const head = line.match(/^\s{0,3}#{1,6}\s+(.*)$/);
-        if (head) out.push(`<h3>${inline(head[1])}</h3>`);
-        else if (line.trim()) out.push(`<p>${inline(line.replace(/^\s*>\s?/, ""))}</p>`);
-      }
-      flush();
-    }
-  });
-  return out.join("");
-}
 
 /** A background Claude run, moved into Mako's terminal mid-way: same conversation, now visible and steerable. */
 function takeOverForm(app: App, r: TaskRecord, token: string, primary = false): string {
