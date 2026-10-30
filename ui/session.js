@@ -248,7 +248,8 @@
     send({ t: "finish" });
     finishBtn.disabled = cancelBtn.disabled = true;
     statusMsg.textContent = "Завершую…";
-    setTimeout(() => location.assign("/"), 300);
+    // inside «Пошта» the whole board goes back, not just this frame
+    setTimeout(() => (window.top || window).location.assign("/"), 300);
   });
   cancelBtn.addEventListener("click", async () => {
     const ok = await makoConfirm({

@@ -191,13 +191,28 @@ function mailItem(app: App, r: TaskRecord, on: boolean): string {
   const dot = session ? session.status : columnOf(r) === "review" ? "review" : r.status;
   const label = session ? SESSION_LABELS[session.status] : columnOf(r) === "review" ? "на ревʼю" : LABELS[r.status].toLowerCase();
   const ci = r.review?.pipeline ? ` · CI ${r.review.pipeline.status === "success" ? "✓" : r.review.pipeline.status === "failed" ? "✗" : "…"}` : "";
+  // What the agent asks, read off its screen: «питає: Would you like to proceed?»
+  const asks = session && (session.status === "waiting" || session.status === "idle") ? session.choice()?.question : undefined;
   const haystack = [r.id, r.task.title, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
   return `<a class="mail-item${on ? " on" : ""}" href="/?task=${encodeURIComponent(r.id)}" data-search="${esc(haystack)}"${on ? ' aria-current="true"' : ""}>
     <span class="s ${dot}" aria-hidden="true"></span><span class="t">${esc(r.task.title)}</span><span class="time">${esc(ago(r.updatedAt))}</span>
-    <span class="sub"><span class="id">${esc(shortId(r.id))}</span> · ${esc(label)}${esc(ci)}</span></a>`;
+    <span class="sub"><span class="id">${esc(shortId(r.id))}</span> · ${asks ? `питає: ${esc(asks)}` : `${esc(label)}${esc(ci)}`}</span></a>`;
 }
 
 function mailDetail(app: App, r: TaskRecord, token: string): string {
+  // A live terminal comes first: the agent, its questions and Завершити are there; the task's details are a tab.
+  const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
+  if (session) {
+    return `<div class="mail-tabs" role="tablist">
+        <button type="button" role="tab" class="on" aria-selected="true" data-mail-tab="term">Термінал</button>
+        <button type="button" role="tab" aria-selected="false" data-mail-tab="info">Деталі задачі</button></div>
+      <iframe class="mail-term" data-mail-pane="term" title="Термінал ${esc(r.id)}" src="/session/${esc(session.id)}?embed=1"></iframe>
+      <div class="mail-info" data-mail-pane="info" hidden>${mailInfo(app, r, token)}</div>`;
+  }
+  return mailInfo(app, r, token);
+}
+
+function mailInfo(app: App, r: TaskRecord, token: string): string {
   const full = (r.task.description ?? "").trim();
   const lines = r.status === "running" || r.status === "queued" ? recentLog(r.id).slice(-8) : [];
   const time = (at: number) => new Date(at).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });

@@ -1,5 +1,15 @@
 import { readFileSync } from "node:fs";
 import type { IPty } from "node-pty";
+import { createRequire } from "node:module";
+
+// A CommonJS package: required, so it loads the same under Node, tsx and Electron.
+const { Terminal: ScreenTerminal } = createRequire(import.meta.url)("@xterm/headless") as typeof import("@xterm/headless");
+
+/** A question the agent shows with numbered answers (a plan to approve, a permission to give). */
+export interface Choice {
+  question: string;
+  options: { key: string; label: string; current: boolean }[];
+}
 
 /**
  * working   – the agent is busy
@@ -31,6 +41,8 @@ export class Session {
   exitCode: number | null = null;
   private buffer = "";
   private listeners = new Set<(e: SessionEvent) => void>();
+  /** The terminal's screen, kept on the server too, so the board can show what the agent asks. */
+  private screenTerm = new ScreenTerminal({ cols: 120, rows: 34, scrollback: 500, allowProposedApi: true });
 
   constructor(
     readonly id: string,
@@ -43,6 +55,7 @@ export class Session {
   ) {
     pty.onData((d) => {
       this.buffer = (this.buffer + d).slice(-MAX_BUFFER);
+      this.screenTerm.write(d);
       this.emit({ t: "o", d });
     });
     pty.onExit(({ exitCode }) => {
@@ -69,8 +82,26 @@ export class Session {
   }
 
   resize(cols: number, rows: number): void {
-    if (this.status !== "exited" && cols > 10 && rows > 3) this.pty.resize(Math.floor(cols), Math.floor(rows));
+    if (this.status !== "exited" && cols > 10 && rows > 3) {
+      this.pty.resize(Math.floor(cols), Math.floor(rows));
+      this.screenTerm.resize(Math.floor(cols), Math.floor(rows));
+    }
   }
+
+  /** What the terminal shows now, line by line, trailing blank lines dropped. */
+  screen(): string[] {
+    const b = this.screenTerm.buffer.active;
+    const lines: string[] = [];
+    for (let y = b.baseY; y < b.baseY + this.screenTerm.rows; y++) lines.push(b.getLine(y)?.translateToString(true) ?? "");
+    while (lines.length && !lines.at(-1)!.trim()) lines.pop();
+    return lines;
+  }
+
+  /** The numbered answers the agent offers at the bottom of the screen, with the question above them. */
+  choice(): Choice | undefined {
+    return parseChoice(this.screen());
+  }
+
 
   /** Ends the session and lets Mako commit, push and open the PR. */
   /** Gives the agent a request as if the developer pasted it into the prompt and pressed Enter. */
@@ -201,3 +232,33 @@ export function plainTail(output: string, max = 1500): string {
     .trim()
     .slice(-max);
 }
+
+/**
+ * Finds a menu like Claude Code's «❯ 1. Yes, and use auto mode / 2. … / 3. …» near the bottom of a screen:
+ * at least two consecutive numbered lines, the question being the closest line above that ends with «?».
+ */
+export function parseChoice(lines: string[]): Choice | undefined {
+  const opt = /^[\s│|]*(❯|>)?\s*(\d{1,2})[.)]\s+(.+?)\s*[│|]?\s*$/;
+  let end = -1;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 14); i--) if (opt.test(lines[i])) { end = i; break; }
+  if (end < 0) return undefined;
+  let start = end;
+  // continuation lines (wrapped labels, hints) may sit between options
+  for (let i = end - 1; i >= Math.max(0, end - 12); i--) {
+    if (opt.test(lines[i])) start = i;
+    else if (!/^\s{4,}\S/.test(lines[i])) break;
+  }
+  const options = lines
+    .slice(start, end + 1)
+    .map((l) => l.match(opt))
+    .filter((m): m is RegExpMatchArray => Boolean(m))
+    .map((m) => ({ key: m[2], label: m[3].trim(), current: Boolean(m[1]) }));
+  if (options.length < 2 || options[0].key !== "1") return undefined;
+  let question = "";
+  for (let i = start - 1; i >= Math.max(0, start - 6); i--) {
+    const t = lines[i].replace(/^[\s│|]+|[\s│|]+$/g, "");
+    if (/\?\s*$/.test(t)) { question = t; break; }
+  }
+  return question ? { question, options } : undefined;
+}
+

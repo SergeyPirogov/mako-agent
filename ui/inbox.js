@@ -133,7 +133,9 @@
   async function check() {
     const state = await (await fetch("/api/inbox-state", { cache: "no-store" })).json();
     // Do not reload under an open "Куди відправити" menu.
-    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog[open]") && document.activeElement?.id !== "board-filter") return location.reload();
+    // Not while you type: in the filter, or in the terminal of «Пошта» (an iframe holds the focus then).
+    const typing = document.activeElement?.id === "board-filter" || document.activeElement?.tagName === "IFRAME";
+    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog[open]") && !typing) return location.reload();
     search = state.search;
     drawClock();
     for (const el of document.querySelectorAll("[data-phase]")) {
@@ -298,3 +300,26 @@
     if (next && !next.classList.contains("on")) location.assign(next.href);
   });
 })();
+
+// «Пошта»: the running task's terminal or its details; the choice is kept across the board's reloads.
+(() => {
+  const tabs = [...document.querySelectorAll("[data-mail-tab]")];
+  if (!tabs.length) return;
+  const show = (name) => {
+    tabs.forEach((t) => {
+      t.classList.toggle("on", t.dataset.mailTab === name);
+      t.setAttribute("aria-selected", String(t.dataset.mailTab === name));
+    });
+    document.querySelectorAll("[data-mail-pane]").forEach((p) => (p.hidden = p.dataset.mailPane !== name));
+    try {
+      sessionStorage.setItem("mako.mailTab", name);
+    } catch {}
+  };
+  tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.mailTab)));
+  let saved = "term";
+  try {
+    saved = sessionStorage.getItem("mako.mailTab") || "term";
+  } catch {}
+  show(saved === "info" ? "info" : "term");
+})();
+

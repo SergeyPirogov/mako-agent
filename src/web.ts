@@ -154,7 +154,11 @@ export function startWebUi(app: App, port: number): http.Server {
         return json(200, readWorktreeFile(ws.worktree, url.searchParams.get("path") ?? ""));
       }
       const sessionPage = url.pathname.match(/^\/session\/([\w.-]+)$/);
-      if (req.method === "GET" && sessionPage) return send(200, "text/html", renderSession(app, sessionPage[1], token));
+      if (req.method === "GET" && sessionPage) {
+        // ?embed=1: inside «Пошта» on the board, without Mako's header
+        const embed = url.searchParams.get("embed") === "1";
+        return send(200, "text/html", renderSession(app, sessionPage[1], token, embed), embed);
+      }
 
       // Claude Code hooks of a terminal session; each session has its own token.
       const hook = url.pathname.match(/^\/hook\/([\w.-]+)$/);
@@ -354,7 +358,7 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-function renderSession(app: App, id: string, token: string): string {
+function renderSession(app: App, id: string, token: string, embed = false): string {
   const session = sessions.get(id);
   if (!session) {
     const body = `<h1>Сесія</h1><div class="notice">Сесія <code>${esc(id)}</code> не активна. <a href="/">До задач →</a></div>`;
@@ -378,7 +382,7 @@ function renderSession(app: App, id: string, token: string): string {
     <div id="mr-bar" class="kc-mr mr-bar" hidden></div>
     <div class="session-body"><div id="term"></div>
       <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>`;
-  return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script><script src="/ui/vendor/addon-web-links.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });
+  return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, bare: embed, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script><script src="/ui/vendor/addon-web-links.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });
 }
 
 /** Live check for the settings page: does the repo path exist, is it git, does origin/<base> exist locally. */

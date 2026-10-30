@@ -126,3 +126,22 @@ test("a project saved with an empty repos (all defaults) has its one repo", () =
   assert.match(moq.moq.repoPath, /mako\/projects\/moq$/);
   assert.deepEqual(Object.keys(cfg.trackers[0].projects["ecom/web/front"].repos), ["front"]);
 });
+
+test("the agent's menu is read off its screen: Claude's plan approval", async () => {
+  const { parseChoice } = await import("../src/sessions.ts");
+  const screen = [
+    " 3. In Chrome open /admin/ui/ at ~800px height",
+    "",
+    " Claude has written up a plan and is ready to execute. Would you like to proceed?",
+    "",
+    " ❯ 1. Yes, and use auto mode",
+    "   2. Yes, manually approve edits",
+    "   3. Tell Claude what to change",
+    "      shift+tab to approve with this feedback",
+  ];
+  const c = parseChoice(screen)!;
+  assert.equal(c.question, "Claude has written up a plan and is ready to execute. Would you like to proceed?");
+  assert.deepEqual(c.options.map((o) => [o.key, o.label, o.current]), [["1", "Yes, and use auto mode", true], ["2", "Yes, manually approve edits", false], ["3", "Tell Claude what to change", false]]);
+  // a plan's own numbered steps are not a menu: no question right above them
+  assert.equal(parseChoice(["Plan:", " 1. cd frontend && npm test", " 2. Start the dev server"]), undefined);
+});
