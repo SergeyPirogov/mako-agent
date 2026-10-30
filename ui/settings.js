@@ -52,6 +52,11 @@
       secretEdits = {};
       model = toModel(data.config);
       dirty = false;
+      const tidied = tidyExecutorNames();
+      if (tidied.length) {
+        dirty = true;
+        status = { kind: "warn", text: `Виконавців перейменовано за типом: ${h(tidied.join(", "))}. Збережіть, щоб застосувати.` };
+      }
       render();
     } catch (err) {
       root.innerHTML = `<div class="notice err">Не вдалося завантажити налаштування: ${h(err.message)}</div>`;
@@ -211,6 +216,41 @@
   function button(label, action, data = {}, cls = "") {
     const attrs = Object.entries(data).map(([k, v]) => ` data-${k}="${h(v)}"`).join("");
     return `<button type="button" class="${cls}" data-action="${action}"${attrs}>${label}</button>`;
+  }
+
+  /** As Mako resolves it: the chosen one, else the Mako terminal, else the first. */
+  function defaultExecutorName() {
+    return model.general.defaultExecutor || model.executors.find((e) => e.conf.type === "terminal")?.name || model.executors[0]?.name || "";
+  }
+
+  const BASE_NAMES = { terminal: "terminal", "claude-headless": "claude", orca: "orca", command: "command" };
+
+  /** Renames an executor and everything that points at it: the default and the repos that chose it. */
+  function renameExecutor(from, to) {
+    if (!from || from === to) return;
+    if (model.general.defaultExecutor === from) model.general.defaultExecutor = to;
+    for (const t of model.trackers) for (const p of t.projects) for (const r of p.repos) if (r.conf.executor === from) r.conf.executor = to;
+  }
+
+  /**
+   * Names like "terminal" on an Orca executor, or "terminal-2" next to it, come from changing a type after adding:
+   * give each generated name its type's plain name ("orca", "terminal"), so the list reads as what it is.
+   */
+  function tidyExecutorNames() {
+    const changes = [];
+    const generated = (e) => /^(terminal|claude|orca|command)(-\d+)?$/.test(e.name);
+    for (let pass = 0; pass < 2; pass++) {
+      for (const e of model.executors) {
+        const base = BASE_NAMES[e.conf.type];
+        if (!base || !generated(e) || e.name === base) continue;
+        if (e.name.replace(/-\d+$/, "") === base && model.executors.some((x) => x.name === base)) continue;
+        if (model.executors.some((x) => x !== e && x.name === base)) continue; // taken: next pass, if it gets freed
+        changes.push(`${e.name} → ${base}`);
+        renameExecutor(e.name, base);
+        e.name = base;
+      }
+    }
+    return changes;
   }
 
   function uniqueName(base, taken) {
@@ -412,7 +452,7 @@
   function repoCard(t, ti, proj, pi, r, ri) {
     const p = `trackers.${ti}.projects.${pi}.repos.${ri}`;
     const multi = proj.repos.length > 1;
-    const defaultExec = model.general.defaultExecutor || model.executors[0]?.name || "";
+    const defaultExec = defaultExecutorName();
     const check = pathCheckKey(r.conf.repoPath, r.conf.baseBranch);
     return `<div class="card repo"><div class="head"><strong>📁 ${h(repoName(r, proj))}</strong>
         ${multi ? button("Видалити", "remove-repo", { ti, pi, ri }, "link danger") : ""}</div>
@@ -469,11 +509,14 @@
   }
 
   function executorsSection() {
-    const defaultExec = model.general.defaultExecutor || model.executors[0]?.name;
+    const defaultExec = defaultExecutorName();
     const usage = (name) =>
       model.trackers.flatMap((t) => t.projects.flatMap((p) => p.repos)).filter((r) => (r.conf.executor || defaultExec) === name).length;
-    const rows = model.executors
-      .map((e, ei) => {
+    // The default first: it is the one that runs the tasks.
+    const order = model.executors.map((e, ei) => ei).sort((a, b) => (model.executors[b].name === defaultExec) - (model.executors[a].name === defaultExec));
+    const rows = order
+      .map((ei) => {
+        const e = model.executors[ei];
         const p = `executors.${ei}.conf`;
         const type = e.conf.type;
         const open = openExecs.has(ei);
@@ -511,8 +554,8 @@
         return `<div class="exec${open ? " open" : ""}">
           <div class="exec-row">
             <button class="exec-toggle" data-action="toggle-exec" data-ei="${ei}" aria-expanded="${open}">
-              <span class="caret">${open ? "▾" : "▸"}</span><strong>${h(e.name || "без назви")}</strong>
-              <span class="muted">${h(EXECUTORS[type] ?? type)}</span></button>
+              <span class="caret">${open ? "▾" : "▸"}</span><strong>${h(EXECUTORS[type] ?? type)}</strong>
+              <code class="muted small" title="Назва в конфігу">${h(e.name || "без назви")}</code></button>
             <span class="muted small">${used ? `репозиторіїв: ${used}` : "не використовується"}</span>
             ${isDefault ? `<span class="badge ok">основний</span>` : button("Зробити основним", "make-default", { ei }, "link")}
             ${model.executors.length > 1 ? button("Видалити", "remove-executor", { ei }, "link danger") : ""}
@@ -693,7 +736,10 @@
     } else if (el.dataset.path) {
       let value = readValue(el);
       if (el.dataset.path === "general.notifications.autoTake") value = value === "true" ? true : undefined;
+      const old = getAt(model, el.dataset.path);
       setAt(model, el.dataset.path, value);
+      if (/^executors\.\d+\.name$/.test(el.dataset.path)) renameExecutor(old, value);
+      if (/^executors\.\d+\.conf\.type$/.test(el.dataset.path)) tidyExecutorNames();
     } else return;
     dirty = true;
     status = null;

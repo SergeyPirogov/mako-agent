@@ -127,7 +127,9 @@ export function parseConfig(raw: any, dryRun = false): Config {
   const executors: Record<string, ExecutorConfig> = raw.executors ?? {
     claude: { type: "claude-headless", command: raw.claude?.command, args: raw.claude?.args },
   };
-  const defaultExecutor: string = raw.defaultExecutor ?? Object.keys(executors)[0];
+  // Without a choice: Mako's own terminal, where the developer sees the agent and can step in.
+  const defaultExecutor: string =
+    raw.defaultExecutor ?? Object.keys(executors).find((n) => (executors as any)[n].type === "terminal") ?? Object.keys(executors)[0];
   if (!executors[defaultExecutor]) throw new Error(`defaultExecutor "${defaultExecutor}" is not in executors`);
   for (const t of trackers)
     for (const [key, p] of Object.entries(t.projects))
