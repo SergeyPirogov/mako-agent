@@ -26,6 +26,20 @@ export interface Task {
 
 export type Outcome = "success" | "no-changes" | "failed";
 
+/** A PR/MR as the developer needs it next to the agent: CI, open review threads, conflicts, whether it can be merged. */
+export interface ReviewInfo {
+  state: "open" | "merged" | "closed";
+  conflicts: boolean;
+  /** Ready to merge by the host's own rules (CI, approvals, threads). */
+  mergeable: boolean;
+  /** Why not, in the host's words ("ci_still_running", "not_approved", …), when it is not. */
+  blocker?: string;
+  pipeline?: { status: string; url?: string; failed: { name: string; url?: string; id?: number }[] };
+  /** Unresolved review threads, first comment of each. */
+  comments: { author: string; body: string; path?: string; line?: number; url?: string; replies: number }[];
+  checkedAt: number;
+}
+
 /** Where an issue stands in its tracker, for tasks that left the search results. */
 export type IssueState = "open" | "closed" | "deleted";
 
@@ -51,6 +65,12 @@ export interface Tracker {
   reviewState?(reviewUrl: string): Promise<"open" | "merged" | "closed">;
   /** The PR/MR was merged: move the issue to its final status and close it. Returns the status set, if any. */
   onMerged?(task: Task): Promise<string | void>;
+  /** CI, review threads, conflicts and mergeability of a PR/MR. */
+  reviewDetails?(reviewUrl: string): Promise<ReviewInfo>;
+  /** Merges the PR/MR; throws with the host's reason when it cannot. */
+  mergeReview?(reviewUrl: string): Promise<void>;
+  /** The end of a failed CI job's log, for the agent to fix it. */
+  jobLog?(reviewUrl: string, jobId: number): Promise<string>;
   /** Sets the title and full (multi-line) description of a PR/MR opened for one of its issues. */
   describeReview?(reviewUrl: string, title: string, description: string): Promise<void>;
 }

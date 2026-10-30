@@ -1,6 +1,6 @@
 import type { ProjectConfig } from "../config.js";
-import { requestJson, explainAccess, HttpError } from "../http.js";
-import type { IssueState, Outcome, Task, Tracker } from "../types.js";
+import { requestJson, requestText, explainAccess, HttpError } from "../http.js";
+import type { IssueState, Outcome, ReviewInfo, Task, Tracker } from "../types.js";
 import { defaultLabels, labelChanges, normalizeAssignee, type LabelConfig } from "./labels.js";
 
 export interface GitLabTrackerConfig {
@@ -114,6 +114,64 @@ export class GitLabTracker implements Tracker {
     const t = this.cfg.transitions;
     if (moment === "merged") return t?.onMerged;
     return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
+  }
+
+  private mrPath(reviewUrl: string): string {
+    const m = reviewUrl.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)/);
+    if (!m) throw new Error(`не схоже на MR GitLab: ${reviewUrl}`);
+    return `${projectApi(m[1])}/merge_requests/${m[2]}`;
+  }
+
+  async reviewDetails(reviewUrl: string): Promise<ReviewInfo> {
+    const path = this.mrPath(reviewUrl);
+    const mr = await this.request<any>("GET", path);
+    const state = mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open";
+    let pipeline: ReviewInfo["pipeline"];
+    if (mr.head_pipeline) {
+      const failed =
+        mr.head_pipeline.status === "failed"
+          ? (await this.request<any[]>("GET", `/projects/${mr.project_id}/pipelines/${mr.head_pipeline.id}/jobs?scope[]=failed&per_page=20`).catch(() => []))
+              .map((j) => ({ name: j.name, url: j.web_url, id: j.id }))
+          : [];
+      pipeline = { status: mr.head_pipeline.status, url: mr.head_pipeline.web_url, failed };
+    }
+    const discussions = state === "open" ? await this.request<any[]>("GET", `${path}/discussions?per_page=100`).catch(() => []) : [];
+    const comments = discussions
+      .filter((d) => d.notes?.[0] && !d.notes[0].system && d.notes[0].resolvable && !d.notes[0].resolved)
+      .map((d) => {
+        const n = d.notes[0];
+        return {
+          author: n.author?.name ?? n.author?.username ?? "reviewer",
+          body: n.body,
+          path: n.position?.new_path ?? n.position?.old_path,
+          line: n.position?.new_line ?? n.position?.old_line ?? undefined,
+          url: `${mr.web_url}#note_${n.id}`,
+          replies: d.notes.length - 1,
+        };
+      });
+    const status: string = mr.detailed_merge_status ?? mr.merge_status ?? "";
+    return {
+      state,
+      conflicts: Boolean(mr.has_conflicts),
+      mergeable: state === "open" && status === "mergeable",
+      blocker: state === "open" && status !== "mergeable" ? status : undefined,
+      pipeline,
+      comments,
+      checkedAt: Date.now(),
+    };
+  }
+
+  async mergeReview(reviewUrl: string): Promise<void> {
+    await this.request("PUT", `${this.mrPath(reviewUrl)}/merge`, { should_remove_source_branch: true }).catch((err: any) => {
+      throw new Error(`GitLab не змерджив MR: ${String(err.message).split("\n")[0]}`);
+    });
+  }
+
+  async jobLog(reviewUrl: string, jobId: number): Promise<string> {
+    const project = reviewUrl.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\//)?.[1] ?? "";
+    const text = await requestText(`${this.apiUrl}${projectApi(project)}/jobs/${jobId}/trace`, this.headers);
+    // eslint-disable-next-line no-control-regex
+    return text.replace(/\x1b\[[0-9;]*[A-Za-z]|section_(start|end):\d+:\S+\r?/g, "").slice(-6000);
   }
 
   async reviewState(reviewUrl: string): Promise<"open" | "merged" | "closed"> {

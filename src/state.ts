@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 import path from "node:path";
-import type { Task } from "./types.js";
+import type { ReviewInfo, Task } from "./types.js";
 
 /**
  * asking   – notification is on screen, waiting for "Взяти" / "Відкласти"
@@ -50,6 +50,10 @@ export interface TaskRecord {
   attempt?: number;
   /** What happened to the PR/MR in the end: merged, or closed without merging. */
   reviewState?: "merged" | "closed";
+  /** Last look at the PR/MR: CI, review threads, conflicts. */
+  review?: ReviewInfo;
+  /** The next run continues in the same worktree with this request instead of the full task prompt. */
+  followUp?: string;
   costUsd?: number;
   error?: string;
 }

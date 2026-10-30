@@ -85,7 +85,7 @@ export function startWebUi(app: App, port: number): void {
       if (req.method === "GET" && url.pathname === "/" && !app.settings().configured) {
         return res.writeHead(303, { Location: "/welcome" }).end();
       }
-      if (req.method === "GET" && url.pathname === "/") return send(200, "text/html", renderInbox(app, token));
+      if (req.method === "GET" && url.pathname === "/") return send(200, "text/html", renderInbox(app, token, url.searchParams.get("notice") ?? undefined));
       if (req.method === "GET" && url.pathname === "/welcome") {
         const body = `<div id="welcome" class="wz"><p class="muted">Завантаження…</p></div>`;
         return send(200, "text/html", page({ title: "Початок роботи", active: "settings", token, body, script: "/ui/welcome.js" }));
@@ -146,7 +146,7 @@ export function startWebUi(app: App, port: number): void {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -159,6 +159,14 @@ export function startWebUi(app: App, port: number): void {
           o.retry(id, { repo: form.get("repo") || undefined, executor: form.get("executor") || undefined, resume: form.get("resume") === "1", fresh: form.get("fresh") === "1" });
         }
         if (o && url.pathname === "/cancel") o.cancel(id);
+        if (o && (url.pathname === "/review-ask" || url.pathname === "/review-merge")) {
+          // Board buttons: errors (CI already green, merge refused) come back as a notice on the board.
+          const done = url.pathname === "/review-merge"
+            ? o.mergeReview(id).then(() => "")
+            : o.askAgent(id, form.get("kind") as "ci" | "comments" | "conflicts").then(() => "");
+          const problem = await done.catch((err: any) => String(err.message));
+          return res.writeHead(303, { Location: problem ? `/?notice=${encodeURIComponent(problem)}` : "/" }).end();
+        }
         if (o && url.pathname === "/takeover") {
           o.takeOver(id);
           // Back to the log: the terminal appears there as soon as the agent has stopped.
@@ -193,6 +201,20 @@ export function startWebUi(app: App, port: number): void {
         const body = JSON.parse((await readBody(req)) || "{}");
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           return json(200, { ok: true, ...app.save(body.config, body.secrets ?? {}), problem: app.problem });
+        }
+        if (url.pathname.startsWith("/api/review")) {
+          const o = app.orchestrator;
+          const task = url.searchParams.get("task") ?? "";
+          if (!o) return json(400, { error: "Mako не налаштований" });
+          if (req.method === "POST" && url.pathname === "/api/review/ask") {
+            return json(200, { mode: await o.askAgent(task, url.searchParams.get("kind") as "ci" | "comments" | "conflicts") });
+          }
+          if (req.method === "POST" && url.pathname === "/api/review/merge") {
+            await o.mergeReview(task);
+          }
+          let rec = o.state.get(task);
+          if (rec?.prUrl && Date.now() - (o.reviewChecked.get(task) ?? 0) > 20_000) rec = await o.refreshReview(task);
+          return json(200, { prUrl: rec?.prUrl, review: rec?.review, reviewState: rec?.reviewState });
         }
         if (req.method === "POST" && url.pathname === "/api/publish") {
           if (!app.orchestrator) return json(400, { error: "Mako не налаштований" });
@@ -281,6 +303,7 @@ function renderSession(app: App, id: string, token: string): string {
         <button id="cancel" class="danger-outline" title="Зупинити без PR">Скасувати</button></div>
     </div>
     <div id="status-msg" class="muted"></div>
+    <div id="mr-bar" class="kc-mr mr-bar" hidden></div>
     <div class="session-body"><div id="term"></div>
       <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>`;
   return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });

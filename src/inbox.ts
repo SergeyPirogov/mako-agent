@@ -51,7 +51,7 @@ const COLUMNS: Column[] = [
 const DONE_SHOWN = 15;
 
 /** Kanban board: Нові → В роботі (WIP limit) → Готово, plus Помилка when something failed. */
-export function renderInbox(app: App, token: string): string {
+export function renderInbox(app: App, token: string, notice?: string): string {
   if (!app.orchestrator) {
     const body = `<h1>Задачі</h1><div class="notice">${esc(app.problem ?? "Mako запускається…")}.
       <a href="/settings">Відкрити налаштування →</a></div>`;
@@ -97,7 +97,7 @@ export function renderInbox(app: App, token: string): string {
     .join("");
 
   const archiveLink = archived ? `<a class="link archive-link" href="/archive">Архів (${archived})</a>` : "";
-  const body = `<div class="board-head"><h1>Задачі</h1>${archiveLink}${clock}</div>${problem}${paused}${attentionBlock()}
+  const body = `<div class="board-head"><h1>Задачі</h1>${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}
     <div class="board" style="--cols:${columns.length}">${board}</div>`;
   const { sig, attention, search } = inboxSignature(app);
   return page({
@@ -280,6 +280,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     ${description(r)}
     <div class="kc-status">${gone ? (r.status === "cancelled" ? gone : `${status} ${gone}`) : needsPermission ? `<span class="s perm">🔒 Потрібні дозволи</span>` : status}</div>
     ${r.status === "running" && !session ? `<div class="kc-phase muted" data-phase="${esc(r.id)}" title="${esc(phase(recentLog(r.id).at(-1)?.text ?? ""))}">${esc(phase(recentLog(r.id).at(-1)?.text ?? "")) || "&nbsp;"}</div>` : ""}
+    ${reviewBlock(app, r, token)}
     ${r.reviewState ? `<div class="kc-review ${r.reviewState}">${r.reviewState === "merged" ? `✓ ${reviewKind(app, r)} змерджено${r.status === "running" ? " · натисніть «Завершити» в терміналі" : ""}` : `${reviewKind(app, r)} закрито без мерджу`}</div>` : ""}
     ${r.trackerStatus ? `<div class="kc-tstatus${r.trackerStatus.ok ? "" : " warn"}" title="${esc(r.trackerStatus.text)}">${r.trackerStatus.ok ? "" : "⚠ "}${esc(r.trackerStatus.text.length > 140 ? r.trackerStatus.text.slice(0, 139) + "…" : r.trackerStatus.text)}${!r.trackerStatus.ok && /Налаштуваннях/.test(r.trackerStatus.text) ? ` <a href="/settings">Вибрати</a>` : ""}</div>` : ""}
     ${needsPermission
@@ -351,4 +352,61 @@ function takeOverForm(app: App, r: TaskRecord, token: string, primary = false): 
 /** "MR" for GitLab tasks, "PR" elsewhere. */
 function reviewKind(app: App, r: TaskRecord): string {
   return app.orchestrator?.trackers.get(r.task.trackerId)?.name === "GitLab" ? "MR" : "PR";
+}
+
+const BLOCKERS: Record<string, string> = {
+  ci_still_running: "CI ще йде",
+  ci_must_pass: "CI має пройти",
+  not_approved: "чекає апруву",
+  discussions_not_resolved: "є невирішені коментарі",
+  draft_status: "чернетка",
+  conflict: "конфлікти",
+  need_rebase: "потрібен rebase",
+  checking: "GitLab перевіряє",
+  unchecked: "GitLab перевіряє",
+  blocked_status: "заблоковано іншим MR",
+  requested_changes: "просять змін",
+  blocked: "заблоковано правилами",
+  behind: "відстає від основної",
+  dirty: "конфлікти",
+  unstable: "CI не зелений",
+};
+
+const PIPELINE: Record<string, [string, string]> = {
+  success: ["ok", "✓ CI"],
+  failed: ["err", "✗ CI впав"],
+  running: ["run", "⏳ CI йде"],
+  pending: ["run", "⏳ CI чекає"],
+  created: ["run", "⏳ CI"],
+  preparing: ["run", "⏳ CI"],
+  waiting_for_resource: ["run", "⏳ CI чекає"],
+  canceled: ["mute", "CI скасовано"],
+  skipped: ["mute", "CI пропущено"],
+  manual: ["mute", "CI чекає ручного запуску"],
+};
+
+/** The open PR/MR at a glance — CI, threads, conflicts — with the next step one click away. */
+function reviewBlock(app: App, r: TaskRecord, token: string): string {
+  const review = r.review;
+  if (!r.prUrl || !review || review.state !== "open" || r.reviewState) return "";
+  const kind = reviewKind(app, r);
+  const p = review.pipeline ? PIPELINE[review.pipeline.status] ?? ["mute", `CI: ${review.pipeline.status}`] : undefined;
+  const facts = [
+    p ? `<a class="rv ${p[0]}" href="${esc(review.pipeline!.url ?? r.prUrl)}" target="_blank" rel="noreferrer">${p[1]}</a>` : "",
+    review.conflicts ? `<span class="rv err">⚠ конфлікти</span>` : "",
+    review.comments.length ? `<a class="rv warn" href="${esc(review.comments[0].url ?? r.prUrl)}" target="_blank" rel="noreferrer">💬 ${review.comments.length}</a>` : "",
+    review.mergeable ? `<span class="rv ok">готовий до мерджу</span>` : review.blocker && BLOCKERS[review.blocker] && !review.conflicts ? `<span class="rv mute">${BLOCKERS[review.blocker]}</span>` : "",
+  ].filter(Boolean).join("");
+  const form = (action: string, label: string, cls: string, extra = "", confirm = "") =>
+    `<form method="post" action="/${action}"${confirm}><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">${extra}<button class="${cls}">${label}</button></form>`;
+  const ask = (kindName: string, label: string) => form("review-ask", label, "soft", `<input type="hidden" name="kind" value="${kindName}">`);
+  const buttons = [
+    review.pipeline?.status === "failed" ? ask("ci", "Полагодити CI") : "",
+    review.comments.length ? ask("comments", `Виправити коментарі (${review.comments.length})`) : "",
+    review.conflicts ? ask("conflicts", "Розвʼязати конфлікти") : "",
+    review.mergeable
+      ? form("review-merge", "Змерджити", "success", "", ` data-confirm-title="Змерджити ${kind}?" data-confirm-ok="Змерджити" data-confirm-tone="success" data-confirm="${esc(`${kind} буде змерджено в основну гілку, гілку задачі буде видалено. Задача отримає фінальний статус і закриється.`)}"`)
+      : "",
+  ].filter(Boolean).join("");
+  return `<div class="kc-mr"><div class="kc-mr-facts"><span class="muted">${kind}:</span>${facts || `<span class="rv mute">перевіряю…</span>`}</div>${buttons ? `<div class="kc-mr-actions">${buttons}</div>` : ""}</div>`;
 }

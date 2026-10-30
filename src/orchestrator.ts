@@ -11,6 +11,7 @@ import * as git from "./git.js";
 import { routeTask } from "./routing.js";
 import { findReview } from "./reviews.js";
 import { log } from "./log.js";
+import { sessions, sessionIdFor } from "./sessions.js";
 import { stopTask } from "./executors/processes.js";
 import { commitMessage, reviewText } from "./commit-message.js";
 
@@ -57,6 +58,8 @@ export class Orchestrator {
   async start(): Promise<void> {
     log("main", `Polling ${[...this.trackers.values()].map((t) => t.id).join(", ")} every ${this.cfg.pollIntervalSec}s`);
     this.schedule(); // tasks queued before a restart
+    this.reviewTimer = setInterval(() => void this.refreshReviews(), 60_000);
+    void this.refreshReviews();
     while (!this.stopped) {
       await this.poll();
       const ms = this.cfg.pollIntervalSec * 1000;
@@ -135,8 +138,11 @@ export class Orchestrator {
     return { state: "scheduled", nextAt: this.nextTickAt, last };
   }
 
+  private reviewTimer?: NodeJS.Timeout;
+
   stop(): void {
     this.stopped = true;
+    clearInterval(this.reviewTimer);
   }
 
   async drain(): Promise<void> {
@@ -230,38 +236,136 @@ export class Orchestrator {
     if (every > 0 && Date.now() - this.lastHandoffCheck >= every) {
       this.lastHandoffCheck = Date.now();
       await this.checkHandoffs();
-      await this.checkMerged();
       await this.checkGone();
     }
   }
 
   /** PRs/MRs Mako opened: once merged, the issue gets its final status and the card says so. */
   async checkMerged(): Promise<void> {
+    await this.refreshReviews();
+  }
+
+  /** PRs/MRs Mako opened and still watches: open, not archived, recent. */
+  private watchedReviews(): TaskRecord[] {
     const recent = Date.now() - 30 * 24 * 3600_000;
-    const open = this.state
+    return this.state
       .all()
-      .filter((r) => r.prUrl && !r.reviewState && !r.archivedAt && ["running", "done", "handed-off"].includes(r.status))
+      .filter((r) => r.prUrl && !r.reviewState && !r.archivedAt && ["queued", "running", "done", "handed-off"].includes(r.status))
       .filter((r) => !r.finishedAt || Date.parse(r.finishedAt) > recent);
-    for (const rec of open) {
-      const tracker = this.trackers.get(rec.task.trackerId);
-      if (!tracker?.reviewState) continue;
-      const state = await tracker.reviewState(rec.prUrl!).catch((err: any) => {
-        log(rec.id, `review check failed: ${err.message}`);
-        return undefined;
-      });
-      if (state === "closed") {
-        log(rec.id, "review closed without merging");
-        this.state.update(rec.id, { reviewState: "closed" });
-      }
-      if (state !== "merged") continue;
-      log(rec.id, `review merged: ${rec.prUrl}`);
-      this.state.update(rec.id, { reviewState: "merged" });
-      if (tracker.onMerged) await this.updateTracker(rec.task, "merged", () => tracker.onMerged!(rec.task));
-      inform(
-        `✅ ${rec.id}: ${rec.prUrl!.includes("/merge_requests/") ? "MR" : "PR"} змерджено`,
-        rec.status === "running" ? "Агент ще в терміналі: натисніть «Завершити»" : rec.task.title,
-      );
+  }
+
+  private reviewsBusy = false;
+  /** When each PR/MR was last looked at (not saved: it changes every minute). */
+  readonly reviewChecked = new Map<string, number>();
+
+  /** CI, review threads, conflicts and merges of the watched PRs/MRs; runs every minute. */
+  async refreshReviews(): Promise<void> {
+    if (this.reviewsBusy) return;
+    this.reviewsBusy = true;
+    try {
+      for (const rec of this.watchedReviews()) await this.refreshReview(rec.id);
+    } finally {
+      this.reviewsBusy = false;
     }
+  }
+
+  async refreshReview(id: string): Promise<TaskRecord | undefined> {
+    const rec = this.state.get(id);
+    const tracker = rec && this.trackers.get(rec.task.trackerId);
+    if (!rec?.prUrl || !tracker) return rec;
+    try {
+      if (tracker.reviewDetails) {
+        const review = await tracker.reviewDetails(rec.prUrl);
+        const before = rec.review;
+        this.reviewChecked.set(id, Date.now());
+        // Only real changes are saved: each save redraws the board.
+        const same = before && JSON.stringify({ ...before, checkedAt: 0 }) === JSON.stringify({ ...review, checkedAt: 0 });
+        if (!same) this.state.update(id, { review });
+        if (review.pipeline?.status === "failed" && before?.pipeline?.status !== "failed") {
+          inform(`❌ ${id}: CI впав`, `${review.pipeline.failed.map((j) => j.name).join(", ") || "пайплайн"} · можна віддати агенту`);
+        }
+        if (review.conflicts && !before?.conflicts) inform(`⚠ ${id}: конфлікти з основною гілкою`, rec.task.title);
+        if (review.comments.length > (before?.comments.length ?? 0)) {
+          inform(`💬 ${id}: нові коментарі в ${this.reviewKind(rec)}`, review.comments.at(-1)!.body.slice(0, 160));
+        }
+        if (review.state !== "open") await this.reviewEnded(this.state.get(id)!, review.state, tracker);
+      } else if (tracker.reviewState) {
+        const state = await tracker.reviewState(rec.prUrl);
+        if (state !== "open") await this.reviewEnded(rec, state, tracker);
+      }
+    } catch (err: any) {
+      log(id, `review check failed: ${err.message}`);
+    }
+    return this.state.get(id);
+  }
+
+  private reviewKind(rec: TaskRecord): string {
+    return rec.prUrl?.includes("/merge_requests/") ? "MR" : "PR";
+  }
+
+  private async reviewEnded(rec: TaskRecord, state: "merged" | "closed", tracker: Tracker): Promise<void> {
+    if (rec.reviewState) return;
+    this.state.update(rec.id, { reviewState: state });
+    if (state === "closed") return log(rec.id, "review closed without merging");
+    log(rec.id, `review merged: ${rec.prUrl}`);
+    if (tracker.onMerged) await this.updateTracker(rec.task, "merged", () => tracker.onMerged!(rec.task));
+    inform(`✅ ${rec.id}: ${this.reviewKind(rec)} змерджено`, rec.status === "running" ? "Агент ще в терміналі: натисніть «Завершити»" : rec.task.title);
+  }
+
+  /** Merges the PR/MR from Mako; the issue then moves on as for a merge done in GitLab. */
+  async mergeReview(id: string): Promise<void> {
+    const rec = this.state.get(id);
+    const tracker = rec && this.trackers.get(rec.task.trackerId);
+    if (!rec?.prUrl || !tracker?.mergeReview) throw new Error("Немає MR, який Mako може змерджити");
+    await tracker.mergeReview(rec.prUrl);
+    log(id, `merged from Mako: ${rec.prUrl}`);
+    await this.refreshReview(id);
+  }
+
+  /**
+   * Hands the agent what the PR/MR needs: the failed CI jobs with their logs, the open review threads,
+   * or the conflicts. A live terminal gets it as a message; otherwise a new run starts in the same worktree.
+   */
+  async askAgent(id: string, kind: "ci" | "comments" | "conflicts"): Promise<"sent" | "started"> {
+    let rec = await this.refreshReview(id);
+    const tracker = rec && this.trackers.get(rec.task.trackerId);
+    const repo = rec?.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
+    const review = rec?.review;
+    if (!rec || !tracker || !review || !rec.prUrl) throw new Error("Для цієї задачі немає MR");
+    const kindName = this.reviewKind(rec);
+    const tail = "\n\nDo not push and do not open another merge request: Mako pushes the branch and updates the existing one.";
+    let text: string;
+    if (kind === "ci") {
+      const failed = review.pipeline?.failed ?? [];
+      if (review.pipeline?.status !== "failed") throw new Error("CI не впав");
+      const logs = [];
+      for (const job of failed.slice(0, 3)) {
+        const log = job.id && tracker.jobLog ? await tracker.jobLog(rec.prUrl, job.id).catch(() => "") : "";
+        logs.push(`### ${job.name}${job.url ? ` (${job.url})` : ""}\n${log ? "```\n" + log.trim() + "\n```" : "(log not available)"}`);
+      }
+      text = `The CI pipeline of ${kindName} ${rec.prUrl} failed${review.pipeline.url ? ` (${review.pipeline.url})` : ""}.\n\n${logs.join("\n\n") || "No failed job details were available."}\n\nFind the cause, fix it in this worktree, run the same checks locally where you can, and commit.${tail}`;
+    } else if (kind === "comments") {
+      if (!review.comments.length) throw new Error("Відкритих коментарів немає");
+      const list = review.comments
+        .map((c, i) => `${i + 1}. ${c.author}${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ""}` : ""}${c.url ? ` (${c.url})` : ""}:\n${c.body.trim().split("\n").map((l) => `> ${l}`).join("\n")}`)
+        .join("\n\n");
+      text = `Reviewers left unresolved comments on ${kindName} ${rec.prUrl}:\n\n${list}\n\nAddress each one in the code. If you disagree with a comment, do not change the code for it; say why in your final message. Commit the changes.${tail}`;
+    } else {
+      if (!review.conflicts) throw new Error("Конфліктів немає");
+      const base = repo?.baseBranch ?? "main";
+      text = `${kindName} ${rec.prUrl} has conflicts with ${base}. Run \`git fetch origin ${base}\` and \`git merge origin/${base}\`, resolve the conflicts keeping the intent of both sides, run the checks, and commit the merge. Do not rebase.${tail}`;
+    }
+    const session = sessions.get(sessionIdFor(rec.task));
+    if (session && rec.status === "running" && session.say(text)) {
+      log(id, `asked the agent: ${kind}`);
+      return "sent";
+    }
+    // No live terminal: a new run in the same worktree, with just this request.
+    this.state.update(id, { followUp: text });
+    if (!this.retry(id, { executor: this.terminalExecutor() })) throw new Error("Задачу зараз не можна перезапустити");
+    log(id, `follow-up run: ${kind}`);
+    rec = this.state.get(id);
+    return "started";
   }
 
   /** Taken tasks are not in every search (the WIP limit pauses it), so their issues are looked up one by one. */
@@ -426,7 +530,10 @@ export class Orchestrator {
     }
     const executor = (rec.chosenExecutor && this.executors.get(rec.chosenExecutor)) || this.executorFor(repo);
     const branch = git.branchFor(task.slug);
-    const prompt = buildPrompt(task, tracker, repo, executor);
+    // A follow-up (fix CI, review comments, conflicts) continues the work in the same worktree.
+    const prompt = rec.followUp
+      ? `You are continuing work on ${task.id}: ${task.title} (${task.url}) in this worktree, on branch ${git.branchFor(task.slug)}.\n\n${rec.followUp}`
+      : buildPrompt(task, tracker, repo, executor);
     const promptFile = this.state.logPath(task).replace(/\.jsonl$/, ".prompt.md");
     writeFileSync(promptFile, prompt);
     this.state.update(task.id, {
@@ -435,6 +542,7 @@ export class Orchestrator {
       repo: repo.name,
       executor: executor.name,
       resumeSession: undefined,
+      followUp: undefined,
     });
 
     try {

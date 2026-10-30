@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import type { ProjectConfig } from "../config.js";
 import { requestJson, explainAccess, HttpError } from "../http.js";
-import type { IssueState, Outcome, Task, Tracker } from "../types.js";
+import type { IssueState, Outcome, ReviewInfo, Task, Tracker } from "../types.js";
 import { defaultLabels, labelChanges, normalizeAssignee, type LabelConfig } from "./labels.js";
 
 export interface GitHubTrackerConfig {
@@ -107,6 +107,54 @@ export class GitHubTracker implements Tracker {
 
   onFinish(task: Task, outcome: Outcome): Promise<void> {
     return this.applyLabels(task, labelChanges(this.labels, outcome));
+  }
+
+  private prPath(reviewUrl: string): { repo: string; path: string } {
+    const m = reviewUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (!m) throw new Error(`не схоже на PR GitHub: ${reviewUrl}`);
+    return { repo: m[1], path: `/repos/${m[1]}/pulls/${m[2]}` };
+  }
+
+  async reviewDetails(reviewUrl: string): Promise<ReviewInfo> {
+    const { repo, path } = this.prPath(reviewUrl);
+    const pr = await this.request<any>("GET", path);
+    const state = pr.merged ? "merged" : pr.state === "closed" ? "closed" : "open";
+    const runs: any[] = (await this.request<any>("GET", `/repos/${repo}/commits/${pr.head.sha}/check-runs?per_page=50`).catch(() => ({}))).check_runs ?? [];
+    const failed = runs.filter((r) => ["failure", "timed_out", "cancelled", "action_required"].includes(r.conclusion));
+    const pipeline = runs.length
+      ? {
+          status: failed.length ? "failed" : runs.some((r) => r.status !== "completed") ? "running" : "success",
+          url: `${pr.html_url}/checks`,
+          failed: failed.map((r) => ({ name: r.name, url: r.html_url })),
+        }
+      : undefined;
+    // REST has no "resolved" flag on review threads: the top-level review comments stand for them.
+    const raw: any[] = state === "open" ? await this.request<any[]>("GET", `${path}/comments?per_page=100`).catch(() => []) : [];
+    const comments = raw
+      .filter((c) => !c.in_reply_to_id)
+      .map((c) => ({
+        author: c.user?.login ?? "reviewer",
+        body: c.body,
+        path: c.path,
+        line: c.line ?? c.original_line ?? undefined,
+        url: c.html_url,
+        replies: raw.filter((r) => r.in_reply_to_id === c.id).length,
+      }));
+    return {
+      state,
+      conflicts: pr.mergeable === false || pr.mergeable_state === "dirty",
+      mergeable: state === "open" && pr.mergeable === true && ["clean", "has_hooks", "unstable"].includes(pr.mergeable_state),
+      blocker: state === "open" && pr.mergeable_state !== "clean" ? pr.mergeable_state : undefined,
+      pipeline,
+      comments,
+      checkedAt: Date.now(),
+    };
+  }
+
+  async mergeReview(reviewUrl: string): Promise<void> {
+    await this.request("PUT", `${this.prPath(reviewUrl).path}/merge`, {}).catch((err: any) => {
+      throw new Error(`GitHub не змерджив PR: ${String(err.message).split("\n")[0]}`);
+    });
   }
 
   async reviewState(reviewUrl: string): Promise<"open" | "merged" | "closed"> {

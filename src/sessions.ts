@@ -73,6 +73,14 @@ export class Session {
   }
 
   /** Ends the session and lets Mako commit, push and open the PR. */
+  /** Gives the agent a request as if the developer pasted it into the prompt and pressed Enter. */
+  say(text: string): boolean {
+    if (this.status === "exited") return false;
+    this.pty.write(`\x1b[200~${text}\x1b[201~`);
+    setTimeout(() => this.pty.write("\r"), 200);
+    return true;
+  }
+
   finish(): void {
     if (this.status === "exited") return;
     this.ending = "finish";

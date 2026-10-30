@@ -111,6 +111,7 @@
       if (data.url) {
         reviewLink.href = data.url;
         reviewLink.hidden = false;
+        setTimeout(loadReview, 1500);
       }
       publishBtn.textContent = `Оновити ${review}`;
       const commit = data.message ? ` (новий коміт «${data.message.split("\n")[0]}»)` : "";
@@ -126,6 +127,64 @@
       publishBtn.disabled = false;
     }
   });
+
+  // The MR next to the agent: CI, review threads, conflicts, merge; the next step goes to the agent as a message.
+  const mrBar = document.getElementById("mr-bar");
+  const PIPE = {
+    success: ["ok", "✓ CI"], failed: ["err", "✗ CI впав"], running: ["run", "⏳ CI йде"], pending: ["run", "⏳ CI чекає"],
+    created: ["run", "⏳ CI"], canceled: ["mute", "CI скасовано"], skipped: ["mute", "CI пропущено"], manual: ["mute", "CI чекає ручного запуску"],
+  };
+  const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  async function loadReview() {
+    if (!reviewLink || reviewLink.hidden) return;
+    const res = await fetch(`/api/review?task=${encodeURIComponent(document.body.dataset.task)}`, { headers: { "X-Mako-Token": TOKEN } });
+    const data = await res.json().catch(() => ({}));
+    const r = data.review;
+    if (data.reviewState === "merged") {
+      mrBar.hidden = false;
+      mrBar.innerHTML = `<div class="kc-mr-facts"><span class="rv ok">✓ ${review} змерджено</span><span class="muted">Задача отримала фінальний статус. Натисніть «Завершити».</span></div>`;
+      return;
+    }
+    if (!r || r.state !== "open") return void (mrBar.hidden = true);
+    const p = r.pipeline ? PIPE[r.pipeline.status] || ["mute", `CI: ${r.pipeline.status}`] : null;
+    const facts = [
+      p ? `<a class="rv ${p[0]}" href="${esc(r.pipeline.url || data.prUrl)}" target="_blank" rel="noreferrer">${p[1]}</a>` : "",
+      r.conflicts ? `<span class="rv err">⚠ конфлікти</span>` : "",
+      r.comments.length ? `<a class="rv warn" href="${esc(r.comments[0].url || data.prUrl)}" target="_blank" rel="noreferrer">💬 ${r.comments.length}</a>` : "",
+      r.mergeable ? `<span class="rv ok">готовий до мерджу</span>` : "",
+    ].join("");
+    const btn = (act, label, cls) => `<button data-mr="${act}" class="${cls}">${label}</button>`;
+    const buttons = [
+      r.pipeline?.status === "failed" ? btn("ci", "Агенту: полагодити CI", "soft") : "",
+      r.comments.length ? btn("comments", `Агенту: виправити коментарі (${r.comments.length})`, "soft") : "",
+      r.conflicts ? btn("conflicts", "Агенту: розвʼязати конфлікти", "soft") : "",
+      r.mergeable ? btn("merge", "Змерджити", "success") : "",
+    ].join("");
+    mrBar.hidden = false;
+    mrBar.innerHTML = `<div class="kc-mr-facts"><span class="muted">${review}:</span>${facts || '<span class="rv mute">перевіряю…</span>'}</div>${buttons ? `<div class="kc-mr-actions">${buttons}</div>` : ""}`;
+  }
+  mrBar.addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-mr]");
+    if (!b) return;
+    const act = b.dataset.mr;
+    if (act === "merge") {
+      const ok = await makoConfirm({ title: `Змерджити ${review}?`, body: `${review} буде змерджено в основну гілку, гілку задачі буде видалено. Задача отримає фінальний статус і закриється.`, confirm: "Змерджити", cancel: "Ні", tone: "success" });
+      if (!ok) return;
+    }
+    b.disabled = true;
+    statusMsg.textContent = act === "merge" ? `Мерджу ${review}…` : "Збираю деталі й передаю агенту…";
+    const task = encodeURIComponent(document.body.dataset.task);
+    const res = await fetch(act === "merge" ? `/api/review/merge?task=${task}` : `/api/review/ask?task=${task}&kind=${act}`, { method: "POST", headers: { "X-Mako-Token": TOKEN } });
+    const data = await res.json().catch(() => ({}));
+    b.disabled = false;
+    if (!res.ok) statusMsg.textContent = data.error || res.statusText;
+    else if (act === "merge") statusMsg.textContent = `${review} змерджено.`;
+    else statusMsg.textContent = "Агент отримав запит у терміналі. Коли закомітить, натисніть «Оновити " + review + "».";
+    loadReview();
+    term.focus();
+  });
+  loadReview();
+  setInterval(() => !document.hidden && loadReview(), 15_000);
 
   finishBtn.addEventListener("click", async () => {
     const ok = await makoConfirm({

@@ -27,6 +27,14 @@ export async function requestJson<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/** For plain-text endpoints (CI job logs). */
+export async function requestText(url: string, headers: Record<string, string>): Promise<string> {
+  const res = await fetch(url, { headers });
+  const text = await res.text();
+  if (!res.ok) throw new HttpError(res.status, text.slice(0, 500), `GET ${url} -> ${res.status}`);
+  return text;
+}
+
 /** Turns a raw 401/403/404 from a tracker into a message that says what to fix; other errors pass through. */
 export function explainAccess(err: unknown, explain: (status: number, body: string) => string | undefined): never {
   if (err instanceof HttpError) {
