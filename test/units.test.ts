@@ -114,3 +114,14 @@ test("GitLab «Взяти» adds me to the assignees instead of replacing them",
     server.close();
   }
 });
+
+test("a project saved with an empty repos (all defaults) has its one repo", () => {
+  const cfg = parseConfig({
+    trackers: [{ type: "gitlab", baseUrl: "https://git.kbyte.app", projects: { "ecom/tests/moq": { repos: {} }, "ecom/web/front": {} } }],
+  });
+  const moq = cfg.trackers[0].projects["ecom/tests/moq"].repos;
+  assert.deepEqual(Object.keys(moq), ["moq"]);
+  assert.equal(moq.moq.cloneUrl, "git@git.kbyte.app:ecom/tests/moq.git");
+  assert.match(moq.moq.repoPath, /mako\/projects\/moq$/);
+  assert.deepEqual(Object.keys(cfg.trackers[0].projects["ecom/web/front"].repos), ["front"]);
+});

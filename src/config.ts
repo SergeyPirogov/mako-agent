@@ -168,7 +168,8 @@ export function parseConfig(raw: any, dryRun = false): Config {
     const projects: Record<string, ProjectConfig> = {};
     for (const [key, p] of Object.entries<any>(t.projects ?? {})) {
       // Short form: the project itself is a single repo.
-      const rawRepos: Record<string, any> = p.repos ?? { [key.split("/").pop()!]: p };
+      // An empty `repos` (a repo whose settings are all defaults, from older settings pages) is the short form too.
+      const rawRepos: Record<string, any> = p.repos && Object.keys(p.repos).length ? p.repos : { [key.split("/").pop()!]: p };
       const repos: Record<string, RepoConfig> = {};
       for (const [name, r] of Object.entries<any>(rawRepos)) {
         const repoPath = r.repoPath ? resolvePath(r.repoPath) : path.join(projectsDir, name);

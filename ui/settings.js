@@ -124,14 +124,16 @@
   }
 
   /** Drops empty values so Mako's defaults apply. */
-  function clean(v) {
-    if (Array.isArray(v)) return v.map(clean);
+  function clean(v, parent = "") {
+    if (Array.isArray(v)) return v.map((x) => clean(x));
     if (v && typeof v === "object") {
       const out = {};
       for (const [k, x] of Object.entries(v)) {
-        const c = clean(x);
+        const c = clean(x, k);
         if (c === undefined || c === "") continue;
-        if (c && typeof c === "object" && !Array.isArray(c) && !Object.keys(c).length && k !== "projects" && k !== "repos") continue;
+        // A project or repo with nothing set is still there: everything about it is the default.
+        const keep = k === "projects" || k === "repos" || parent === "projects" || parent === "repos";
+        if (c && typeof c === "object" && !Array.isArray(c) && !Object.keys(c).length && !keep) continue;
         out[k] = c;
       }
       return out;
