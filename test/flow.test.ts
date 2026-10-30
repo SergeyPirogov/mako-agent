@@ -126,7 +126,7 @@ test("a task goes from the tracker through the agent to a pushed branch", async 
   assert.deepEqual(tracker.calls.filter((c) => !c.startsWith("comment") && !c.startsWith("assign")), ["start acme/web#7", "finish acme/web#7 success"]);
   assert.ok(tracker.calls.includes("assign acme/web#7"), "taking it assigns it to me");
   assert.ok(tracker.calls.some((c) => c.startsWith("comment acme/web#7")), "the issue gets a comment");
-  assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «In progress»");
+  assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «In progress» (агент почав)");
   assert.ok(rec.summary?.includes("Added hello.txt"), "the summary falls back to the agent's message");
   orchestrator.stop();
 });
@@ -155,7 +155,7 @@ test("a merged MR moves the task to its final status", async () => {
   const rec = orchestrator.state.get(t.id)!;
   assert.equal(rec.reviewState, "merged");
   assert.ok(tracker.calls.includes("merged acme/web#9"));
-  assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «Done»");
+  assert.equal(rec.trackerStatus?.text, "Статус у GitLab: «Done» (MR змерджено)");
   orchestrator.stop();
 });
 

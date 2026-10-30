@@ -52,6 +52,8 @@ const COLUMNS: Column[] = [
 /** Which column a task is in: a finished task with an open PR/MR is not done until it is merged. */
 export function columnOf(r: TaskRecord): Column["key"] {
   if (r.status === "asking" || r.status === "snoozed") return "new";
+  // An open MR is in review, also while its terminal session is still open.
+  if (r.status === "running" && r.prUrl && !r.reviewState) return "review";
   if (r.status === "queued" || r.status === "planned" || r.status === "running" || r.status === "handed-off") return "doing";
   if (r.status === "failed" || r.status === "cancelled" || r.reviewState === "closed") return "failed";
   return r.prUrl && !r.reviewState ? "review" : "done";
@@ -449,11 +451,14 @@ function reviewBlock(app: App, r: TaskRecord, token: string): string {
   if (p && review.pipeline?.status === "failed" && review.pipeline.failed.length) {
     p[1] = `${p[1]}: ${review.pipeline.failed.slice(0, 2).map((j) => j.name).join(", ")}${review.pipeline.failed.length > 2 ? "…" : ""}`;
   }
+  const ciRunning = ["running", "pending", "created", "preparing", "waiting_for_resource"].includes(review.pipeline?.status ?? "");
   const facts = [
     p ? `<a class="rv ${p[0]}" href="${esc(review.pipeline!.url ?? r.prUrl)}" target="_blank" rel="noreferrer">${p[1]}</a>` : "",
     review.conflicts ? `<span class="rv err">⚠ конфлікти</span>` : "",
     review.comments.length ? `<a class="rv warn" href="${esc(review.comments[0].url ?? r.prUrl)}" target="_blank" rel="noreferrer">💬 ${review.comments.length}</a>` : "",
-    review.mergeable ? `<span class="rv ok">готовий до мерджу</span>` : review.blocker && BLOCKERS[review.blocker] && !review.conflicts ? `<span class="rv mute">${BLOCKERS[review.blocker]}</span>` : "",
+    ciRunning && review.mergeable
+      ? `<span class="rv mute" title="GitLab дозволяє мердж, бо проєкт не вимагає зеленого CI">можна мерджити, але CI ще йде</span>`
+      : review.mergeable ? `<span class="rv ok">готовий до мерджу</span>` : review.blocker && BLOCKERS[review.blocker] && !review.conflicts ? `<span class="rv mute">${BLOCKERS[review.blocker]}</span>` : "",
   ].filter(Boolean).join("");
   const form = (action: string, label: string, cls: string, extra = "", confirm = "") =>
     `<form method="post" action="/${action}"${confirm}><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">${extra}<button class="${cls}">${label}</button></form>`;
@@ -462,7 +467,9 @@ function reviewBlock(app: App, r: TaskRecord, token: string): string {
     review.pipeline?.status === "failed" ? ask("ci", "Полагодити CI") : "",
     review.comments.length ? ask("comments", `Виправити коментарі (${review.comments.length})`) : "",
     review.conflicts ? ask("conflicts", "Розвʼязати конфлікти") : "",
-    review.mergeable
+    review.mergeable && ciRunning
+      ? form("review-merge", "Змерджити, не чекаючи CI", "soft", "", ` data-confirm-title="Змерджити, поки CI ще йде?" data-confirm-ok="Змерджити" data-confirm-tone="danger" data-confirm="${esc(`CI ще не закінчився: якщо він впаде, зламаний код уже буде в основній гілці. ${kind} буде змерджено, гілку задачі видалено, задача закриється.`)}"`)
+      : review.mergeable
       ? form("review-merge", "Змерджити", "success", "", ` data-confirm-title="Змерджити ${kind}?" data-confirm-ok="Змерджити" data-confirm-tone="success" data-confirm="${esc(`${kind} буде змерджено в основну гілку, гілку задачі буде видалено. Задача отримає фінальний статус і закриється.`)}"`)
       : "",
   ].filter(Boolean).join("");

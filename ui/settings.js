@@ -445,8 +445,10 @@
         ${field({ label: "Не пропонувати задачі, призначені на інших (зніміть, якщо на задачі завжди призначають кількох, напр. розробника й QA)", path: `${p}.skipOthersTasks`, kind: "check", type: "booltrue", wide: true })}
         ${isLab ? `${statusList}
           ${field({ label: "Статус, коли агент почав", path: `${p}.transitions.onStart`, placeholder: isLab ? "автоматично: In progress" : "не змінювати", list: `statuses-${ti}`, hint: statusHint })}
-          ${field({ label: "Статус, коли є MR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати", list: `statuses-${ti}`,
-            hint: "Після мерджу MR із <code>Closes #N</code> задача закриється сама" })}` : ""}`;
+          ${field({ label: "Статус, коли є MR", path: `${p}.transitions.onSuccess`, placeholder: "не змінювати", list: `statuses-${ti}`, refresh: true,
+            hint: /^(done|closed|completed|готово|виконано)$/i.test(t.conf.transitions?.onSuccess || "")
+              ? `<span class="warn">⚠ «${h(t.conf.transitions.onSuccess)}» ставиться ще до мерджу, коли MR тільки відкрито. Mako сам переведе задачу в Done після мерджу; тут краще статус ревʼю або порожньо</span>`
+              : "Після мерджу MR задача сама перейде в Done і закриється" })}` : ""}`;
       advanced = `
         ${isLab ? field({ label: "Статус при помилці", path: `${p}.transitions.onFailure`, placeholder: "не змінювати", list: `statuses-${ti}` }) : ""}
         ${isLab ? field({ label: "Статус, коли MR змерджено", path: `${p}.transitions.onMerged`, placeholder: "автоматично: Done", list: `statuses-${ti}`, hint: "Mako також закриє задачу, якщо GitLab ще не закрив" }) : ""}

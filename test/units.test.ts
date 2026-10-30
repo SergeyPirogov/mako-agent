@@ -80,7 +80,8 @@ test("config: defaults, short project form, branch pattern per repo", () => {
 test("board columns: an open MR is on review, not done", () => {
   const rec = (patch: Partial<TaskRecord>) => ({ id: "a#1", task: task("a#1", "x"), updatedAt: "", status: "done", ...patch }) as TaskRecord;
   assert.equal(columnOf(rec({ status: "asking" })), "new");
-  assert.equal(columnOf(rec({ status: "running", prUrl: "u" })), "doing");
+  assert.equal(columnOf(rec({ status: "running", prUrl: "u" })), "review", "an open MR is in review while the terminal is still open");
+  assert.equal(columnOf(rec({ status: "running" })), "doing");
   assert.equal(columnOf(rec({ prUrl: "u" })), "review");
   assert.equal(columnOf(rec({ prUrl: "u", reviewState: "merged" })), "done");
   assert.equal(columnOf(rec({})), "done");

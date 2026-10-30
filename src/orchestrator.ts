@@ -117,7 +117,8 @@ export class Orchestrator {
       const name = await change();
       if (name) {
         log(task.id, `tracker status → ${name}`);
-        this.state.update(task.id, { trackerStatus: { ok: true, text: `Статус у ${tracker!.name}: «${name}»` } });
+        const why = { start: "агент почав", success: `відкрито MR`, "no-changes": "агент закінчив", failed: "не вдалось", merged: "MR змерджено" }[moment];
+        this.state.update(task.id, { trackerStatus: { ok: true, text: `Статус у ${tracker!.name}: «${name}» (${why})` } });
       } else if (tracker?.statusFor && moment === "start") {
         this.state.update(task.id, { trackerStatus: { ok: false, text: `Статус у ${tracker.name} не змінюється: у Налаштуваннях не вибрано, на який` } });
       }
@@ -159,8 +160,12 @@ export class Orchestrator {
   }
 
   /** Tasks taken and not finished: the Kanban "in progress" column that `wipLimit` caps. */
+  /** Tasks in «В роботі»; one with an open MR is in review already, as on the board, even with its terminal open. */
   wip(): number {
-    return this.state.all().filter((r) => ["queued", "planned", "running", "handed-off"].includes(r.status)).length;
+    return this.state
+      .all()
+      .filter((r) => ["queued", "planned", "running", "handed-off"].includes(r.status) && !(r.status === "running" && r.prUrl && !r.reviewState))
+      .length;
   }
 
   /** How many more tasks may be offered now; a task whose notification is on screen holds a slot. */
