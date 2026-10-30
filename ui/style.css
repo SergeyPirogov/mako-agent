@@ -640,3 +640,12 @@ main.wide.bare { height: 100vh; padding: 10px 12px 12px; } /* the terminal insid
 .ask-opts { display: flex; flex-wrap: wrap; gap: 6px; }
 .ask-opts button { margin: 0; font-size: 13px; }
 
+/* the terminal's head: the task as chips, then its title */
+.sh-task { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sh-task .chips { display: flex; gap: 4px; flex: none; }
+.sh-task .chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--fg); text-decoration: none; white-space: nowrap; }
+.sh-task a.chip:hover { border-color: var(--accent); color: var(--accent); }
+.sh-task .chip.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--mute); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.sh-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mute); }
+.session-head .sh-title { margin-left: 0; }
+.sh-task { overflow: hidden; } .sh-task .chips { flex: 0 1 auto; min-width: 0; } .sh-task .chip { flex: none; } .sh-task .chip.mono { flex: 0 1 auto; min-width: 48px; }

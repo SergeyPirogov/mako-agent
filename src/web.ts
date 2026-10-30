@@ -393,9 +393,16 @@ function renderSession(app: App, id: string, token: string, embed = false): stri
   const prUrl = rec?.prUrl;
   const tracker = rec ? app.orchestrator?.trackers.get(rec.task.trackerId) : undefined;
   const reviewName = tracker?.name === "GitHub" ? "PR" : "MR";
+  // The task as chips (its id, repo and branch), then its title.
+  const chips = [
+    session.task.url
+      ? `<a class="chip" href="${esc(session.task.url)}" target="_blank" rel="noreferrer" title="Задача в трекері">${esc(session.task.id)} ↗</a>`
+      : `<span class="chip">${esc(session.task.id)}</span>`,
+    rec?.repo ? `<span class="chip" title="Репозиторій">${esc(rec.repo)}</span>` : "",
+    rec?.branchName ? `<span class="chip mono" title="Гілка задачі">${esc(rec.branchName)}</span>` : "",
+  ].join("");
   const body = `<div class="session-head">
-      <div><a href="${esc(session.task.url)}" target="_blank" rel="noreferrer"><strong>${esc(session.task.id)}</strong></a>
-        <span class="muted">${esc(session.task.title)}</span></div>
+      <div class="sh-task"><span class="chips">${chips}</span><span class="sh-title">${esc(session.task.title)}</span></div>
       <div class="session-actions"><span id="status" class="s"></span>
         <button id="toggle-changes" title="Змінені файли і diff">Зміни</button>
         <a id="review-link" class="btn"${prUrl ? ` href="${esc(prUrl)}"` : " hidden"} target="_blank" rel="noreferrer">${reviewName} ↗</a>
