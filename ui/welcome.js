@@ -21,6 +21,23 @@
     executor: "terminal",
   };
 
+  // Closing the window destroys the page: keep the step and answers so reopening picks up where it was left.
+  // The token stays out: localStorage is a plain file on disk.
+  const DRAFT = "mako.welcome";
+  function keepDraft() {
+    try {
+      if (step >= STEPS.length) localStorage.removeItem(DRAFT);
+      else localStorage.setItem(DRAFT, JSON.stringify({ step, d: { ...d, token: "" } }));
+    } catch {}
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(DRAFT) || "null");
+    if (saved?.d) {
+      Object.assign(d, saved.d);
+      step = Math.min(Math.max(Number(saved.step) || 0, 0), STEPS.length - 1);
+    }
+  } catch {}
+
   async function api(method, url, body) {
     const res = await fetch(url, {
       method,
@@ -118,6 +135,7 @@
   // ---------- rendering ----------
 
   function render() {
+    keepDraft();
     const steps = STEPS.map(
       (name, i) => `<li class="${i < step ? "done" : i === step ? "on" : ""}"><span>${i < step ? "✓" : i + 1}</span>${name}</li>`,
     ).join("");
@@ -422,7 +440,8 @@
   (async () => {
     render();
     [settings, doc] = await Promise.all([api("GET", "/api/settings").catch(() => null), api("GET", "/api/doctor").catch(() => ({}))]);
-    if (settings?.configured) step = 1; // adding another project: the machine is already checked
+    if (settings?.configured && step === 0) step = 1; // adding another project: the machine is already checked
+    if (step === 3 && d.found === null && cloneUrl()) findClone();
     render();
   })();
 })();
