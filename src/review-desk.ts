@@ -310,6 +310,7 @@ export class ReviewDesk {
   ): Promise<{ url?: string; title: string; summary: string; error?: string }> {
     const text = await reviewText(worktree, repo.baseBranch, task);
     if (text.error) log(task.id, `review text not written by Claude: ${text.error}`);
+    if (this.o.state.get(task.id)) this.o.state.update(task.id, { reviewNote: [`**${text.title}**`, text.summary].filter(Boolean).join("\n\n") });
     const closing = task.closingRef ?? task.url;
     const description = [
       text.summary,

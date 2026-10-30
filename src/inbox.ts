@@ -283,8 +283,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
             : "Задача не запуститься і звільнить місце в роботі.",
         )}"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Скасувати</button></form>`
       : "",
-    r.summary ? summaryButton(app, r) : "",
-    app.orchestrator?.workspaceFor(r.id) ? `<a class="link" href="/changes?task=${encodeURIComponent(r.id)}">Зміни</a>` : "",
+    summaryButton(app, r),
     r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : "",
     ["done", "failed", "cancelled"].includes(r.status)
       ? `<form method="post" action="/archive" class="kc-archive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="link muted-link" title="Прибрати з дошки в архів">В архів</button></form>`
@@ -489,12 +488,20 @@ function autopilotLine(app: App, r: TaskRecord, form: (action: string, label: st
 
 /** «Підсумок»: the summary on the left and, while the worktree exists, its changes on the right. */
 function summaryButton(app: App, r: TaskRecord): string {
+  const hasChanges = Boolean(app.orchestrator?.workspaceFor(r.id));
+  // Before «Завершити» there is no summary yet: the MR's description says what was done.
+  const note = r.summary
+    ? r.summary
+    : r.reviewNote
+      ? `${r.reviewNote}\n\n_Це опис ${reviewKind(app, r)}. Повний підсумок (що зроблено, як перевірено, на що звернути увагу) зʼявиться після «Завершити»._`
+      : undefined;
+  if (!note && !hasChanges) return "";
   const when = r.finishedAt ? ` · ${new Date(r.finishedAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "";
   const text =
     `<h2>Підсумок · ${esc(r.task.title)}</h2><p class="muted small">${r.task.url ? `<a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a>` : esc(r.id)}` +
     `${r.prUrl ? ` · <a href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : ""}${when}</p>` +
-    `<div class="desc-body">${renderMarkdown(r.summary!, r.task.url)}</div>`;
-  const changes = app.orchestrator?.workspaceFor(r.id)
+    `<div class="desc-body">${note ? renderMarkdown(note, r.task.url) : `<p class="muted">Опису ще немає: він зʼявиться, коли буде ${reviewKind(app, r)} або після «Завершити». Справа — зміни, які вже є.</p>`}</div>`;
+  const changes = hasChanges
     ? `<iframe class="sum-changes" title="Зміни" src="/changes?task=${encodeURIComponent(r.id)}&amp;embed=1"></iframe>`
     : "";
   return (

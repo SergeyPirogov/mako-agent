@@ -250,6 +250,15 @@ test("the agent's answers to review threads are posted after the push, and fixed
   const branch = orchestrator.state.get(id)!.branchName!;
   assert.equal(git(remote, "show", `${branch}:app.txt`), "v2", "the fix is pushed");
   assert.throws(() => git(remote, "show", `${branch}:.mako/review-replies.json`), "Mako's file is not committed");
+  // the MR's description is the card's summary until «Завершити»
+  const rec = orchestrator.state.get(id)!;
+  assert.match(rec.reviewNote!, new RegExp(`^\\*\\*${res.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\*\\*`));
+  // as with the terminal still open: no summary yet
+  orchestrator.state.update(id, { summary: undefined });
+  const { renderInbox } = await import("../src/inbox.ts");
+  const html = renderInbox({ orchestrator, cfg: orchestrator.cfg } as any, "t");
+  assert.match(html, /Це опис MR\. Повний підсумок/);
+  assert.doesNotMatch(html, />Зміни<\/a>/, "«Зміни» is inside «Підсумок» now");
   orchestrator.stop();
 });
 

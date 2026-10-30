@@ -58,6 +58,8 @@ export interface TaskRecord {
   branchName?: string;
   /** What the task came to, in Markdown, written when it finished; shown from the card. */
   summary?: string;
+  /** The MR's title and description as Mako wrote them, shown as the summary until the task is finished. */
+  reviewNote?: string;
   /** Plan before code: the agent proposes, the developer approves; then it works to the approved plan. */
   planFirst?: boolean;
   plan?: string;
