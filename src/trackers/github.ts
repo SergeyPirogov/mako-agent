@@ -182,6 +182,11 @@ export class GitHubTracker implements Tracker {
     await this.request("PATCH", `/repos/${m[1]}/pulls/${m[2]}`, { title, body: description });
   }
 
+  async listProjects(): Promise<{ key: string; name: string }[]> {
+    const list = await this.request<{ full_name: string; description?: string | null }[]>("GET", "/user/repos?sort=pushed&per_page=100");
+    return list.map((r) => ({ key: r.full_name, name: r.description ? `${r.full_name} — ${r.description.slice(0, 60)}` : r.full_name }));
+  }
+
   private login?: Promise<string>;
 
   async whoAmI(): Promise<string> {

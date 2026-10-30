@@ -83,6 +83,16 @@ export class App {
     return { warnings: repoWarnings(cfg) };
   }
 
+  /** Projects one tracker's token can see, for the project field of the settings page. */
+  async trackerProjects(rawTracker: any, secrets: SecretChanges): Promise<{ key: string; name: string }[]> {
+    // The project list does not depend on the projects already set, which may still be empty.
+    const { trackers } = build(
+      { trackers: [{ ...rawTracker, projects: { "-": { repoPath: "~" } } }], executors: { test: { type: "command", command: "true" } } },
+      envFrom(secrets),
+    );
+    return (await trackers[0].listProjects?.()) ?? [];
+  }
+
   /** Fetches tasks with one tracker's settings, so the page can show "found N tasks". */
   async testTracker(
     rawTracker: any,

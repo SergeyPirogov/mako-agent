@@ -278,6 +278,14 @@ export class GitLabTracker implements Tracker {
     await this.request("PUT", `${projectApi(m[1])}/merge_requests/${m[2]}`, { title, description });
   }
 
+  async listProjects(): Promise<{ key: string; name: string }[]> {
+    const list = await this.request<{ path_with_namespace: string; name_with_namespace: string }[]>(
+      "GET",
+      "/projects?membership=true&simple=true&archived=false&order_by=last_activity_at&per_page=100",
+    );
+    return list.map((p) => ({ key: p.path_with_namespace, name: p.name_with_namespace }));
+  }
+
   private user?: Promise<{ id: number; username: string }>;
 
   async whoAmI(): Promise<string> {

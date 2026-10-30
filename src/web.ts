@@ -266,6 +266,9 @@ export function startWebUi(app: App, port: number): http.Server {
           if (!app.orchestrator) return json(400, { error: "Mako не налаштований" });
           return json(200, await app.orchestrator.publishNow(url.searchParams.get("task") ?? ""));
         }
+        if (req.method === "POST" && url.pathname === "/api/tracker-projects") {
+          return json(200, { projects: await app.trackerProjects(body.tracker, body.secrets ?? {}) });
+        }
         if (req.method === "POST" && url.pathname === "/api/test-tracker") {
           return json(200, await app.testTracker(body.tracker, body.secrets ?? {}));
         }

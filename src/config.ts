@@ -70,8 +70,8 @@ export function defaultCloneUrl(tracker: any, projectKey: string): string | unde
   if (!projectKey.includes("/")) return undefined; // a Jira key says nothing about where the code is
   let host: string;
   try {
-    if (tracker.type === "gitlab") host = new URL(tracker.baseUrl ?? "https://gitlab.com").host;
-    else if (tracker.type === "github") host = tracker.apiUrl ? new URL(tracker.apiUrl).host.replace(/^api\./, "") : "github.com";
+    if (tracker.type === "gitlab") host = new URL(tracker.baseUrl ?? "https://gitlab.com").hostname;
+    else if (tracker.type === "github") host = tracker.apiUrl ? new URL(tracker.apiUrl).hostname.replace(/^api\./, "") : "github.com";
     else return undefined;
   } catch {
     return undefined;

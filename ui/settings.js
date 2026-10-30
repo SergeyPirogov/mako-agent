@@ -112,8 +112,8 @@
     const key = p.key.trim();
     if (!key.includes("/") || p.repos.length > 1) return "";
     try {
-      if (t.conf.type === "gitlab") return `git@${new URL(t.conf.baseUrl || "https://gitlab.com").host}:${key}.git`;
-      if (t.conf.type === "github") return `git@${t.conf.apiUrl ? new URL(t.conf.apiUrl).host.replace(/^api\./, "") : "github.com"}:${key}.git`;
+      if (t.conf.type === "gitlab") return `git@${new URL(t.conf.baseUrl || "https://gitlab.com").hostname}:${key}.git`;
+      if (t.conf.type === "github") return `git@${t.conf.apiUrl ? new URL(t.conf.apiUrl).hostname.replace(/^api\./, "") : "github.com"}:${key}.git`;
     } catch {}
     return "";
   }
@@ -471,6 +471,7 @@
       ${details(`tracker-${ti}-adv`, "Додатково", advanced)}
       <div class="subhead">Проєкти → локальні репозиторії</div>
       ${t.projects.map((proj, pi) => projectCard(t, ti, proj, pi)).join("")}
+      <datalist id="projects-${ti}">${projectOptions(ti)}</datalist>
       <div class="adds">${button("+ проєкт", "add-project", { ti })}</div>
     </div>`;
   }
@@ -482,7 +483,8 @@
     const keyPlaceholder = type === "jira" ? "PROJ" : type === "github" ? "my-org/my-repo" : "group/project";
     const multi = proj.repos.length > 1;
     return `<div class="card project"><div class="head"><div class="grid" style="flex:1">
-        ${field({ label: keyLabel, path: `${p}.key`, placeholder: keyPlaceholder, refresh: true })}
+        ${field({ label: keyLabel, path: `${p}.key`, placeholder: keyPlaceholder, refresh: true, list: `projects-${ti}`,
+          hint: `<span class="proj-hint" data-ti="${ti}">${projectHint(ti)}</span>` })}
         ${multi
           ? field({ label: "Репозиторій за замовчуванням", path: `${p}.rest.default`, kind: "select",
               options: [["", "немає (лише мітки й правила)"], ...proj.repos.map((r) => [repoName(r, proj), repoName(r, proj)])],
@@ -533,6 +535,56 @@
         ${field({ label: "Папка для worktree", path: `${p}.conf.worktreesDir`, wide: true, placeholder: "поруч із репозиторієм: ../.worktrees/<назва>" })}`)}
     </div>`;
   }
+
+  // ---- projects of a tracker, offered in the project field ----
+
+  const projectLists = new Map(); // ti -> { sig, state: "loading" | "ok" | "error", list, error }
+
+  /** What the list depends on: the tracker's address and the token typed but not saved yet. */
+  function projectsSig(ti) {
+    const c = model.trackers[ti].conf;
+    return JSON.stringify([c.type, c.baseUrl, c.apiUrl, secretEdits]);
+  }
+
+  function projectOptions(ti) {
+    const e = projectLists.get(ti);
+    if (e?.sig !== projectsSig(ti) || e.state !== "ok") return "";
+    return e.list.map((p) => `<option value="${h(p.key)}">${h(p.name)}</option>`).join("");
+  }
+
+  function projectHint(ti) {
+    const e = projectLists.get(ti);
+    if (!e || e.sig !== projectsSig(ti)) return "Почніть вводити: Mako підкаже проєкти з трекера";
+    if (e.state === "loading") return "Завантажую проєкти…";
+    if (e.state === "error") return `<span class="warn">Список проєктів не завантажився: ${h(e.error)}</span>`;
+    return e.list.length ? `Проєктів у списку: ${e.list.length}, почніть вводити назву` : "Трекер не повернув жодного проєкту";
+  }
+
+  async function loadProjects(ti) {
+    const sig = projectsSig(ti);
+    if (projectLists.get(ti)?.sig === sig) return;
+    projectLists.set(ti, { sig, state: "loading" });
+    const redraw = () => {
+      const list = root.querySelector(`#projects-${ti}`);
+      if (list) list.innerHTML = projectOptions(ti);
+      root.querySelectorAll(`.proj-hint[data-ti="${ti}"]`).forEach((n) => (n.innerHTML = projectHint(ti)));
+    };
+    redraw();
+    try {
+      const raw = toRaw({ general: {}, executors: [], trackers: [model.trackers[ti]] });
+      const { projects } = await api("POST", "/api/tracker-projects", { tracker: raw.trackers[0], secrets: secretEdits });
+      projectLists.set(ti, { sig, state: "ok", list: projects });
+    } catch (err) {
+      projectLists.set(ti, { sig, state: "error", error: err.message });
+    }
+    redraw();
+  }
+
+  root.addEventListener("focusin", (e) => {
+    const path = e.target.dataset?.path;
+    const m = path && path.match(/^trackers\.(\d+)\.projects\.\d+\.key$/);
+    if (m) loadProjects(Number(m[1]));
+  });
 
   // ---- live check of repository paths ----
 

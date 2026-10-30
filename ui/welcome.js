@@ -74,7 +74,7 @@
     if (!d.project.includes("/")) return "";
     try {
       if (d.type === "github") return `git@github.com:${d.project}.git`;
-      if (d.type === "gitlab") return `git@${new URL(d.baseUrl || "https://gitlab.com").host}:${d.project}.git`;
+      if (d.type === "gitlab") return `git@${new URL(d.baseUrl || "https://gitlab.com").hostname}:${d.project}.git`;
     } catch {}
     return "";
   }

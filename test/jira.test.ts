@@ -59,6 +59,7 @@ before(async () => {
         });
       }
       if (url.pathname === "/rest/api/3/myself") return send({ accountId: "acc-me" });
+      if (url.pathname === "/rest/api/3/project/search") return send({ values: [{ key: "PROJ", name: "Checkout" }, { key: "OPS", name: "Operations" }] });
       if (url.pathname === "/rest/api/3/project/PROJ/statuses") return send([{ name: "Bug", statuses: jira.workflow.map((name) => ({ name })) }]);
       const m = url.pathname.match(/^\/rest\/api\/3\/issue\/([A-Z]+-\d+)(\/\w+)?$/);
       const issue = m && issueOf(m[1]);
@@ -123,6 +124,7 @@ test("Jira: issues come with text from ADF, comments, labels and who they are as
   assert.equal(task.url, `${baseUrl}/browse/PROJ-1`);
   assert.deepEqual(await tracker.listStatuses(), ["To Do", "In Progress", "In Review", "Done"]);
   assert.equal(await tracker.whoAmI(), "acc-me");
+  assert.deepEqual(await tracker.listProjects(), [{ key: "PROJ", name: "PROJ — Checkout" }, { key: "OPS", name: "OPS — Operations" }]);
 });
 
 test("Jira: a wrong token says what to fix; a missing transition is reported, not guessed", async () => {

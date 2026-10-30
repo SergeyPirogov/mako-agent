@@ -95,6 +95,11 @@ export class JiraTracker implements Tracker {
     return moment === "start" ? t?.onStart : moment === "success" ? t?.onSuccess : moment === "failed" ? t?.onFailure : undefined;
   }
 
+  async listProjects(): Promise<{ key: string; name: string }[]> {
+    const page = await this.request<{ values: { key: string; name: string }[] }>("GET", "/rest/api/3/project/search?maxResults=100&orderBy=-lastIssueUpdatedTime");
+    return page.values.map((p) => ({ key: p.key, name: `${p.key} — ${p.name}` }));
+  }
+
   /** Statuses of the configured projects' workflows, for the settings page to suggest. */
   async listStatuses(): Promise<string[]> {
     const names = new Set<string>();
