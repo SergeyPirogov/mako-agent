@@ -96,9 +96,15 @@ async function main(): Promise<void> {
 
   const local = (url: string) => Boolean(runtime.port) && url.startsWith(`http://127.0.0.1:${runtime.port}/`);
 
+  /** Web and mail links go to the default browser or mail app; anything else (about:blank, file:, custom schemes) is dropped. */
+  const openExternal = (url: string) => {
+    if (/^(https?|mailto):/i.test(url)) void shell.openExternal(url);
+    else log("desktop", `not opening ${url.slice(0, 80)}: only http(s) and mailto links open outside Mako`);
+  };
+
   function openUrl(url: string): void {
     if (local(url)) openWindow(new URL(url).pathname);
-    else void shell.openExternal(url);
+    else openExternal(url);
   }
 
   function openWindow(pagePath = "/"): void {
@@ -119,13 +125,14 @@ async function main(): Promise<void> {
       // Tracker issues and PRs open in the default browser; Mako's own pages stay in the window.
       w.webContents.setWindowOpenHandler(({ url: target }) => {
         if (local(target)) void w.loadURL(target);
-        else void shell.openExternal(target);
+        else openExternal(target);
         return { action: "deny" };
       });
-      w.webContents.on("will-navigate", (e, target) => {
-        if (!local(target)) {
+      // Any frame, the changes panel's iframe included: links out of Mako open in the browser, not inside the window.
+      w.webContents.on("will-frame-navigate", (e) => {
+        if (!local(e.url) && e.url !== "about:blank") {
           e.preventDefault();
-          void shell.openExternal(target);
+          openExternal(e.url);
         }
       });
       // The settings page asks before leaving with unsaved changes; Electron needs an explicit dialog for that.
