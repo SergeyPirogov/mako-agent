@@ -205,7 +205,15 @@ export class ReviewDesk {
   async reviewEnded(rec: TaskRecord, state: "merged" | "closed", tracker: Tracker): Promise<void> {
     if (rec.reviewState) return;
     this.o.state.update(rec.id, { reviewState: state, ...(state === "merged" ? { mergedAt: new Date().toISOString() } : {}) });
-    if (state === "closed") return log(rec.id, "review closed without merging");
+    if (state === "closed") {
+      // Not done after all: the task goes to «Не виконано», where «Повторити» starts it over.
+      log(rec.id, "review closed without merging");
+      if (rec.status === "done") {
+        this.o.state.update(rec.id, { status: "failed", error: `${this.reviewKind(rec)} закрито без мерджу` });
+        inform(`✗ ${rec.id}: ${this.reviewKind(rec)} закрито без мерджу`, rec.task.title);
+      }
+      return;
+    }
     log(rec.id, `review merged: ${rec.prUrl}`);
     if (tracker.onMerged) await this.o.updateTracker(rec.task, "merged", () => tracker.onMerged!(rec.task));
     inform(`✅ ${rec.id}: ${this.reviewKind(rec)} змерджено`, rec.status === "running" ? "Агент ще в терміналі: натисніть «Завершити»" : rec.task.title);

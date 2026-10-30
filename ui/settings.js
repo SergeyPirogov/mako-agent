@@ -101,6 +101,23 @@
     return clean(raw);
   }
 
+  /** Where Mako keeps a repo without a path of its own: <projects folder>/<name>, as the server resolves it. */
+  function defaultRepoPath(r, p) {
+    const dir = (model.general.projectsDir || "~/mako/projects").replace(/[\\/]+$/, "");
+    return `${dir}/${r.name.trim() || p.key.split("/").pop() || "repo"}`;
+  }
+
+  /** The SSH address Mako clones a GitLab/GitHub project from, unless «Звідки клонувати» says otherwise. */
+  function defaultCloneUrl(t, p) {
+    const key = p.key.trim();
+    if (!key.includes("/") || p.repos.length > 1) return "";
+    try {
+      if (t.conf.type === "gitlab") return `git@${new URL(t.conf.baseUrl || "https://gitlab.com").host}:${key}.git`;
+      if (t.conf.type === "github") return `git@${t.conf.apiUrl ? new URL(t.conf.apiUrl).host : "github.com"}:${key}.git`;
+    } catch {}
+    return "";
+  }
+
   function repoName(r, p) {
     const fromPath = (r.conf.repoPath || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop();
     return r.name.trim() || fromPath || p.key.split("/").pop() || "repo";
@@ -140,7 +157,10 @@
       dup(t.projects.map((p) => p.key.trim()), `${name}, проєкти`);
       t.projects.forEach((p) => {
         p.repos.forEach((r) => {
-          if (!r.conf.repoPath) errs.push(`${name}, ${p.key || "проєкт"}: вкажіть шлях до репозиторію`);
+          // Without a path Mako clones into the projects folder, which needs an address to clone from.
+          if (!r.conf.repoPath && !r.conf.cloneUrl && !defaultCloneUrl(t, p)) {
+            errs.push(`${name}, ${p.key || "проєкт"}: вкажіть шлях до репозиторію або «Звідки клонувати»`);
+          }
         });
         dup(p.repos.map((r) => repoName(r, p)), `${name}, ${p.key || "проєкт"}, репозиторії`);
       });
@@ -479,19 +499,23 @@
     const p = `trackers.${ti}.projects.${pi}.repos.${ri}`;
     const multi = proj.repos.length > 1;
     const defaultExec = defaultExecutorName();
-    const check = pathCheckKey(r.conf.repoPath, r.conf.baseBranch);
+    const fallback = defaultRepoPath(r, proj);
+    const clone = r.conf.cloneUrl || defaultCloneUrl(t, proj);
+    const check = pathCheckKey(r.conf.repoPath || fallback, r.conf.baseBranch, clone, ti, pi, ri);
     return `<div class="card repo"><div class="head"><strong>📁 ${h(repoName(r, proj))}</strong>
         ${multi ? button("Видалити", "remove-repo", { ti, pi, ri }, "link danger") : ""}</div>
       <div class="grid">
-        ${field({ label: "Шлях до локального репозиторію", path: `${p}.conf.repoPath`, wide: true, placeholder: "~/work/my-repo", refresh: true,
+        ${field({ label: "Шлях до локального репозиторію", path: `${p}.conf.repoPath`, wide: true, placeholder: `${fallback} (за замовчуванням)`, refresh: true,
           hint: `<span class="pathcheck" data-check="${h(check)}">${pathCheckHtml(check)}</span>` })}
-        ${field({ label: "Базова гілка", path: `${p}.conf.baseBranch`, placeholder: "main", refresh: true })}
+        ${field({ label: "Базова гілка", path: `${p}.conf.baseBranch`, placeholder: "автоматично", refresh: true, hint: "Порожньо: основна гілка репозиторію (origin/HEAD)" })}
         ${field({ label: "Хто виконує", path: `${p}.conf.executor`, kind: "select",
           options: [["", `основний (${defaultExec})`], ...model.executors.map((e) => [e.name, `${e.name} · ${EXECUTORS[e.conf.type] ?? e.conf.type}`])] })}
         ${multi ? field({ label: "Сюди йдуть задачі з мітками", path: `${p}.conf.match.labels`, type: "csv", placeholder: "ui, frontend" }) : ""}
         ${multi && t.conf.type === "jira" ? field({ label: "…або з компонентами Jira", path: `${p}.conf.match.components`, type: "csv", placeholder: "Frontend" }) : ""}
       </div>
       ${details(`repo-${ti}-${pi}-${ri}`, "Додатково", `
+        ${field({ label: "Звідки клонувати", path: `${p}.conf.cloneUrl`, wide: true, placeholder: defaultCloneUrl(t, proj) || "git@gitlab.com:group/repo.git", refresh: true,
+          hint: "Якщо в папці репозиторію ще немає клону, Mako склонує його звідси перед першою задачею. Потрібен SSH-ключ або збережений пароль git" })}
         ${field({ label: "Підготовка worktree", path: `${p}.conf.setup`, wide: true, placeholder: "auto: за lock-файлом (pnpm install, npm ci, …)",
           hint: "Команда в новому worktree до старту агента, щоб працювали тести, лінтери й git-хуки. <code>none</code>: нічого не запускати" })}
         ${field({ label: "Назва гілки задачі", path: `${p}.conf.branchPattern`, wide: true, placeholder: `як загальна: ${model.general.branchPattern || DEFAULT_BRANCH}`, list: "branch-patterns", rerender: true,
@@ -507,20 +531,32 @@
 
   // ---- live check of repository paths ----
 
-  function pathCheckKey(repoPath, base) {
-    return repoPath ? `${repoPath}|${base || "main"}` : "";
+  // key: "path|base|clone|ti.pi.ri"; base and clone may be empty
+  function pathCheckKey(repoPath, base, clone = "", ti = "", pi = "", ri = "") {
+    return repoPath ? `${repoPath}|${base || ""}|${clone || ""}|${ti}.${pi}.${ri}` : "";
   }
 
   function pathCheckHtml(key) {
     if (!key) return "";
     const c = pathChecks.get(key);
     if (!c || c === "pending") return `<span class="muted">перевіряю шлях…</span>`;
-    if (c.error) return "";
-    const base = key.split("|")[1];
-    if (!c.exists) return `<span class="err">✗ Папки не існує: ${h(c.resolved)}</span>`;
+    if (c === "cloning") return `<span class="muted">клоную…</span>`;
+    if (c.error) return c.message ? `<span class="err">✗ ${h(c.message)}</span>` : "";
+    const [, setBase, clone, at] = key.split("|");
+    const base = setBase || c.defaultBranch;
+    if (!c.exists || (c.empty && !c.git)) {
+      if (!clone) return `<span class="err">✗ Папки не існує: ${h(c.resolved)}. Вкажіть шлях до клону або «Звідки клонувати» в «Додатково»</span>`;
+      const [ti, pi, ri] = at.split(".");
+      return `<span class="muted">Клону ще немає: Mako склонує <code>${h(clone)}</code> перед першою задачею.</span> ${button("Склонувати зараз", "clone-repo", { key, ti, pi, ri }, "link")}`;
+    }
     if (!c.git) return `<span class="warn">⚠ Це не git-репозиторій</span>`;
+    if (!base) return `<span class="warn">⚠ Не вдалось визначити основну гілку: вкажіть «Базова гілка»</span>`;
     if (!c.hasBase) return `<span class="warn">⚠ Гілки <code>origin/${h(base)}</code> не знайдено: перевірте назву або зробіть <code>git fetch</code></span>`;
-    return `<span class="ok-text">✓ git-репозиторій, гілка <code>origin/${h(base)}</code> є</span>`;
+    return `<span class="ok-text">✓ git-репозиторій, гілка <code>origin/${h(base)}</code>${setBase ? "" : " (визначено автоматично)"}</span>`;
+  }
+
+  function redrawCheck(key) {
+    root.querySelectorAll(`[data-check="${CSS.escape(key)}"]`).forEach((n) => (n.innerHTML = pathCheckHtml(key)));
   }
 
   function checkPaths() {
@@ -532,7 +568,7 @@
       api("GET", `/api/check-path?path=${encodeURIComponent(repoPath)}&base=${encodeURIComponent(base)}`)
         .then((r) => pathChecks.set(key, r))
         .catch(() => pathChecks.set(key, { error: true }))
-        .finally(() => root.querySelectorAll(`[data-check="${CSS.escape(key)}"]`).forEach((n) => (n.innerHTML = pathCheckHtml(key))));
+        .finally(() => redrawCheck(key));
     }
   }
 
@@ -668,6 +704,8 @@
   function advancedSection() {
     return `<div class="shead"><h2>Додатково</h2></div>
       <div class="card"><div class="grid">
+        ${field({ label: "Папка для проєктів", path: "general.projectsDir", placeholder: "~/mako/projects", refresh: true, rerender: true,
+          hint: "Сюди Mako клонує репозиторії, для яких не вказано свого шляху" })}
         ${field({ label: "Шукати PR переданих задач кожні, хв", path: "general.handoffCheckMin", kind: "number", type: "number", placeholder: "5", hint: "Для Orca й інших зовнішніх інструментів. 0 вимикає" })}
         ${field({ label: "Порт вебінтерфейсу", path: "general.notifications.inboxPort", kind: "number", type: "number", placeholder: "7777", hint: "Діє після перезапуску Mako" })}
       </div>
@@ -709,6 +747,19 @@
     },
     "remove-project"({ ti, pi }) {
       model.trackers[ti].projects.splice(pi, 1);
+    },
+    async "clone-repo"({ key }) {
+      const [repoPath, base, url] = key.split("|");
+      pathChecks.set(key, "cloning");
+      redrawCheck(key);
+      try {
+        await api("POST", "/api/clone", { path: repoPath, url });
+        pathChecks.set(key, await api("GET", `/api/check-path?path=${encodeURIComponent(repoPath)}&base=${encodeURIComponent(base)}`));
+      } catch (err) {
+        pathChecks.set(key, { error: true, message: err.message });
+      }
+      redrawCheck(key);
+      return "skip";
     },
     "add-repo"({ ti, pi }) {
       model.trackers[ti].projects[pi].repos.push({ name: "", conf: {} });

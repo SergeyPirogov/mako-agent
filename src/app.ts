@@ -135,7 +135,7 @@ function repoWarnings(cfg: Config): string[] {
   for (const t of cfg.trackers)
     for (const [key, p] of Object.entries(t.projects))
       for (const r of Object.values(p.repos))
-        if (!existsSync(path.join(r.repoPath, ".git")))
+        if (!existsSync(path.join(r.repoPath, ".git")) && !r.cloneUrl)
           warnings.push(`${key} / ${r.name}: ${r.repoPath} не схожий на git-репозиторій`);
   return warnings;
 }

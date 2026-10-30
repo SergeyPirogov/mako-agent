@@ -1,7 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import type { RepoConfig } from "./config.js";
+import { detectBaseBranch, type RepoConfig } from "./config.js";
 import type { Task } from "./types.js";
 import { run, runOk } from "./shell.js";
 
@@ -75,6 +75,43 @@ export async function removeWorktree(repo: RepoConfig, dir: string, branch: stri
   await run("git", ["worktree", "prune"], main);
   await run("git", ["branch", "-D", branch], main);
   return removed;
+}
+
+/**
+ * Makes sure the repo has a local clone: clones it from `cloneUrl` when its folder has none, without prompts
+ * (an SSH key or a credential helper has to do), and settles the base branch when it is not set.
+ */
+export async function ensureClone(repo: RepoConfig, log?: (line: string) => void): Promise<void> {
+  if (!existsSync(path.join(repo.repoPath, ".git"))) {
+    if (existsSync(repo.repoPath) && readdirSync(repo.repoPath).length) {
+      throw new Error(`${repo.repoPath} не порожня і не git-репозиторій: вкажіть у Налаштуваннях інший шлях`);
+    }
+    if (!repo.cloneUrl) throw new Error(`Немає клону в ${repo.repoPath}: вкажіть у Налаштуваннях шлях до репозиторію або «Звідки клонувати»`);
+    mkdirSync(path.dirname(repo.repoPath), { recursive: true });
+    log?.(`cloning ${repo.cloneUrl} into ${repo.repoPath}`);
+    const r = await run(
+      "git",
+      ["-c", "core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new", "clone", repo.cloneUrl, repo.repoPath],
+      path.dirname(repo.repoPath),
+      { GIT_TERMINAL_PROMPT: "0" },
+    );
+    if (r.code !== 0) {
+      rmSync(repo.repoPath, { recursive: true, force: true });
+      throw new Error(`Не вдалось склонувати ${repo.cloneUrl}: ${(r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ")}`);
+    }
+    log?.("cloned");
+  }
+  if (repo.baseAuto) {
+    // Older clones may lack origin/HEAD: ask the remote once.
+    if (!existsSync(path.join(repo.repoPath, ".git", "refs", "remotes", "origin", "HEAD"))) {
+      await run("git", ["remote", "set-head", "origin", "--auto"], repo.repoPath, { GIT_TERMINAL_PROMPT: "0" });
+    }
+    const base = detectBaseBranch(repo.repoPath);
+    if (base && base !== repo.baseBranch) {
+      log?.(`base branch: ${base}`);
+      repo.baseBranch = base;
+    }
+  }
 }
 
 /** Creates (or reuses) an isolated worktree for the task, branched from the latest base branch. */

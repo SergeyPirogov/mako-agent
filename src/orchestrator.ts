@@ -360,6 +360,13 @@ export class Orchestrator {
       this.state.update(task.id, { status: "failed", error: `no configured repository for ${task.id}` });
       return;
     }
+    try {
+      await git.ensureClone(repo, (line) => log(task.id, line));
+    } catch (err: any) {
+      this.state.update(task.id, { status: "failed", repo: repo.name, finishedAt: new Date().toISOString(), error: err.message });
+      log(task.id, err.message);
+      return;
+    }
     const executor = (rec.chosenExecutor && this.executors.get(rec.chosenExecutor)) || this.executorFor(repo);
     // Named once, from the pattern: later runs and the MR use the same branch.
     // An existing worktree (a task from before patterns, or Orca's) keeps the branch it already has.

@@ -53,7 +53,7 @@ const COLUMNS: Column[] = [
 export function columnOf(r: TaskRecord): Column["key"] {
   if (r.status === "asking" || r.status === "snoozed") return "new";
   if (r.status === "queued" || r.status === "planned" || r.status === "running" || r.status === "handed-off") return "doing";
-  if (r.status === "failed" || r.status === "cancelled") return "failed";
+  if (r.status === "failed" || r.status === "cancelled" || r.reviewState === "closed") return "failed";
   return r.prUrl && !r.reviewState ? "review" : "done";
 }
 

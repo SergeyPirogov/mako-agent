@@ -1,7 +1,7 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { existsSync, statSync, readFileSync } from "node:fs";
+import { existsSync, statSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { run } from "./shell.js";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,8 @@ import { log } from "./log.js";
 import { doctor, findRepos } from "./onboarding.js";
 import { renderStats } from "./stats.js";
 import { renderMemory } from "./memory-page.js";
+import * as git from "./git.js";
+import { detectBaseBranch, resolvePath, type RepoConfig } from "./config.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -229,9 +231,20 @@ export function startWebUi(app: App, port: number): http.Server {
           return json(200, { paths: findRepos(url.searchParams.get("project") ?? "") });
         }
         if (req.method === "GET" && url.pathname === "/api/check-path") {
-          return json(200, await checkRepoPath(url.searchParams.get("path") ?? "", url.searchParams.get("base") || "main"));
+          return json(200, await checkRepoPath(url.searchParams.get("path") ?? "", url.searchParams.get("base") ?? ""));
         }
         const body = JSON.parse((await readBody(req)) || "{}");
+        if (req.method === "POST" && url.pathname === "/api/clone") {
+          // «Склонувати зараз» in the settings: the same clone Mako makes before a repo's first task.
+          const repoPath = resolvePath(String(body.path ?? ""));
+          if (!body.path || !body.url) return json(400, { error: "Потрібні шлях і адреса" });
+          try {
+            await git.ensureClone({ repoPath, cloneUrl: String(body.url), baseAuto: false } as RepoConfig);
+            return json(200, { ok: true });
+          } catch (err: any) {
+            return json(400, { error: err.message });
+          }
+        }
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           return json(200, { ok: true, ...app.save(body.config, body.secrets ?? {}), problem: app.problem });
         }
@@ -347,14 +360,18 @@ function renderSession(app: App, id: string, token: string): string {
 async function checkRepoPath(
   input: string,
   base: string,
-): Promise<{ exists: boolean; git: boolean; hasBase?: boolean; defaultBranch?: string; resolved: string }> {
+): Promise<{ exists: boolean; empty?: boolean; git: boolean; hasBase?: boolean; defaultBranch?: string; resolved: string }> {
   const resolved = path.resolve(input.startsWith("~/") ? path.join(homedir(), input.slice(2)) : input);
   if (!input || !existsSync(resolved) || !statSync(resolved).isDirectory()) return { exists: false, git: false, resolved };
+  // An empty folder is as good as none: Mako clones into it.
+  if (!readdirSync(resolved).length) return { exists: true, empty: true, git: false, resolved };
   const top = await run("git", ["rev-parse", "--show-toplevel"], resolved).catch(() => undefined);
   if (!top || top.code !== 0) return { exists: true, git: false, resolved };
-  const ref = await run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${base}`], resolved).catch(() => undefined);
   const head = await run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], resolved).catch(() => undefined);
-  const defaultBranch = head?.code === 0 ? head.stdout.trim().replace(/^origin\//, "") : undefined;
+  const defaultBranch = head?.code === 0 ? head.stdout.trim().replace(/^origin\//, "") : detectBaseBranch(top.stdout.trim());
+  // No base set: the one Mako would pick.
+  const wanted = base || defaultBranch;
+  const ref = wanted ? await run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${wanted}`], resolved).catch(() => undefined) : undefined;
   return { exists: true, git: true, hasBase: ref?.code === 0, defaultBranch, resolved };
 }
 

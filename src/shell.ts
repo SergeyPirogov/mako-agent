@@ -6,9 +6,9 @@ export interface RunResult {
   stderr: string;
 }
 
-export function run(cmd: string, args: string[], cwd: string): Promise<RunResult> {
+export function run(cmd: string, args: string[], cwd: string, env?: Record<string, string>): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"], env: env ? { ...process.env, ...env } : undefined });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));

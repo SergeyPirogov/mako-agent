@@ -69,11 +69,17 @@
     return "https://id.atlassian.com/manage-profile/security/api-tokens";
   }
 
+  /** What Mako clones from when the project has no local clone yet (SSH, as developers usually clone). */
   function cloneUrl() {
-    if (d.type === "github") return `https://github.com/${d.project}.git`;
-    if (d.type === "gitlab") return `${d.baseUrl || "https://gitlab.com"}/${d.project}.git`;
+    if (!d.project.includes("/")) return "";
+    try {
+      if (d.type === "github") return `git@github.com:${d.project}.git`;
+      if (d.type === "gitlab") return `git@${new URL(d.baseUrl || "https://gitlab.com").host}:${d.project}.git`;
+    } catch {}
     return "";
   }
+
+  const defaultFolder = () => `~/mako/projects/${d.project.split("/").pop() || "repo"}`;
 
   const savedSecret = (name) => Boolean(settings?.secrets?.[name]?.set);
   const ghLogin = () => d.type === "github" && doc?.ghLoggedIn;
@@ -199,10 +205,10 @@
           <div><strong>${h(p)}</strong><div class="small muted">знайдено автоматично</div></div></label>`)
         .join("")}</div>` : ""}
       <label class="f">${found?.length ? "Або вкажіть іншу папку" : "Папка з репозиторієм"}
-        <input type="text" data-k="repoPath" value="${h(d.repoPath)}" placeholder="~/projects/${h(d.project.split("/").pop() || "repo")}" ${found?.length ? "" : "autofocus"}>
+        <input type="text" data-k="repoPath" value="${h(d.repoPath)}" placeholder="${h(clone ? `${defaultFolder()} (Mako склонує сам)` : "~/projects/repo")}" ${found?.length ? "" : "autofocus"}>
         <span class="hint">${c ? (c.git ? `<span class="ok-text">✓ git-репозиторій${c.defaultBranch ? `, основна гілка <code>${h(c.defaultBranch)}</code>` : ""}</span>` : c.exists ? '<span class="warn">Папка є, але це не git-репозиторій</span>' : '<span class="warn">Такої папки немає</span>') : ""}</span></label>
-      ${found?.length === 0 && clone ? `<p class="small muted">Не знайшов клон автоматично. Якщо його ще немає:<br><code class="wz-cmd">git clone ${h(clone)} ~/projects/${h(d.project.split("/").pop())}</code></p>` : ""}
-      ${nav("Далі", { disabled: !c?.git })}`;
+      ${found?.length === 0 && clone && !d.repoPath.trim() ? `<p class="small muted">Клону на цьому компʼютері не знайшов. Нічого не вказуйте: перед першою задачею Mako склонує <code>${h(clone)}</code> у <code>${h(defaultFolder())}</code> (потрібен SSH-ключ для ${h(d.type === "github" ? "GitHub" : "GitLab")}).</p>` : ""}
+      ${nav("Далі", { disabled: !(c?.git || (!d.repoPath.trim() && clone)) })}`;
   }
 
   function viewAgent() {
@@ -289,7 +295,8 @@
       const fresh = await api("GET", "/api/settings");
       const config = structuredClone(fresh.config);
       config.trackers ??= [];
-      const t = tracker({ repoPath: d.repoPath.trim(), baseBranch: d.baseBranch });
+      // No folder: Mako clones into ~/mako/projects; no base branch: the remote's default.
+      const t = tracker(d.repoPath.trim() ? { repoPath: d.repoPath.trim() } : {});
       // Statuses the issue moves through, picked from the tracker's own list when the names are recognisable.
       const statuses = d.test?.statuses ?? [];
       const pick = (re) => statuses.find((x) => re.test(x));

@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
 import os from "node:os";
@@ -8,6 +8,7 @@ import path from "node:path";
 import { parseConfig } from "../src/config.ts";
 import { Orchestrator } from "../src/orchestrator.ts";
 import { StateStore } from "../src/state.ts";
+import { columnOf } from "../src/inbox.ts";
 import { setNotificationHost } from "../src/notify.ts";
 import type { IssueState, Outcome, ReviewInfo, Task, Tracker } from "../src/types.ts";
 
@@ -378,4 +379,86 @@ test("MR autopilot is off by default: a failed CI only notifies", async () => {
   } finally {
     orchestrator.stop();
   }
+});
+
+test("an MR closed without merging sends the task to «Не виконано»", async () => {
+  const { tracker, orchestrator } = setup("true");
+  const t = issue(23, "Rejected");
+  orchestrator.state.update(t.id, { task: t, status: "done", repo: "web", prUrl: "https://git.example/acme/web/-/merge_requests/2" });
+  tracker.review = "closed";
+  await orchestrator.refreshReview(t.id);
+  const rec = orchestrator.state.get(t.id)!;
+  assert.equal(rec.reviewState, "closed");
+  assert.equal(rec.status, "failed");
+  assert.equal(rec.error, "MR закрито без мерджу");
+  assert.equal(columnOf(rec), "failed");
+  assert.ok(!tracker.calls.some((c) => c.startsWith("merged")), "the issue does not move to Done");
+  orchestrator.stop();
+});
+
+test("a repo without a path is cloned into the projects folder, its base branch found by itself", async () => {
+  const base = mkdtempSync(path.join(dir, "clone-"));
+  const remote = path.join(base, "remote.git");
+  const seed = path.join(base, "seed");
+  // the remote's main branch is «trunk»: nothing in the config says so
+  execFileSync("git", ["init", "-q", "--bare", "-b", "trunk", remote]);
+  execFileSync("git", ["clone", "-q", remote, seed]);
+  for (const a of [["config", "user.email", "t@t"], ["config", "user.name", "T"], ["commit", "-q", "--allow-empty", "-m", "init"], ["push", "-q", "origin", "trunk"]]) git(seed, ...a);
+  const agent = path.join(base, "agent.sh");
+  writeFileSync(agent, "#!/bin/sh\necho cloned-and-done > done.txt\n", { mode: 0o755 });
+  const cfg = parseConfig({
+    stateDir: path.join(base, "state"),
+    projectsDir: path.join(base, "projects"),
+    planFirst: false,
+    notifications: { enabled: false, autoTake: true, inboxPort: 0 },
+    executors: { agent: { type: "command", command: agent } },
+    defaultExecutor: "agent",
+    trackers: [{ type: "gitlab", baseUrl: "https://git.example", projects: { "acme/web": { cloneUrl: remote, pullRequest: "none", setup: "none" } } }],
+  });
+  const repo = cfg.trackers[0].projects["acme/web"].repos.web;
+  assert.equal(repo.repoPath, path.join(base, "projects", "web"));
+  assert.equal(parseConfig({ ...structuredClone({ trackers: [{ type: "gitlab", baseUrl: "https://git.example", projects: { "acme/web": {} } }] }) }).trackers[0].projects["acme/web"].repos.web.cloneUrl,
+    "git@git.example:acme/web.git", "the GitLab project over SSH by default");
+  const tracker = new FakeTracker(cfg.trackers[0].projects);
+  const orchestrator = new Orchestrator(cfg, [tracker], new StateStore(cfg.stateDir));
+  try {
+    const t = issue(24, "First task in a fresh clone");
+    // git config for commits in the new clone
+    process.env.GIT_AUTHOR_NAME = process.env.GIT_COMMITTER_NAME = "T";
+    process.env.GIT_AUTHOR_EMAIL = process.env.GIT_COMMITTER_EMAIL = "t@t";
+    tracker.issues = [t];
+    await orchestrator.poll();
+    await orchestrator.drain();
+    const rec = orchestrator.state.get(t.id)!;
+    assert.equal(rec.status, "done", rec.error);
+    assert.ok(existsSync(path.join(repo.repoPath, ".git")), "cloned");
+    assert.equal(repo.baseBranch, "trunk", "the remote's default branch");
+    assert.equal(git(remote, "show", `${rec.branchName}:done.txt`), "cloned-and-done");
+  } finally {
+    for (const k of ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"]) delete process.env[k];
+    orchestrator.stop();
+  }
+});
+
+test("a repo that cannot be cloned fails with the reason, not a crash", async () => {
+  const base = mkdtempSync(path.join(dir, "noclone-"));
+  const cfg = parseConfig({
+    stateDir: path.join(base, "state"),
+    projectsDir: path.join(base, "projects"),
+    planFirst: false,
+    notifications: { enabled: false, autoTake: true, inboxPort: 0 },
+    executors: { agent: { type: "command", command: "true" } },
+    defaultExecutor: "agent",
+    trackers: [{ type: "gitlab", projects: { "acme/web": { cloneUrl: path.join(base, "missing.git"), setup: "none" } } }],
+  });
+  const tracker = new FakeTracker(cfg.trackers[0].projects);
+  const orchestrator = new Orchestrator(cfg, [tracker], new StateStore(cfg.stateDir));
+  tracker.issues = [issue(25, "Nowhere to clone from")];
+  await orchestrator.poll();
+  await orchestrator.drain();
+  const rec = orchestrator.state.get("acme/web#25")!;
+  assert.equal(rec.status, "failed");
+  assert.match(rec.error!, /Не вдалось склонувати/);
+  assert.ok(!existsSync(path.join(base, "projects", "web")), "no half-made folder is left");
+  orchestrator.stop();
 });

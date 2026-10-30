@@ -7,8 +7,13 @@ import type { ExecutorConfig } from "./executors/index.js";
 export interface RepoConfig {
   /** Name used by `repo:<name>` labels and `default`. */
   name: string;
+  /** The local clone; by default `<projectsDir>/<name>`, cloned by Mako before the first task. */
   repoPath: string;
+  /** Where Mako clones the repo from when `repoPath` has none: set, or the tracker's GitLab/GitHub project over SSH. */
+  cloneUrl?: string;
   baseBranch: string;
+  /** No base branch set: it is the remote's default (origin/HEAD), looked up again after a clone. */
+  baseAuto: boolean;
   worktreesDir: string;
   /** Where to open the pull/merge request; "auto" picks by the origin remote URL. */
   pullRequest: "auto" | "github" | "gitlab" | "none";
@@ -37,6 +42,42 @@ export interface TaskTemplate {
 
 /** feat/12-add-dark-mode, fix/34-login-button: the usual names, with the type taken from the issue. */
 export const DEFAULT_BRANCH_PATTERN = "{type}/{id}-{title}";
+
+/** Where projects without a path of their own are cloned. */
+export const DEFAULT_PROJECTS_DIR = "~/mako/projects";
+
+/**
+ * The remote's default branch of a clone, from its files (no git call, no network): origin/HEAD, which a clone sets,
+ * else whichever of main/master/develop the remote has. Undefined when there is no clone yet.
+ */
+export function detectBaseBranch(repoPath: string): string | undefined {
+  const gitDir = path.join(repoPath, ".git");
+  const read = (f: string) => {
+    try {
+      return readFileSync(path.join(gitDir, f), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const head = read("refs/remotes/origin/HEAD").match(/^ref: refs\/remotes\/origin\/(.+)$/m)?.[1]?.trim();
+  if (head) return head;
+  const packed = read("packed-refs");
+  return ["main", "master", "develop"].find((b) => existsSync(path.join(gitDir, "refs/remotes/origin", b)) || packed.includes(` refs/remotes/origin/${b}\n`));
+}
+
+/** SSH address of a GitLab/GitHub tracker project ("group/app"), the way developers usually clone. */
+export function defaultCloneUrl(tracker: any, projectKey: string): string | undefined {
+  if (!projectKey.includes("/")) return undefined; // a Jira key says nothing about where the code is
+  let host: string;
+  try {
+    if (tracker.type === "gitlab") host = new URL(tracker.baseUrl ?? "https://gitlab.com").host;
+    else if (tracker.type === "github") host = tracker.apiUrl ? new URL(tracker.apiUrl).host : "github.com";
+    else return undefined;
+  } catch {
+    return undefined;
+  }
+  return `git@${host}:${projectKey}.git`;
+}
 
 /** One tracker project (Jira project, GitHub/GitLab repo) and the local repositories its tasks can go to. */
 export interface ProjectConfig {
@@ -70,6 +111,8 @@ export interface Config {
   trackers: TrackerConfig[];
   /** How often to look for a PR/MR on handed-off tasks; 0 turns it off. */
   handoffCheckMin: number;
+  /** Where repos without a path of their own live (cloned by Mako): ~/mako/projects. */
+  projectsDir: string;
   /** Named ways to run an agent; repos pick one with `executor`. */
   executors: Record<string, ExecutorConfig>;
   defaultExecutor: string;
@@ -120,6 +163,7 @@ export function writeRawConfig(configPath: string, raw: unknown): void {
 export function parseConfig(raw: any, dryRun = false): Config {
   if (!raw || typeof raw !== "object") throw new Error("Config must be a JSON object");
 
+  const projectsDir = resolvePath(raw.projectsDir || DEFAULT_PROJECTS_DIR);
   const trackers: TrackerConfig[] = (raw.trackers ?? []).map((t: any) => {
     const projects: Record<string, ProjectConfig> = {};
     for (const [key, p] of Object.entries<any>(t.projects ?? {})) {
@@ -127,12 +171,14 @@ export function parseConfig(raw: any, dryRun = false): Config {
       const rawRepos: Record<string, any> = p.repos ?? { [key.split("/").pop()!]: p };
       const repos: Record<string, RepoConfig> = {};
       for (const [name, r] of Object.entries<any>(rawRepos)) {
-        if (!r.repoPath) throw new Error(`Project ${key}, repo ${name}: repoPath is required`);
+        const repoPath = r.repoPath ? resolvePath(r.repoPath) : path.join(projectsDir, name);
         repos[name] = {
           name,
-          repoPath: resolvePath(r.repoPath),
-          baseBranch: r.baseBranch ?? "main",
-          worktreesDir: resolvePath(r.worktreesDir ?? path.join(resolvePath(r.repoPath), "..", ".worktrees", name)),
+          repoPath,
+          cloneUrl: r.cloneUrl || (rawRepos === p.repos && Object.keys(rawRepos).length > 1 ? undefined : defaultCloneUrl(t, key)),
+          baseBranch: r.baseBranch || detectBaseBranch(repoPath) || "main",
+          baseAuto: !r.baseBranch,
+          worktreesDir: resolvePath(r.worktreesDir ?? path.join(repoPath, "..", ".worktrees", name)),
           pullRequest: r.pullRequest ?? "auto",
           extraInstructions: r.extraInstructions,
           match: r.match,
@@ -170,6 +216,7 @@ export function parseConfig(raw: any, dryRun = false): Config {
     maxConcurrent: raw.maxConcurrent ?? (raw.wipLimit || 1),
     taskTimeoutMin: raw.taskTimeoutMin ?? 45,
     handoffCheckMin: raw.handoffCheckMin ?? 5,
+    projectsDir,
     stateDir: path.resolve(raw.stateDir ?? ".mako"),
     notifications: {
       enabled: n.enabled ?? true,
