@@ -210,7 +210,7 @@ test("handing a task to Orca tells the agent to finish with a merge request from
   const text = handoffInstructions(undefined, ctx);
   assert.match(text, /git push -u origin fix\/12-fix-cart/);
   assert.match(text, /merge request from fix\/12-fix-cart into main/);
-  assert.match(text, /"Closes acme\/web#12"/);
+  assert.match(text, /^   Closes acme\/web#12$/m);
   assert.equal(handoffInstructions("Візьми {taskId}, зроби й відкрий MR з {branch} у {baseBranch}. {unknown}", ctx), "Візьми acme/web#12, зроби й відкрий MR з fix/12-fix-cart у main. {unknown}");
 });
 

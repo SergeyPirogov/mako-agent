@@ -368,6 +368,13 @@ export class GitLabTracker implements Tracker {
     return res.data as T;
   }
 
+  async readReview(reviewUrl: string): Promise<{ title: string; description: string }> {
+    const m = reviewUrl.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)/);
+    if (!m) throw new Error(`не схоже на MR GitLab: ${reviewUrl}`);
+    const mr = await this.request<{ title: string; description: string | null }>("GET", `${projectApi(m[1])}/merge_requests/${m[2]}`);
+    return { title: mr.title, description: mr.description ?? "" };
+  }
+
   async describeReview(reviewUrl: string, title: string, description: string): Promise<void> {
     const m = reviewUrl.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\/(\d+)/);
     if (!m) throw new Error(`не схоже на MR GitLab: ${reviewUrl}`);

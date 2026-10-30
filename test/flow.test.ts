@@ -566,3 +566,39 @@ test("finished tasks go to the archive on their own; failed ones and open MRs st
   assert.equal(orchestrator.autoArchive(), 0, "0 turns it off");
   orchestrator.stop();
 });
+
+test("an MR opened with Orca's button and a bare description gets one from the branch; a real one is kept", async () => {
+  const { orchestrator, tracker } = setup('echo "fixed" > cart.txt && git add cart.txt && git commit -qm "acme/web#30: fix cart"');
+  const bin = mkdtempSync(path.join(dir, "bin-"));
+  // Claude for the MR text: a title line, then bullets
+  writeFileSync(path.join(bin, "claude"), '#!/bin/sh\ncat > /dev/null\nprintf "Fix the cart total for sold-out items\\n\\n- Skip sold-out items in the total\\n- Add a test for it\\n"\n', { mode: 0o755 });
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bin}:${savedPath}`;
+  try {
+    const t = issue(30, "Cart total is wrong");
+    tracker.issues = [t];
+    await orchestrator.poll();
+    await orchestrator.drain();
+    const rec = orchestrator.state.get(t.id)!;
+    assert.equal(rec.status, "done", rec.error);
+    const repo = tracker.projects["acme/web"].repos.web;
+    const url = "https://git.example/acme/web/-/merge_requests/31";
+    let mr = { title: "fix/30-cart-total-is-wrong", description: "Closes acme/web#30" };
+    const written: string[] = [];
+    (tracker as any).readReview = async () => mr;
+    (tracker as any).describeReview = async (_u: string, title: string, description: string) => {
+      written.push(title);
+      mr = { title, description };
+    };
+    assert.equal(await orchestrator.sync.describeIfBare(rec, tracker, repo, url), true);
+    assert.equal(mr.title, "Fix the cart total for sold-out items", "a branch name is not a title");
+    assert.match(mr.description, /- Skip sold-out items in the total[\s\S]*https:\/\/git\.example\/acme\/web\/-\/issues\/30/);
+    // a description written by the agent or by you stays as it is
+    mr = { title: "Fix cart total", description: "## What changed\n- Sold-out items are no longer counted in the cart total, checked with the e2e suite.\n\nCloses acme/web#30" };
+    assert.equal(await orchestrator.sync.describeIfBare(rec, tracker, repo, url), false);
+    assert.equal(written.length, 1);
+  } finally {
+    process.env.PATH = savedPath;
+    orchestrator.stop();
+  }
+});

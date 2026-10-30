@@ -244,6 +244,13 @@ export class GitHubTracker implements Tracker {
     return pr.merged ? "merged" : pr.state === "closed" ? "closed" : "open";
   }
 
+  async readReview(reviewUrl: string): Promise<{ title: string; description: string }> {
+    const m = reviewUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
+    if (!m) throw new Error(`не схоже на PR GitHub: ${reviewUrl}`);
+    const pr = await this.request<{ title: string; body: string | null }>("GET", `/repos/${m[1]}/pulls/${m[2]}`);
+    return { title: pr.title, description: pr.body ?? "" };
+  }
+
   async describeReview(reviewUrl: string, title: string, description: string): Promise<void> {
     const m = reviewUrl.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/);
     if (!m) throw new Error(`не схоже на PR GitHub: ${reviewUrl}`);

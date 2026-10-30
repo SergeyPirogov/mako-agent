@@ -1,4 +1,6 @@
 import type { IssueState, Tracker } from "./types.js";
+import type { RepoConfig } from "./config.js";
+import { reviewText } from "./commit-message.js";
 import type { TaskRecord } from "./state.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { existsSync } from "node:fs";
@@ -64,6 +66,31 @@ export class TrackerSync {
   }
 
   /** A handed-off task is finished from Mako's side once a PR/MR is opened from its branch. */
+  /**
+   * An MR opened with Orca's button or by hand often has an empty or one-line description: Mako writes one from
+   * the branch's changes, as for the MRs it opens itself. A real description (the agent's, yours) is kept; so is
+   * a real title.
+   */
+  async describeIfBare(rec: TaskRecord, tracker: Tracker, repo: RepoConfig, url: string): Promise<boolean> {
+    const host = this.o.reviews.reviewHost(url, tracker);
+    const worktree = rec.worktree && existsSync(rec.worktree) ? rec.worktree : undefined;
+    if (!host?.readReview || !host.describeReview || !worktree) return false;
+    const current = await host.readReview(url);
+    const body = current.description.replace(/^\s*(closes|fixes|resolves|refs?)\b.*$/gim, "").trim();
+    // Written by someone: long enough, or short but with sections or a list.
+    if (body.length >= 120 || (body.length >= 40 && /^(#{1,3} |[-*] )/m.test(body))) return false;
+    const text = await reviewText(worktree, repo.baseBranch, rec.task);
+    if (!text.summary) return false;
+    const closing = rec.task.closingRef ?? rec.task.url;
+    const description = [text.summary, closing, `🦈 Mako · [${rec.task.id}](${rec.task.url})`].join("\n\n");
+    // «fix/28-pagination», «WIP», «Update»: not a title a reviewer can use.
+    const bare = current.title.replace(/^draft:\s*/i, "").trim();
+    const title = !bare || !/\s/.test(bare) ? `${/^draft:/i.test(current.title) ? "Draft: " : ""}${text.title}` : current.title;
+    await host.describeReview(url, title, description);
+    log(rec.id, `review description written from the branch's changes${title !== current.title ? ", and its title" : ""}`);
+    return true;
+  }
+
   async checkHandoffs(): Promise<void> {
     for (const rec of this.o.state.all().filter((r) => r.status === "handed-off")) {
       const tracker = this.o.trackers.get(rec.task.trackerId);
@@ -85,6 +112,7 @@ export class TrackerSync {
         const name = review.kind === "pull" ? `Pull request #${review.number}` : `Merge request !${review.number}`;
         const link = review.url ?? name;
         log(rec.id, `review found: ${link}`);
+        if (review.url) await this.describeIfBare(rec, tracker, repo, review.url).catch((err: any) => log(rec.id, `review description not written: ${err.message}`));
         await tracker.comment(rec.task, `🦈 Mako: ${name} opened for this issue: ${link}`);
         await this.o.updateTracker(rec.task, "success", () => tracker.onFinish(rec.task, "success"));
         this.o.state.update(rec.id, { status: "done", prUrl: review.url, finishedAt: new Date().toISOString() });

@@ -106,4 +106,6 @@ export interface Tracker {
   replyToThread?(reviewUrl: string, thread: string, body: string, resolve: boolean): Promise<void>;
   /** Sets the title and full (multi-line) description of a PR/MR opened for one of its issues. */
   describeReview?(reviewUrl: string, title: string, description: string): Promise<void>;
+  /** The PR/MR's title and description as they are now. */
+  readReview?(reviewUrl: string): Promise<{ title: string; description: string }>;
 }

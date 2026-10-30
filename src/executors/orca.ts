@@ -258,10 +258,19 @@ async function findWorkspace(command: string, ctx: ExecContext): Promise<{ path?
 export const DEFAULT_HANDOFF = `## Finish with a merge request
 Take the task all the way to a merge request yourself:
 1. Implement it and check it (tests, linters) as described above.
-2. Commit on the branch {branch}, with messages that start with "{taskId}: ".
+2. Commit on the branch {branch}. Each message: a first line under 72 characters that says what the change does,
+   in the imperative ("Fix pagination size in the stubs admin"), starting with "{taskId}: "; then a blank line and
+   1-5 bullets on what changed and why. No "fix", "wip" or "update" on their own.
 3. Push the branch: git push -u origin {branch}
-4. Open a merge request from {branch} into {baseBranch}: a clear title, what changed and how you checked it,
-   and the line "{closingRef}" at the end of the description.
+4. Open a merge request from {branch} into {baseBranch}. Title: what it does, in a sentence, not the branch name.
+   Description in Markdown, short, from the actual diff:
+   ## What changed
+   - 2-6 bullets: what and why
+   ## How it was checked
+   - the tests and checks you ran, with results
+   ## Worth a look
+   - risks, open questions, anything left undone (skip if none)
+   {closingRef}
    GitLab: \`glab mr create --target-branch {baseBranch} --fill\` when glab is installed, otherwise
    \`git push -o merge_request.create -o merge_request.target={baseBranch} -o merge_request.title="…" origin {branch}\`.
    GitHub: \`gh pr create --base {baseBranch} --fill\`.
@@ -271,9 +280,13 @@ Mako watches the branch: once the merge request exists, it moves the issue on an
 /** The developer opens the MR in Orca after a look: the agent stops at commits on the task's branch. */
 export const DEFAULT_HANDOFF_FOR_ME = `## Finish with commits, not a merge request
 1. Implement the task and check it (tests, linters) as described above.
-2. Commit on the branch {branch}, with messages that start with "{taskId}: ".
+2. Commit on the branch {branch}. Each message: a first line under 72 characters that says what the change does,
+   in the imperative ("Fix pagination size in the stubs admin"), starting with "{taskId}: "; then a blank line and
+   1-5 bullets on what changed and why. No "fix", "wip" or "update" on their own: Orca writes the merge request
+   from these messages.
 3. Do not push and do not open a merge request: the developer reviews the changes and opens it from Orca.
-4. Reply with a short summary: what you changed, how you checked it, and anything to look at in review.`;
+4. Reply with a ready merge request: a title (what it does, in a sentence) and a Markdown description with
+   "## What changed", "## How it was checked", "## Worth a look", ending with "{closingRef}".`;
 
 export function handoffInstructions(
   custom: string | undefined,
