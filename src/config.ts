@@ -22,7 +22,12 @@ export interface RepoConfig {
   setup: string;
   /** The task goes to this repo when it has any of these labels or (Jira) components. */
   match?: { labels?: string[]; components?: string[] };
+  /** Name of a task's branch: {type} (feat/fix) {id} {title} {slug}; this repo's own, or the general one. */
+  branchPattern: string;
 }
+
+/** feat/12-add-dark-mode, fix/34-login-button: the usual names, with the type taken from the issue. */
+export const DEFAULT_BRANCH_PATTERN = "{type}/{id}-{title}";
 
 /** One tracker project (Jira project, GitHub/GitLab repo) and the local repositories its tasks can go to. */
 export interface ProjectConfig {
@@ -113,6 +118,7 @@ export function parseConfig(raw: any, dryRun = false): Config {
           match: r.match,
           executor: r.executor,
           setup: typeof r.setup === "string" && r.setup.trim() ? r.setup.trim() : "auto",
+          branchPattern: (r.branchPattern || raw.branchPattern || DEFAULT_BRANCH_PATTERN).trim(),
         };
       }
       if (p.default && !repos[p.default]) throw new Error(`Project ${key}: default repo "${p.default}" is not in repos`);

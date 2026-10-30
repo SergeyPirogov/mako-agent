@@ -2,10 +2,56 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import type { RepoConfig } from "./config.js";
+import type { Task } from "./types.js";
 import { run, runOk } from "./shell.js";
 
+/** The branch name of tasks started before branch patterns; still used to find their branches. */
 export function branchFor(slug: string): string {
   return `agent/${slug}`;
+}
+
+const TRANSLIT: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ye", ж: "zh", з: "z", и: "y", і: "i", ї: "yi", й: "i",
+  к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch",
+  ш: "sh", щ: "shch", ь: "", ю: "yu", я: "ya", ы: "y", э: "e", ё: "yo", ъ: "",
+};
+
+/** «Розібрати нічний ран» → "rozibraty-nichnyi-ran": a short, git-safe form of a title. */
+export function slugifyTitle(title: string, max = 40): string {
+  const latin = title.toLowerCase().replace(/[а-яіїєґёъыэ]/g, (c) => TRANSLIT[c] ?? "");
+  const words = latin.replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  let out = "";
+  for (const w of words) {
+    if (out && out.length + 1 + w.length > max) break;
+    out = out ? `${out}-${w}` : w.slice(0, max);
+  }
+  return out || "task";
+}
+
+/** fix for bugs (labels, Jira issue type, a title starting with "fix"), feat otherwise. */
+export function taskType(task: Task): "fix" | "feat" {
+  const text = [...task.labels, task.meta ?? ""].join(" ").toLowerCase();
+  if (/\b(bug|fix|defect|hotfix|баг|помилка)\b/.test(text) || /^\s*(fix|bug)/i.test(task.title)) return "fix";
+  return "feat";
+}
+
+/**
+ * The branch for a task from a pattern like "feature/{id}-{title}"; a fresh attempt gets "-try2".
+ * {id} is the issue number (GitLab/GitHub) or key (Jira).
+ */
+export function branchName(pattern: string, task: Task, attempt?: number): string {
+  const id = task.id.includes("#") ? task.id.split("#").pop()! : task.id;
+  const name = pattern
+    .replace(/\{type\}/g, taskType(task))
+    .replace(/\{id\}/g, id)
+    .replace(/\{title\}/g, slugifyTitle(task.title))
+    .replace(/\{slug\}/g, task.slug.replace(/-try\d+$/, ""))
+    // git refuses these in names
+    .replace(/[\s~^:?*\[\\]+/g, "-")
+    .replace(/\.{2,}|@\{/g, "-")
+    .replace(/\/{2,}/g, "/")
+    .replace(/^[/.-]+|[/.-]+$/g, "");
+  return attempt && attempt > 1 ? `${name}-try${attempt}` : name;
 }
 
 /**
@@ -33,9 +79,9 @@ export async function removeWorktree(repo: RepoConfig, dir: string, branch: stri
 
 /** Creates (or reuses) an isolated worktree for the task, branched from the latest base branch. */
 /** Creates (or reuses) the task's worktree and, when new, runs the repo's setup command in it. */
-export async function prepareWorktree(repo: RepoConfig, slug: string, log?: (line: string) => void): Promise<string> {
+export async function prepareWorktree(repo: RepoConfig, slug: string, log?: (line: string) => void, branch?: string): Promise<string> {
   const fresh = !existsSync(path.join(repo.worktreesDir, slug));
-  const dir = await createWorktree(repo, slug);
+  const dir = await createWorktree(repo, slug, branch ?? branchFor(slug));
   if (fresh) {
     const command = setupCommand(repo, dir);
     if (command) {
@@ -81,9 +127,8 @@ function runShell(command: string, cwd: string, timeoutMs: number): Promise<{ ok
   });
 }
 
-async function createWorktree(repo: RepoConfig, slug: string): Promise<string> {
+async function createWorktree(repo: RepoConfig, slug: string, branch: string): Promise<string> {
   const dir = path.join(repo.worktreesDir, slug);
-  const branch = branchFor(slug);
   if (existsSync(dir)) return dir;
 
   mkdirSync(repo.worktreesDir, { recursive: true });
@@ -106,6 +151,14 @@ export async function commitsAhead(repo: RepoConfig, worktree: string): Promise<
 
 export async function hasUncommittedChanges(worktree: string): Promise<boolean> {
   return (await runOk("git", ["status", "--porcelain"], worktree)).length > 0;
+}
+
+/** The branch checked out in a worktree, if it exists. */
+export async function currentBranch(dir: string): Promise<string | undefined> {
+  if (!existsSync(dir)) return undefined;
+  const r = await run("git", ["rev-parse", "--abbrev-ref", "HEAD"], dir).catch(() => undefined);
+  const name = r?.code === 0 ? r.stdout.trim() : "";
+  return name && name !== "HEAD" ? name : undefined;
 }
 
 export async function stageAll(worktree: string): Promise<void> {

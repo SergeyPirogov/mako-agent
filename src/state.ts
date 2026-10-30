@@ -54,6 +54,8 @@ export interface TaskRecord {
   review?: ReviewInfo;
   /** The next run continues in the same worktree with this request instead of the full task prompt. */
   followUp?: string;
+  /** The task's branch, named from the pattern when it first ran; kept for later runs and the MR. */
+  branchName?: string;
   costUsd?: number;
   error?: string;
 }

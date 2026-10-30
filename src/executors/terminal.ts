@@ -45,7 +45,7 @@ export class TerminalExecutor implements Executor {
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
     if (!ctx.ui) throw new Error("The terminal executor shows sessions in the web UI: set notifications.inboxPort");
-    const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line));
+    const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line), ctx.branch);
     const id = sessionIdFor(ctx.task);
     const hookToken = randomBytes(16).toString("hex");
     const sessionUrl = `http://127.0.0.1:${ctx.ui.port}/session/${id}`;

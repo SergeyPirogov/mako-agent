@@ -23,7 +23,7 @@ export class ClaudeHeadlessExecutor implements Executor {
   }
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
-    const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line));
+    const worktree = await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line), ctx.branch);
     const args = ["-p", prompt, "--output-format", "stream-json", "--verbose", ...(this.cfg.args ?? [])];
     const child = spawn(this.cfg.command ?? "claude", args, { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] });
     track(child, ctx.task.id);

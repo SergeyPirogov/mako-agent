@@ -35,7 +35,7 @@ export class CommandExecutor implements Executor {
   }
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {
-    const worktree = this.cfg.worktree === false ? ctx.repo.repoPath : await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line));
+    const worktree = this.cfg.worktree === false ? ctx.repo.repoPath : await git.prepareWorktree(ctx.repo, ctx.task.slug, (line) => log(ctx.task.id, line), ctx.branch);
     const args = expandArgs(this.cfg.args ?? [], ctx, worktree, prompt);
 
     if (!this.managed) {

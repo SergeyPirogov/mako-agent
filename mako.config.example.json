@@ -5,6 +5,7 @@
   "taskTimeoutMin": 45,
   "handoffCheckMin": 5,
   "stateDir": ".mako",
+  "branchPattern": "{type}/{id}-{title}",
   "notifications": {
     "enabled": true,
     "autoTake": false,

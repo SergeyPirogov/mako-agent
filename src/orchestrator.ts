@@ -410,7 +410,7 @@ export class Orchestrator {
       const tracker = this.trackers.get(rec.task.trackerId);
       const repo = rec.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
       if (!tracker || !repo) continue;
-      const branch = rec.branch ?? git.branchFor(rec.task.slug);
+      const branch = rec.branch ?? this.branchOf(rec);
       try {
         const { review, branchSha } = await findReview(repo, branch, rec.branchSha);
         if (branchSha && branchSha !== rec.branchSha) this.state.update(rec.id, { branchSha });
@@ -529,10 +529,15 @@ export class Orchestrator {
       return;
     }
     const executor = (rec.chosenExecutor && this.executors.get(rec.chosenExecutor)) || this.executorFor(repo);
-    const branch = git.branchFor(task.slug);
+    // Named once, from the pattern: later runs and the MR use the same branch.
+    // An existing worktree (a task from before patterns, or Orca's) keeps the branch it already has.
+    const branch =
+      rec.branchName ??
+      (await git.currentBranch(path.join(repo.worktreesDir, task.slug))) ??
+      git.branchName(repo.branchPattern, task, rec.attempt);
     // A follow-up (fix CI, review comments, conflicts) continues the work in the same worktree.
     const prompt = rec.followUp
-      ? `You are continuing work on ${task.id}: ${task.title} (${task.url}) in this worktree, on branch ${git.branchFor(task.slug)}.\n\n${rec.followUp}`
+      ? `You are continuing work on ${task.id}: ${task.title} (${task.url}) in this worktree, on branch ${branch}.\n\n${rec.followUp}`
       : buildPrompt(task, tracker, repo, executor);
     const promptFile = this.state.logPath(task).replace(/\.jsonl$/, ".prompt.md");
     writeFileSync(promptFile, prompt);
@@ -543,6 +548,7 @@ export class Orchestrator {
       executor: executor.name,
       resumeSession: undefined,
       followUp: undefined,
+      branchName: branch,
     });
 
     try {
@@ -661,6 +667,7 @@ export class Orchestrator {
         prUrl: undefined,
         publishedSha: undefined,
         reviewAnnounced: undefined,
+        branchName: undefined,
         sessionId: undefined,
         trackerStatus: undefined,
       });
@@ -740,7 +747,7 @@ export class Orchestrator {
     const message = await this.commitLeftovers(ws.worktree, task);
     if ((await git.commitsAhead(repo, ws.worktree)) === 0) throw new Error("Змін для MR ще немає: агент нічого не змінив");
     const first = !rec.prUrl;
-    const branch = git.branchFor(task.slug);
+    const branch = this.branchOf(rec);
     const agent = (rec.executor && this.executors.get(rec.executor)?.label) ?? "агент";
     const review = await this.openReview(task, tracker, repo, ws.worktree, branch, agent);
     const url = review.url ?? rec.prUrl;
@@ -778,6 +785,11 @@ export class Orchestrator {
     } catch {
       return { hasChanges: false, pending: false };
     }
+  }
+
+  /** The branch a task runs on: named from the pattern at its first run; tasks from before patterns keep agent/<slug>. */
+  private branchOf(rec: TaskRecord): string {
+    return rec.branchName ?? git.branchFor(rec.task.slug);
   }
 
   /** Tasks whose background agent is being stopped to continue in the terminal. */
@@ -851,7 +863,7 @@ export class Orchestrator {
       const repo = rec.repo ? this.trackers.get(rec.task.trackerId)?.projects[rec.task.project]?.repos[rec.repo] : undefined;
       const dir = rec.worktree ?? (repo ? path.join(repo.worktreesDir, rec.task.slug) : undefined);
       if (repo && dir) {
-        const removed = await git.removeWorktree(repo, dir, rec.branch ?? git.branchFor(rec.task.slug)).catch((err: any) => {
+        const removed = await git.removeWorktree(repo, dir, rec.branch ?? this.branchOf(rec)).catch((err: any) => {
           log(id, `worktree not removed: ${err.message}`);
           return false;
         });
