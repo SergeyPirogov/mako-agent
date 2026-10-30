@@ -409,3 +409,21 @@ main:has(.wz) { max-width: 720px; }
 ol.tlog { list-style: none; padding: 12px 14px; margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
   font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
 ol.tlog .muted { margin-right: 6px; }
+
+/* task description: preview on the card, full text in a dialog */
+button.kc-desc { all: unset; cursor: pointer; font-size: 12.5px; line-height: 1.4; color: var(--mute); display: -webkit-box; -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+button.kc-desc:hover { color: var(--fg); }
+button.kc-desc:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+dialog.desc { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 64px);
+  background: var(--card); color: var(--fg); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+dialog.desc::backdrop { background: rgba(10, 14, 22, .45); }
+dialog.desc .desc-in { padding: 20px 24px 22px; }
+dialog.desc .desc-close { position: sticky; top: 8px; float: right; margin: 8px 10px 0 0; font-size: 16px; color: var(--mute); }
+dialog.desc h2 { margin: 0 24px 4px 0; }
+.desc-body { font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.desc-body p { margin: 0 0 8px; }
+.desc-body h3 { margin: 14px 0 6px; font-size: 13px; }
+.desc-body ul { margin: 0 0 8px; padding-left: 20px; }
+.desc-body pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; font-size: 12.5px; white-space: pre; }
+.desc-body code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }

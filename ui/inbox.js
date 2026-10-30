@@ -133,7 +133,7 @@
   async function check() {
     const state = await (await fetch("/api/inbox-state", { cache: "no-store" })).json();
     // Do not reload under an open "Куди відправити" menu.
-    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open]")) return location.reload();
+    if (state.sig !== sig && !busy && !document.querySelector("details.take-menu[open], dialog.desc[open]")) return location.reload();
     search = state.search;
     drawClock();
   }
@@ -144,4 +144,23 @@
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) check().catch(() => {});
   });
+
+  // The full task description, from the card's preview.
+  document.addEventListener("click", (e) => {
+    const preview = e.target.closest("[data-desc]");
+    if (!preview) return;
+    let dlg = document.querySelector("dialog.desc");
+    if (!dlg) {
+      dlg = document.createElement("dialog");
+      dlg.className = "desc";
+      dlg.addEventListener("click", (ev) => {
+        if (ev.target === dlg || ev.target.closest(".desc-close")) dlg.close();
+      });
+      document.body.append(dlg);
+    }
+    dlg.innerHTML = '<button type="button" class="link desc-close" aria-label="Закрити">✕</button><div class="desc-in"></div>';
+    dlg.querySelector(".desc-in").append(preview.nextElementSibling.content.cloneNode(true));
+    dlg.showModal();
+  });
 })();
+

@@ -23,7 +23,7 @@ export function inboxSignature(app: App): { sig: string; attention: number; sear
   const live = [...sessions.values()].map((s) => `${s.id}:${s.status}:${s.message ?? ""}`);
   const asking = records.filter((r) => r.status === "asking").length;
   return {
-    sig: JSON.stringify([app.problem, app.orchestrator?.paused, records.map((r) => `${r.id}:${r.status}:${r.updatedAt}`), live]),
+    sig: JSON.stringify([app.problem, app.orchestrator?.paused, records.map((r) => `${r.id}:${r.status}:${r.updatedAt}:${r.status === "running" ? recentLog(r.id).length : ""}`), live]),
     attention: attentionSessions().length + asking,
     search: app.orchestrator?.searchStatus(),
   };
@@ -247,6 +247,7 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     <div class="kc-top"><a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)}</a>
       ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}</div>
+    ${description(r)}
     <div class="kc-status">${status}</div>
     ${r.error ? `<div class="kc-error">${errorDetails(r.error)}</div>` : ""}
     ${actions ? `<div class="kc-actions">${actions}</div>` : ""}
@@ -272,4 +273,66 @@ export function renderTaskLog(app: App, id: string, token: string): string {
       : `<p class="muted">Поки що записів немає${live ? "" : " (журнал зберігається, доки Mako запущений)"}.</p>`}
     ${live ? `<p class="small muted">Нові записи зверху, сторінка оновлюється сама.</p>` : ""}`;
   return page({ title: `Хід роботи ${id}`, active: "inbox", token, body, refresh: live ? 3 : undefined });
+}
+
+/** A short plain-text preview on the card; the whole description opens in a dialog. */
+function description(r: TaskRecord): string {
+  const full = (r.task.description ?? "").trim();
+  if (!full) return "";
+  const short = plainText(full);
+  if (!short) return "";
+  const cut = short.length > 160 ? short.slice(0, 159).replace(/\s+\S*$/, "") + "…" : short;
+  return `<button type="button" class="kc-desc" data-desc title="Показати повний опис">${esc(cut)}</button>
+    <template class="kc-full"><h2>${esc(r.task.title)}</h2>
+      <p class="muted small"><a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a></p>
+      <div class="desc-body">${richText(full)}</div></template>`;
+}
+
+/** Markdown without its markup, for a one-paragraph preview. */
+function plainText(md: string): string {
+  return md
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/^\s{0,3}(#{1,6}|[-*+>]|\d+\.)\s+/gm, "")
+    .replace(/[*_`~]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The description as safe HTML: escaped, with code blocks, headings, lists, bold, inline code and links. */
+function richText(md: string): string {
+  const inline = (t: string) =>
+    esc(t)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noreferrer">$2</a>');
+  const out: string[] = [];
+  const blocks = md.replace(/<!--[\s\S]*?-->/g, "").split(/```/);
+  blocks.forEach((block, i) => {
+    if (i % 2) return out.push(`<pre>${esc(block.replace(/^[\w-]*\n/, ""))}</pre>`);
+    let list: string[] = [];
+    const flush = () => {
+      if (list.length) out.push(`<ul>${list.map((li) => `<li>${inline(li)}</li>`).join("")}</ul>`);
+      list = [];
+    };
+    for (const para of block.split(/\n{2,}/)) {
+      for (const line of para.split("\n")) {
+        const item = line.match(/^\s*(?:[-*+]|\d+\.)\s+(?:\[[ x]\]\s+)?(.*)$/);
+        if (item) {
+          list.push(item[1]);
+          continue;
+        }
+        flush();
+        const head = line.match(/^\s{0,3}#{1,6}\s+(.*)$/);
+        if (head) out.push(`<h3>${inline(head[1])}</h3>`);
+        else if (line.trim()) out.push(`<p>${inline(line.replace(/^\s*>\s?/, ""))}</p>`);
+      }
+      flush();
+    }
+  });
+  return out.join("");
 }
