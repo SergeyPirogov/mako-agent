@@ -148,7 +148,10 @@
       document.body.append(dlg);
     }
     dlg.innerHTML = '<button type="button" class="link desc-close" aria-label="Закрити">✕</button><div class="desc-in"></div>';
-    dlg.querySelector(".desc-in").append(preview.nextElementSibling.content.cloneNode(true));
+    const tpl = preview.nextElementSibling;
+    dlg.classList.toggle("wide", Boolean(tpl.dataset.wide)); // summary next to its changes
+    dlg.querySelector(".desc-in").append(tpl.content.cloneNode(true));
+    dlg.querySelector(".sum-text")?.prepend(dlg.querySelector(".desc-close")); // keep ✕ off the changes toolbar
     // Read it, then act on it right here: the card's own buttons (Взяти ▾, Відкласти, …).
     const actions = preview.closest(".kcard")?.querySelector(".kc-actions");
     if (actions) {
@@ -156,7 +159,7 @@
       foot.classList.add("desc-actions");
       foot.querySelectorAll("details[open]").forEach((d) => (d.open = false));
       foot.querySelectorAll("[data-desc], template").forEach((el) => el.remove()); // already open
-      dlg.querySelector(".desc-in").append(foot);
+      (dlg.querySelector(".sum-text") || dlg.querySelector(".desc-in")).append(foot);
     }
     dlg.showModal();
   });
