@@ -120,6 +120,7 @@
         (data.url
           ? `${data.updated ? `${review} оновлено` : `${review} відкрито`}: «${data.title}»${commit}. Коли його змерджать, натисніть «Завершити».`
           : `Гілку запушено${commit}, але ${review} не відкрито: перевірте налаштування репозиторію.`) +
+        (data.replied ? ` Відповіді в треди ${review}: ${data.replied}.` : "") +
         (data.warning ? ` ⚠ ${data.warning}` : "");
     } catch (err) {
       publishBtn.textContent = label;
@@ -213,7 +214,9 @@
     b.disabled = false;
     if (!res.ok) statusMsg.textContent = data.error || res.statusText;
     else if (act === "merge") statusMsg.textContent = `${review} змерджено.`;
-    else statusMsg.textContent = "Агент отримав запит у терміналі. Коли закомітить, натисніть «Оновити " + review + "».";
+    else statusMsg.textContent = act === "comments"
+      ? `Агент отримав коментарі. Коли він закінчить, натисніть «Оновити ${review}»: Mako запушить правки, відповість у кожному треді й закриє виправлені.`
+      : "Агент отримав запит у терміналі. Коли закомітить, натисніть «Оновити " + review + "».";
     loadReview();
     term.focus();
   });

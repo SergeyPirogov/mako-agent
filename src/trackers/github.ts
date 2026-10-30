@@ -145,6 +145,7 @@ export class GitHubTracker implements Tracker {
         line: c.line ?? c.original_line ?? undefined,
         url: c.html_url,
         replies: raw.filter((r) => r.in_reply_to_id === c.id).length,
+        thread: String(c.id),
       }));
     return {
       state,
@@ -155,6 +156,11 @@ export class GitHubTracker implements Tracker {
       comments,
       checkedAt: Date.now(),
     };
+  }
+
+  /** GitHub's REST API cannot resolve a review thread: the reply says what was done, the reviewer resolves it. */
+  async replyToThread(reviewUrl: string, thread: string, body: string): Promise<void> {
+    await this.request("POST", `${this.prPath(reviewUrl).path}/comments/${encodeURIComponent(thread)}/replies`, { body });
   }
 
   async mergeReview(reviewUrl: string): Promise<void> {

@@ -44,7 +44,7 @@ export interface ReviewInfo {
     jobs?: { name: string; stage?: string; status: string; url?: string; allowFailure?: boolean }[];
   };
   /** Unresolved review threads, first comment of each. */
-  comments: { author: string; body: string; path?: string; line?: number; url?: string; replies: number }[];
+  comments: { author: string; body: string; path?: string; line?: number; url?: string; replies: number; thread?: string }[];
   checkedAt: number;
 }
 
@@ -83,6 +83,8 @@ export interface Tracker {
   mergeReview?(reviewUrl: string): Promise<void>;
   /** The end of a failed CI job's log, for the agent to fix it. */
   jobLog?(reviewUrl: string, jobId: number): Promise<string>;
+  /** Answers a review thread and, where the host supports it, resolves it. */
+  replyToThread?(reviewUrl: string, thread: string, body: string, resolve: boolean): Promise<void>;
   /** Sets the title and full (multi-line) description of a PR/MR opened for one of its issues. */
   describeReview?(reviewUrl: string, title: string, description: string): Promise<void>;
 }

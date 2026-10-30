@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import type { RepoConfig } from "./config.js";
@@ -151,6 +151,15 @@ export async function commitsAhead(repo: RepoConfig, worktree: string): Promise<
 
 export async function hasUncommittedChanges(worktree: string): Promise<boolean> {
   return (await runOk("git", ["status", "--porcelain"], worktree)).length > 0;
+}
+
+/** Keeps a path out of git in every worktree of the repo (Mako's own files, such as review replies). */
+export async function excludeLocal(worktree: string, pattern: string): Promise<void> {
+  const common = await runOk("git", ["rev-parse", "--git-common-dir"], worktree);
+  const file = path.join(path.resolve(worktree, common), "info", "exclude");
+  mkdirSync(path.dirname(file), { recursive: true });
+  const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (!current.split("\n").includes(pattern)) appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}${pattern}\n`);
 }
 
 /** The branch checked out in a worktree, if it exists. */

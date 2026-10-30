@@ -147,6 +147,7 @@ export class GitLabTracker implements Tracker {
           line: n.position?.new_line ?? n.position?.old_line ?? undefined,
           url: `${mr.web_url}#note_${n.id}`,
           replies: d.notes.length - 1,
+          thread: String(d.id),
         };
       });
     const status: string = mr.detailed_merge_status ?? mr.merge_status ?? "";
@@ -159,6 +160,12 @@ export class GitLabTracker implements Tracker {
       comments,
       checkedAt: Date.now(),
     };
+  }
+
+  async replyToThread(reviewUrl: string, thread: string, body: string, resolve: boolean): Promise<void> {
+    const path = `${this.mrPath(reviewUrl)}/discussions/${encodeURIComponent(thread)}`;
+    await this.request("POST", `${path}/notes`, { body });
+    if (resolve) await this.request("PUT", path, { resolved: true });
   }
 
   async mergeReview(reviewUrl: string): Promise<void> {

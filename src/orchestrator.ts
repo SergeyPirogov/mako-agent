@@ -4,7 +4,7 @@ import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
 import { createExecutor, type Executor } from "./executors/index.js";
 import type { RepoConfig } from "./config.js";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
@@ -406,9 +406,16 @@ export class Orchestrator {
     } else if (kind === "comments") {
       if (!review.comments.length) throw new Error("Відкритих коментарів немає");
       const list = review.comments
-        .map((c, i) => `${i + 1}. ${c.author}${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ""}` : ""}${c.url ? ` (${c.url})` : ""}:\n${c.body.trim().split("\n").map((l) => `> ${l}`).join("\n")}`)
+        .map((c, i) => `${i + 1}. ${c.thread ? `[thread ${c.thread}] ` : ""}${c.author}${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ""}` : ""}${c.url ? ` (${c.url})` : ""}:\n${c.body.trim().split("\n").map((l) => `> ${l}`).join("\n")}`)
         .join("\n\n");
-      text = `Reviewers left unresolved comments on ${kindName} ${rec.prUrl}:\n\n${list}\n\nAddress each one in the code. If you disagree with a comment, do not change the code for it; say why in your final message. Commit the changes.${tail}`;
+      const ws = this.workspaceFor(id);
+      if (ws) await git.excludeLocal(ws.worktree, ".mako/");
+      text =
+        `Reviewers left unresolved comments on ${kindName} ${rec.prUrl}:\n\n${list}\n\n` +
+        "Address each one in the code. If you disagree with a comment, do not change the code for it. Commit the changes.\n\n" +
+        `Then write the file \`${REVIEW_REPLIES}\` in the worktree root (it is not committed): a JSON array with one entry per thread, ` +
+        '`{"thread": "<id from [thread …]>", "reply": "<what you changed, with file names, or why you did not>", "resolved": <true if fixed>}`. ' +
+        `Mako posts these replies in the threads after it pushes, and resolves the fixed ones.${tail}`;
     } else {
       if (!review.conflicts) throw new Error("Конфліктів немає");
       const base = repo?.baseBranch ?? "main";
@@ -691,6 +698,7 @@ export class Orchestrator {
         prUrl = (await this.openReview(task, tracker, repo, worktree, branch, executor.label)).url ?? prUrl;
         pushedNow = true;
       }
+      if (prUrl) await this.postReplies(task, tracker, worktree, prUrl);
 
       const outcome = prUrl
         ? `Pull request: ${prUrl}`
@@ -772,6 +780,7 @@ export class Orchestrator {
 
   /** Uncommitted work gets a commit message written from its diff. */
   private async commitLeftovers(worktree: string, task: Task): Promise<{ text: string; error?: string } | undefined> {
+    await git.excludeLocal(worktree, ".mako/").catch(() => {}); // Mako's own files never go into a commit
     if (!(await git.hasUncommittedChanges(worktree))) return undefined;
     await git.stageAll(worktree);
     const message = await commitMessage(worktree, task);
@@ -818,7 +827,7 @@ export class Orchestrator {
    * «Створити MR» on a running session: commit what is there, push the branch and open (or update) the PR/MR,
    * while the agent keeps going. Finishing later does not open another one.
    */
-  async publishNow(id: string): Promise<{ url?: string; message?: string; title: string; updated: boolean; warning?: string }> {
+  async publishNow(id: string): Promise<{ url?: string; message?: string; title: string; updated: boolean; replied: number; warning?: string }> {
     const rec = this.state.get(id);
     const ws = this.workspaceFor(id);
     const tracker = rec && this.trackers.get(rec.task.trackerId);
@@ -833,6 +842,7 @@ export class Orchestrator {
     const review = await this.openReview(task, tracker, repo, ws.worktree, branch, agent);
     const url = review.url ?? rec.prUrl;
     this.state.update(id, { prUrl: url, publishedSha: await git.headSha(ws.worktree) });
+    const replied = url ? await this.postReplies(task, tracker, ws.worktree, url) : 0;
     log(id, `${first ? "review opened" : "review updated"}${url ? `: ${url}` : ` (branch ${branch} pushed)`}`);
     if (first && url) {
       // The same kind of report the issue gets when a task is finished: what the MR changes and where it is.
@@ -845,7 +855,7 @@ export class Orchestrator {
       await this.updateTracker(task, "success", () => tracker.onFinish(task, "success"));
     }
     const problems = [message?.error && message.error !== "немає змін" ? `коміт: ${message.error}` : "", review.error ? `MR: ${review.error}` : ""].filter(Boolean);
-    return { url, message: message?.text, title: review.title, updated: !first, warning: problems.join("; ") || undefined };
+    return { url, message: message?.text, title: review.title, updated: !first, replied, warning: problems.join("; ") || undefined };
   }
 
   /**
@@ -861,7 +871,9 @@ export class Orchestrator {
       const dirty = await git.hasUncommittedChanges(ws.worktree);
       const ahead = (await git.commitsAhead(repo, ws.worktree)) > 0;
       const hasChanges = dirty || ahead;
-      const pending = dirty || (rec.publishedSha ? (await git.headSha(ws.worktree)) !== rec.publishedSha : ahead);
+      // Replies the agent wrote for review threads count too: «Оновити MR» posts them.
+      const replies = existsSync(path.join(ws.worktree, REVIEW_REPLIES));
+      const pending = dirty || replies || (rec.publishedSha ? (await git.headSha(ws.worktree)) !== rec.publishedSha : ahead);
       return { hasChanges, pending };
     } catch {
       return { hasChanges: false, pending: false };
@@ -871,6 +883,41 @@ export class Orchestrator {
   /** The branch a task runs on: named from the pattern at its first run; tasks from before patterns keep agent/<slug>. */
   private branchOf(rec: TaskRecord): string {
     return rec.branchName ?? git.branchFor(rec.task.slug);
+  }
+
+  /**
+   * Posts the agent's answers to review threads (written to REVIEW_REPLIES) once the fixes are pushed,
+   * and resolves the threads it fixed. Returns how many replies were posted.
+   */
+  private async postReplies(task: Task, tracker: Tracker, worktree: string, url: string): Promise<number> {
+    const file = path.join(worktree, REVIEW_REPLIES);
+    if (!existsSync(file)) return 0;
+    const host = this.reviewHost(url, tracker);
+    if (!host?.replyToThread) return 0;
+    let entries: { thread?: unknown; reply?: unknown; resolved?: unknown }[];
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8"));
+      entries = Array.isArray(parsed) ? parsed : [];
+    } catch (err: any) {
+      log(task.id, `review replies not read: ${err.message}`);
+      return 0;
+    }
+    const sha = (await git.headSha(worktree).catch(() => "")).slice(0, 8);
+    let posted = 0;
+    for (const e of entries) {
+      if (typeof e.thread !== "string" && typeof e.thread !== "number") continue;
+      if (typeof e.reply !== "string" || !e.reply.trim()) continue;
+      const body = `🦈 ${e.reply.trim()}${sha && e.resolved === true ? `\n\n_${sha}_` : ""}`;
+      try {
+        await host.replyToThread(url, String(e.thread), body, e.resolved === true);
+        posted++;
+      } catch (err: any) {
+        log(task.id, `reply to thread ${e.thread} not posted: ${err.message}`);
+      }
+    }
+    rmSync(file, { force: true });
+    log(task.id, `replied in ${posted} review thread(s)`);
+    return posted;
   }
 
   /** Tasks whose background agent is being stopped to continue in the terminal. */
@@ -972,6 +1019,9 @@ export class Orchestrator {
     return true;
   }
 }
+
+/** Where the agent leaves its answers to review threads; kept out of git by .git/info/exclude. */
+const REVIEW_REPLIES = ".mako/review-replies.json";
 
 /** The web origin of a configured GitLab/GitHub tracker, to match it with an MR's URL. */
 function hostOf(cfg: any, gitlab: boolean): string {

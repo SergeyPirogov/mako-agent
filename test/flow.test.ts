@@ -49,6 +49,9 @@ class FakeTracker implements Tracker {
   async assignToMe(task: Task) {
     this.calls.push(`assign ${task.id}`);
   }
+  async replyToThread(_url: string, thread: string, body: string, resolve: boolean) {
+    this.calls.push(`reply ${thread}${resolve ? " resolved" : ""}: ${body.split("\n")[0]}`);
+  }
   async onMerged(task: Task) {
     this.calls.push(`merged ${task.id}`);
     return "Done";
@@ -199,4 +202,33 @@ test("a Jira task with its MR in GitLab gets CI, threads and merge from GitLab",
     delete process.env.GITLAB_TOKEN;
     server.close();
   }
+});
+
+test("the agent's answers to review threads are posted after the push, and fixed threads resolved", async () => {
+  const { remote, tracker, orchestrator } = setup('echo "v1" > app.txt; echo "first version"');
+  tracker.issues = [issue(13, "Review me")];
+  await orchestrator.poll();
+  await orchestrator.drain();
+  const id = "acme/web#13";
+  orchestrator.state.update(id, { prUrl: "https://git.example/acme/web/-/merge_requests/4" });
+  const wt = orchestrator.workspaceFor(id)!.worktree;
+  // what the agent does after «Виправити коментарі»: a fix, and its answers for Mako
+  writeFileSync(path.join(wt, "app.txt"), "v2\n");
+  execFileSync("mkdir", ["-p", path.join(wt, ".mako")]);
+  writeFileSync(
+    path.join(wt, ".mako/review-replies.json"),
+    JSON.stringify([
+      { thread: "d1", reply: "Renamed to TIMEOUT_MS in app.txt", resolved: true },
+      { thread: "d2", reply: "Kept as is: the API needs it", resolved: false },
+    ]),
+  );
+  assert.equal((await orchestrator.pendingChanges(id)).pending, true);
+  const res = await orchestrator.publishNow(id);
+  assert.equal(res.replied, 2);
+  assert.ok(tracker.calls.includes("reply d1 resolved: 🦈 Renamed to TIMEOUT_MS in app.txt"));
+  assert.ok(tracker.calls.includes("reply d2: 🦈 Kept as is: the API needs it"));
+  const branch = orchestrator.state.get(id)!.branchName!;
+  assert.equal(git(remote, "show", `${branch}:app.txt`), "v2", "the fix is pushed");
+  assert.throws(() => git(remote, "show", `${branch}:.mako/review-replies.json`), "Mako's file is not committed");
+  orchestrator.stop();
 });
