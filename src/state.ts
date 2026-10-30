@@ -25,6 +25,8 @@ export interface TaskRecord {
   archivedAt?: number;
   updatedAt: string;
   snoozedUntil?: number;
+  /** «Відкласти» was pressed; an unanswered notification only delays the next question. */
+  postponedByYou?: boolean;
   queuedAt?: number;
   startedAt?: string;
   finishedAt?: string;

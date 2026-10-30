@@ -17,8 +17,11 @@ const LABELS: Record<TaskStatus, string> = {
   cancelled: "Скасовано",
 };
 
-/** A task Mako has not asked about yet is kept as «snoozed until now»: on the board it is new, not postponed. */
-const postponed = (r: TaskRecord) => r.status === "snoozed" && (r.snoozedUntil ?? 0) > Date.now();
+/**
+ * Only «Відкласти» postpones a task. One Mako has not asked about yet (kept as «snoozed until now») or whose
+ * notification went unanswered is still new on the board.
+ */
+const postponed = (r: TaskRecord) => r.status === "snoozed" && (r.snoozedUntil ?? 0) > Date.now() && Boolean(r.postponedByYou);
 const stateClass = (r: TaskRecord) => (r.status === "snoozed" && !postponed(r) ? "asking" : r.status);
 const stateLabel = (r: TaskRecord) => LABELS[stateClass(r)];
 

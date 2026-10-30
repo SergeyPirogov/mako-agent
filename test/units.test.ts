@@ -154,3 +154,24 @@ test("a GitLab screenshot in a description comes through Mako, its size note is 
   assert.match(html, /<img src="\/attachment\?task=moq%234&amp;i=0"/);
   assert.doesNotMatch(html, /width=467/);
 });
+
+test("an unanswered notification leaves a task new; only «Відкласти» postpones it", async () => {
+  const { mkdtempSync } = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { Orchestrator } = await import("../src/orchestrator.ts");
+  const { StateStore } = await import("../src/state.ts");
+  const { renderInbox } = await import("../src/inbox.ts");
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mako-new-"));
+  const cfg = parseConfig({ stateDir: dir, notifications: { enabled: false, inboxPort: 0 }, executors: { a: { type: "command", command: "true" } }, trackers: [{ type: "gitlab", labels: { trigger: "x" }, projects: { "acme/web": { repoPath: dir } } }] });
+  const o = new Orchestrator(cfg, [], new StateStore(dir));
+  o.state.update("acme/web#1", { task: task("acme/web#1", "Ignored"), status: "asking" });
+  o.state.update("acme/web#2", { task: task("acme/web#2", "Postponed"), status: "asking" });
+  o.decide("acme/web#1", "ignored");
+  o.decide("acme/web#2", "later");
+  const html = renderInbox({ orchestrator: o, cfg } as any, "t");
+  const line = (id: string) => html.slice(html.indexOf(`?task=${encodeURIComponent(id)}`), html.indexOf("</a>", html.indexOf(`?task=${encodeURIComponent(id)}`)));
+  assert.match(line("acme/web#1"), /class="s asking"[\s\S]*нова/);
+  assert.match(line("acme/web#2"), /class="s snoozed"[\s\S]*відкладена/);
+  o.stop();
+});

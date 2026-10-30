@@ -388,7 +388,7 @@ export class Orchestrator {
     } else {
       const snoozeMin = this.cfg.notifications.snoozeMin;
       log(id, `${decision === "later" ? "postponed" : "no answer"}, asking again in ${snoozeMin} min`);
-      this.state.update(id, { status: "snoozed", snoozedUntil: Date.now() + snoozeMin * 60_000 });
+      this.state.update(id, { status: "snoozed", snoozedUntil: Date.now() + snoozeMin * 60_000, postponedByYou: decision === "later" });
     }
     return true;
   }
