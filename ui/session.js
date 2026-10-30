@@ -243,8 +243,12 @@
       cancel: "Ще ні",
       tone: "success",
     });
-    if (ok) send({ t: "finish" });
-    term.focus();
+    if (!ok) return term.focus();
+    // Mako closes the agent and finishes the task (commit, push, summary) in the background: back to the board.
+    send({ t: "finish" });
+    finishBtn.disabled = cancelBtn.disabled = true;
+    statusMsg.textContent = "Завершую…";
+    setTimeout(() => location.assign("/"), 300);
   });
   cancelBtn.addEventListener("click", async () => {
     const ok = await makoConfirm({
