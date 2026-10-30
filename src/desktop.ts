@@ -36,7 +36,11 @@ async function main(): Promise<void> {
   process.chdir(home);
 
   await app.whenReady();
-  if (isMac) app.dock?.hide();
+  if (isMac) {
+    app.dock?.hide();
+    // Unpackaged (`npm run app`) the Dock shows Electron's own icon; the built app gets icon.png from electron-builder.
+    if (!app.isPackaged) app.dock?.setIcon(path.join(ASSETS, "icon.png"));
+  }
 
   let win: BrowserWindow | null = null;
   const notifications = new Set<Notification>(); // keep references so they are not garbage-collected
@@ -332,11 +336,8 @@ async function main(): Promise<void> {
 
 function trayIcon(attention: boolean): Electron.NativeImage {
   if (isMac) {
-    // Normally a template image (macOS tints it for light and dark menu bars); orange while an agent waits for you.
-    if (attention) return nativeImage.createFromPath(path.join(ASSETS, "trayAttention.png"));
-    const img = nativeImage.createFromPath(path.join(ASSETS, "trayTemplate.png"));
-    img.setTemplateImage(true);
-    return img;
+    // The app icon in miniature, blue like in the Dock; orange while an agent waits for you.
+    return nativeImage.createFromPath(path.join(ASSETS, attention ? "trayAttention.png" : "trayIcon.png"));
   }
   return nativeImage.createFromPath(path.join(ASSETS, attention ? "tray-attention.png" : "tray.png"));
 }
