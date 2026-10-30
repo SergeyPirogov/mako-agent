@@ -160,6 +160,14 @@
     }
     dlg.innerHTML = '<button type="button" class="link desc-close" aria-label="Закрити">✕</button><div class="desc-in"></div>';
     dlg.querySelector(".desc-in").append(preview.nextElementSibling.content.cloneNode(true));
+    // Read it, then act on it right here: the card's own buttons (Взяти ▾, Відкласти, …).
+    const actions = preview.closest(".kcard")?.querySelector(".kc-actions");
+    if (actions) {
+      const foot = actions.cloneNode(true);
+      foot.classList.add("desc-actions");
+      foot.querySelectorAll("details[open]").forEach((d) => (d.open = false));
+      dlg.querySelector(".desc-in").append(foot);
+    }
     dlg.showModal();
   });
 })();
