@@ -159,6 +159,7 @@
       foot.classList.add("desc-actions");
       foot.querySelectorAll("details[open]").forEach((d) => (d.open = false));
       foot.querySelectorAll("[data-desc], template").forEach((el) => el.remove()); // already open
+      if (tpl.dataset.wide) foot.querySelectorAll('a[href^="/changes"]').forEach((el) => el.remove()); // shown on the right
       (dlg.querySelector(".sum-text") || dlg.querySelector(".desc-in")).append(foot);
     }
     dlg.showModal();
