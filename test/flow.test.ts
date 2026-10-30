@@ -520,3 +520,29 @@ test("the issue's files are downloaded into the worktree for the agent, listed i
     orchestrator.stop();
   }
 });
+
+test("Claude in Mako's terminal gets the permission mode and allowed commands from the settings", async () => {
+  const bin = mkdtempSync(path.join(dir, "bin-"));
+  const argsFile = path.join(bin, "args.txt");
+  // a stand-in for Claude: records its arguments, one per line, and leaves
+  writeFileSync(path.join(bin, "claude"), `#!/bin/sh\nfor a in "$@"; do echo "$a"; done > ${argsFile}\n`, { mode: 0o755 });
+  const { orchestrator, tracker } = setup("true");
+  (orchestrator.cfg as any).notifications.inboxPort = 7399;
+  const { createExecutor } = await import("../src/executors/index.ts");
+  orchestrator.executors.set("term", createExecutor("term", { type: "terminal", command: path.join(bin, "claude"), allowedTools: ["Bash(git:*)", "Bash(pnpm:*)"] } as any));
+  try {
+    const t = issue(27, "Terminal permissions");
+    orchestrator.cfg.defaultExecutor = "term";
+    tracker.issues = [t];
+    await orchestrator.poll();
+    await orchestrator.drain();
+    for (let i = 0; i < 50 && !existsSync(argsFile); i++) await new Promise((r) => setTimeout(r, 100));
+    const args = readFileSync(argsFile, "utf8").trim().split("\n");
+    const at = args.indexOf("--permission-mode");
+    assert.equal(args[at + 1], "acceptEdits", "file edits without asking by default");
+    assert.deepEqual(args.slice(args.indexOf("--allowedTools") + 1, args.indexOf("--allowedTools") + 3), ["Bash(git:*)", "Bash(pnpm:*)"]);
+    assert.ok(args.indexOf("--allowedTools") > args.findIndex((a) => a.includes("Terminal permissions")), "the tool list comes after the prompt, so it cannot swallow it");
+  } finally {
+    orchestrator.stop();
+  }
+});

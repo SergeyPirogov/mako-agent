@@ -495,12 +495,13 @@ function summaryButton(app: App, r: TaskRecord): string {
     : r.reviewNote
       ? `${r.reviewNote}\n\n_Це опис ${reviewKind(app, r)}. Повний підсумок (що зроблено, як перевірено, на що звернути увагу) зʼявиться після «Завершити»._`
       : undefined;
-  if (!note && !hasChanges) return "";
+  // In work, before any MR: nothing to summarise yet (the terminal shows the changes).
+  if (!note) return "";
   const when = r.finishedAt ? ` · ${new Date(r.finishedAt).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "";
   const text =
     `<h2>Підсумок · ${esc(r.task.title)}</h2><p class="muted small">${r.task.url ? `<a href="${esc(r.task.url)}" target="_blank" rel="noreferrer">${esc(r.id)} ↗</a>` : esc(r.id)}` +
     `${r.prUrl ? ` · <a href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : ""}${when}</p>` +
-    `<div class="desc-body">${note ? renderMarkdown(note, r.task.url) : `<p class="muted">Опису ще немає: він зʼявиться, коли буде ${reviewKind(app, r)} або після «Завершити». Справа — зміни, які вже є.</p>`}</div>`;
+    `<div class="desc-body">${renderMarkdown(note, r.task.url)}</div>`;
   const changes = hasChanges
     ? `<iframe class="sum-changes" title="Зміни" src="/changes?task=${encodeURIComponent(r.id)}&amp;embed=1"></iframe>`
     : "";

@@ -653,6 +653,12 @@
             ${field({ label: "Команда агента", path: `${p}.command`, placeholder: "claude", hint: "Повний шлях, якщо Mako не знаходить команду. На Windows: <code>claude.cmd</code>" })}
             ${field({ label: "Аргументи (по одному на рядок)", path: `${p}.args`, type: "lines", kind: "textarea", wide: true,
               placeholder: "{prompt}", hint: "За замовчуванням лише <code>{prompt}</code>" })}
+            ${field({ label: "Що Claude робить без питань", path: `${p}.permissionMode`, kind: "select", type: "string", wide: true,
+              options: [["", "редагує файли задачі, про команди питає (рекомендовано)"], ["default", "питає про все"], ["bypassPermissions", "нічого не питає (небезпечно: будь-які команди без вашого відома)"]],
+              hint: "Працює лише в окремому worktree задачі; ваша робоча папка не зачіпається" })}
+            ${field({ label: "Команди без питань (по одній на рядок)", path: `${p}.allowedTools`, type: "lines", kind: "textarea", wide: true,
+              placeholder: "Bash(git:*)\nBash(pnpm:*)\nBash(npx playwright:*)",
+              hint: `Формат Claude Code: <code>Bash(команда:*)</code>, <code>WebFetch</code>, <code>mcp__…</code>. ${button("+ звичні: git, npm, pnpm, yarn, node, тести", "fill-tools", { ei }, "link")}` })}
             ${field({ label: "Завершувати сам, якщо я не втручався", path: `${p}.autoFinish`, kind: "check", type: "bool", wide: true })}`;
         } else if (type === "claude-headless") {
           fields = `
@@ -856,6 +862,11 @@
       openExecs.clear();
       if (model.general.defaultExecutor === removed.name) delete model.general.defaultExecutor;
       for (const t of model.trackers) for (const p of t.projects) for (const r of p.repos) if (r.conf.executor === removed.name) delete r.conf.executor;
+    },
+    "fill-tools"({ ei }) {
+      const conf = model.executors[ei].conf;
+      const common = ["Bash(git:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(pnpm:*)", "Bash(yarn:*)", "Bash(node:*)", "Bash(bun:*)", "Bash(ls:*)", "Bash(cat:*)", "Bash(grep:*)", "Bash(rg:*)"];
+      conf.allowedTools = [...new Set([...(conf.allowedTools ?? []), ...common])];
     },
     "toggle-exec"({ ei }) {
       openExecs.has(ei) ? openExecs.delete(ei) : openExecs.add(ei);
