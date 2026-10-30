@@ -16,6 +16,7 @@ import { sessions, type SessionEvent } from "./sessions.js";
 import { collectChanges, readWorktreeFile } from "./changes.js";
 import { log } from "./log.js";
 import { doctor, findRepos } from "./onboarding.js";
+import { renderStats } from "./stats.js";
 
 const UI_DIR = fileURLToPath(new URL("../ui/", import.meta.url));
 const require = createRequire(import.meta.url);
@@ -91,6 +92,10 @@ export function startWebUi(app: App, port: number): void {
         return send(200, "text/html", page({ title: "Початок роботи", active: "settings", token, body, script: "/ui/welcome.js" }));
       }
       if (req.method === "GET" && url.pathname === "/log") return send(200, "text/html", renderTaskLog(app, url.searchParams.get("task") ?? "", token));
+      if (req.method === "GET" && url.pathname === "/stats") {
+        const days = Number(url.searchParams.get("days") ?? 30);
+        return send(200, "text/html", renderStats(app, token, [0, 7, 30].includes(days) ? days : 30));
+      }
       if (req.method === "GET" && url.pathname === "/archive") return send(200, "text/html", renderArchive(app, token));
       if (req.method === "GET" && url.pathname === "/settings") {
         const body = `<div id="app"><p class="muted">Завантаження…</p></div>`;
