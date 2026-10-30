@@ -40,19 +40,8 @@ export function inboxSignature(app: App): { sig: string; attention: number; sear
   };
 }
 
-interface Column {
-  key: "new" | "doing" | "review" | "done" | "failed";
-  title: string;
-  empty: string;
-}
-
-const COLUMNS: Column[] = [
-  { key: "new", title: "Нові", empty: "Нових задач немає" },
-  { key: "doing", title: "В роботі", empty: "Перетягніть сюди задачу з «Нових», щоб взяти її" },
-  { key: "review", title: "На ревʼю", empty: "Тут задачі з відкритим MR, поки його не змерджать" },
-  { key: "done", title: "Готово", empty: "Тут змерджені й завершені задачі" },
-  { key: "failed", title: "Не виконано", empty: "" },
-];
+/** Where a task stands: the groups of «Робоче місце» and the rules (archive, review) that go by them. */
+type Column = { key: "new" | "doing" | "review" | "done" | "failed" };
 
 /** Which column a task is in: a finished task with an open PR/MR is not done until it is merged. */
 export function columnOf(r: TaskRecord): Column["key"] {
@@ -62,52 +51,6 @@ export function columnOf(r: TaskRecord): Column["key"] {
   if (r.status === "queued" || r.status === "planned" || r.status === "running" || r.status === "handed-off") return "doing";
   if (r.status === "failed" || r.status === "cancelled" || r.reviewState === "closed") return "failed";
   return r.prUrl && !r.reviewState ? "review" : "done";
-}
-
-const DONE_SHOWN = 15;
-
-/** Kanban board: Нові → В роботі (WIP limit) → Готово, plus Помилка when something failed. */
-export function renderInbox(app: App, token: string, notice?: string): string {
-  if (!app.orchestrator) {
-    const body = `<h1>Задачі</h1><div class="notice">${esc(app.problem ?? "Mako запускається…")}.
-      <a href="/settings">Відкрити налаштування →</a></div>`;
-    return page({ title: "Задачі", active: "inbox", token, body });
-  }
-  const all = app.orchestrator.state.all();
-  const records = all.filter((r) => !r.archivedAt);
-  const archived = all.length - records.length;
-
-  const limit = app.cfg?.wipLimit ?? 0;
-  const wip = app.orchestrator.wip();
-  const columns = COLUMNS.filter((c) => c.key !== "failed" || records.some((r) => columnOf(r) === "failed"));
-  const board = columns
-    .map((col) => {
-      let items = records.filter((r) => columnOf(r) === col.key).sort(columnOrder(col.key));
-      const total = items.length;
-      if (col.key === "done") items = items.slice(0, DONE_SHOWN);
-      const archiveAll =
-        (col.key === "done" || col.key === "failed") && total
-          ? `<form method="post" action="/archive" class="karchive"><input type="hidden" name="column" value="${col.key}">` +
-            `<input type="hidden" name="token" value="${esc(token)}"><button class="link" title="Перенести всі задачі колонки в архів">Архівувати всі</button></form>`
-          : "";
-      const count =
-        col.key === "doing" && limit
-          ? `<span class="kcount${wip >= limit ? " full" : ""}" title="Ліміт задач у роботі (WIP)">${wip} / ${limit}</span>`
-          : `<span class="kcount">${total}</span>`;
-      const note =
-        col.key === "doing" && limit && wip >= limit
-          ? `<div class="knote">Ліміт досягнуто: нові задачі не беруться, поки одна не завершиться</div>`
-          : "";
-      const cards = items.map((r) => card(app, r, token, col.key)).join("");
-      const more = total > items.length ? `<div class="kmore muted">і ще ${total - items.length}</div>` : "";
-      return `<section class="kcol" data-col="${col.key}"><header><h2>${col.title}</h2><span class="khead-tools">${archiveAll}${count}</span></header>${note}
-        <div class="kcards">${cards || `<div class="kempty">${col.empty}</div>`}${more}</div></section>`;
-    })
-    .join("");
-
-  const body = `${boardChrome(app, token, notice, archived)}
-    <div class="board" style="--cols:${columns.length}">${board}</div>`;
-  return boardPage(app, token, body);
 }
 
 /** The head of the board (new task, filter, «Не бачите задачу?», the search clock) and its notices. */
@@ -150,9 +93,13 @@ function boardPage(app: App, token: string, body: string): string {
  * «Пошта»: the board as a list on the left, what needs you first, and the chosen task on the right with the
  * same actions as its card, its whole description and what the agent is doing.
  */
-export function renderMailBoard(app: App, token: string, notice: string | undefined, selected: string | undefined): string {
+export function renderInbox(app: App, token: string, notice?: string, selected?: string): string {
   const o = app.orchestrator;
-  if (!o) return renderInbox(app, token, notice);
+  if (!o) {
+    const body = `<h1>Задачі</h1><div class="notice">${esc(app.problem ?? "Mako запускається…")}.
+      <a href="/settings">Відкрити налаштування →</a></div>`;
+    return page({ title: "Задачі", active: "inbox", token, body });
+  }
   const all = o.state.all();
   const records = all.filter((r) => !r.archivedAt);
   const needsYou = (r: TaskRecord) => {
@@ -227,7 +174,7 @@ function mailInfo(app: App, r: TaskRecord, token: string): string {
   const full = (r.task.description ?? "").trim();
   const lines = r.status === "running" || r.status === "queued" ? recentLog(r.id).slice(-8) : [];
   const time = (at: number) => new Date(at).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
-  return `${card(app, r, token, columnOf(r))}
+  return `${card(app, r, token)}
     ${lines.length ? `<h3 class="mail-h">Хід роботи</h3><ol class="mail-log">${lines.map((l) => `<li><span class="muted">${time(l.at)}</span> ${esc(l.text)}</li>`).join("")}</ol>` : ""}
     ${full ? `<h3 class="mail-h">Опис</h3><div class="desc-body">${renderMarkdown(full, r.task.url || "http://localhost/", localFiles(r))}</div>` : ""}`;
 }
@@ -283,29 +230,6 @@ export function renderArchive(app: App, token: string): string {
 const DELETE_NOTE =
   "Mako видалить worktree задачі (незакомічені зміни в ньому зникнуть), локальну гілку й журнал. Задача в трекері, запушена гілка й MR лишаться. Якщо задача й далі підходить під фільтр, Mako запропонує її знову.";
 
-/** Within a column: what needs you first, then the most recent. */
-function columnOrder(col: Column["key"]) {
-  const time = (r: TaskRecord) => r.finishedAt ?? r.updatedAt;
-  const needsYou = (r: TaskRecord) => {
-    const s = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
-    return r.status === "asking" || s?.status === "waiting" || s?.status === "idle" ? 0 : 1;
-  };
-  // On review, the MRs that need something (CI, conflicts, comments) come first.
-  const reviewNeeds = (r: TaskRecord) =>
-    r.review && (r.review.pipeline?.status === "failed" || r.review.conflicts || r.review.comments.length) ? 0 : 1;
-  return (a: TaskRecord, b: TaskRecord) => {
-    if (col === "review") {
-      const d = reviewNeeds(a) - reviewNeeds(b);
-      if (d) return d;
-    }
-    if (col === "new" || col === "doing") {
-      const d = needsYou(a) - needsYou(b);
-      if (d) return d;
-      if (col === "doing") return (a.queuedAt ?? 0) - (b.queuedAt ?? 0);
-    }
-    return time(b).localeCompare(time(a));
-  };
-}
 
 /** A failure's first line, with the full text (cause, next steps) one click away. */
 function errorDetails(error: string): string {
@@ -381,7 +305,7 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
     </form></details></div>`;
 }
 
-function card(app: App, r: TaskRecord, token: string, col: Column["key"]): string {
+function card(app: App, r: TaskRecord, token: string): string {
   const form = (action: string, label: string, primary = false) =>
     `<form method="post" action="/${action}"><input type="hidden" name="id" value="${esc(r.id)}">` +
     `<input type="hidden" name="token" value="${esc(token)}"><button${primary ? ' class="primary"' : ""}>${label}</button></form>`;
@@ -424,10 +348,9 @@ function card(app: App, r: TaskRecord, token: string, col: Column["key"]): strin
     ? `<span class="s gone ${r.gone}" title="${r.gone === "deleted" ? "Задачі більше немає в трекері" : "Задачу закрили в трекері"}">${r.gone === "deleted" ? `🗑 Видалена в ${esc(trackerName)}` : `✓ Закрита в ${esc(trackerName)}`}</span>`
     : "";
   const attn = r.status === "asking" || session?.status === "waiting" || session?.status === "idle" || needsPermission || (r.status === "running" && r.reviewState === "merged");
-  const draggable = col === "new" || col === "failed";
   // What the board filter searches: id, title, tracker, repo, executor, labels.
   const haystack = [r.id, r.task.title, trackerName, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
-  return `<article class="kcard${attn ? " attn" : ""}" data-search="${esc(haystack)}"${draggable ? ` draggable="true" data-id="${esc(r.id)}" data-from="${col}"` : ""}>
+  return `<article class="kcard${attn ? " attn" : ""}" data-search="${esc(haystack)}">
     <div class="kc-top">${r.task.url ? `<a class="kc-id" href="${esc(r.task.url)}" target="_blank" rel="noreferrer" title="${esc(r.id)}">${esc(shortId(r.id))}</a>` : `<span class="kc-id" title="Задача, створена в Mako">${esc(r.id)}</span>`}
       ${route(app, r)}</div>
     <div class="kc-title">${esc(r.task.title)}${attachmentsMark(r)}</div>

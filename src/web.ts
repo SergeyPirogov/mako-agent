@@ -9,7 +9,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
-import { renderInbox, renderMailBoard, renderArchive, inboxSignature, renderTaskLog, columnOf } from "./inbox.js";
+import { renderInbox, renderArchive, inboxSignature, renderTaskLog, columnOf } from "./inbox.js";
 import { page, esc, setVersion } from "./ui-layout.js";
 import { execFileSync } from "node:child_process";
 import { sessions, type SessionEvent } from "./sessions.js";
@@ -31,7 +31,6 @@ const STATIC: Record<string, [string, string]> = {
   "favicon-attention.png": [path.join(ASSETS_DIR, "tray-attention.png"), "image/png"],
   "icon.png": [path.join(ASSETS_DIR, "icon.png"), "image/png"],
   "style.css": [path.join(UI_DIR, "style.css"), "text/css"],
-  "style-quiet.css": [path.join(UI_DIR, "style-quiet.css"), "text/css"],
   "settings.js": [path.join(UI_DIR, "settings.js"), "text/javascript"],
   "session.js": [path.join(UI_DIR, "session.js"), "text/javascript"],
   "inbox.js": [path.join(UI_DIR, "inbox.js"), "text/javascript"],
@@ -95,10 +94,7 @@ export function startWebUi(app: App, port: number): http.Server {
         return res.writeHead(303, { Location: "/welcome" }).end();
       }
       if (req.method === "GET" && url.pathname === "/") {
-        // «Робоче місце» (the default) lays the board out as a list and the chosen task; the kanban is a choice.
-        const notice = url.searchParams.get("notice") ?? undefined;
-        const mail = !/(?:^|;\s*)mako-look=(?:classic|quiet)(?:;|$)/.test(req.headers.cookie ?? "");
-        return send(200, "text/html", mail ? renderMailBoard(app, token, notice, url.searchParams.get("task") ?? undefined) : renderInbox(app, token, notice));
+        return send(200, "text/html", renderInbox(app, token, url.searchParams.get("notice") ?? undefined, url.searchParams.get("task") ?? undefined));
       }
       if (req.method === "GET" && url.pathname === "/welcome") {
         const body = `<div id="welcome" class="wz"><p class="muted">Завантаження…</p></div>`;

@@ -93,42 +93,7 @@
     if (e.key === "Escape") document.querySelectorAll("details.take-menu[open]").forEach((d) => (d.open = false));
   });
 
-  // Drag a card from «Нові» to «В роботі» to take it, or from «Помилка» to retry it.
   const TOKEN = document.querySelector('meta[name="mako-token"]').content;
-  let dragged = null;
-  document.addEventListener("dragstart", (e) => {
-    const card = e.target.closest?.(".kcard[draggable]");
-    if (!card) return;
-    dragged = card;
-    busy = true;
-    card.classList.add("dragging");
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", card.dataset.id);
-    document.querySelector('.kcol[data-col="doing"]')?.classList.add("drop-target");
-  });
-  document.addEventListener("dragend", () => {
-    dragged?.classList.remove("dragging");
-    dragged = null;
-    busy = false;
-    document.querySelectorAll(".kcol").forEach((c) => c.classList.remove("drop-target", "drop-over"));
-  });
-  const doing = document.querySelector('.kcol[data-col="doing"]');
-  doing?.addEventListener("dragover", (e) => {
-    if (!dragged) return;
-    e.preventDefault();
-    doing.classList.add("drop-over");
-  });
-  doing?.addEventListener("dragleave", (e) => {
-    if (!doing.contains(e.relatedTarget)) doing.classList.remove("drop-over");
-  });
-  doing?.addEventListener("drop", async (e) => {
-    e.preventDefault();
-    if (!dragged) return;
-    const action = dragged.dataset.from === "failed" ? "/retry" : "/take";
-    const body = new URLSearchParams({ id: dragged.dataset.id, token: TOKEN });
-    await fetch(action, { method: "POST", body, redirect: "manual" }).catch(() => {});
-    location.reload();
-  });
 
   async function check() {
     const state = await (await fetch("/api/inbox-state", { cache: "no-store" })).json();
@@ -243,16 +208,8 @@
   const filter = document.getElementById("board-filter");
   const applyFilter = () => {
     const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
-    for (const card of document.querySelectorAll(".kcol .kcard, .mail-item")) {
-      card.hidden = words.length > 0 && !words.every((w) => (card.dataset.search || "").includes(w));
-    }
-    for (const col of document.querySelectorAll(".kcol")) {
-      const shown = col.querySelectorAll(".kcard:not([hidden])").length;
-      col.classList.toggle("filtered", words.length > 0);
-      const note = col.querySelector(".kfiltered");
-      if (words.length && !shown && col.querySelector(".kcard")) {
-        if (!note) col.querySelector(".kcards").insertAdjacentHTML("afterbegin", '<div class="kempty kfiltered">Нічого не знайдено</div>');
-      } else note?.remove();
+    for (const item of document.querySelectorAll(".mail-item")) {
+      item.hidden = words.length > 0 && !words.every((w) => (item.dataset.search || "").includes(w));
     }
     try {
       sessionStorage.setItem("mako.filter", filter.value);
