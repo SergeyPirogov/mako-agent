@@ -547,5 +547,7 @@ main:has(.st-tiles) { max-width: 1100px; }
 .board-filter { width: 200px; max-width: 100%; font-size: 13px; padding: 5px 10px; }
 .kcard[hidden] { display: none; }
 @media (max-width: 900px) { .board-filter { width: 100%; order: 5; } }
+form.mem-card { display: block; }
 .mem-card textarea { margin: 4px 0 10px; }
+.mem-card .adds button { margin: 0; }
 .mem-card .head h2 { margin: 0; }
