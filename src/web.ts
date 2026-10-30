@@ -401,7 +401,7 @@ function renderSession(app: App, id: string, token: string, embed = false): stri
   const body = `<div class="session-head">
       <div class="sh-task"><span class="chips">${chips}</span><span class="sh-title">${esc(session.task.title)}</span></div>
       <div class="session-actions"><span id="status" class="s"></span>
-        <button id="toggle-changes" title="Змінені файли і diff">Зміни</button>
+        <button id="toggle-changes" title="Змінені файли; клік по файлу відкриває diff у вкладці поруч із терміналом">Зміни</button>
         <a id="review-link" class="btn"${prUrl ? ` href="${esc(prUrl)}"` : " hidden"} target="_blank" rel="noreferrer">${reviewName} ↗</a>
         <button id="publish" class="primary" disabled title="Закомітити зміни з повідомленням від Claude, запушити гілку й відкрити ${reviewName}. Агент працює далі">${prUrl ? `Оновити ${reviewName}` : `Створити ${reviewName}`}</button>
         <button id="finish" class="success" title="Закрити агента й завершити задачу${prUrl ? "" : `; якщо ${reviewName} ще немає, Mako його відкриє`}">✓ Завершити</button>
@@ -409,8 +409,10 @@ function renderSession(app: App, id: string, token: string, embed = false): stri
     </div>
     <div id="status-msg" class="muted"></div>
     <div id="mr-bar" class="kc-mr mr-bar" hidden></div>
-    <div class="session-body"><div id="term"></div>
-      <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>
+    <div class="session-body">
+      <div class="session-main"><div id="tabs" class="term-tabs" role="tablist" hidden><button type="button" role="tab" data-tab="" class="on">Термінал</button></div>
+        <div id="tab-stack" class="tab-stack"><div id="term"></div></div></div>
+      <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1&layout=side"></iframe></div>
     <div id="ask-bar" class="ask-bar" hidden aria-live="polite"></div>`;
   return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, bare: embed, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script><script src="/ui/vendor/addon-web-links.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });
 }

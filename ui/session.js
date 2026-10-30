@@ -283,6 +283,69 @@
     // ignore
   }
 
+  // A file clicked in the panel opens as a tab over the terminal: its diff, kept live like the panel.
+  const tabsBar = document.getElementById("tabs");
+  const stack = document.getElementById("tab-stack");
+  const frames = new Map(); // path -> iframe of its tab
+  let active = "";
+  const tabFor = (path) => [...tabsBar.querySelectorAll("button[data-tab]")].find((b) => b.dataset.tab === path);
+  function showTab(path) {
+    active = path;
+    for (const b of tabsBar.querySelectorAll("button[data-tab]")) {
+      b.classList.toggle("on", b.dataset.tab === path);
+      b.setAttribute("aria-selected", String(b.dataset.tab === path));
+    }
+    for (const [p, frame] of frames) frame.hidden = p !== path;
+    tabFor(path)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    panel.contentWindow?.postMessage({ type: "mako-active-file", path: path || null }, location.origin);
+    if (path) {
+      term.blur(); // typing must not reach the agent hidden behind the tab
+      frames.get(path).contentWindow?.postMessage({ type: "mako-show" }, location.origin);
+    } else term.focus();
+  }
+  function openTab(path) {
+    if (!frames.has(path)) {
+      const frame = document.createElement("iframe");
+      frame.title = path;
+      frame.src = `/changes?task=${encodeURIComponent(document.body.dataset.task)}&embed=1&layout=file&file=${encodeURIComponent(path)}`;
+      stack.append(frame);
+      frames.set(path, frame);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "tab");
+      b.dataset.tab = path;
+      b.title = path;
+      b.innerHTML = `<span class="tab-name">${esc(path.split("/").pop())}</span><span class="tab-x" title="Закрити">×</span>`;
+      tabsBar.append(b);
+      tabsBar.hidden = false;
+    }
+    showTab(path);
+  }
+  function closeTab(path) {
+    frames.get(path)?.remove();
+    frames.delete(path);
+    const b = tabFor(path);
+    const next = b?.previousElementSibling?.dataset.tab ?? "";
+    b?.remove();
+    tabsBar.hidden = !frames.size;
+    if (active === path) showTab(next);
+  }
+  tabsBar.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-tab]");
+    if (!b) return;
+    if (e.target.closest(".tab-x")) closeTab(b.dataset.tab);
+    else showTab(b.dataset.tab);
+  });
+  // Middle click closes a file tab, as in an editor.
+  tabsBar.addEventListener("auxclick", (e) => {
+    const b = e.target.closest("button[data-tab]");
+    if (e.button === 1 && b?.dataset.tab) closeTab(b.dataset.tab);
+  });
+  window.addEventListener("message", (e) => {
+    if (e.origin !== location.origin || e.source !== panel.contentWindow) return;
+    if (e.data?.type === "mako-open-file" && e.data.path) openTab(e.data.path);
+  });
+
   connect();
 
   // The agent's numbered question (a plan to approve, a permission) as buttons under the terminal:

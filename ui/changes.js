@@ -1,13 +1,17 @@
 // Editor-like changes view: file tree on the left, the selected file's diff or full content on the right.
+// In the session page it is split in two: ?layout=side is the tree beside the terminal, a click opens the file
+// in a tab over the terminal, and that tab is ?layout=file&file=<path>, the preview alone.
 (() => {
   "use strict";
   const task = document.body.dataset.task;
+  const params = new URLSearchParams(location.search);
+  const layout = params.get("layout") || "full"; // "full" | "side" | "file"
   const root = document.getElementById("changes");
   const STATUS = { A: ["додано", "add"], M: ["змінено", "mod"], D: ["видалено", "del"], R: ["перейменовано", "mod"], C: ["скопійовано", "add"], "?": ["новий, не закомічено", "new"] };
 
   let data = null; // last /api/changes answer
   let lastKey = "";
-  let selected = null; // path of the file in the preview
+  let selected = layout === "file" ? params.get("file") : null; // path of the file in the preview (in the side tree: the open tab)
   let mode = "diff"; // "diff" | "file"
   let view = "tree"; // "tree" | "list"
   const closedDirs = new Set();
@@ -148,12 +152,13 @@
   // ---------- rendering ----------
 
   function render() {
+    if (layout === "file") return renderFileTab();
     if (!data.files.length) {
       root.innerHTML = `<div class="cx-empty muted">Змін відносно <code>${h(data.base)}</code> поки немає. Сторінка оновиться сама.</div>`;
       return;
     }
     // Start on the first file as it appears on screen (top of the tree), not git's order.
-    if (!selected || !data.files.some((f) => f.path === selected)) selected = visibleOrder()[0] ?? data.files[0].path;
+    if (layout === "full" && (!selected || !data.files.some((f) => f.path === selected))) selected = visibleOrder()[0] ?? data.files[0].path;
     const add = data.files.reduce((n, f) => n + f.additions, 0);
     const del = data.files.reduce((n, f) => n + f.deletions, 0);
     const commits = data.commits.length
@@ -163,7 +168,7 @@
     const list = view === "tree" ? renderTree(buildTree(data.files), 0) : data.files.map((f) => fileRow(f, f.path, 0)).join("");
     const scrollTop = root.querySelector(".cx-files")?.scrollTop ?? 0;
     const bodyScroll = root.querySelector(".cx-body")?.scrollTop ?? 0;
-    root.innerHTML = `<div class="cx">
+    root.innerHTML = `<div class="cx${layout === "side" ? " side" : ""}">
       <aside class="cx-side">
         <div class="cx-sum"><strong>${data.files.length} ${data.files.length === 1 ? "файл" : "файлів"}</strong>
           <span class="plus">+${add}</span> <span class="minus">−${del}</span>
@@ -172,9 +177,20 @@
         <div class="seg"><button data-view="tree" class="${view === "tree" ? "on" : ""}">Дерево</button><button data-view="list" class="${view === "list" ? "on" : ""}">Список</button></div>
         <div class="cx-files" tabindex="0" aria-label="Змінені файли">${list}</div>
       </aside>
-      <section class="cx-main"><div class="cx-head"></div><div class="cx-body"></div></section>
+      ${layout === "side" ? "" : `<section class="cx-main"><div class="cx-head"></div><div class="cx-body"></div></section>`}
     </div>`;
     root.querySelector(".cx-files").scrollTop = scrollTop;
+    renderPreview(bodyScroll);
+  }
+
+  /** A tab over the terminal: this one file's preview, no tree. */
+  function renderFileTab() {
+    const bodyScroll = root.querySelector(".cx-body")?.scrollTop ?? 0;
+    if (!data.files.some((f) => f.path === selected)) {
+      root.innerHTML = `<div class="cx-empty muted"><code>${h(selected)}</code>: змін відносно <code>${h(data.base)}</code> у цьому файлі більше немає.</div>`;
+      return;
+    }
+    if (!root.querySelector(".cx-main")) root.innerHTML = `<div class="cx file"><section class="cx-main"><div class="cx-head"></div><div class="cx-body"></div></section></div>`;
     renderPreview(bodyScroll);
   }
 
@@ -244,7 +260,13 @@
     selected = path;
     root.querySelectorAll(".cx-file").forEach((b) => b.classList.toggle("on", b.dataset.file === path));
     root.querySelector(`.cx-file[data-file="${CSS.escape(path)}"]`)?.scrollIntoView({ block: "nearest" });
-    renderPreview(0);
+    if (layout === "full") renderPreview(0);
+  }
+
+  /** Side tree: the session page opens the file in a tab over the terminal. */
+  function openTab(path) {
+    select(path);
+    parent.postMessage({ type: "mako-open-file", path }, location.origin);
   }
 
   // ---------- data ----------
@@ -270,7 +292,7 @@
 
   root.addEventListener("click", (e) => {
     const file = e.target.closest(".cx-file");
-    if (file) return select(file.dataset.file);
+    if (file) return layout === "side" ? openTab(file.dataset.file) : select(file.dataset.file);
     const dir = e.target.closest(".cx-dir");
     if (dir) {
       closedDirs.has(dir.dataset.dir) ? closedDirs.delete(dir.dataset.dir) : closedDirs.add(dir.dataset.dir);
@@ -290,9 +312,10 @@
     }
   });
 
-  // ↑/↓ (or j/k) move through the files, like an editor's file list.
+  // ↑/↓ (or j/k) move through the files, like an editor's file list; in the side tree Enter opens the file's tab.
   document.addEventListener("keydown", (e) => {
-    if (!data?.files.length || e.target.closest?.("input, textarea, select")) return;
+    if (layout === "file" || !data?.files.length || e.target.closest?.("input, textarea, select")) return;
+    if (layout === "side" && e.key === "Enter" && selected) return void (e.preventDefault(), openTab(selected));
     const step = e.key === "ArrowDown" || e.key === "j" ? 1 : e.key === "ArrowUp" || e.key === "k" ? -1 : 0;
     if (!step) return;
     e.preventDefault();
@@ -301,6 +324,17 @@
     select(order[Math.max(0, Math.min(order.length - 1, i + step))]);
   });
 
+  // From the session page: which tab is in front (the tree marks its file), or that this tab came to the front.
+  window.addEventListener("message", (e) => {
+    if (e.origin !== location.origin || e.source !== parent) return;
+    if (e.data?.type === "mako-active-file" && layout === "side") {
+      selected = e.data.path;
+      root.querySelectorAll(".cx-file").forEach((b) => b.classList.toggle("on", b.dataset.file === selected));
+    } else if (e.data?.type === "mako-show") refresh();
+  });
+
+  // Tabs behind the terminal (their frame hidden) wait until they are shown.
+  const behind = () => document.hidden || Boolean(window.frameElement?.hidden);
   refresh();
-  setInterval(() => !document.hidden && refresh(), 4000);
+  setInterval(() => !behind() && refresh(), 4000);
 })();

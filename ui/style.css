@@ -142,10 +142,23 @@ table.tasks tr.attn { background: color-mix(in srgb, var(--warn) 7%, transparent
 /* changes view */
 main.bare { padding: 10px 12px 24px; max-width: none; }
 .session-body { flex: 1; display: flex; gap: 10px; min-height: 0; }
+.session-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.tab-stack { flex: 1; min-height: 0; display: flex; position: relative; }
 .session-body #term { flex: 1; min-width: 0; }
-#changes-panel { flex: 0 0 44%; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); min-width: 0; }
+/* File tabs lie over the terminal, so it keeps its size (and its rows) while hidden behind them. */
+.tab-stack iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.term-tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: thin; margin-bottom: 4px; flex: none; }
+.term-tabs button { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 4px 6px 4px 12px; border-radius: 7px 7px 0 0; border-color: transparent;
+  background: none; color: var(--mute); font-size: 12px; white-space: nowrap; flex: none; }
+.term-tabs button[data-tab=""] { padding-right: 12px; }
+.term-tabs button:hover { color: var(--fg); }
+.term-tabs button.on { color: var(--fg); background: var(--card); border-color: var(--line); box-shadow: inset 0 -2px 0 var(--accent); }
+.term-tabs .tab-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.term-tabs .tab-x { width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 4px; color: var(--mute); }
+.term-tabs .tab-x:hover { background: color-mix(in srgb, var(--line) 80%, transparent); color: var(--fg); }
+#changes-panel { flex: 0 0 clamp(220px, 24%, 340px); border: 1px solid var(--line); border-radius: 10px; background: var(--bg); min-width: 0; }
 #toggle-changes.on { background: var(--bg); border-color: var(--accent); color: var(--accent); }
-@media (max-width: 900px) { .session-body { flex-direction: column; } #changes-panel { flex-basis: 45%; } }
+@media (max-width: 900px) { .session-body { flex-direction: column; } #changes-panel { flex-basis: 30%; } }
 a.link { margin-left: 8px; font-size: 13px; }
 .csum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; margin-bottom: 10px; font-size: 14px; }
 .plus { color: var(--ok); font-variant-numeric: tabular-nums; } .minus { color: var(--err); font-variant-numeric: tabular-nums; }
@@ -346,8 +359,10 @@ table.code tr.del td { background: color-mix(in srgb, var(--err) 13%, transparen
 table.code tr.del td.ln { background: color-mix(in srgb, var(--err) 22%, transparent); }
 table.code tr.hunk td { background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent); padding-top: 2px; padding-bottom: 2px; }
 table.code tr.meta td.tx { color: var(--mute); font-style: italic; }
+.cx.side, .cx.file { grid-template-columns: minmax(0, 1fr); }
+.cx.side .cx-side { border-right: 0; }
 @media (max-width: 640px) {
-  .cx { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(120px, 38%) minmax(0, 1fr); }
+  .cx:not(.side, .file) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(120px, 38%) minmax(0, 1fr); }
   .cx-side { border-right: 0; border-bottom: 1px solid var(--line); }
 }
 
