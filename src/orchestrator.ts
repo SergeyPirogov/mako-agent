@@ -1,28 +1,30 @@
-import type { Config, TaskTemplate } from "./config.js";
-import type { IssueState, Outcome, Task, Tracker } from "./types.js";
+import type { Config } from "./config.js";
+import type { Outcome, Task, Tracker } from "./types.js";
 import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
 import { createExecutor, type Executor } from "./executors/index.js";
 import type { RepoConfig } from "./config.js";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { askToTake, inform, type Decision } from "./notify.js";
 import * as git from "./git.js";
 import { routeTask } from "./routing.js";
 import { LocalTracker, LOCAL_TRACKER, localTask } from "./trackers/local.js";
-import { createTracker, type TrackerConfig } from "./trackers/index.js";
-import { findReview } from "./reviews.js";
 import { log, keepLogsIn, dropLog } from "./log.js";
-import { sessions, sessionIdFor } from "./sessions.js";
 import { stopTask } from "./executors/processes.js";
-import { commitMessage, reviewText, taskSummary } from "./commit-message.js";
-import { makePlan } from "./plan.js";
-import { readMemory, writeMemory, learn } from "./memory.js";
+import { taskSummary } from "./commit-message.js";
+import { learn } from "./memory.js";
+import { ReviewDesk } from "./review-desk.js";
+import { TrackerSync } from "./tracker-sync.js";
+import { Planning } from "./planning.js";
 
 export class Orchestrator {
   /** By id; replaced on reload. */
   trackers: Map<string, Tracker>;
-  private executors: Map<string, Executor>;
+  executors: Map<string, Executor>;
+  readonly reviews = new ReviewDesk(this);
+  readonly sync = new TrackerSync(this);
+  readonly planning = new Planning(this);
   private active = new Map<string, Promise<void>>();
   /** Unroutable tasks already reported, so the log is not repeated on every poll. */
   private unroutable = new Map<string, string>();
@@ -38,7 +40,7 @@ export class Orchestrator {
   private wake?: () => void;
 
   constructor(
-    private cfg: Config,
+    public cfg: Config,
     trackers: Tracker[],
     readonly state: StateStore,
   ) {
@@ -47,7 +49,7 @@ export class Orchestrator {
     this.executors = new Map(Object.entries(cfg.executors).map(([name, c]) => [name, createExecutor(name, c)]));
   }
 
-  private executorFor(repo: RepoConfig): Executor {
+  executorFor(repo: RepoConfig): Executor {
     return this.executors.get(repo.executor ?? this.cfg.defaultExecutor)!;
   }
 
@@ -63,8 +65,8 @@ export class Orchestrator {
   async start(): Promise<void> {
     log("main", `Polling ${[...this.trackers.values()].filter((t) => t.id !== LOCAL_TRACKER).map((t) => t.id).join(", ")} every ${this.cfg.pollIntervalSec}s`);
     this.schedule(); // tasks queued before a restart
-    this.reviewTimer = setInterval(() => void this.refreshReviews(), 60_000);
-    void this.refreshReviews();
+    this.reviewTimer = setInterval(() => void this.reviews.refreshReviews(), 60_000);
+    void this.reviews.refreshReviews();
     while (!this.stopped) {
       await this.poll();
       const ms = this.cfg.pollIntervalSec * 1000;
@@ -108,7 +110,7 @@ export class Orchestrator {
 
   /** Status or label changes in the tracker must not fail the agent's work: report them and carry on. */
   /** Status changes never stop the work; the card says whether the issue moved, and why not. */
-  private async updateTracker(task: Task, moment: "start" | Outcome | "merged", change: () => Promise<string | void>): Promise<void> {
+  async updateTracker(task: Task, moment: "start" | Outcome | "merged", change: () => Promise<string | void>): Promise<void> {
     const tracker = this.trackers.get(task.trackerId);
     try {
       const name = await change();
@@ -148,6 +150,7 @@ export class Orchestrator {
   stop(): void {
     this.stopped = true;
     clearInterval(this.reviewTimer);
+    this.wake?.(); // the poll loop ends now, not after its pause
   }
 
   async drain(): Promise<void> {
@@ -231,8 +234,8 @@ export class Orchestrator {
         // the rest (reassigned, label removed) no longer need an answer and are forgotten.
         for (const rec of this.state.all()) {
           if (rec.task.trackerId !== tracker.id || seen.has(rec.id) || !["asking", "snoozed"].includes(rec.status)) continue;
-          const state = await this.issueState(tracker, rec);
-          if (state === "closed" || state === "deleted") this.markGone(rec, state);
+          const state = await this.sync.issueState(tracker, rec);
+          if (state === "closed" || state === "deleted") this.sync.markGone(rec, state);
           else if (state === "open") {
             log(rec.id, "no longer matches the tracker query, forgetting it");
             this.state.delete(rec.id);
@@ -252,275 +255,14 @@ export class Orchestrator {
     const every = this.cfg.handoffCheckMin * 60_000;
     if (every > 0 && Date.now() - this.lastHandoffCheck >= every) {
       this.lastHandoffCheck = Date.now();
-      await this.checkHandoffs();
-      await this.checkGone();
+      await this.sync.checkHandoffs();
+      await this.sync.checkGone();
     }
   }
 
   /** PRs/MRs Mako opened: once merged, the issue gets its final status and the card says so. */
   async checkMerged(): Promise<void> {
-    await this.refreshReviews();
-  }
-
-  /** PRs/MRs Mako opened and still watches: open, not archived, recent. */
-  private watchedReviews(): TaskRecord[] {
-    const recent = Date.now() - 30 * 24 * 3600_000;
-    return this.state
-      .all()
-      .filter((r) => r.prUrl && !r.reviewState && !r.archivedAt && ["queued", "running", "done", "handed-off"].includes(r.status))
-      .filter((r) => !r.finishedAt || Date.parse(r.finishedAt) > recent);
-  }
-
-  private reviewsBusy = false;
-  /** When each PR/MR was last looked at (not saved: it changes every minute). */
-  readonly reviewChecked = new Map<string, number>();
-
-  /** CI, review threads, conflicts and merges of the watched PRs/MRs; runs every minute. */
-  async refreshReviews(): Promise<void> {
-    if (this.reviewsBusy) return;
-    this.reviewsBusy = true;
-    try {
-      for (const rec of this.watchedReviews()) await this.refreshReview(rec.id);
-    } finally {
-      this.reviewsBusy = false;
-    }
-  }
-
-  async refreshReview(id: string): Promise<TaskRecord | undefined> {
-    const rec = this.state.get(id);
-    const tracker = rec && this.trackers.get(rec.task.trackerId);
-    if (!rec?.prUrl || !tracker) return rec;
-    try {
-      const host = this.reviewHost(rec.prUrl, tracker);
-      if (host?.reviewDetails) {
-        const review = await host.reviewDetails(rec.prUrl);
-        const before = rec.review;
-        this.reviewChecked.set(id, Date.now());
-        // Only real changes are saved: each save redraws the board.
-        const same = before && JSON.stringify({ ...before, checkedAt: 0 }) === JSON.stringify({ ...review, checkedAt: 0 });
-        if (!same) this.state.update(id, { review });
-        if (review.pipeline?.status === "failed" && before?.pipeline?.status !== "failed") {
-          inform(`❌ ${id}: CI впав`, `${review.pipeline.failed.map((j) => j.name).join(", ") || "пайплайн"} · можна віддати агенту`);
-        }
-        if (review.conflicts && !before?.conflicts) inform(`⚠ ${id}: конфлікти з основною гілкою`, rec.task.title);
-        if (review.comments.length > (before?.comments.length ?? 0)) {
-          inform(`💬 ${id}: нові коментарі в ${this.reviewKind(rec)}`, review.comments.at(-1)!.body.slice(0, 160));
-        }
-        if (review.state !== "open") await this.reviewEnded(this.state.get(id)!, review.state, tracker);
-      } else if (host?.reviewState) {
-        const state = await host.reviewState(rec.prUrl);
-        if (state !== "open") await this.reviewEnded(rec, state, tracker);
-      }
-    } catch (err: any) {
-      log(id, `review check failed: ${err.message}`);
-    }
-    return this.state.get(id);
-  }
-
-  private hosts = new Map<string, Tracker>();
-
-  /**
-   * Who answers about a PR/MR: the task's own tracker when it is that GitLab/GitHub, otherwise a client for the
-   * MR's host with the GitLab/GitHub token from the settings, so Jira tasks with code in GitLab get CI,
-   * review threads and merge too.
-   */
-  private reviewHost(url: string, tracker: Tracker): Tracker | undefined {
-    const gitlab = /\/-\/merge_requests\/\d+/.test(url);
-    const github = /\/pull\/\d+/.test(url);
-    if ((gitlab && tracker.name === "GitLab") || (github && tracker.name === "GitHub")) return tracker;
-    const origin = new URL(url).origin;
-    const configured = [...this.trackers.values()].find(
-      (t) => t.name === (gitlab ? "GitLab" : "GitHub") && (this.cfg.trackers as any[]).some((c) => (c.id ?? c.type) === t.id && hostOf(c, gitlab) === origin),
-    );
-    if (configured) return configured;
-    const key = `${gitlab ? "gitlab" : "github"} ${origin}`;
-    if (!this.hosts.has(key)) {
-      const env = (name: string) => {
-        const v = process.env[name];
-        if (!v) throw new Error(`Для MR потрібен ${name}: додайте токен ${gitlab ? "GitLab" : "GitHub"} у Налаштуваннях`);
-        return v;
-      };
-      try {
-        const cfg = gitlab
-          ? { type: "gitlab" as const, baseUrl: origin, projects: {} }
-          : { type: "github" as const, apiUrl: origin === "https://github.com" ? undefined : `${origin}/api/v3`, projects: {} };
-        this.hosts.set(key, createTracker(cfg as TrackerConfig, env));
-      } catch (err: any) {
-        log("main", `no client for ${origin}: ${err.message}`);
-        return undefined;
-      }
-    }
-    return this.hosts.get(key);
-  }
-
-  /** Which host opens the MR when the repo says "auto": the tracker's own kind, or (Jira) a guess from the token. */
-  private hostHint(tracker: Tracker): "github" | "gitlab" | undefined {
-    if (tracker.name === "GitLab") return "gitlab";
-    if (tracker.name === "GitHub") return "github";
-    return undefined;
-  }
-
-  private reviewKind(rec: TaskRecord): string {
-    return rec.prUrl?.includes("/merge_requests/") ? "MR" : "PR";
-  }
-
-  private async reviewEnded(rec: TaskRecord, state: "merged" | "closed", tracker: Tracker): Promise<void> {
-    if (rec.reviewState) return;
-    this.state.update(rec.id, { reviewState: state, ...(state === "merged" ? { mergedAt: new Date().toISOString() } : {}) });
-    if (state === "closed") return log(rec.id, "review closed without merging");
-    log(rec.id, `review merged: ${rec.prUrl}`);
-    if (tracker.onMerged) await this.updateTracker(rec.task, "merged", () => tracker.onMerged!(rec.task));
-    inform(`✅ ${rec.id}: ${this.reviewKind(rec)} змерджено`, rec.status === "running" ? "Агент ще в терміналі: натисніть «Завершити»" : rec.task.title);
-  }
-
-  /** Merges the PR/MR from Mako; the issue then moves on as for a merge done in GitLab. */
-  async mergeReview(id: string): Promise<void> {
-    const rec = this.state.get(id);
-    const tracker = rec && this.trackers.get(rec.task.trackerId);
-    const host = rec?.prUrl && tracker ? this.reviewHost(rec.prUrl, tracker) : undefined;
-    if (!rec?.prUrl || !host?.mergeReview) throw new Error("Немає MR, який Mako може змерджити");
-    await host.mergeReview(rec.prUrl);
-    log(id, `merged from Mako: ${rec.prUrl}`);
-    await this.refreshReview(id);
-  }
-
-  /**
-   * Hands the agent what the PR/MR needs: the failed CI jobs with their logs, the open review threads,
-   * or the conflicts. A live terminal gets it as a message; otherwise a new run starts in the same worktree.
-   */
-  async askAgent(id: string, kind: "ci" | "comments" | "conflicts"): Promise<"sent" | "started"> {
-    let rec = await this.refreshReview(id);
-    const tracker = rec && this.trackers.get(rec.task.trackerId);
-    const repo = rec?.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
-    const review = rec?.review;
-    if (!rec || !tracker || !review || !rec.prUrl) throw new Error("Для цієї задачі немає MR");
-    const kindName = this.reviewKind(rec);
-    const tail = "\n\nDo not push and do not open another merge request: Mako pushes the branch and updates the existing one.";
-    let text: string;
-    if (kind === "ci") {
-      const failed = review.pipeline?.failed ?? [];
-      if (review.pipeline?.status !== "failed") throw new Error("CI не впав");
-      const logs = [];
-      for (const job of failed.slice(0, 3)) {
-        const host = this.reviewHost(rec.prUrl, tracker);
-        const log = job.id && host?.jobLog ? await host.jobLog(rec.prUrl, job.id).catch(() => "") : "";
-        logs.push(`### ${job.name}${job.url ? ` (${job.url})` : ""}\n${log ? "```\n" + log.trim() + "\n```" : "(log not available)"}`);
-      }
-      text = `The CI pipeline of ${kindName} ${rec.prUrl} failed${review.pipeline.url ? ` (${review.pipeline.url})` : ""}.\n\n${logs.join("\n\n") || "No failed job details were available."}\n\nFind the cause, fix it in this worktree, run the same checks locally where you can, and commit.${tail}`;
-    } else if (kind === "comments") {
-      if (!review.comments.length) throw new Error("Відкритих коментарів немає");
-      const list = review.comments
-        .map((c, i) => `${i + 1}. ${c.thread ? `[thread ${c.thread}] ` : ""}${c.author}${c.path ? ` on ${c.path}${c.line ? `:${c.line}` : ""}` : ""}${c.url ? ` (${c.url})` : ""}:\n${c.body.trim().split("\n").map((l) => `> ${l}`).join("\n")}`)
-        .join("\n\n");
-      const ws = this.workspaceFor(id);
-      if (ws) await git.excludeLocal(ws.worktree, ".mako/");
-      text =
-        `Reviewers left unresolved comments on ${kindName} ${rec.prUrl}:\n\n${list}\n\n` +
-        "Address each one in the code. If you disagree with a comment, do not change the code for it. Commit the changes.\n\n" +
-        `Then write the file \`${REVIEW_REPLIES}\` in the worktree root (it is not committed): a JSON array with one entry per thread, ` +
-        '`{"thread": "<id from [thread …]>", "reply": "<what you changed, with file names, or why you did not>", "resolved": <true if fixed>}`. ' +
-        `Mako posts these replies in the threads after it pushes, and resolves the fixed ones.${tail}`;
-    } else {
-      if (!review.conflicts) throw new Error("Конфліктів немає");
-      const base = repo?.baseBranch ?? "main";
-      text = `${kindName} ${rec.prUrl} has conflicts with ${base}. Run \`git fetch origin ${base}\` and \`git merge origin/${base}\`, resolve the conflicts keeping the intent of both sides, run the checks, and commit the merge. Do not rebase.${tail}`;
-    }
-    const session = sessions.get(sessionIdFor(rec.task));
-    if (session && rec.status === "running" && session.say(text)) {
-      log(id, `asked the agent: ${kind}`);
-      return "sent";
-    }
-    // No live terminal: a new run in the same worktree, with just this request.
-    this.state.update(id, { followUp: text });
-    if (!this.retry(id, { executor: this.terminalExecutor() })) throw new Error("Задачу зараз не можна перезапустити");
-    log(id, `follow-up run: ${kind}`);
-    rec = this.state.get(id);
-    return "started";
-  }
-
-  /** «Взяти» puts the issue on the developer in the tracker, so colleagues do not take it too (assignOnTake: false turns it off). */
-  private async assignOnTake(id: string): Promise<void> {
-    const rec = this.state.get(id);
-    const tracker = rec && this.trackers.get(rec.task.trackerId);
-    if (!rec || !tracker?.assignToMe) return;
-    const raw = (this.cfg.trackers as any[]).find((t) => (t.id ?? t.type) === tracker.id);
-    if (raw?.assignOnTake === false) return;
-    const me = await tracker.whoAmI?.().catch(() => undefined);
-    if (me && rec.task.assignees?.some((a) => a.toLowerCase() === me.toLowerCase())) return;
-    try {
-      await tracker.assignToMe(rec.task);
-      log(id, `assigned to ${me ?? "me"} in ${tracker.name}`);
-    } catch (err: any) {
-      log(id, `not assigned in ${tracker.name}: ${err.message}`);
-    }
-  }
-
-  /** Taken tasks are not in every search (the WIP limit pauses it), so their issues are looked up one by one. */
-  async checkGone(): Promise<void> {
-    for (const rec of this.state.all().filter((r) => ["queued", "running", "handed-off"].includes(r.status))) {
-      const tracker = this.trackers.get(rec.task.trackerId);
-      if (!tracker) continue;
-      const state = await this.issueState(tracker, rec);
-      if ((state === "closed" || state === "deleted") && rec.gone !== state) this.markGone(rec, state);
-      if (state === "open" && rec.gone) this.state.update(rec.id, { gone: undefined });
-    }
-  }
-
-  /** undefined when the tracker could not be asked (network, rights): better to wait than to drop a task. */
-  private async issueState(tracker: Tracker, rec: TaskRecord): Promise<IssueState | undefined> {
-    if (!tracker.issueState) return "open";
-    try {
-      return await tracker.issueState(rec.task);
-    } catch (err: any) {
-      log(rec.id, `issue check failed: ${err.message}`);
-      return undefined;
-    }
-  }
-
-  /** Not yet started: nothing to do any more. Already with an agent: the developer decides, the card says why. */
-  private markGone(rec: TaskRecord, state: "closed" | "deleted"): void {
-    const where = this.trackers.get(rec.task.trackerId)?.name ?? "трекері";
-    const what = state === "deleted" ? `Задачу видалено в ${where}` : `Задачу закрито в ${where}`;
-    log(rec.id, `${state} in the tracker`);
-    if (["asking", "snoozed", "queued"].includes(rec.status)) {
-      this.state.update(rec.id, { status: "cancelled", gone: state, error: what, finishedAt: new Date().toISOString() });
-      this.schedule();
-    } else {
-      this.state.update(rec.id, { gone: state });
-      inform(`🦈 ${rec.id}: ${what.toLowerCase()}`, "Агент ще працює над нею. Зупиніть або доведіть до кінця на дошці Mako.");
-    }
-  }
-
-  /** A handed-off task is finished from Mako's side once a PR/MR is opened from its branch. */
-  async checkHandoffs(): Promise<void> {
-    for (const rec of this.state.all().filter((r) => r.status === "handed-off")) {
-      const tracker = this.trackers.get(rec.task.trackerId);
-      const repo = rec.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
-      if (!tracker || !repo) continue;
-      const branch = rec.branch ?? this.branchOf(rec);
-      try {
-        const { review, branchSha } = await findReview(repo, branch, rec.branchSha);
-        if (branchSha && branchSha !== rec.branchSha) this.state.update(rec.id, { branchSha });
-        if (!review) {
-          // The tool's workspace is gone and nothing was opened from it: the hand-off was abandoned.
-          if (rec.worktree && !existsSync(rec.worktree)) {
-            this.cancel(rec.id, `Workspace видалено (${rec.worktree}), PR не відкрито`);
-            inform(`🦈 ${rec.id}: передачу скасовано`, "Workspace видалено, PR немає. Задачу можна повторити з дошки.");
-          }
-          continue;
-        }
-
-        const name = review.kind === "pull" ? `Pull request #${review.number}` : `Merge request !${review.number}`;
-        const link = review.url ?? name;
-        log(rec.id, `review found: ${link}`);
-        await tracker.comment(rec.task, `🦈 Mako: ${name} opened for this issue: ${link}`);
-        await this.updateTracker(rec.task, "success", () => tracker.onFinish(rec.task, "success"));
-        this.state.update(rec.id, { status: "done", prUrl: review.url, finishedAt: new Date().toISOString() });
-        inform(`✅ ${rec.id}: є ${review.kind === "pull" ? "PR" : "MR"}`, link);
-      } catch (err: any) {
-        log(rec.id, `review check failed: ${err.message}`);
-      }
-    }
+    await this.reviews.refreshReviews();
   }
 
   private onTaskSeen(task: Task, tracker: Tracker, repo: string): void {
@@ -583,7 +325,7 @@ export class Orchestrator {
         ...(chosenRepo ? { repo: chosenRepo } : {}),
       });
       this.schedule();
-      void this.assignOnTake(id);
+      void this.sync.assignOnTake(id);
     } else {
       const snoozeMin = this.cfg.notifications.snoozeMin;
       log(id, `${decision === "later" ? "postponed" : "no answer"}, asking again in ${snoozeMin} min`);
@@ -592,7 +334,7 @@ export class Orchestrator {
     return true;
   }
 
-  private schedule(): void {
+  schedule(): void {
     if (this.stopped) return;
     const queued = this.state
       .all()
@@ -628,9 +370,9 @@ export class Orchestrator {
     // Plan first: Claude in Mako's terminal plans and asks in the terminal itself; any other executor gets a
     // plan from Claude that the developer approves on the board before the work starts.
     const needsPlan = Boolean(rec.planFirst && !rec.planApproved && !rec.followUp);
-    const terminalPlan = needsPlan && this.isTerminalClaude(executor.name);
-    const context = this.promptContext(rec, repo);
-    if (needsPlan && !terminalPlan) return this.planPhase(rec, tracker, repo, branch, buildPrompt(task, tracker, repo, executor) + context);
+    const terminalPlan = needsPlan && this.planning.isTerminalClaude(executor.name);
+    const context = this.planning.promptContext(rec, repo);
+    if (needsPlan && !terminalPlan) return this.planning.planPhase(rec, tracker, repo, branch, buildPrompt(task, tracker, repo, executor) + context);
     // A follow-up (fix CI, review comments, conflicts) continues the work in the same worktree.
     const prompt = rec.followUp
       ? `You are continuing work on ${task.id}: ${task.title} (${task.url}) in this worktree, on branch ${branch}.\n\n${rec.followUp}`
@@ -690,7 +432,7 @@ export class Orchestrator {
       log(task.id, `agent finished: ok=${result.ok}${result.costUsd !== undefined ? `, cost=$${result.costUsd.toFixed(2)}` : ""}`);
       if (!result.ok) throw new Error(result.summary);
 
-      await this.commitLeftovers(worktree, task);
+      await this.reviews.commitLeftovers(worktree, task);
 
       let prUrl: string | undefined = this.state.get(task.id)?.prUrl;
       const changed = (await git.commitsAhead(repo, worktree)) > 0;
@@ -710,10 +452,10 @@ export class Orchestrator {
       const announced = this.state.get(task.id)?.reviewAnnounced;
       let pushedNow = false;
       if (changed && !(pushed && pushed === (await git.headSha(worktree)))) {
-        prUrl = (await this.openReview(task, tracker, repo, worktree, branch, executor.label)).url ?? prUrl;
+        prUrl = (await this.reviews.openReview(task, tracker, repo, worktree, branch, executor.label)).url ?? prUrl;
         pushedNow = true;
       }
-      if (prUrl) await this.postReplies(task, tracker, worktree, prUrl);
+      if (prUrl) await this.reviews.postReplies(task, tracker, worktree, prUrl);
 
       const outcome = prUrl
         ? `Pull request: ${prUrl}`
@@ -806,230 +548,9 @@ export class Orchestrator {
     return true;
   }
 
-  /** Uncommitted work gets a commit message written from its diff. */
-  private async commitLeftovers(worktree: string, task: Task): Promise<{ text: string; error?: string } | undefined> {
-    await git.excludeLocal(worktree, ".mako/").catch(() => {}); // Mako's own files never go into a commit
-    if (!(await git.hasUncommittedChanges(worktree))) return undefined;
-    await git.stageAll(worktree);
-    const message = await commitMessage(worktree, task);
-    if (message.error) log(task.id, `commit message not written by Claude: ${message.error}`);
-    await git.commitAll(worktree, message.text);
-    log(task.id, `committed: ${message.text.split("\n")[0]}`);
-    return message;
-  }
-
-  /**
-   * Pushes the branch and opens the PR/MR, then gives it a title and description written from the branch's
-   * changes, the way Mako writes its comments in the issue.
-   */
-  private async openReview(
-    task: Task,
-    tracker: Tracker,
-    repo: RepoConfig,
-    worktree: string,
-    branch: string,
-    agent: string,
-  ): Promise<{ url?: string; title: string; summary: string; error?: string }> {
-    const text = await reviewText(worktree, repo.baseBranch, task);
-    if (text.error) log(task.id, `review text not written by Claude: ${text.error}`);
-    const closing = task.closingRef ?? task.url;
-    const description = [
-      text.summary,
-      `${closing}`,
-      `🦈 Mako · ${agent} · [${task.id}](${task.url})`,
-    ].filter(Boolean).join("\n\n");
-    const url = await git.publish(repo, worktree, branch, { title: text.title, body: description, shortBody: closing }, this.hostHint(tracker));
-    let error = text.error;
-    const host = url ? this.reviewHost(url, tracker) : undefined;
-    if (url && host?.describeReview) {
-      // Push options take one line only: the full description goes through the host's API.
-      await host.describeReview(url, text.title, description).catch((err: any) => {
-        log(task.id, `review description not set: ${err.message}`);
-        error = `опис не записано: ${err.message}`;
-      });
-    }
-    return { url, title: text.title, summary: text.summary, error };
-  }
-
-  /**
-   * «Створити MR» on a running session: commit what is there, push the branch and open (or update) the PR/MR,
-   * while the agent keeps going. Finishing later does not open another one.
-   */
-  async publishNow(id: string): Promise<{ url?: string; message?: string; title: string; updated: boolean; replied: number; warning?: string }> {
-    const rec = this.state.get(id);
-    const ws = this.workspaceFor(id);
-    const tracker = rec && this.trackers.get(rec.task.trackerId);
-    const repo = rec?.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
-    if (!rec || !ws || !tracker || !repo) throw new Error("Для цієї задачі ще немає робочої копії");
-    const { task } = rec;
-    const message = await this.commitLeftovers(ws.worktree, task);
-    if ((await git.commitsAhead(repo, ws.worktree)) === 0) throw new Error("Змін для MR ще немає: агент нічого не змінив");
-    const first = !rec.prUrl;
-    const branch = this.branchOf(rec);
-    const agent = (rec.executor && this.executors.get(rec.executor)?.label) ?? "агент";
-    const review = await this.openReview(task, tracker, repo, ws.worktree, branch, agent);
-    const url = review.url ?? rec.prUrl;
-    this.state.update(id, { prUrl: url, publishedSha: await git.headSha(ws.worktree) });
-    const replied = url ? await this.postReplies(task, tracker, ws.worktree, url) : 0;
-    log(id, `${first ? "review opened" : "review updated"}${url ? `: ${url}` : ` (branch ${branch} pushed)`}`);
-    if (first && url) {
-      // The same kind of report the issue gets when a task is finished: what the MR changes and where it is.
-      const kind = tracker.name === "GitHub" ? "pull request" : "merge request";
-      const report = [`🦈 Mako opened a ${kind}: ${url}`, `**${review.title}**`, review.summary].filter(Boolean).join("\n\n");
-      await tracker
-        .comment(task, report)
-        .then(() => this.state.update(id, { reviewAnnounced: true }))
-        .catch((err: any) => log(id, `comment not posted: ${err.message}`));
-      await this.updateTracker(task, "success", () => tracker.onFinish(task, "success"));
-    }
-    const problems = [message?.error && message.error !== "немає змін" ? `коміт: ${message.error}` : "", review.error ? `MR: ${review.error}` : ""].filter(Boolean);
-    return { url, message: message?.text, title: review.title, updated: !first, replied, warning: problems.join("; ") || undefined };
-  }
-
-  /**
-   * Whether «Створити/Оновити MR» has anything to do: uncommitted work, or commits that are not in the
-   * PR/MR yet (since its last push), or, before there is one, any change against the base.
-   */
-  async pendingChanges(id: string): Promise<{ hasChanges: boolean; pending: boolean }> {
-    const rec = this.state.get(id);
-    const ws = this.workspaceFor(id);
-    const repo = rec?.repo ? this.trackers.get(rec.task.trackerId)?.projects[rec.task.project]?.repos[rec.repo] : undefined;
-    if (!rec || !ws || !repo) return { hasChanges: false, pending: false };
-    try {
-      const dirty = await git.hasUncommittedChanges(ws.worktree);
-      const ahead = (await git.commitsAhead(repo, ws.worktree)) > 0;
-      const hasChanges = dirty || ahead;
-      // Replies the agent wrote for review threads count too: «Оновити MR» posts them.
-      const replies = existsSync(path.join(ws.worktree, REVIEW_REPLIES));
-      const pending = dirty || replies || (rec.publishedSha ? (await git.headSha(ws.worktree)) !== rec.publishedSha : ahead);
-      return { hasChanges, pending };
-    } catch {
-      return { hasChanges: false, pending: false };
-    }
-  }
-
   /** The branch a task runs on: named from the pattern at its first run; tasks from before patterns keep agent/<slug>. */
-  private branchOf(rec: TaskRecord): string {
+  branchOf(rec: TaskRecord): string {
     return rec.branchName ?? git.branchFor(rec.task.slug);
-  }
-
-  /**
-   * Posts the agent's answers to review threads (written to REVIEW_REPLIES) once the fixes are pushed,
-   * and resolves the threads it fixed. Returns how many replies were posted.
-   */
-  private async postReplies(task: Task, tracker: Tracker, worktree: string, url: string): Promise<number> {
-    const file = path.join(worktree, REVIEW_REPLIES);
-    if (!existsSync(file)) return 0;
-    const host = this.reviewHost(url, tracker);
-    if (!host?.replyToThread) return 0;
-    let entries: { thread?: unknown; reply?: unknown; resolved?: unknown }[];
-    try {
-      const parsed = JSON.parse(readFileSync(file, "utf8"));
-      entries = Array.isArray(parsed) ? parsed : [];
-    } catch (err: any) {
-      log(task.id, `review replies not read: ${err.message}`);
-      return 0;
-    }
-    const sha = (await git.headSha(worktree).catch(() => "")).slice(0, 8);
-    let posted = 0;
-    for (const e of entries) {
-      if (typeof e.thread !== "string" && typeof e.thread !== "number") continue;
-      if (typeof e.reply !== "string" || !e.reply.trim()) continue;
-      const body = `🦈 ${e.reply.trim()}${sha && e.resolved === true ? `\n\n_${sha}_` : ""}`;
-      try {
-        await host.replyToThread(url, String(e.thread), body, e.resolved === true);
-        posted++;
-      } catch (err: any) {
-        log(task.id, `reply to thread ${e.thread} not posted: ${err.message}`);
-      }
-    }
-    rmSync(file, { force: true });
-    log(task.id, `replied in ${posted} review thread(s)`);
-    return posted;
-  }
-
-  /** Templates that fit the task (by labels, title, or chosen in «+ Задача»). */
-  templatesFor(rec: TaskRecord): TaskTemplate[] {
-    const labels = rec.task.labels.map((l) => l.toLowerCase());
-    const title = rec.task.title.toLowerCase();
-    return this.cfg.templates.filter(
-      (t) =>
-        t.name === rec.template ||
-        t.labels.some((l) => labels.includes(l)) ||
-        t.titleContains.some((w) => w && title.includes(w)),
-    );
-  }
-
-  /** What Mako adds to the task's own text: matching templates and what earlier tasks learned about the repo. */
-  private promptContext(rec: TaskRecord, repo: RepoConfig): string {
-    const parts: string[] = [];
-    for (const t of this.templatesFor(rec)) {
-      log(rec.id, `template: ${t.name}`);
-      parts.push(`## Instructions for this kind of task («${t.name}»)\n\n${t.instructions}`);
-    }
-    const memory = this.cfg.memory ? readMemory(this.cfg.stateDir, repo.name) : "";
-    if (memory) parts.push(`## What earlier tasks learned about this repository\n\nNotes kept by Mako from previous agents' work here. Use them; they may be out of date.\n\n${memory}`);
-    return parts.length ? `\n\n${parts.join("\n\n")}` : "";
-  }
-
-  private isTerminalClaude(executor: string): boolean {
-    const c: any = this.cfg.executors[executor];
-    return c?.type === "terminal" && /^claude(\.cmd|\.exe)?$/i.test(String(c.command ?? "claude").split(/[\\/]/).pop()!);
-  }
-
-  /** Claude reads the code and proposes a plan; the task waits as «План готовий» for the developer. */
-  private async planPhase(rec: TaskRecord, tracker: Tracker, repo: RepoConfig, branch: string, prompt: string): Promise<void> {
-    const { task } = rec;
-    this.state.update(task.id, { status: "running", startedAt: new Date().toISOString(), repo: repo.name, branchName: branch });
-    try {
-      const worktree = await git.prepareWorktree(repo, task.slug, (line) => log(task.id, line), branch);
-      log(task.id, rec.planFeedback ? "replanning with the developer's notes" : "Claude is writing a plan");
-      const ask = rec.planFeedback && rec.plan
-        ? `${prompt}\n\n## Your previous plan\n\n${rec.plan}\n\n## What the developer wants changed\n\n${rec.planFeedback}`
-        : prompt;
-      const plan = await makePlan(worktree, ask);
-      this.state.update(task.id, { status: "planned", plan, planFeedback: undefined, worktree });
-      log(task.id, "plan ready: waiting for the developer");
-      inform(`📝 ${task.id}: план готовий`, "Перегляньте й погодьте його на дошці Mako");
-    } catch (err: any) {
-      log(task.id, `plan failed: ${err.message}`);
-      this.state.update(task.id, { status: "failed", finishedAt: new Date().toISOString(), error: `План не складено: ${err.message}` });
-    }
-  }
-
-  /** The developer's answer to a plan: go, plan again with notes, or drop the task. */
-  answerPlan(id: string, answer: "approve" | "revise" | "reject", notes = ""): boolean {
-    const rec = this.state.get(id);
-    if (!rec || rec.status !== "planned") return false;
-    if (answer === "approve") {
-      log(id, "plan approved");
-      this.state.update(id, { status: "queued", queuedAt: Date.now(), planApproved: true });
-    } else if (answer === "revise") {
-      if (!notes.trim()) return false;
-      log(id, `plan to be revised: ${notes.trim().slice(0, 120)}`);
-      this.state.update(id, { status: "queued", queuedAt: Date.now(), planFeedback: notes.trim() });
-    } else {
-      log(id, "plan rejected");
-      this.state.update(id, { status: "cancelled", finishedAt: new Date().toISOString(), error: "План відхилено" });
-    }
-    this.schedule();
-    return true;
-  }
-
-  /** The repos Mako keeps notes for, with their notes. */
-  memories(): { repo: string; text: string }[] {
-    return Object.keys(this.trackers.get(LOCAL_TRACKER)!.projects).map((repo) => ({ repo, text: readMemory(this.cfg.stateDir, repo) }));
-  }
-
-  saveMemory(repo: string, text: string): void {
-    if (!this.trackers.get(LOCAL_TRACKER)!.projects[repo]) throw new Error(`Немає репозиторію «${repo}»`);
-    writeMemory(this.cfg.stateDir, repo, text);
-    log("main", `repo notes ${text.trim() ? "edited" : "cleared"}: ${repo}`);
-  }
-
-  /** Templates, for «+ Задача». */
-  templateNames(): string[] {
-    return this.cfg.templates.map((t) => t.name);
   }
 
   /** Executors for «+ Задача», the default first. */
@@ -1152,6 +673,48 @@ export class Orchestrator {
     this.schedule();
     return true;
   }
+
+  // ---- delegated: the web UI talks to the orchestrator only ----
+
+  refreshReviews(): Promise<void> {
+    return this.reviews.refreshReviews();
+  }
+  refreshReview(id: string) {
+    return this.reviews.refreshReview(id);
+  }
+  get reviewChecked(): Map<string, number> {
+    return this.reviews.reviewChecked;
+  }
+  mergeReview(id: string): Promise<void> {
+    return this.reviews.mergeReview(id);
+  }
+  askAgent(id: string, kind: "ci" | "comments" | "conflicts") {
+    return this.reviews.askAgent(id, kind);
+  }
+  publishNow(id: string) {
+    return this.reviews.publishNow(id);
+  }
+  pendingChanges(id: string) {
+    return this.reviews.pendingChanges(id);
+  }
+  checkGone(): Promise<void> {
+    return this.sync.checkGone();
+  }
+  checkHandoffs(): Promise<void> {
+    return this.sync.checkHandoffs();
+  }
+  answerPlan(id: string, answer: "approve" | "revise" | "reject", notes = ""): boolean {
+    return this.planning.answerPlan(id, answer, notes);
+  }
+  memories() {
+    return this.planning.memories();
+  }
+  saveMemory(repo: string, text: string): void {
+    this.planning.saveMemory(repo, text);
+  }
+  templateNames(): string[] {
+    return this.planning.templateNames();
+  }
 }
 
 /** The configured trackers plus Mako's own, for tasks typed in on the board. */
@@ -1159,17 +722,4 @@ function withLocal(trackers: Tracker[]): Map<string, Tracker> {
   const map = new Map(trackers.map((t) => [t.id, t] as [string, Tracker]));
   map.set(LOCAL_TRACKER, new LocalTracker(trackers));
   return map;
-}
-
-/** Where the agent leaves its answers to review threads; kept out of git by .git/info/exclude. */
-const REVIEW_REPLIES = ".mako/review-replies.json";
-
-/** The web origin of a configured GitLab/GitHub tracker, to match it with an MR's URL. */
-function hostOf(cfg: any, gitlab: boolean): string {
-  try {
-    if (gitlab) return new URL(cfg.baseUrl ?? "https://gitlab.com").origin;
-    return cfg.apiUrl ? new URL(cfg.apiUrl).origin : "https://github.com";
-  } catch {
-    return "";
-  }
 }

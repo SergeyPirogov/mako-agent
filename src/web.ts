@@ -62,7 +62,7 @@ function makoVersion(): string {
   return v;
 }
 
-export function startWebUi(app: App, port: number): void {
+export function startWebUi(app: App, port: number): http.Server {
   setVersion(makoVersion());
   const token = randomBytes(24).toString("hex");
   const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
@@ -299,6 +299,7 @@ export function startWebUi(app: App, port: number): void {
 
   server.listen(port, "127.0.0.1", () => log("ui", `http://127.0.0.1:${port}`));
   server.on("error", (err) => log("ui", `cannot start on port ${port}: ${err.message}`));
+  return server;
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {
