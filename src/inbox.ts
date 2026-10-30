@@ -122,7 +122,7 @@ export function renderArchive(app: App, token: string): string {
         r.prUrl ? `<a class="link" href="${esc(r.prUrl)}" target="_blank" rel="noreferrer">${reviewKind(app, r)} ↗</a>` : "",
         `<form method="post" action="/unarchive"><input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}">` +
           `<input type="hidden" name="back" value="/archive"><button>Повернути на дошку</button></form>`,
-        `<form method="post" action="/delete" data-confirm-title="Видалити задачу?" data-confirm-ok="Видалити" data-confirm="${esc(DELETE_NOTE)}">` +
+        `<form method="post" action="/delete" data-busy="Видаляю…" data-confirm-title="Видалити задачу?" data-confirm-ok="Видалити" data-confirm="${esc(DELETE_NOTE)}">` +
           `<input type="hidden" name="id" value="${esc(r.id)}"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Видалити</button></form>`,
       ].join("");
       return `<tr><td><span class="s ${r.status}">${LABELS[r.status]}</span></td>
@@ -132,7 +132,7 @@ export function renderArchive(app: App, token: string): string {
     })
     .join("");
   const body = `<div class="board-head"><h1>Архів</h1><div class="archive-tools">${records.length
-      ? `<form method="post" action="/delete" data-confirm-title="Видалити весь архів?" data-confirm-ok="Видалити всі (${records.length})" data-confirm="${esc(DELETE_NOTE)}">` +
+      ? `<form method="post" action="/delete" data-busy="Видаляю…" data-confirm-title="Видалити весь архів?" data-confirm-ok="Видалити всі (${records.length})" data-confirm="${esc(DELETE_NOTE)}">` +
         `<input type="hidden" name="all" value="1"><input type="hidden" name="token" value="${esc(token)}"><button class="danger-outline">Видалити всі</button></form>`
       : ""}<a class="link" href="/">← До дошки</a></div></div>
     ${rows ? `<table class="tasks archive">${rows}</table>` : `<p class="muted">Архів порожній. На дошці кнопка «В архів» прибирає виконані й невиконані задачі сюди.</p>`}`;

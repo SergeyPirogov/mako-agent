@@ -506,3 +506,4 @@ dialog.desc.wide .desc-in { height: 100%; padding: 0; }
 .sum-text { overflow-y: auto; padding: 20px 22px; border-right: 1px solid var(--line); }
 .sum-changes { width: 100%; height: 100%; border: 0; background: var(--bg); }
 @media (max-width: 900px) { .sum-grid { grid-template-columns: 1fr; grid-template-rows: auto 60vh; overflow-y: auto; } .sum-text { border-right: 0; border-bottom: 1px solid var(--line); } }
+form.busy button { cursor: progress; }

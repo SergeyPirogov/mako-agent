@@ -31,10 +31,25 @@
       dialog.querySelector(tone === "danger" ? ".mcancel" : ".mok").focus();
     });
 
+  /** A sent form cannot be sent twice: its buttons go off, the pressed one says what is happening (data-busy). */
+  const lock = (form) => {
+    for (const b of form.querySelectorAll("button")) b.disabled = true;
+    const label = form.dataset.busy;
+    const main = form.querySelector("button");
+    if (label && main) main.textContent = label;
+    form.classList.add("busy");
+  };
+  window.makoLock = lock;
+
   // Forms with data-confirm ask first. data-confirm-title, -ok and -tone describe the action; the defaults fit «Скасувати».
   document.addEventListener("submit", async (e) => {
     const form = e.target;
-    if (!form.dataset?.confirm || form.dataset.confirmed) return;
+    if (form.method !== "post") return;
+    if (!form.dataset?.confirm || form.dataset.confirmed) {
+      // after the browser has collected the form's fields
+      setTimeout(() => lock(form), 0);
+      return;
+    }
     e.preventDefault();
     const ok = await window.makoConfirm({
       title: form.dataset.confirmTitle || "Скасувати задачу?",
@@ -45,6 +60,7 @@
     });
     if (ok) {
       form.dataset.confirmed = "1";
+      lock(form);
       form.submit();
     }
   });
