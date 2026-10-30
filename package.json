@@ -1,6 +1,6 @@
 {
   "name": "mako-agent",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Watches Jira, GitHub and GitLab for tasks and hands them to your AI agent, with a menu bar app",
   "type": "module",
   "bin": {
