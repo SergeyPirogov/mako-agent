@@ -126,6 +126,11 @@ export class GitHubTracker implements Tracker {
           status: failed.length ? "failed" : runs.some((r) => r.status !== "completed") ? "running" : "success",
           url: `${pr.html_url}/checks`,
           failed: failed.map((r) => ({ name: r.name, url: r.html_url })),
+          jobs: runs.map((r) => ({
+            name: r.name,
+            status: r.status !== "completed" ? (r.status === "queued" ? "pending" : "running") : r.conclusion === "success" ? "success" : r.conclusion === "skipped" || r.conclusion === "neutral" ? "skipped" : r.conclusion === "cancelled" ? "canceled" : "failed",
+            url: r.html_url,
+          })),
         }
       : undefined;
     // REST has no "resolved" flag on review threads: the top-level review comments stand for them.

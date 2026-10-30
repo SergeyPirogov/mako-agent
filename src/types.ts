@@ -34,7 +34,13 @@ export interface ReviewInfo {
   mergeable: boolean;
   /** Why not, in the host's words ("ci_still_running", "not_approved", …), when it is not. */
   blocker?: string;
-  pipeline?: { status: string; url?: string; failed: { name: string; url?: string; id?: number }[] };
+  pipeline?: {
+    status: string;
+    url?: string;
+    failed: { name: string; url?: string; id?: number }[];
+    /** Every job of the pipeline in run order, latest try only. */
+    jobs?: { name: string; stage?: string; status: string; url?: string; allowFailure?: boolean }[];
+  };
   /** Unresolved review threads, first comment of each. */
   comments: { author: string; body: string; path?: string; line?: number; url?: string; replies: number }[];
   checkedAt: number;

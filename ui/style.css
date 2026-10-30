@@ -487,3 +487,13 @@ a.rv:hover { text-decoration: underline; }
 .kc-mr-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .kc-mr-actions button { margin: 0; padding: 3px 10px; font-size: 12px; }
 .mr-bar { flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 8px; }
+.mr-jobs { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; }
+.mr-stage { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.mr-stage > .muted { margin-right: 2px; }
+a.job { text-decoration: none; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); white-space: nowrap; }
+a.job:hover { border-color: var(--mute); }
+a.job.success { color: var(--ok); } a.job.failed { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent); }
+a.job.running { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+a.job.canceled, a.job.skipped, a.job.pending, a.job.created, a.job.manual { color: var(--mute); }
+@media (prefers-reduced-motion: no-preference) { a.job.running { animation: pulse 1.6s ease-in-out infinite; } }
+a.job.failed.allowed { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }

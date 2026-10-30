@@ -157,7 +157,11 @@
       return;
     }
     if (!r || r.state !== "open") return void (mrBar.hidden = true);
-    const p = r.pipeline ? PIPE[r.pipeline.status] || ["mute", `CI: ${r.pipeline.status}`] : null;
+    const p = r.pipeline ? [...(PIPE[r.pipeline.status] || ["mute", `CI: ${r.pipeline.status}`])] : null;
+    const allJobs = r.pipeline?.jobs || [];
+    if (p && p[0] === "run" && allJobs.length) {
+      p[1] += ` ${allJobs.filter((j) => ["success", "failed", "canceled", "skipped"].includes(j.status)).length}/${allJobs.length}`;
+    }
     const facts = [
       p ? `<a class="rv ${p[0]}" href="${esc(r.pipeline.url || data.prUrl)}" target="_blank" rel="noreferrer">${p[1]}</a>` : "",
       r.conflicts ? `<span class="rv err">⚠ конфлікти</span>` : "",
@@ -171,8 +175,27 @@
       r.conflicts ? btn("conflicts", "Агенту: розвʼязати конфлікти", "soft") : "",
       r.mergeable ? btn("merge", "Змерджити", "success") : "",
     ].join("");
+    // Jobs by stage, in run order, like the pipeline graph.
+    const ICON = { success: "✓", failed: "✗", running: "⏳", pending: "◷", created: "◷", preparing: "◷", waiting_for_resource: "◷", scheduled: "◷", canceled: "⊘", skipped: "⊘", manual: "▶" };
+    const stages = [];
+    for (const j of r.pipeline?.jobs || []) {
+      const key = j.stage || "";
+      let s = stages.find((x) => x.name === key);
+      if (!s) stages.push((s = { name: key, jobs: [] }));
+      s.jobs.push(j);
+    }
+    const jobs = stages.length
+      ? `<div class="mr-jobs">${stages
+          .map((s) => `<span class="mr-stage">${s.name ? `<span class="muted">${esc(s.name)}</span>` : ""}${s.jobs
+            .map((j) => {
+              const allowed = j.status === "failed" && j.allowFailure; // GitLab's orange "!": failed, but may fail
+              return `<a class="job ${esc(j.status)}${allowed ? " allowed" : ""}" href="${esc(j.url || r.pipeline.url || data.prUrl)}" target="_blank" rel="noreferrer" title="${esc(j.name)}: ${esc(j.status)}${allowed ? " (дозволено падати)" : ""}">${allowed ? "!" : ICON[j.status] || "•"} ${esc(j.name)}</a>`;
+            })
+            .join("")}</span>`)
+          .join("")}</div>`
+      : "";
     mrBar.hidden = false;
-    mrBar.innerHTML = `<div class="kc-mr-facts"><span class="muted">${review}:</span>${facts || '<span class="rv mute">перевіряю…</span>'}</div>${buttons ? `<div class="kc-mr-actions">${buttons}</div>` : ""}`;
+    mrBar.innerHTML = `<div class="kc-mr-facts"><span class="muted">${review}:</span>${facts || '<span class="rv mute">перевіряю…</span>'}</div>${buttons ? `<div class="kc-mr-actions">${buttons}</div>` : ""}${jobs}`;
   }
   mrBar.addEventListener("click", async (e) => {
     const b = e.target.closest("button[data-mr]");

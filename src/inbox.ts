@@ -390,7 +390,16 @@ function reviewBlock(app: App, r: TaskRecord, token: string): string {
   const review = r.review;
   if (!r.prUrl || !review || review.state !== "open" || r.reviewState) return "";
   const kind = reviewKind(app, r);
-  const p = review.pipeline ? PIPELINE[review.pipeline.status] ?? ["mute", `CI: ${review.pipeline.status}`] : undefined;
+  const p = review.pipeline ? [...(PIPELINE[review.pipeline.status] ?? ["mute", `CI: ${review.pipeline.status}`])] : undefined;
+  const jobs = review.pipeline?.jobs ?? [];
+  if (p && jobs.length && p[0] === "run") {
+    // Progress like 3/7: how many jobs have already finished.
+    const finished = jobs.filter((j) => ["success", "failed", "canceled", "skipped"].includes(j.status)).length;
+    p[1] = `${p[1]} ${finished}/${jobs.length}`;
+  }
+  if (p && review.pipeline?.status === "failed" && review.pipeline.failed.length) {
+    p[1] = `${p[1]}: ${review.pipeline.failed.slice(0, 2).map((j) => j.name).join(", ")}${review.pipeline.failed.length > 2 ? "…" : ""}`;
+  }
   const facts = [
     p ? `<a class="rv ${p[0]}" href="${esc(review.pipeline!.url ?? r.prUrl)}" target="_blank" rel="noreferrer">${p[1]}</a>` : "",
     review.conflicts ? `<span class="rv err">⚠ конфлікти</span>` : "",

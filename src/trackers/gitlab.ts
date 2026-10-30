@@ -128,12 +128,11 @@ export class GitLabTracker implements Tracker {
     const state = mr.state === "merged" ? "merged" : mr.state === "closed" ? "closed" : "open";
     let pipeline: ReviewInfo["pipeline"];
     if (mr.head_pipeline) {
-      const failed =
-        mr.head_pipeline.status === "failed"
-          ? (await this.request<any[]>("GET", `/projects/${mr.project_id}/pipelines/${mr.head_pipeline.id}/jobs?scope[]=failed&per_page=20`).catch(() => []))
-              .map((j) => ({ name: j.name, url: j.web_url, id: j.id }))
-          : [];
-      pipeline = { status: mr.head_pipeline.status, url: mr.head_pipeline.web_url, failed };
+      const all = (await this.request<any[]>("GET", `/projects/${mr.project_id}/pipelines/${mr.head_pipeline.id}/jobs?per_page=100`).catch(() => []))
+        .sort((a, b) => a.id - b.id);
+      const failed = all.filter((j) => j.status === "failed" && !j.allow_failure).map((j) => ({ name: j.name, url: j.web_url, id: j.id }));
+      const jobs = all.map((j) => ({ name: j.name, stage: j.stage, status: j.status, url: j.web_url, allowFailure: Boolean(j.allow_failure) || undefined }));
+      pipeline = { status: mr.head_pipeline.status, url: mr.head_pipeline.web_url, failed, jobs };
     }
     const discussions = state === "open" ? await this.request<any[]>("GET", `${path}/discussions?per_page=100`).catch(() => []) : [];
     const comments = discussions
