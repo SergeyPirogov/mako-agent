@@ -621,3 +621,4 @@ dialog, dialog .sum-text, dialog .desc-in, .sum-changes { overscroll-behavior: c
 .look-pick { font-size: 12px; color: var(--mute); display: flex; align-items: center; gap: 6px; }
 .look-pick select { width: auto; padding: 3px 6px; font-size: 12px; }
 @media (max-width: 600px) { .look-pick { font-size: 0; gap: 0; } .look-pick select { font-size: 12px; } }
+@media (max-width: 600px) { .look-pick { display: none; } }

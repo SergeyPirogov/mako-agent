@@ -9,7 +9,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
 import type { App } from "./app.js";
-import { renderInbox, renderArchive, inboxSignature, renderTaskLog, columnOf } from "./inbox.js";
+import { renderInbox, renderMailBoard, renderArchive, inboxSignature, renderTaskLog, columnOf } from "./inbox.js";
 import { page, esc, setVersion } from "./ui-layout.js";
 import { execFileSync } from "node:child_process";
 import { sessions, type SessionEvent } from "./sessions.js";
@@ -94,7 +94,12 @@ export function startWebUi(app: App, port: number): http.Server {
       if (req.method === "GET" && url.pathname === "/" && !app.settings().configured) {
         return res.writeHead(303, { Location: "/welcome" }).end();
       }
-      if (req.method === "GET" && url.pathname === "/") return send(200, "text/html", renderInbox(app, token, url.searchParams.get("notice") ?? undefined));
+      if (req.method === "GET" && url.pathname === "/") {
+        // «Вигляд: Пошта» lays the board out as a list and the chosen task.
+        const notice = url.searchParams.get("notice") ?? undefined;
+        const mail = /(?:^|;\s*)mako-look=mail(?:;|$)/.test(req.headers.cookie ?? "");
+        return send(200, "text/html", mail ? renderMailBoard(app, token, notice, url.searchParams.get("task") ?? undefined) : renderInbox(app, token, notice));
+      }
       if (req.method === "GET" && url.pathname === "/welcome") {
         const body = `<div id="welcome" class="wz"><p class="muted">Завантаження…</p></div>`;
         return send(200, "text/html", page({ title: "Початок роботи", active: "settings", token, body, script: "/ui/welcome.js" }));
@@ -206,7 +211,8 @@ export function startWebUi(app: App, port: number): http.Server {
             ? o.mergeReview(id).then(() => "")
             : o.askAgent(id, form.get("kind") as "ci" | "comments" | "conflicts").then(() => "");
           const problem = await done.catch((err: any) => String(err.message));
-          return res.writeHead(303, { Location: problem ? `/?notice=${encodeURIComponent(problem)}` : "/" }).end();
+          const back = boardBack(req);
+          return res.writeHead(303, { Location: problem ? `${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent(problem)}` : back }).end();
         }
         if (o && url.pathname === "/autopilot") o.setAutopilot(id, form.get("on") === "1");
         if (o && url.pathname === "/adopt") {
@@ -233,7 +239,7 @@ export function startWebUi(app: App, port: number): http.Server {
         const back = form.get("back");
         if (back === "/archive") return res.writeHead(303, { Location: "/archive" }).end();
         if (o && url.pathname === "/search-now") o.searchNow();
-        return res.writeHead(303, { Location: "/" }).end();
+        return res.writeHead(303, { Location: boardBack(req) }).end();
       }
       if (url.pathname.startsWith("/api/")) {
         if (req.headers["x-mako-token"] !== token) return json(403, { error: "Bad token: reload the page" });
@@ -392,6 +398,17 @@ async function checkRepoPath(
   const wanted = base || defaultBranch;
   const ref = wanted ? await run("git", ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${wanted}`], resolved).catch(() => undefined) : undefined;
   return { exists: true, git: true, hasBase: ref?.code === 0, defaultBranch, resolved };
+}
+
+/** Back to the board as it was: «Пошта» keeps the chosen task (?task=…) after a button on it. */
+function boardBack(req: http.IncomingMessage): string {
+  try {
+    const ref = new URL(req.headers.referer ?? "");
+    const task = ref.pathname === "/" ? ref.searchParams.get("task") : null;
+    return task ? `/?task=${encodeURIComponent(task)}` : "/";
+  } catch {
+    return "/";
+  }
 }
 
 /** «Спершу план» as the developer set it in a form that shows the checkbox; undefined means the setting decides. */

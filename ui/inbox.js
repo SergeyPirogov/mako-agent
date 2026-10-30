@@ -241,7 +241,7 @@
   const filter = document.getElementById("board-filter");
   const applyFilter = () => {
     const words = filter.value.toLowerCase().split(/\s+/).filter(Boolean);
-    for (const card of document.querySelectorAll(".kcard")) {
+    for (const card of document.querySelectorAll(".kcol .kcard, .mail-item")) {
       card.hidden = words.length > 0 && !words.every((w) => (card.dataset.search || "").includes(w));
     }
     for (const col of document.querySelectorAll(".kcol")) {
@@ -280,4 +280,21 @@
     });
     if (filter.value) applyFilter();
   }
+})();
+
+// «Пошта»: ↑/↓ (or j/k) go through the list; the chosen task opens on the right.
+(() => {
+  const items = [...document.querySelectorAll(".mail-item:not([hidden])")];
+  if (!items.length) return;
+  document.querySelector(".mail-item.on")?.scrollIntoView({ block: "nearest" });
+  document.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || document.querySelector("dialog[open]")) return;
+    const step = e.key === "ArrowDown" || e.key === "j" ? 1 : e.key === "ArrowUp" || e.key === "k" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const shown = items.filter((el) => !el.hidden);
+    const at = shown.findIndex((el) => el.classList.contains("on"));
+    const next = shown[Math.min(shown.length - 1, Math.max(0, at + step))];
+    if (next && !next.classList.contains("on")) location.assign(next.href);
+  });
 })();

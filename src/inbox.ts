@@ -71,13 +71,6 @@ export function renderInbox(app: App, token: string, notice?: string): string {
   const all = app.orchestrator.state.all();
   const records = all.filter((r) => !r.archivedAt);
   const archived = all.length - records.length;
-  const problem = app.problem ? `<div class="notice err">${esc(app.problem)}. <a href="/settings">Налаштування →</a></div>` : "";
-  const paused = app.orchestrator.paused
-    ? `<div class="notice warn">⏸ Mako на паузі: нові задачі не беруться, поточні продовжують виконуватись.</div>`
-    : "";
-  // The clock is drawn and ticked by /ui/inbox.js from the search status.
-  const clock = `<div id="clock" class="clock"><span id="clock-text" class="muted">…</span>
-    <form method="post" action="/search-now" id="search-now" hidden><input type="hidden" name="token" value="${esc(token)}"><button>Перевірити зараз</button></form></div>`;
 
   const limit = app.cfg?.wipLimit ?? 0;
   const wip = app.orchestrator.wip();
@@ -107,6 +100,20 @@ export function renderInbox(app: App, token: string, notice?: string): string {
     })
     .join("");
 
+  const body = `${boardChrome(app, token, notice, archived)}
+    <div class="board" style="--cols:${columns.length}">${board}</div>`;
+  return boardPage(app, token, body);
+}
+
+/** The head of the board (new task, filter, «Не бачите задачу?», the search clock) and its notices. */
+function boardChrome(app: App, token: string, notice: string | undefined, archived: number): string {
+  const problem = app.problem ? `<div class="notice err">${esc(app.problem)}. <a href="/settings">Налаштування →</a></div>` : "";
+  const paused = app.orchestrator?.paused
+    ? `<div class="notice warn">⏸ Mako на паузі: нові задачі не беруться, поточні продовжують виконуватись.</div>`
+    : "";
+  // The clock is drawn and ticked by /ui/inbox.js from the search status.
+  const clock = `<div id="clock" class="clock"><span id="clock-text" class="muted">…</span>
+    <form method="post" action="/search-now" id="search-now" hidden><input type="hidden" name="token" value="${esc(token)}"><button>Перевірити зараз</button></form></div>`;
   const archiveLink = archived ? `<a class="link archive-link" href="/archive">Архів (${archived})</a>` : "";
   const newTask =
     `<button type="button" class="soft new-task-btn" id="new-task-open">+ Задача</button>${newTaskDialog(app, token)}` +
@@ -118,8 +125,10 @@ export function renderInbox(app: App, token: string, notice?: string): string {
       <div id="explain-result" class="explain-result" aria-live="polite"></div>
       <div class="dlg-actions"><button type="button" data-close>Закрити</button><button class="primary">Перевірити</button></div>
     </form></dialog>`;
-  const body = `<div class="board-head"><h1>Задачі</h1>${newTask}${explain}${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}
-    <div class="board" style="--cols:${columns.length}">${board}</div>`;
+  return `<div class="board-head"><h1>Задачі</h1>${newTask}${explain}${archiveLink}${clock}</div>${problem}${paused}${notice ? `<div class="notice warn">${esc(notice)}</div>` : ""}${attentionBlock()}`;
+}
+
+function boardPage(app: App, token: string, body: string): string {
   const { sig, attention, search } = inboxSignature(app);
   return page({
     title: `${attention ? `(${attention}) ` : ""}Задачі`,
@@ -130,6 +139,80 @@ export function renderInbox(app: App, token: string, notice?: string): string {
     data: { sig, search: JSON.stringify(search ?? null) },
     attention: attention > 0,
   });
+}
+
+/**
+ * «Пошта»: the board as a list on the left, what needs you first, and the chosen task on the right with the
+ * same actions as its card, its whole description and what the agent is doing.
+ */
+export function renderMailBoard(app: App, token: string, notice: string | undefined, selected: string | undefined): string {
+  const o = app.orchestrator;
+  if (!o) return renderInbox(app, token, notice);
+  const all = o.state.all();
+  const records = all.filter((r) => !r.archivedAt);
+  const needsYou = (r: TaskRecord) => {
+    const s = r.status === "running" ? sessions.get(sessionIdFor(r.task))?.status : undefined;
+    return r.status === "asking" || r.status === "planned" || s === "waiting" || s === "idle" || (r.status === "failed" && Boolean(r.denied?.length)) ||
+      (r.status === "running" && r.reviewState === "merged");
+  };
+  const groups: [string, (r: TaskRecord) => boolean][] = [
+    ["Потребує вас", needsYou],
+    ["Працює", (r) => columnOf(r) === "doing"],
+    ["На ревʼю", (r) => columnOf(r) === "review"],
+    ["Нові", (r) => columnOf(r) === "new"],
+    ["Готово", (r) => columnOf(r) === "done"],
+    ["Не виконано", (r) => columnOf(r) === "failed"],
+  ];
+  const firstOf = () => {
+    const seen = new Set<string>();
+    for (const [, fits] of groups) for (const r of records.filter((x) => !seen.has(x.id) && fits(x)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))) return r.id;
+    return undefined;
+  };
+  if (!selected || !o.state.get(selected)) selected = firstOf();
+  const used = new Set<string>();
+  const order: TaskRecord[] = [];
+  const list = groups
+    .map(([title, fits]) => {
+      const items = records.filter((r) => !used.has(r.id) && fits(r)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      items.forEach((r) => (used.add(r.id), order.push(r)));
+      if (!items.length) return "";
+      return `<div class="mail-sec">${title} <span class="n">${items.length}</span></div>` + items.map((r) => mailItem(app, r, r.id === selected)).join("");
+    })
+    .join("");
+  const r = (selected && o.state.get(selected)) || order[0];
+  const body = `${boardChrome(app, token, notice, all.length - records.length)}
+    <div class="mail"><aside class="mail-list" aria-label="Задачі">${list || `<div class="kempty">Задач немає</div>`}</aside>
+    <section class="mail-detail" aria-label="Вибрана задача">${r ? mailDetail(app, r, token) : `<p class="muted">Виберіть задачу зліва</p>`}</section></div>`;
+  return boardPage(app, token, body);
+}
+
+function mailItem(app: App, r: TaskRecord, on: boolean): string {
+  const session = r.status === "running" ? sessions.get(sessionIdFor(r.task)) : undefined;
+  const dot = session ? session.status : columnOf(r) === "review" ? "review" : r.status;
+  const label = session ? SESSION_LABELS[session.status] : columnOf(r) === "review" ? "на ревʼю" : LABELS[r.status].toLowerCase();
+  const ci = r.review?.pipeline ? ` · CI ${r.review.pipeline.status === "success" ? "✓" : r.review.pipeline.status === "failed" ? "✗" : "…"}` : "";
+  const haystack = [r.id, r.task.title, r.repo, r.executor, ...(r.task.labels ?? [])].join(" ").toLowerCase();
+  return `<a class="mail-item${on ? " on" : ""}" href="/?task=${encodeURIComponent(r.id)}" data-search="${esc(haystack)}"${on ? ' aria-current="true"' : ""}>
+    <span class="s ${dot}" aria-hidden="true"></span><span class="t">${esc(r.task.title)}</span><span class="time">${esc(ago(r.updatedAt))}</span>
+    <span class="sub"><span class="id">${esc(shortId(r.id))}</span> · ${esc(label)}${esc(ci)}</span></a>`;
+}
+
+function mailDetail(app: App, r: TaskRecord, token: string): string {
+  const full = (r.task.description ?? "").trim();
+  const lines = r.status === "running" || r.status === "queued" ? recentLog(r.id).slice(-8) : [];
+  const time = (at: number) => new Date(at).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
+  return `${card(app, r, token, columnOf(r))}
+    ${lines.length ? `<h3 class="mail-h">Хід роботи</h3><ol class="mail-log">${lines.map((l) => `<li><span class="muted">${time(l.at)}</span> ${esc(l.text)}</li>`).join("")}</ol>` : ""}
+    ${full ? `<h3 class="mail-h">Опис</h3><div class="desc-body">${renderMarkdown(full, r.task.url || "http://localhost/")}</div>` : ""}`;
+}
+
+/** «5 хв», «2 год», «вчора»: how long ago, for the list. */
+function ago(iso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (min < 1) return "щойно";
+  if (min < 60) return `${min} хв`;
+  if (min < 24 * 60) return `${Math.round(min / 60)} год`;
+  return min < 48 * 60 ? "вчора" : new Date(iso).toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit" });
 }
 
 /** Archived tasks, newest first, with a way back to the board. */
