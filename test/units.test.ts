@@ -86,3 +86,31 @@ test("board columns: an open MR is on review, not done", () => {
   assert.equal(columnOf(rec({})), "done");
   assert.equal(columnOf(rec({ status: "cancelled" })), "failed");
 });
+
+test("GitLab «Взяти» adds me to the assignees instead of replacing them", async () => {
+  const { createServer } = await import("node:http");
+  const { GitLabTracker } = await import("../src/trackers/gitlab.ts");
+  const puts: unknown[] = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (d) => (body += d));
+    req.on("end", () => {
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/api/v4/user") return res.end(JSON.stringify({ id: 5, username: "me" }));
+      if (req.method === "GET") return res.end(JSON.stringify({ assignees: [{ id: 7 }, { id: 5 }] }));
+      puts.push(JSON.parse(body));
+      res.end("{}");
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const gl = new GitLabTracker(
+      { type: "gitlab", baseUrl: `http://127.0.0.1:${(server.address() as any).port}`, projects: {} } as any,
+      () => "token",
+    );
+    await gl.assignToMe(task("acme/web#3", "Shared"));
+    assert.deepEqual(puts, [{ assignee_ids: [5, 7] }]);
+  } finally {
+    server.close();
+  }
+});

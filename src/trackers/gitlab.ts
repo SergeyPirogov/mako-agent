@@ -295,7 +295,11 @@ export class GitLabTracker implements Tracker {
 
   async assignToMe(task: Task): Promise<void> {
     this.user ??= this.request<{ id: number; username: string }>("GET", "/user");
-    await this.request("PUT", this.issuePath(task), { assignee_ids: [(await this.user).id] });
+    const me = (await this.user).id;
+    // Added to the assignees, not in place of them; me first, for GitLab Free that keeps only one.
+    const issue = await this.request<{ assignees?: { id: number }[] }>("GET", this.issuePath(task));
+    const others = (issue.assignees ?? []).map((a) => a.id).filter((id) => id !== me);
+    await this.request("PUT", this.issuePath(task), { assignee_ids: [me, ...others] });
   }
 
   async issueState(task: Task): Promise<IssueState> {

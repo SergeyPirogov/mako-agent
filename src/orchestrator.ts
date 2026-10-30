@@ -34,7 +34,7 @@ export class Orchestrator {
   /** Paused from the tray: no new tasks are pulled; running ones continue. */
   paused = false;
   /** For the "next search" clock: when trackers were last searched and what came back. */
-  lastSearch?: { at: number; found: number; added: number; errors: number };
+  lastSearch?: { at: number; found: number; added: number; errors: number; othersIds?: string[] };
   private nextTickAt?: number;
   private searching = false;
   private wake?: () => void;
@@ -188,7 +188,7 @@ export class Orchestrator {
     this.wipFull = false;
 
     this.searching = true;
-    const search = { at: Date.now(), found: 0, added: 0, errors: 0 };
+    const search = { at: Date.now(), found: 0, added: 0, errors: 0, othersIds: [] as string[] };
     const known = new Set(this.state.all().map((r) => r.id));
     try {
       for (const tracker of this.trackers.values()) {
@@ -204,11 +204,15 @@ export class Orchestrator {
         }
         const seen = new Set<string>();
         // With colleagues on Mako too: a task already assigned to someone else is theirs.
-        const me = tracker.whoAmI ? (await tracker.whoAmI().catch(() => undefined))?.toLowerCase() : undefined;
+        // skipOthersTasks: false offers them anyway (a team that assigns a developer and a tester to every issue).
+        const skipOthers = (this.cfg.trackers as any[]).find((t) => (t.id ?? t.type) === tracker.id)?.skipOthersTasks !== false;
+        const me = skipOthers && tracker.whoAmI ? (await tracker.whoAmI().catch(() => undefined))?.toLowerCase() : undefined;
         for (const task of tasks) {
           seen.add(task.id);
           const owners = (task.assignees ?? []).map((a) => a.toLowerCase());
           if (me && owners.length && !owners.includes(me)) {
+            // Shown in the search line, so a task that never shows up has its reason.
+            if (!known.has(task.id)) search.othersIds.push(task.id);
             const rec = this.state.get(task.id);
             if (rec && (rec.status === "asking" || rec.status === "snoozed")) {
               log(task.id, `assigned to ${task.assignees!.join(", ")}: no longer offered`);

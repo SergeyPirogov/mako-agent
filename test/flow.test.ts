@@ -161,12 +161,29 @@ test("a merged MR moves the task to its final status", async () => {
 
 test("«Взяти» assigns the task to me; a colleague's task is not offered", async () => {
   const { tracker, orchestrator } = setup("echo done");
-  tracker.issues = [{ ...issue(10, "Free task"), assignees: [] }, { ...issue(11, "Colleague's task"), assignees: ["Colleague"] }];
+  tracker.issues = [
+    { ...issue(10, "Free task"), assignees: [] },
+    { ...issue(11, "Colleague's task"), assignees: ["Colleague"] },
+    { ...issue(12, "Shared task"), assignees: ["Colleague", "me"] },
+  ];
   await orchestrator.poll();
   await orchestrator.drain();
   assert.equal(orchestrator.state.get("acme/web#11"), undefined, "someone else's task is left alone");
+  assert.equal(orchestrator.state.get("acme/web#12")?.status, "done", "a task with me among two assignees is mine");
+  assert.deepEqual(orchestrator.lastSearch?.othersIds, ["acme/web#11"], "the skipped one is named in the search line");
   assert.equal(orchestrator.state.get("acme/web#10")?.status, "done");
   assert.ok(tracker.calls.includes("assign acme/web#10"));
+  orchestrator.stop();
+});
+
+test("skipOthersTasks: false offers tasks assigned to colleagues too", async () => {
+  const { tracker, orchestrator } = setup("echo done");
+  (orchestrator.cfg.trackers[0] as any).skipOthersTasks = false;
+  tracker.issues = [{ ...issue(13, "Dev and QA on it"), assignees: ["Dev", "Qa"] }];
+  await orchestrator.poll();
+  await orchestrator.drain();
+  assert.equal(orchestrator.state.get("acme/web#13")?.status, "done");
+  assert.deepEqual(orchestrator.lastSearch?.othersIds, []);
   orchestrator.stop();
 });
 

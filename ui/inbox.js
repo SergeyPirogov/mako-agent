@@ -16,13 +16,20 @@
   // The line stays short; times and details are in its tooltip.
   function lastText(last) {
     if (!last) return { short: "", errors: "", long: "" };
-    const known = last.found - last.added;
+    const others = last.othersIds || [];
+    const known = last.found - last.added - others.length;
     let text = last.added ? `нових задач: ${last.added}` : "нових немає";
+    const skipped = others.length ? `, призначені на інших: ${others.length}` : "";
     const errors = last.errors ? `, помилок: ${last.errors}` : "";
     return {
-      short: ` · ${text}`,
+      short: ` · ${text}${skipped}`,
       errors,
-      long: `Останній пошук о ${time(last.at)}: ${text}${known > 0 ? ` (${known} вже в Mako)` : ""}${errors}`,
+      long:
+        `Останній пошук о ${time(last.at)}: ${text}${known > 0 ? ` (${known} вже в Mako)` : ""}${errors}` +
+        (others.length
+          ? `\nНе пропоную, бо призначені на інших: ${others.slice(0, 10).join(", ")}${others.length > 10 ? "…" : ""}. ` +
+            "Щоб брати й такі, зніміть «Не пропонувати задачі, призначені на інших» у Налаштуваннях трекера"
+          : ""),
     };
   }
 
