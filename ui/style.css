@@ -556,3 +556,8 @@ form.mem-card { display: block; }
 #clock-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; cursor: default; }
 #clock-text .clock-errors { color: var(--warn); }
 @media (max-width: 600px) { #clock-text { white-space: normal; } }
+/* MR autopilot line on the card */
+.kc-pilot { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 12px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.kc-pilot span { flex: 1; min-width: 0; }
+.kc-pilot.off { border-top: 0; padding-top: 0; margin-top: 2px; }
+.kc-pilot button.link { font-size: 12px; padding: 0 2px; }

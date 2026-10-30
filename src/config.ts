@@ -80,6 +80,11 @@ export interface Config {
   templates: TaskTemplate[];
   /** Mako keeps what agents learn about each repo and gives it to the next task there (default on). */
   memory: boolean;
+  /**
+   * MR autopilot: failed CI, new review threads and conflicts go to a background agent without a click,
+   * at most `maxRounds` times per task; `merge` also merges once the host says the MR is ready.
+   */
+  autopilot: { enabled: boolean; maxRounds: number; merge: boolean };
 }
 
 /** Absolute path, with a leading ~/ meaning the home folder (as people type it in the settings page). */
@@ -188,5 +193,10 @@ export function parseConfig(raw: any, dryRun = false): Config {
         titleContains: (t.titleContains ?? []).map((w: string) => String(w).toLowerCase()),
       })),
     memory: raw.memory ?? true,
+    autopilot: {
+      enabled: raw.autopilot?.enabled ?? false,
+      maxRounds: Math.max(1, Number(raw.autopilot?.maxRounds) || 3),
+      merge: raw.autopilot?.merge ?? false,
+    },
   };
 }

@@ -688,6 +688,9 @@ export class Orchestrator {
   mergeReview(id: string): Promise<void> {
     return this.reviews.mergeReview(id);
   }
+  setAutopilot(id: string, on: boolean): void {
+    this.reviews.setAutopilot(id, on);
+  }
   askAgent(id: string, kind: "ci" | "comments" | "conflicts") {
     return this.reviews.askAgent(id, kind);
   }

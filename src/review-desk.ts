@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import type { RepoConfig } from "./config.js";
-import type { Task, Tracker } from "./types.js";
+import type { ReviewInfo, Task, Tracker } from "./types.js";
 import type { TaskRecord } from "./state.js";
 import type { Orchestrator } from "./orchestrator.js";
 import { createTracker, type TrackerConfig } from "./trackers/index.js";
@@ -67,6 +67,7 @@ export class ReviewDesk {
           inform(`💬 ${id}: нові коментарі в ${this.reviewKind(rec)}`, review.comments.at(-1)!.body.slice(0, 160));
         }
         if (review.state !== "open") await this.reviewEnded(this.o.state.get(id)!, review.state, tracker);
+        else await this.autopilot(id, review);
       } else if (host?.reviewState) {
         const state = await host.reviewState(rec.prUrl);
         if (state !== "open") await this.reviewEnded(rec, state, tracker);
@@ -75,6 +76,83 @@ export class ReviewDesk {
       log(id, `review check failed: ${err.message}`);
     }
     return this.o.state.get(id);
+  }
+
+  /** Whether the autopilot looks after this task's MR: the card's choice, else the setting. */
+  autopilotOn(rec: TaskRecord): boolean {
+    return rec.autopilot ?? this.o.cfg.autopilot.enabled;
+  }
+
+  /** A background agent for the autopilot's rounds: the task's own when it runs unattended, else the first such. */
+  autopilotExecutor(rec: TaskRecord): string | undefined {
+    const unattended = (name?: string) => {
+      const e = name ? this.o.executors.get(name) : undefined;
+      return e && e.managed && !e.interactive ? e.name : undefined;
+    };
+    return unattended(rec.executor) ?? unattended(this.o.cfg.defaultExecutor) ?? [...this.o.executors.keys()].find((n) => unattended(n));
+  }
+
+  private piloting = new Set<string>();
+
+  /**
+   * One step of the MR autopilot after a look at the MR: hands the agent what blocks the merge (conflicts, then
+   * failed CI, then new review threads), each thing once, while the agent is not busy and rounds are left.
+   * A clean MR is announced as ready, or merged when the setting says so.
+   */
+  private async autopilot(id: string, review: ReviewInfo): Promise<void> {
+    const rec = this.o.state.get(id);
+    if (!rec || !this.autopilotOn(rec) || rec.status !== "done" || this.piloting.has(id)) return;
+    const note = (text: string, notify?: string) => {
+      if (rec.autopilotNote === text) return;
+      this.o.state.update(id, { autopilotNote: text });
+      log(id, `autopilot: ${text}`);
+      if (notify) inform(`🤖 ${id}: ${notify}`, rec.task.title);
+    };
+    const seen = new Set(rec.autopilotSeen ?? []);
+    const sha = rec.publishedSha ?? "";
+    const threads = review.comments.map((c) => `thread:${c.thread ?? c.url ?? c.body.slice(0, 60)}`);
+    const needs: { kind: "conflicts" | "ci" | "comments"; keys: string[]; what: string }[] = [];
+    if (review.conflicts) needs.push({ kind: "conflicts", keys: [`conflicts@${sha}`], what: "розвʼязує конфлікти" });
+    if (review.pipeline?.status === "failed") needs.push({ kind: "ci", keys: [`ci@${review.pipeline.url ?? sha}`], what: "лагодить CI" });
+    const fresh = threads.filter((k) => !seen.has(k));
+    if (fresh.length) needs.push({ kind: "comments", keys: fresh, what: `виправляє коментарі (${fresh.length})` });
+    const next = needs.find((n) => n.keys.some((k) => !seen.has(k)));
+
+    if (!next) {
+      const clean = !review.conflicts && !review.comments.length && review.pipeline?.status !== "failed" && review.pipeline?.status !== "running";
+      if (!clean || !review.mergeable) return;
+      if (!this.o.cfg.autopilot.merge) return note(`${this.reviewKind(rec)} готовий до мерджу`, `${this.reviewKind(rec)} готовий до мерджу`);
+      note("мерджу");
+      this.piloting.add(id);
+      await this.mergeReview(id)
+        .catch((err: any) => note(`не вдалось змерджити: ${err.message}`, "автопілот не зміг змерджити"))
+        .finally(() => this.piloting.delete(id));
+      return;
+    }
+    const rounds = rec.autopilotRounds ?? 0;
+    const max = this.o.cfg.autopilot.maxRounds;
+    if (rounds >= max) return note(`зупинився після ${max} ${max === 1 ? "раунду" : "раундів"}: потрібні ви`, "автопілот зупинився, потрібна ваша увага");
+    const executor = this.autopilotExecutor(rec);
+    if (!executor) return note("немає фонового виконавця: додайте «Claude Code у фоні» в Налаштуваннях");
+    this.piloting.add(id);
+    try {
+      this.o.state.update(id, { autopilotSeen: [...seen, ...next.keys], autopilotRounds: rounds + 1 });
+      note(`раунд ${rounds + 1}/${max} — ${next.what}`);
+      await this.askAgent(id, next.kind, executor);
+    } catch (err: any) {
+      note(`не вдалось: ${err.message}`);
+    } finally {
+      this.piloting.delete(id);
+    }
+  }
+
+  /** The card's switch: on or off for this task; turning it on starts with fresh rounds. */
+  setAutopilot(id: string, on: boolean): void {
+    const rec = this.o.state.get(id);
+    if (!rec) return;
+    this.o.state.update(id, { autopilot: on, autopilotNote: undefined, ...(on ? { autopilotRounds: 0 } : {}) });
+    log(id, `autopilot ${on ? "on" : "off"}`);
+    if (on && rec.review?.state === "open") void this.autopilot(id, rec.review);
   }
 
   private hosts = new Map<string, Tracker>();
@@ -148,7 +226,7 @@ export class ReviewDesk {
    * Hands the agent what the PR/MR needs: the failed CI jobs with their logs, the open review threads,
    * or the conflicts. A live terminal gets it as a message; otherwise a new run starts in the same worktree.
    */
-  async askAgent(id: string, kind: "ci" | "comments" | "conflicts"): Promise<"sent" | "started"> {
+  async askAgent(id: string, kind: "ci" | "comments" | "conflicts", executor?: string): Promise<"sent" | "started"> {
     let rec = await this.refreshReview(id);
     const tracker = rec && this.o.trackers.get(rec.task.trackerId);
     const repo = rec?.repo ? tracker?.projects[rec.task.project]?.repos[rec.repo] : undefined;
@@ -192,7 +270,7 @@ export class ReviewDesk {
     }
     // No live terminal: a new run in the same worktree, with just this request.
     this.o.state.update(id, { followUp: text });
-    if (!this.o.retry(id, { executor: this.o.terminalExecutor() })) throw new Error("Задачу зараз не можна перезапустити");
+    if (!this.o.retry(id, { executor: executor ?? this.o.terminalExecutor() })) throw new Error("Задачу зараз не можна перезапустити");
     log(id, `follow-up run: ${kind}`);
     rec = this.o.state.get(id);
     return "started";

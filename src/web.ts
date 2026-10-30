@@ -156,7 +156,7 @@ export function startWebUi(app: App, port: number): http.Server {
       }
 
       // Everything below changes state.
-      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge", "/plan", "/create-task", "/memory"].includes(url.pathname)) {
+      if (req.method === "POST" && ["/take", "/later", "/retry", "/cancel", "/search-now", "/archive", "/unarchive", "/takeover", "/delete", "/review-ask", "/review-merge", "/autopilot", "/plan", "/create-task", "/memory"].includes(url.pathname)) {
         const form = new URLSearchParams(await readBody(req));
         if (form.get("token") !== token) return send(403, "text/plain", "Bad token: reload the page");
         const id = form.get("id") ?? "";
@@ -199,6 +199,7 @@ export function startWebUi(app: App, port: number): http.Server {
           const problem = await done.catch((err: any) => String(err.message));
           return res.writeHead(303, { Location: problem ? `/?notice=${encodeURIComponent(problem)}` : "/" }).end();
         }
+        if (o && url.pathname === "/autopilot") o.setAutopilot(id, form.get("on") === "1");
         if (o && url.pathname === "/takeover") {
           o.takeOver(id);
           // Back to the log: the terminal appears there as soon as the agent has stopped.

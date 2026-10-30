@@ -293,3 +293,89 @@ test("templates and the repo's notes go into the prompt; a finished task updates
     orchestrator.stop();
   }
 });
+
+test("MR autopilot: hands the agent failed CI and new threads once each, stops at the round limit, merges a ready MR", async () => {
+  // each run leaves a change, so every round pushes something
+  const { orchestrator, tracker } = setup("date +%s%N >> work.txt", { autopilot: { enabled: true, maxRounds: 2, merge: true } });
+  try {
+    const t = issue(21, "Fix the cart");
+    tracker.issues = [t];
+    await orchestrator.poll();
+    await orchestrator.drain();
+    assert.equal(orchestrator.state.get(t.id)!.status, "done");
+    const mr = "https://git.example/acme/web/-/merge_requests/9";
+    orchestrator.state.update(t.id, { prUrl: mr });
+    let details: ReviewInfo;
+    let merged = false;
+    tracker.reviewDetails = async () => ({ ...details, checkedAt: Date.now() });
+    (tracker as any).mergeReview = async () => {
+      merged = true;
+      details = { ...details, state: "merged" };
+    };
+    const lastPrompt = () => readFileSync(orchestrator.state.logPath(orchestrator.state.get(t.id)!.task).replace(/\.jsonl$/, ".prompt.md"), "utf8");
+    const look = async () => {
+      await orchestrator.refreshReview(t.id);
+      await orchestrator.drain();
+      return orchestrator.state.get(t.id)!;
+    };
+
+    // CI failed: round 1, the agent gets the CI request
+    details = { state: "open", conflicts: false, mergeable: false, comments: [], checkedAt: 0, pipeline: { status: "failed", url: `${mr}/pipelines/1`, failed: [{ name: "e2e" }] } };
+    let rec = await look();
+    assert.equal(rec.status, "done", rec.error);
+    assert.equal(rec.autopilotRounds, 1);
+    assert.match(lastPrompt(), /The CI pipeline of MR .* failed/);
+
+    // the same failed pipeline again: not handed twice
+    rec = await look();
+    assert.equal(rec.autopilotRounds, 1);
+
+    // a reviewer's thread: round 2
+    details = { state: "open", conflicts: false, mergeable: false, comments: [{ author: "Oleh", body: "Why 20?", replies: 0, thread: "t1" }], checkedAt: 0, pipeline: { status: "success", failed: [] } };
+    rec = await look();
+    assert.equal(rec.autopilotRounds, 2);
+    assert.match(lastPrompt(), /\[thread t1\] Oleh/);
+
+    // CI fails once more: the limit is reached, the developer is called, nothing runs
+    details = { ...details, comments: [], pipeline: { status: "failed", url: `${mr}/pipelines/3`, failed: [{ name: "lint" }] } };
+    rec = await look();
+    assert.equal(rec.autopilotRounds, 2);
+    assert.match(rec.autopilotNote!, /зупинився після 2 раундів/);
+    assert.ok(notices.some((n) => n.includes("автопілот зупинився")));
+
+    // turned off and on from the card: fresh rounds, the failed CI goes to the agent
+    orchestrator.setAutopilot(t.id, false);
+    assert.equal((await look()).autopilotRounds, 2, "off: nothing happens");
+    orchestrator.setAutopilot(t.id, true);
+    rec = await look();
+    assert.equal(rec.autopilotRounds, 1);
+    assert.match(lastPrompt(), /pipelines\/3/);
+
+    // all green, approved: merged without a click
+    details = { state: "open", conflicts: false, mergeable: true, comments: [], checkedAt: 0, pipeline: { status: "success", failed: [] } };
+    await look();
+    assert.ok(merged, "the ready MR is merged");
+    assert.equal(orchestrator.state.get(t.id)!.reviewState, "merged");
+  } finally {
+    orchestrator.stop();
+  }
+});
+
+test("MR autopilot is off by default: a failed CI only notifies", async () => {
+  const { orchestrator, tracker } = setup("echo hi > hi.txt");
+  try {
+    const t = issue(22, "Quiet");
+    tracker.issues = [t];
+    await orchestrator.poll();
+    await orchestrator.drain();
+    orchestrator.state.update(t.id, { prUrl: "https://git.example/acme/web/-/merge_requests/10" });
+    tracker.reviewDetails = async () => ({ state: "open", conflicts: false, mergeable: false, comments: [], checkedAt: Date.now(), pipeline: { status: "failed", failed: [{ name: "e2e" }] } });
+    await orchestrator.refreshReview(t.id);
+    await orchestrator.drain();
+    const rec = orchestrator.state.get(t.id)!;
+    assert.equal(rec.autopilotRounds, undefined);
+    assert.equal(rec.status, "done");
+  } finally {
+    orchestrator.stop();
+  }
+});

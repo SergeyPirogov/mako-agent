@@ -451,7 +451,18 @@ function reviewBlock(app: App, r: TaskRecord, token: string): string {
       ? form("review-merge", "Змерджити", "success", "", ` data-confirm-title="Змерджити ${kind}?" data-confirm-ok="Змерджити" data-confirm-tone="success" data-confirm="${esc(`${kind} буде змерджено в основну гілку, гілку задачі буде видалено. Задача отримає фінальний статус і закриється.`)}"`)
       : "",
   ].filter(Boolean).join("");
-  return `<div class="kc-mr"><div class="kc-mr-facts"><span class="muted">${kind}:</span>${facts || `<span class="rv mute">перевіряю…</span>`}</div>${buttons ? `<div class="kc-mr-actions">${buttons}</div>` : ""}</div>`;
+  return `<div class="kc-mr"><div class="kc-mr-facts"><span class="muted">${kind}:</span>${facts || `<span class="rv mute">перевіряю…</span>`}</div>${buttons ? `<div class="kc-mr-actions">${buttons}</div>` : ""}${autopilotLine(app, r, form)}</div>`;
+}
+
+/** The MR autopilot on the card: what it is doing, and a switch for this task. */
+function autopilotLine(app: App, r: TaskRecord, form: (action: string, label: string, cls: string, extra?: string) => string): string {
+  const o = app.orchestrator;
+  if (!o) return "";
+  const on = o.reviews.autopilotOn(r);
+  const toggle = form("autopilot", on ? "Вимкнути" : "Увімкнути автопілот", "link", `<input type="hidden" name="on" value="${on ? "0" : "1"}">`);
+  if (!on) return `<div class="kc-pilot off">${toggle}</div>`;
+  const doing = r.autopilotNote ?? (r.status === "done" ? "стежить за MR" : "чекає, поки агент закінчить");
+  return `<div class="kc-pilot" title="Автопілот сам віддає агенту впалий CI, нові коментарі й конфлікти, не більше ${o.cfg.autopilot.maxRounds} раундів">🤖 <span><b>Автопілот</b> · ${esc(doing)}</span>${toggle}</div>`;
 }
 
 /** «Підсумок»: the summary on the left and, while the worktree exists, its changes on the right. */

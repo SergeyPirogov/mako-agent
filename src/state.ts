@@ -68,6 +68,13 @@ export interface TaskRecord {
   mergedAt?: string;
   /** A template chosen for a task written in Mako; tracker tasks get theirs by labels and title. */
   template?: string;
+  /** MR autopilot for this task, over the setting: turned on or off from the card. */
+  autopilot?: boolean;
+  /** What the autopilot already handed the agent (a pipeline, a thread, conflicts at a commit): never twice. */
+  autopilotSeen?: string[];
+  autopilotRounds?: number;
+  /** What the autopilot is doing, or why it stopped, for the card. */
+  autopilotNote?: string;
   costUsd?: number;
   error?: string;
 }

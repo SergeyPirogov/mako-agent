@@ -617,7 +617,15 @@
         ${field({ label: "Спершу план: агент пропонує план, а працює після вашого погодження (для окремої задачі вимикається в «Взяти ▾»)", path: "general.planFirst", kind: "check", type: "booltrue", wide: true })}
         ${field({ label: "Назва гілки задачі", path: "general.branchPattern", wide: true, placeholder: DEFAULT_BRANCH, list: "branch-patterns", rerender: true,
           hint: `${BRANCH_HINT} Наприклад: <code>${h(branchExample(model.general.branchPattern))}</code>` })}
-      </div></div>${BRANCH_LIST}`;
+      </div></div>${BRANCH_LIST}
+      <div class="shead" style="margin-top:24px"><h2>Автопілот MR</h2>
+        <p class="muted">Mako сам віддає фоновому агенту впалий CI, нові коментарі рев’юверів і конфлікти, поки MR не стане готовим до мерджу. На картці його можна вмикати й вимикати для окремої задачі.</p></div>
+      <div class="card"><div class="grid">
+        ${field({ label: "Увімкнути автопілот для всіх MR", path: "general.autopilot.enabled", kind: "check", type: "bool", wide: true })}
+        ${field({ label: "Не більше раундів на задачу", path: "general.autopilot.maxRounds", kind: "number", type: "number", placeholder: "3",
+          hint: "Потім автопілот зупиняється й кличе вас" })}
+        ${field({ label: "Мерджити самому, коли MR готовий (CI зелений, коментарів і конфліктів немає, апруви є)", path: "general.autopilot.merge", kind: "check", type: "bool", wide: true })}
+      </div></div>`;
   }
 
   function templatesSection() {
