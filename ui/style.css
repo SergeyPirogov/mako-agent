@@ -1,11 +1,11 @@
 :root {
   color-scheme: light dark;
   --bg: #f6f7f9; --card: #fff; --fg: #1b1d21; --mute: #6b7079; --line: #e2e4e8; --field: #fff;
-  --accent: #1f6feb; --accent-fg: #fff; --btn: #e9ecf1; --btn-hover: #dde1e8; --ok: #1f883d; --warn: #b35900; --err: #cf222e; --purple: #7a5af8;
+  --accent: #1f6feb; --accent-fg: #fff; --ok: #1f883d; --warn: #b35900; --err: #cf222e; --purple: #7a5af8;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #111317; --card: #1a1d23; --fg: #e8eaed; --mute: #9aa0a8; --line: #2c3038; --field: #14161b;
-    --accent: #4c8dff; --btn: #2a2f38; --btn-hover: #343a45; --ok: #3fb950; --warn: #e3a03c; --err: #ff6b6b; --purple: #9b85ff; }
+    --accent: #4c8dff; --ok: #3fb950; --warn: #e3a03c; --err: #ff6b6b; --purple: #9b85ff; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
@@ -43,18 +43,21 @@ form { display: inline; }
 .s.failed { background: none; border: 1px solid var(--err); color: var(--err); }
 
 /* controls */
-button { font: inherit; font-weight: 500; padding: 6px 14px; border-radius: 8px; border: 1px solid transparent; background: var(--btn); color: var(--fg);
+/* outlined buttons: only the main action of a place is filled */
+button { font: inherit; font-weight: 500; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg);
   cursor: pointer; margin-left: 6px; transition: background .12s, border-color .12s, box-shadow .12s; }
-button:hover { background: var(--btn-hover); }
+button:hover { background: var(--bg); border-color: var(--mute); }
 button:active { transform: translateY(1px); }
 button:focus-visible, a.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-button.primary:hover { background: color-mix(in srgb, var(--accent) 86%, #000); }
-button.soft, a.btn { background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
-button.soft:hover, a.btn:hover { background: color-mix(in srgb, var(--accent) 22%, var(--card)); }
+button.primary:hover { background: color-mix(in srgb, var(--accent) 86%, #000); border-color: color-mix(in srgb, var(--accent) 86%, #000); }
+button.soft, a.btn { background: var(--card); color: var(--accent); border-color: var(--accent); }
+button.soft:hover, a.btn:hover { background: color-mix(in srgb, var(--accent) 8%, var(--card)); border-color: var(--accent); }
 button.link { border: 0; background: none; color: var(--accent); padding: 4px 6px; margin: 0; }
+button.link:hover { background: none; text-decoration: underline; }
 button.danger { color: var(--err); }
-button.danger:not(.link) { background: color-mix(in srgb, var(--err) 10%, var(--card)); }
+button.danger:not(.link) { border-color: color-mix(in srgb, var(--err) 55%, transparent); }
+button.danger:not(.link):hover { background: color-mix(in srgb, var(--err) 8%, var(--card)); border-color: var(--err); }
 button:disabled { opacity: .6; cursor: default; }
 
 /* settings */
@@ -97,7 +100,7 @@ main.wide { max-width: none; padding: 12px 16px 16px; display: flex; flex-direct
 .s.idle { background: var(--ok); color: #fff; }
 @keyframes pulse { 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .s.waiting { animation: none; } }
-a.btn { display: inline-block; padding: 6px 14px; border-radius: 8px; border: 1px solid; font-weight: 500; text-decoration: none; margin-left: 6px; }
+a.btn { display: inline-block; padding: 6px 14px; border-radius: 6px; border: 1px solid; font-weight: 500; text-decoration: none; margin-left: 6px; }
 body:has(main.wide) .bar { max-width: none; }
 
 /* attention: what agents want from the developer */
@@ -112,7 +115,7 @@ a.att:hover { background: var(--bg); }
 .att-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--ok); }
 a.att.waiting .att-dot { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
 a.att .btn { margin: 0; }
-span.btn { display: inline-block; padding: 6px 14px; border-radius: 8px; background: var(--accent); color: #fff; }
+span.btn { display: inline-block; padding: 6px 14px; border-radius: 6px; background: var(--accent); color: #fff; }
 table.tasks tr.attn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
 table.tasks tr.attn { background: color-mix(in srgb, var(--warn) 7%, transparent); }
 
@@ -285,7 +288,7 @@ dialog.mdialog .mbody { margin: 0 0 18px; color: var(--mute); line-height: 1.5; 
 /* "Взяти ▾": choose where the task goes */
 .take { display: inline-flex; position: relative; }
 .take > form .take-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-details.take-menu > summary.take-more { list-style: none; cursor: pointer; padding: 4px 9px; font-size: 13px; border-radius: 0 8px 8px 0;
+details.take-menu > summary.take-more { list-style: none; cursor: pointer; padding: 4px 9px; font-size: 13px; border-radius: 0 6px 6px 0;
   background: var(--accent); color: #fff; border-left: 1px solid color-mix(in srgb, #fff 35%, var(--accent)); line-height: 1.45; }
 details.take-menu > summary::-webkit-details-marker { display: none; }
 details.take-menu[open] > summary.take-more { background: color-mix(in srgb, var(--accent) 80%, #000); }
