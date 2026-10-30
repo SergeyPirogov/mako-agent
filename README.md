@@ -189,7 +189,7 @@ API-токен створюється на [id.atlassian.com](https://id.atlassi
 {
   "type": "github",
   "assignee": "my-login",
-  "labels": { "trigger": "claude-agent", "inProgress": "agent:in-progress", "done": "agent:done", "failed": "agent:failed" },
+  "labels": { "trigger": "claude-agent" },
   "projects": { "my-org/web": { "repoPath": "/Users/me/code/web" } }
 }
 ```
