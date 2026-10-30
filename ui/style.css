@@ -723,9 +723,10 @@ main:has(.mail) .notice { margin-bottom: 8px; }
     box-shadow: -12px 0 32px rgba(0, 0, 0, .18); }
 }
 /* the terminal page inside it: one compact row of title and buttons */
-main.wide.bare .session-head { flex-wrap: nowrap; margin-bottom: 4px; }
-main.wide.bare .session-head > .sh-task { min-width: 0; flex: 1; font-size: 13px; }
-main.wide.bare .session-actions { flex: none; }
+/* one row while the chips keep ~280px; narrower, the buttons drop to a row of their own (and wrap within it) */
+main.wide.bare .session-head { flex-wrap: wrap; row-gap: 6px; margin-bottom: 4px; }
+main.wide.bare .session-head > .sh-task { min-width: 0; flex: 1 1 280px; font-size: 13px; }
+main.wide.bare .session-actions { flex: 0 1 auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; margin-left: auto; }
 main.wide.bare .session-actions button, main.wide.bare .session-actions .btn { padding: 3px 10px; font-size: 12.5px; height: 28px; }
 main.wide.bare #status-msg { min-height: 0; margin-bottom: 4px; font-size: 12px; }
 main.wide.bare .ask-bar { padding: 8px 10px; }
@@ -739,7 +740,7 @@ main.wide.bare .session-head { padding-right: 78px; } /* room for «Деталі
 .sh-task .chip.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--mute); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .sh-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--mute); }
 .session-head .sh-title { margin-left: 0; }
-.sh-task { overflow: hidden; } .sh-task .chips { flex: 0 1 auto; min-width: 0; } .sh-task .chip { flex: none; } .sh-task .chip.mono { flex: 0 1 auto; min-width: 48px; }
+.sh-task { overflow: hidden; } .sh-task .chips { flex: 0 1 auto; min-width: 0; } .sh-task .chip { flex: 0 1 auto; min-width: 48px; overflow: hidden; text-overflow: ellipsis; } .sh-task .chip:first-child { flex-shrink: 0.3; }
 main.wide.bare .sh-title { display: none; } /* in «Робоче місце» the title is in the list: the chips get the room */
 /* phones: the archive's buttons stack in their cell, the statistics tables fit the screen */
 .st-tables { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }

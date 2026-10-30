@@ -389,12 +389,13 @@ function renderSession(app: App, id: string, token: string, embed = false): stri
   const prUrl = rec?.prUrl;
   const tracker = rec ? app.orchestrator?.trackers.get(rec.task.trackerId) : undefined;
   const reviewName = tracker?.name === "GitHub" ? "PR" : "MR";
-  // The task as chips (its id, repo and branch), then its title.
+  // The task as chips (its id, repo and branch), then its title. Long ones shorten with an ellipsis.
   const chips = [
     session.task.url
       ? `<a class="chip" href="${esc(session.task.url)}" target="_blank" rel="noreferrer" title="Задача в трекері">${esc(session.task.id)} ↗</a>`
       : `<span class="chip">${esc(session.task.id)}</span>`,
-    rec?.repo ? `<span class="chip" title="Репозиторій">${esc(rec.repo)}</span>` : "",
+    // GitLab ids already carry the repo path ("group/repo#30"): no second chip saying the same.
+    rec?.repo && !session.task.id.includes(rec.repo) ? `<span class="chip" title="Репозиторій">${esc(rec.repo)}</span>` : "",
     rec?.branchName ? `<span class="chip mono" title="Гілка задачі">${esc(rec.branchName)}</span>` : "",
   ].join("");
   const body = `<div class="session-head">
