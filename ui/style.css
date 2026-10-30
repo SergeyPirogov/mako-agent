@@ -622,3 +622,10 @@ dialog, dialog .sum-text, dialog .desc-in, .sum-changes { overscroll-behavior: c
 .look-pick select { width: auto; padding: 3px 6px; font-size: 12px; }
 @media (max-width: 600px) { .look-pick { font-size: 0; gap: 0; } .look-pick select { font-size: 12px; } }
 @media (max-width: 600px) { .look-pick { display: none; } }
+/* ☾ / ☀: shows the theme a click switches to */
+.theme-toggle { margin: 0; width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; background: none; color: var(--mute); font-size: 16px; line-height: 1; }
+.theme-toggle:hover { color: var(--fg); background: var(--bg); border-color: var(--line); }
+.theme-toggle .to-light { display: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .theme-toggle .to-light { display: inline; } :root:not([data-theme="light"]) .theme-toggle .to-dark { display: none; } }
+:root[data-theme="dark"] .theme-toggle .to-light { display: inline; } :root[data-theme="dark"] .theme-toggle .to-dark { display: none; }
+@media (max-width: 600px) { .bar { gap: 8px; padding: 0 12px; } .logo-mark { display: none; } .bar nav a { padding: 6px 7px; } .bar .right { gap: 4px; } }
