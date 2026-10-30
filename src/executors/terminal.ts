@@ -40,7 +40,7 @@ export class TerminalExecutor implements Executor {
   constructor(readonly name: string, private cfg: TerminalExecutorConfig) {
     const command = cfg.command ?? "claude";
     this.isClaude = /^claude(\.cmd|\.exe)?$/i.test(path.basename(command));
-    this.label = cfg.label ?? (this.isClaude ? "Claude Code" : command);
+    this.label = cfg.label ?? (this.isClaude ? "Claude Code у терміналі Mako" : command);
   }
 
   async run(ctx: ExecContext, prompt: string): Promise<ExecOutcome> {

@@ -193,8 +193,13 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
   if (!choices || (choices.executors.length < 2 && choices.repos.length < 2)) return quick;
   const option = (value: string, label: string, selected: boolean) =>
     `<option value="${esc(value)}"${selected ? " selected" : ""}>${esc(label)}</option>`;
-  const executors = choices.executors
-    .map((e) => option(e.name, `${e.label}${e.name === choices.executor ? " (за замовчуванням)" : ""}`, e.name === choices.executor))
+  const executors = [...choices.executors]
+    .sort((a, b) => Number(b.name === choices.executor) - Number(a.name === choices.executor))
+    .map(
+      (e) =>
+        `<label class="tp-opt"><input type="radio" name="executor" value="${esc(e.name)}"${e.name === choices.executor ? " checked" : ""}>` +
+        `<span>${esc(e.label)}</span>${e.name === choices.executor ? `<span class="badge ok">основний</span>` : ""}</label>`,
+    )
     .join("");
   const repos =
     choices.repos.length > 1
@@ -203,7 +208,7 @@ function takeControl(app: App, r: TaskRecord, token: string, action: "take" | "r
   return `<div class="take ${action}">${quick}<details class="take-menu"><summary class="take-more" title="Вибрати, куди відправити задачу">▾</summary>
     <form method="post" action="/${action}" class="take-pop">${hidden}
       <div class="tp-title">Куди відправити</div>
-      <label>Хто виконує<select name="executor">${executors}</select></label>
+      <fieldset class="tp-execs"><legend>Хто виконує</legend>${executors}</fieldset>
       ${repos}
       <button class="primary">${verb}</button>
     </form></details></div>`;
