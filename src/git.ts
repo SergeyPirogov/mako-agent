@@ -85,6 +85,14 @@ export async function hasUncommittedChanges(worktree: string): Promise<boolean> 
   return (await runOk("git", ["status", "--porcelain"], worktree)).length > 0;
 }
 
+export async function stageAll(worktree: string): Promise<void> {
+  await runOk("git", ["add", "-A"], worktree);
+}
+
+export async function headSha(worktree: string): Promise<string> {
+  return runOk("git", ["rev-parse", "HEAD"], worktree);
+}
+
 export async function commitAll(worktree: string, message: string): Promise<void> {
   await runOk("git", ["add", "-A"], worktree);
   await runOk("git", ["commit", "-m", message], worktree);
@@ -103,8 +111,10 @@ export async function publish(
   worktree: string,
   branch: string,
   req: PublishRequest,
+  /** The kind of tracker the task came from: a GitLab tracker means a GitLab remote, whatever its domain. */
+  hostHint?: "github" | "gitlab",
 ): Promise<string | undefined> {
-  const host = repo.pullRequest === "auto" ? await detectHost(worktree) : repo.pullRequest;
+  const host = repo.pullRequest === "auto" ? hostHint ?? (await detectHost(worktree)) : repo.pullRequest;
 
   if (host === "gitlab") {
     // GitLab creates the MR itself from push options, so no extra CLI is needed.

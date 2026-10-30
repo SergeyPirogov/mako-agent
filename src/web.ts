@@ -130,7 +130,7 @@ export function startWebUi(app: App, port: number): void {
         return json(200, readWorktreeFile(ws.worktree, url.searchParams.get("path") ?? ""));
       }
       const sessionPage = url.pathname.match(/^\/session\/([\w.-]+)$/);
-      if (req.method === "GET" && sessionPage) return send(200, "text/html", renderSession(sessionPage[1], token));
+      if (req.method === "GET" && sessionPage) return send(200, "text/html", renderSession(app, sessionPage[1], token));
 
       // Claude Code hooks of a terminal session; each session has its own token.
       const hook = url.pathname.match(/^\/hook\/([\w.-]+)$/);
@@ -189,6 +189,10 @@ export function startWebUi(app: App, port: number): void {
         const body = JSON.parse((await readBody(req)) || "{}");
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           return json(200, { ok: true, ...app.save(body.config, body.secrets ?? {}), problem: app.problem });
+        }
+        if (req.method === "POST" && url.pathname === "/api/publish") {
+          if (!app.orchestrator) return json(400, { error: "Mako не налаштований" });
+          return json(200, await app.orchestrator.publishNow(url.searchParams.get("task") ?? ""));
         }
         if (req.method === "POST" && url.pathname === "/api/test-tracker") {
           return json(200, await app.testTracker(body.tracker, body.secrets ?? {}));
@@ -252,24 +256,30 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
-function renderSession(id: string, token: string): string {
+function renderSession(app: App, id: string, token: string): string {
   const session = sessions.get(id);
   if (!session) {
     const body = `<h1>Сесія</h1><div class="notice">Сесія <code>${esc(id)}</code> не активна. <a href="/">До задач →</a></div>`;
     return page({ title: "Сесія", active: "inbox", token, body });
   }
+  const rec = app.orchestrator?.state.get(session.task.id);
+  const prUrl = rec?.prUrl;
+  const tracker = rec ? app.orchestrator?.trackers.get(rec.task.trackerId) : undefined;
+  const reviewName = tracker?.name === "GitHub" ? "PR" : "MR";
   const body = `<div class="session-head">
       <div><a href="${esc(session.task.url)}" target="_blank" rel="noreferrer"><strong>${esc(session.task.id)}</strong></a>
         <span class="muted">${esc(session.task.title)}</span></div>
       <div class="session-actions"><span id="status" class="s"></span>
         <button id="toggle-changes" title="Змінені файли і diff">Зміни</button>
-        <button id="finish" class="success" title="Закрити агента, закомітити, запушити і відкрити PR">✓ Завершити</button>
+        <a id="review-link" class="btn"${prUrl ? ` href="${esc(prUrl)}"` : " hidden"} target="_blank" rel="noreferrer">${reviewName} ↗</a>
+        <button id="publish" class="primary" title="Закомітити зміни з повідомленням від Claude, запушити гілку й відкрити ${reviewName}. Агент працює далі">${prUrl ? `Оновити ${reviewName}` : `Створити ${reviewName}`}</button>
+        <button id="finish" class="success" title="Закрити агента й завершити задачу${prUrl ? "" : `; якщо ${reviewName} ще немає, Mako його відкриє`}">✓ Завершити</button>
         <button id="cancel" class="danger-outline" title="Зупинити без PR">Скасувати</button></div>
     </div>
     <div id="status-msg" class="muted"></div>
     <div class="session-body"><div id="term"></div>
       <iframe id="changes-panel" hidden title="Зміни" data-src="/changes?task=${encodeURIComponent(session.task.id)}&embed=1"></iframe></div>`;
-  return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script>', data: { session: id } });
+  return page({ title: session.task.id, active: "inbox", token, body, script: "/ui/session.js", wide: true, head: '<link rel="stylesheet" href="/ui/vendor/xterm.css"><script src="/ui/vendor/xterm.js"></script><script src="/ui/vendor/addon-fit.js"></script>', data: { session: id, task: session.task.id, review: reviewName } });
 }
 
 /** Live check for the settings page: does the repo path exist, is it git, does origin/<base> exist locally. */

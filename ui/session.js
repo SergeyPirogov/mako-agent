@@ -92,11 +92,46 @@
     }, 80);
   }).observe(document.getElementById("term"));
 
+  // «Створити MR»: commit with a message from Claude, push, open the MR; the agent keeps working.
+  const publishBtn = document.getElementById("publish");
+  const reviewLink = document.getElementById("review-link");
+  const review = document.body.dataset.review || "MR";
+  publishBtn?.addEventListener("click", async () => {
+    const label = publishBtn.textContent;
+    publishBtn.disabled = true;
+    publishBtn.textContent = "Комічу й пушу…";
+    statusMsg.textContent = `Claude пише commit message, потім Mako запушить гілку й відкриє ${review}…`;
+    try {
+      const res = await fetch(`/api/publish?task=${encodeURIComponent(document.body.dataset.task)}`, {
+        method: "POST",
+        headers: { "X-Mako-Token": TOKEN },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      if (data.url) {
+        reviewLink.href = data.url;
+        reviewLink.hidden = false;
+      }
+      publishBtn.textContent = `Оновити ${review}`;
+      const subject = data.message ? `«${data.message.split("\n")[0]}»` : "без нових змін";
+      statusMsg.textContent = data.url
+        ? `${data.updated ? `${review} оновлено` : `${review} відкрито`}: коміт ${subject}. Коли його змерджать, натисніть «Завершити».`
+        : `Гілку запушено (коміт ${subject}), але ${review} не відкрито: перевірте налаштування репозиторію.`;
+    } catch (err) {
+      publishBtn.textContent = label;
+      statusMsg.textContent = `${review} не створено: ${err.message}`;
+    } finally {
+      publishBtn.disabled = false;
+    }
+  });
+
   finishBtn.addEventListener("click", async () => {
     const ok = await makoConfirm({
       title: "Завершити задачу?",
-      body: "Mako закриє агента, закомітить зміни, запушить гілку й відкриє PR, а підсумок агента напише в задачу.",
-      confirm: "Завершити й відкрити PR",
+      body: reviewLink && !reviewLink.hidden
+        ? `Mako закриє агента й напише його підсумок у задачу. Якщо після ${review} були нові зміни, Mako їх закомітить і допушить.`
+        : `Mako закриє агента, закомітить зміни, запушить гілку й відкриє ${review}, а підсумок агента напише в задачу.`,
+      confirm: reviewLink && !reviewLink.hidden ? "Завершити" : `Завершити й відкрити ${review}`,
       cancel: "Ще ні",
       tone: "success",
     });

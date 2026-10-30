@@ -39,7 +39,7 @@ interface Column {
 const COLUMNS: Column[] = [
   { key: "new", title: "Нові", statuses: ["asking", "snoozed"], empty: "Нових задач немає" },
   { key: "doing", title: "В роботі", statuses: ["queued", "running", "handed-off"], empty: "Перетягніть сюди задачу з «Нових», щоб взяти її" },
-  { key: "done", title: "Готово", statuses: ["done"], empty: "Тут зʼявляться задачі з PR" },
+  { key: "done", title: "Готово", statuses: ["done"], empty: "Тут зʼявляться задачі з PR/MR" },
   { key: "failed", title: "Не виконано", statuses: ["failed", "cancelled"], empty: "" },
 ];
 

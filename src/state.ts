@@ -42,6 +42,8 @@ export interface TaskRecord {
   gone?: "closed" | "deleted";
   /** What happened to the issue's status in the tracker at the last step, shown on the card. */
   trackerStatus?: { ok: boolean; text: string };
+  /** Commit the PR/MR was last pushed at, so finishing does not push (and reopen) an already merged branch. */
+  publishedSha?: string;
   costUsd?: number;
   error?: string;
 }
