@@ -2,7 +2,7 @@ import type { Config } from "./config.js";
 import type { Outcome, Task, Tracker } from "./types.js";
 import { StateStore, type TaskRecord } from "./state.js";
 import { buildPrompt } from "./prompt.js";
-import { createExecutor, type Executor } from "./executors/index.js";
+import { createExecutor, type Executor, type WorkspaceStatus } from "./executors/index.js";
 import type { RepoConfig } from "./config.js";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -133,6 +133,19 @@ export class Orchestrator {
       log(task.id, `tracker status not updated: ${err.message}`);
       this.state.update(task.id, { trackerStatus: { ok: false, text: `Статус у ${tracker?.name ?? "трекері"} не змінено: ${err.message}` } });
       inform(`⚠ ${task.id}: статус у трекері не змінено`, String(err.message).slice(0, 200));
+    }
+  }
+
+  /** Follows the task on the executor's own board (Orca), when it has one; never fails the task. */
+  async markWorkspace(rec: TaskRecord, status: WorkspaceStatus): Promise<void> {
+    const executor = rec.executor ? this.executors.get(rec.executor) : undefined;
+    const repo = rec.repo ? this.trackers.get(rec.task.trackerId)?.projects[rec.task.project]?.repos[rec.repo] : undefined;
+    if (!executor?.markWorkspace || !repo) return;
+    try {
+      await executor.markWorkspace(repo, { worktree: rec.worktree, branch: rec.branch ?? this.branchOf(rec) }, status);
+      log(rec.id, `${executor.label} workspace → ${status}`);
+    } catch (err: any) {
+      log(rec.id, err.message);
     }
   }
 

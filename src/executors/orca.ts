@@ -4,7 +4,8 @@ import path from "node:path";
 import { run } from "../shell.js";
 import { findCommand } from "./find-command.js";
 import { log } from "../log.js";
-import type { ExecContext, ExecOutcome, Executor } from "./types.js";
+import type { RepoConfig } from "../config.js";
+import type { ExecContext, ExecOutcome, Executor, WorkspaceStatus } from "./types.js";
 
 export interface OrcaExecutorConfig {
   type: "orca";
@@ -76,6 +77,7 @@ export class OrcaExecutor implements Executor {
       if (failure) {
         const existing = await findWorkspace(command, ctx);
         if (existing) {
+          await this.markWorkspace(ctx.repo, { worktree: existing.path, branch: existing.branch }, "in-progress").catch((err) => log(ctx.task.id, err.message));
           return {
             kind: "handed-off",
             worktree: existing.path,
@@ -102,12 +104,20 @@ export class OrcaExecutor implements Executor {
     } catch {
       // Non-JSON output is fine; the workspace exists.
     }
+    await this.markWorkspace(ctx.repo, { worktree, branch }, "in-progress").catch((err) => log(ctx.task.id, err.message));
     return {
       kind: "handed-off",
       worktree,
       branch,
       details: `Orca workspace ${ctx.task.slug}, agent ${this.cfg.agent ?? "claude"}`,
     };
+  }
+
+  /** Moves the workspace to a column of Orca's board (default column ids). */
+  async markWorkspace(repo: RepoConfig, where: { worktree?: string; branch: string }, status: WorkspaceStatus): Promise<void> {
+    const selector = where.worktree ? `path:${where.worktree}` : `branch:${where.branch}`;
+    const r = await run(resolveOrca(this.cfg.command), ["worktree", "set", "--worktree", selector, "--workspace-status", status, "--json"], repo.repoPath);
+    if (r.code !== 0) throw new Error(`Orca: статус workspace «${status}» не встановлено: ${orcaError(r.stdout || r.stderr).message}`);
   }
 }
 

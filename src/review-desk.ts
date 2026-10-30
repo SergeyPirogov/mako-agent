@@ -216,6 +216,7 @@ export class ReviewDesk {
     }
     log(rec.id, `review merged: ${rec.prUrl}`);
     if (tracker.onMerged) await this.o.updateTracker(rec.task, "merged", () => tracker.onMerged!(rec.task));
+    await this.o.markWorkspace(rec, "completed");
     inform(`✅ ${rec.id}: ${this.reviewKind(rec)} змерджено`, rec.status === "running" ? "Агент ще в терміналі: натисніть «Завершити»" : rec.task.title);
   }
 

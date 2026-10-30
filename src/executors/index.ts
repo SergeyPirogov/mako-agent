@@ -5,7 +5,7 @@ import { TerminalExecutor, type TerminalExecutorConfig } from "./terminal.js";
 import type { Executor } from "./types.js";
 
 export type ExecutorConfig = ClaudeHeadlessConfig | CommandExecutorConfig | OrcaExecutorConfig | TerminalExecutorConfig;
-export type { Executor, ExecContext, ExecOutcome } from "./types.js";
+export type { Executor, ExecContext, ExecOutcome, WorkspaceStatus } from "./types.js";
 export { killAllAgents } from "./processes.js";
 
 export function createExecutor(name: string, cfg: ExecutorConfig): Executor {

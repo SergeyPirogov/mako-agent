@@ -48,4 +48,8 @@ export interface Executor {
   /** Mako waits for the result; the run occupies one `maxConcurrent` slot. */
   managed: boolean;
   run(ctx: ExecContext, prompt: string): Promise<ExecOutcome>;
+  /** Tools with their own board (Orca) follow the task there: taken, PR opened, merged. */
+  markWorkspace?(repo: RepoConfig, where: { worktree?: string; branch: string }, status: WorkspaceStatus): Promise<void>;
 }
+
+export type WorkspaceStatus = "in-progress" | "in-review" | "completed";

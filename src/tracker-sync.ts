@@ -88,6 +88,7 @@ export class TrackerSync {
         await tracker.comment(rec.task, `🦈 Mako: ${name} opened for this issue: ${link}`);
         await this.o.updateTracker(rec.task, "success", () => tracker.onFinish(rec.task, "success"));
         this.o.state.update(rec.id, { status: "done", prUrl: review.url, finishedAt: new Date().toISOString() });
+        await this.o.markWorkspace(rec, "in-review");
         inform(`✅ ${rec.id}: є ${review.kind === "pull" ? "PR" : "MR"}`, link);
       } catch (err: any) {
         log(rec.id, `review check failed: ${err.message}`);
