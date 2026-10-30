@@ -8,10 +8,14 @@
   /* motion: a strong ease-out, short */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
+/* dark: from the system, unless «Тема» in the header says otherwise */
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #6c6f75; --line: #26282c; --hover: #1d1f22; --field: #141518;
-    --accent: #6b9bff; --ok: #4cc27f; --warn: #e5a23b; --err: #f07070; --purple: #a493f5; --primary: #e9e9ea; --primary-fg: #111214; }
+  :root:not([data-theme="light"]) { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #6c6f75; --line: #26282c; --hover: #1d1f22; --field: #141518;
+    --accent: #6b9bff; --ok: #4cc27f; --warn: #e5a23b; --err: #f07070; --purple: #a493f5; --primary: #e9e9ea; --primary-fg: #111214;  color-scheme: dark; }
 }
+:root[data-theme="dark"] { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #6c6f75; --line: #26282c; --hover: #1d1f22; --field: #141518;
+    --accent: #6b9bff; --ok: #4cc27f; --warn: #e5a23b; --err: #f07070; --purple: #a493f5; --primary: #e9e9ea; --primary-fg: #111214;  color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
 a { color: var(--accent); }

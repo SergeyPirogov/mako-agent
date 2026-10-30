@@ -5,10 +5,14 @@
   /* motion: a strong ease-out, short */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
+/* dark: from the system, unless «Тема» in the header says otherwise */
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #111317; --card: #1a1d23; --fg: #e8eaed; --mute: #9aa0a8; --line: #2c3038; --field: #14161b;
-    --accent: #4c8dff; --ok: #3fb950; --warn: #e3a03c; --err: #ff6b6b; --purple: #9b85ff; }
+  :root:not([data-theme="light"]) { --bg: #111317; --card: #1a1d23; --fg: #e8eaed; --mute: #9aa0a8; --line: #2c3038; --field: #14161b;
+    --accent: #4c8dff; --ok: #3fb950; --warn: #e3a03c; --err: #ff6b6b; --purple: #9b85ff;  color-scheme: dark; }
 }
+:root[data-theme="dark"] { --bg: #111317; --card: #1a1d23; --fg: #e8eaed; --mute: #9aa0a8; --line: #2c3038; --field: #14161b;
+    --accent: #4c8dff; --ok: #3fb950; --warn: #e3a03c; --err: #ff6b6b; --purple: #9b85ff;  color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
 a { color: var(--accent); }
