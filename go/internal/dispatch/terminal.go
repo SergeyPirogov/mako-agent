@@ -491,21 +491,6 @@ func (d *Dispatcher) OpenWorktree(id, where, file string) error {
 	return exec.Command("open", wt).Start()
 }
 
-// removeWorktree: a merged task of Mako's terminal leaves no worktree and no local branch behind, unless it
-// has uncommitted work.
-func (d *Dispatcher) removeWorktree(ctx context.Context, r core.Record, repo *config.Repo) {
-	if !onTerminal(r) || r.Worktree == "" || !exists(r.Worktree) {
-		return
-	}
-	d.StopTerminal(r.ID)
-	time.Sleep(500 * time.Millisecond) // the agent lets go of the folder
-	if err := gitx.RemoveWorktree(ctx, repo.Path, r.Worktree, branchOf(r)); err != nil {
-		d.Fault(r.ID, "worktree лишився", err)
-		return
-	}
-	d.Log(r.ID, "worktree і локальну гілку прибрано")
-}
-
 // FileDiff: one changed file of the task.
 func (d *Dispatcher) FileDiff(ctx context.Context, id, path string, whole bool) (string, error) {
 	wt, base, err := d.workOf(id)

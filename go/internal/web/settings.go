@@ -117,6 +117,19 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings/lessons", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.D.Lessons())
 	})
+	// How much of the disk the agents' worktrees take, per project.
+	mux.HandleFunc("GET /api/settings/worktrees", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, s.D.WorktreeUsage(r.Context()))
+	})
+	// «Прибрати змерджені»: the worktrees and local branches of merged and archived tasks, not those with
+	// uncommitted work.
+	mux.HandleFunc("POST /api/settings/worktrees/clean", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "cleanup": s.D.CleanMerged(r.Context())})
+	})
 	mux.HandleFunc("POST /api/pause", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)

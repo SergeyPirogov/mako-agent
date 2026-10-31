@@ -760,11 +760,11 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			if !onTerminal(r) {
 				orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
 			}
-			d.removeWorktree(ctx, r, repo)
 			notify.Inform(notify.Merged, "🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
 			if d.startRetro(r.ID) == nil {
-				d.retro(ctx, r.ID)
+				d.retro(ctx, r.ID) // in the worktree, before it goes
 			}
+			d.cleanUp(ctx, r.ID)
 		case "closed":
 			d.Log(r.ID, "MR закрито без мерджу")
 			d.Store.Update(r.ID, func(r *core.Record) {
@@ -810,7 +810,8 @@ func (d *Dispatcher) markGone(r core.Record, st string) {
 	notify.Inform(notify.Gone, "🦈 "+r.ID+": "+strings.ToLower(what), "Агент ще працює над нею в Orca.", d.BoardURL)
 }
 
-// AutoArchive takes finished tasks off the board ArchiveAfterDays after they finished (not those in review).
+// AutoArchive takes finished tasks off the board ArchiveAfterDays after they finished (not those in review),
+// and their worktrees off the disk.
 func (d *Dispatcher) AutoArchive(at time.Time) int {
 	days := d.Config().ArchiveAfterDays
 	if days <= 0 {
@@ -833,6 +834,7 @@ func (d *Dispatcher) AutoArchive(at time.Time) int {
 			continue
 		}
 		d.Store.Update(r.ID, func(r *core.Record) { r.ArchivedAt = at.UnixMilli() })
+		d.cleanUp(context.Background(), r.ID)
 		n++
 	}
 	return n
@@ -892,6 +894,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 	d.Take(ctx, id)
 }
 
+// Archive takes the task off the board (on) or brings it back; an archived task's worktree is cleaned up.
 func (d *Dispatcher) Archive(id string, on bool) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.ArchivedAt = 0
@@ -899,6 +902,9 @@ func (d *Dispatcher) Archive(id string, on bool) {
 			r.ArchivedAt = time.Now().UnixMilli()
 		}
 	})
+	if on {
+		go d.cleanUp(context.Background(), id)
+	}
 }
 
 func contains(xs []string, x string) bool {
