@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -71,9 +72,13 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 	if view != "chat" {
 		args := []string{prompt}
 		if cont {
+			// A message to go on with follows the session it continues; without one the agent waits at its prompt.
 			args = again
+			if prompt != "" {
+				args = append(slices.Clone(again), prompt)
+			}
 		}
-		return d.runClaude(id, worktree, t, args, setup)
+		return d.runClaude(id, worktree, t, args, setup, cont && prompt == "")
 	}
 	command, err := term.Resolve(t.Command)
 	if err != nil {
@@ -262,7 +267,7 @@ func setupOf(repo *config.Repo, t config.Terminal, worktree string) string {
 // not stop the agent.
 const setupScript = `printf '\033[2m› %s\033[0m\n' "$MAKO_SETUP"; sh -c "$MAKO_SETUP" || printf '\033[33mПідготовка не вдалась, агент стартує все одно\033[0m\n'; exec "$0" "$@"`
 
-func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []string, setup string) error {
+func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []string, setup string, idle bool) error {
 	command, err := term.Resolve(t.Command)
 	if err != nil {
 		return err
@@ -295,7 +300,7 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 		env = append(env, "MAKO_SETUP="+setup)
 	}
 	s, err := term.Start(term.Options{
-		ID: id, Worktree: worktree, Command: command, Args: all, Token: token, Idle: len(args) > 0 && (args[0] == "--continue" || args[0] == "--resume"),
+		ID: id, Worktree: worktree, Command: command, Args: all, Token: token, Idle: idle,
 		Env:     env,
 		OnState: func() { d.watchTerminals(time.Now()) },
 	})

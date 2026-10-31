@@ -425,6 +425,7 @@ function renderOrca() {
     };
     box.append(tools);
     box.append(text(t, "model", "Модель", { placeholder: "як у Claude Code", hint: "Наприклад, opus або sonnet" }));
+    box.append(check(t, "autoFix", "Автофікс MR", { hint: "Коли агент закінчив хід, Mako сам просить його розвʼязати конфлікти, полагодити впалий CI й виправити нові коментарі рев'ю, як кнопки ✨. Кожну проблему — один раз, до 5 запитів на задачу" }));
   } else {
     const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
     if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
