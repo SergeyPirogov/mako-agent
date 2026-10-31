@@ -17,26 +17,25 @@ import (
 func TestGitHubCreateAndUpload(t *testing.T) {
 	var created map[string]any
 	var commit map[string]any
-	var branch map[string]any
+	var repo map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		switch {
 		case r.URL.Path == "/user":
-			w.Write([]byte(`{"login":"serhii"}`))
+			w.Write([]byte(`{"login":"me"}`))
 		case r.URL.Path == "/repos/me/app/issues" && r.Method == "POST":
 			json.Unmarshal(body, &created)
 			w.Write([]byte(`{"number":42,"state":"open","title":"Crash on save","body":"steps","html_url":"https://github.com/me/app/issues/42",
 			  "labels":[{"name":"claude-agent"},{"name":"bug"}],"assignees":[{"login":"serhii"}]}`))
-		case r.URL.Path == "/repos/me/app/git/ref/heads/mako-uploads":
-			w.WriteHeader(404)
 		case r.URL.Path == "/repos/me/app":
-			w.Write([]byte(`{"default_branch":"main"}`))
-		case r.URL.Path == "/repos/me/app/git/ref/heads/main":
-			w.Write([]byte(`{"object":{"sha":"abc"}}`))
-		case r.URL.Path == "/repos/me/app/git/refs" && r.Method == "POST":
-			json.Unmarshal(body, &branch)
+			w.Write([]byte(`{"name":"app","private":true,"owner":{"login":"me","type":"User"}}`))
+		case r.URL.Path == "/repos/me/mako-uploads" && r.Method == "GET":
+			w.WriteHeader(404)
+		case r.URL.Path == "/user/repos" && r.Method == "POST":
+			json.Unmarshal(body, &repo)
 			w.WriteHeader(201)
-		case strings.HasPrefix(r.URL.Path, "/repos/me/app/contents/.mako/uploads/") && r.Method == "PUT":
+			w.Write([]byte(`{"private":true,"default_branch":"main"}`))
+		case strings.HasPrefix(r.URL.Path, "/repos/me/mako-uploads/contents/.mako/uploads/app/") && r.Method == "PUT":
 			json.Unmarshal(body, &commit)
 			w.WriteHeader(201)
 		default:
@@ -60,18 +59,103 @@ func TestGitHubCreateAndUpload(t *testing.T) {
 	if labels, _ := json.Marshal(created["labels"]); string(labels) != `["claude-agent","bug"]` {
 		t.Errorf("labels %s", labels)
 	}
-	if as, _ := json.Marshal(created["assignees"]); string(as) != `["serhii"]` {
+	if as, _ := json.Marshal(created["assignees"]); string(as) != `["me"]` {
 		t.Errorf("assignees %s", as)
 	}
 	md, err := g.Upload(ctx, "me/app", "shot 1.png", []byte("PNG"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if branch["ref"] != "refs/heads/mako-uploads" || branch["sha"] != "abc" || commit["branch"] != "mako-uploads" || commit["content"] != "UE5H" {
-		t.Errorf("branch %v commit %v", branch, commit)
+	if repo["name"] != "mako-uploads" || repo["private"] != true || repo["auto_init"] != true {
+		t.Errorf("repo %v", repo)
 	}
-	if !strings.HasPrefix(md, "![shot 1.png](https://") || !strings.Contains(md, "/me/app/blob/mako-uploads/.mako/uploads/") || !strings.HasSuffix(md, "-shot-1.png?raw=true)") {
+	if commit["branch"] != "main" || commit["content"] != "UE5H" {
+		t.Errorf("commit %v", commit)
+	}
+	if !strings.HasPrefix(md, "![shot 1.png](https://") || !strings.Contains(md, "/me/mako-uploads/blob/main/.mako/uploads/app/") || !strings.HasSuffix(md, "-shot-1.png?raw=true)") {
 		t.Errorf("markdown %s", md)
+	}
+}
+
+// The images repository: one per owner, as private as the project, made only when missing.
+func TestGitHubUploadRepo(t *testing.T) {
+	cases := []struct {
+		name, project, uploads, create string // answers: the project, GET <owner>/mako-uploads ("" = 404), the create
+		createPath                     string
+		wantPrivate                    bool
+		wantLink, wantErr              string
+	}{
+		{name: "org public project", project: `{"name":"app","private":false,"owner":{"login":"acme","type":"Organization"}}`,
+			create: `{"private":false,"default_branch":"main"}`, createPath: "/orgs/acme/repos",
+			wantLink: "/acme/mako-uploads/blob/main/.mako/uploads/app/"},
+		{name: "existing repo", project: `{"name":"app","private":true,"owner":{"login":"acme","type":"Organization"}}`,
+			uploads:  `{"private":true,"default_branch":"trunk"}`,
+			wantLink: "/acme/mako-uploads/blob/trunk/.mako/uploads/app/"},
+		{name: "public repo private project", project: `{"name":"app","private":true,"owner":{"login":"acme","type":"Organization"}}`,
+			uploads: `{"private":false,"default_branch":"main"}`, wantErr: "публічний, а проєкт приватний"},
+		{name: "no rights", project: `{"name":"app","private":true,"owner":{"login":"acme","type":"Organization"}}`,
+			create: "403", createPath: "/orgs/acme/repos", wantPrivate: true,
+			wantErr: "створіть acme/mako-uploads вручну або дайте токену право створювати репозиторії"},
+		{name: "someone else's user repo", project: `{"name":"app","private":false,"owner":{"login":"other","type":"User"}}`,
+			wantErr: "створіть other/mako-uploads вручну"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var made map[string]any
+			var commit map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				owner := strings.Split(strings.TrimPrefix(r.URL.Path, "/repos/"), "/")[0]
+				switch {
+				case r.URL.Path == "/user":
+					w.Write([]byte(`{"login":"me"}`))
+				case strings.HasSuffix(r.URL.Path, "/app") && r.Method == "GET":
+					w.Write([]byte(c.project))
+				case r.URL.Path == "/repos/"+owner+"/mako-uploads" && r.Method == "GET":
+					if c.uploads == "" {
+						w.WriteHeader(404)
+						return
+					}
+					w.Write([]byte(c.uploads))
+				case r.URL.Path == c.createPath && r.Method == "POST":
+					json.Unmarshal(body, &made)
+					if c.create == "403" {
+						w.WriteHeader(403)
+						w.Write([]byte(`{"message":"Resource not accessible by personal access token"}`))
+						return
+					}
+					w.WriteHeader(201)
+					w.Write([]byte(c.create))
+				case strings.HasPrefix(r.URL.Path, "/repos/"+owner+"/mako-uploads/contents/.mako/uploads/app/") && r.Method == "PUT":
+					json.Unmarshal(body, &commit)
+					w.WriteHeader(201)
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(404)
+				}
+			}))
+			defer srv.Close()
+			g, _ := NewGitHub(&config.Tracker{ID: "gh", APIURL: srv.URL}, "tok")
+			md, err := g.Upload(context.Background(), "acme/app", "shot.png", []byte("PNG"))
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) || commit != nil {
+					t.Errorf("err %v commit %v", err, commit)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.createPath != "" && (made["private"] != c.wantPrivate || made["auto_init"] != true) {
+				t.Errorf("made %v", made)
+			}
+			if c.createPath == "" && made != nil {
+				t.Errorf("made %v though the repo exists", made)
+			}
+			if !strings.Contains(md, c.wantLink) || !strings.HasSuffix(md, "-shot.png?raw=true)") || commit == nil {
+				t.Errorf("markdown %s commit %v", md, commit)
+			}
+		})
 	}
 }
 

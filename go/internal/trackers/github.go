@@ -361,44 +361,105 @@ func (g *GitHub) Create(ctx context.Context, n NewIssue) (core.Task, error) {
 	return g.toTask(n.Project, is), nil
 }
 
-// UploadBranch keeps the images pasted into new issues: GitHub's API cannot attach a file to an issue.
-const UploadBranch = "mako-uploads"
+// UploadRepo keeps the images pasted into new issues and the agents' screenshots: GitHub's API cannot attach
+// a file to an issue. One repository per owner (<owner>/mako-uploads), so the projects' own repositories
+// get no side branch that GitHub keeps offering to turn into a pull request.
+const UploadRepo = "mako-uploads"
 
-// Upload commits the image to UploadBranch (made from the default branch the first time) and links it.
+// Upload commits the image to <owner>/mako-uploads (made the first time, as private as the project) and links it.
 func (g *GitHub) Upload(ctx context.Context, repo, name string, data []byte) (string, error) {
-	if err := g.uploadBranch(ctx, repo); err != nil {
+	var project struct {
+		Name    string `json:"name"`
+		Private bool   `json:"private"`
+		Owner   struct {
+			Login string `json:"login"`
+			Type  string `json:"type"`
+		} `json:"owner"`
+	}
+	if err := g.do(ctx, "GET", "/repos/"+repo, nil, &project); err != nil {
 		return "", err
 	}
-	path := uploadPath(name)
-	body := map[string]any{"message": "Mako: " + path, "content": base64.StdEncoding.EncodeToString(data), "branch": UploadBranch}
-	if err := g.do(ctx, "PUT", "/repos/"+repo+"/contents/"+path, body, nil); err != nil {
+	owner, projectName, _ := strings.Cut(repo, "/")
+	if project.Owner.Login != "" {
+		owner = project.Owner.Login
+	}
+	if project.Name != "" {
+		projectName = project.Name
+	}
+	target := owner + "/" + UploadRepo
+	branch, err := g.uploadRepo(ctx, target, project.Owner.Type == "Organization", project.Private)
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("![%s](https://%s/%s/blob/%s/%s?raw=true)", name, g.Host(), repo, UploadBranch, path), nil
+	path := uploadPath(projectName, name)
+	body := map[string]any{"message": "Mako: " + repo + ": " + name, "content": base64.StdEncoding.EncodeToString(data), "branch": branch}
+	if err := g.do(ctx, "PUT", "/repos/"+target+"/contents/"+path, body, nil); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("![%s](https://%s/%s/blob/%s/%s?raw=true)", name, g.Host(), target, branch, path), nil
 }
 
-func (g *GitHub) uploadBranch(ctx context.Context, repo string) error {
-	err := g.do(ctx, "GET", "/repos/"+repo+"/git/ref/heads/"+UploadBranch, nil, nil)
-	if !isStatus(err, 404) {
-		return err
+type ghUploadRepo struct {
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"default_branch"`
+}
+
+// uploadRepo finds or makes the owner's images repository and answers the branch to commit to.
+// A private project's screenshots never go to a public one.
+func (g *GitHub) uploadRepo(ctx context.Context, target string, org, private bool) (string, error) {
+	created := false
+	for {
+		var r ghUploadRepo
+		err := g.do(ctx, "GET", "/repos/"+target, nil, &r)
+		if err == nil {
+			if private && !r.Private {
+				return "", fmt.Errorf("%s публічний, а проєкт приватний: скриншоти туди не вантажу — зробіть %s приватним", target, target)
+			}
+			if r.DefaultBranch == "" {
+				return "main", nil
+			}
+			return r.DefaultBranch, nil
+		}
+		if !isStatus(err, 404) || created {
+			return "", err
+		}
+		created = true
+		branch, err := g.createUploadRepo(ctx, target, org, private)
+		if err != nil || branch != "" {
+			return branch, err
+		}
+		// made meanwhile: look at it again
 	}
-	var r struct {
-		DefaultBranch string `json:"default_branch"`
+}
+
+// createUploadRepo answers the new repository's branch, or "" when it appeared meanwhile.
+func (g *GitHub) createUploadRepo(ctx context.Context, target string, org, private bool) (string, error) {
+	owner, name, _ := strings.Cut(target, "/")
+	cantCreate := func(err error) error {
+		return fmt.Errorf("не вдалося створити %s: створіть %s вручну або дайте токену право створювати репозиторії (%v)", target, target, err)
 	}
-	if err := g.do(ctx, "GET", "/repos/"+repo, nil, &r); err != nil {
-		return err
+	path := "/orgs/" + owner + "/repos"
+	if !org {
+		me, err := g.Me(ctx)
+		if err != nil {
+			return "", err
+		}
+		if !strings.EqualFold(me, owner) {
+			return "", cantCreate(fmt.Errorf("токен належить %s, а не %s", me, owner))
+		}
+		path = "/user/repos"
 	}
-	var head struct {
-		Object struct {
-			SHA string `json:"sha"`
-		} `json:"object"`
+	body := map[string]any{"name": name, "private": private, "auto_init": true,
+		"description": "Images Mako attaches to issues and merge requests"}
+	var r ghUploadRepo
+	err := g.do(ctx, "POST", path, body, &r)
+	switch {
+	case isStatus(err, 422): // made meanwhile
+		return "", nil
+	case err != nil:
+		return "", cantCreate(err)
+	case r.DefaultBranch == "":
+		return "main", nil
 	}
-	if err := g.do(ctx, "GET", "/repos/"+repo+"/git/ref/heads/"+url.PathEscape(r.DefaultBranch), nil, &head); err != nil {
-		return err
-	}
-	err = g.do(ctx, "POST", "/repos/"+repo+"/git/refs", map[string]any{"ref": "refs/heads/" + UploadBranch, "sha": head.Object.SHA}, nil)
-	if isStatus(err, 422) { // made meanwhile
-		return nil
-	}
-	return err
+	return r.DefaultBranch, nil
 }
