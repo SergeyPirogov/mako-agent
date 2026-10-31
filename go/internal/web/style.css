@@ -292,6 +292,28 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .diff-head .dname { flex: none; }
 .diff-head .num { flex: none; font: 12px var(--mono); }
 .diff-view > .diff { flex: 1; min-height: 0; }
+/* Comments on lines: the line numbers pick the lines, the comments sit under them, the draft review under the diff. */
+.diff[data-notes] .ln[data-row] { cursor: pointer; user-select: none; }
+.diff[data-notes] .ln[data-row]:hover { color: var(--accent); box-shadow: inset 2px 0 var(--accent); }
+.diff .dl.picked, .diff .dl.picked .ln, .diff .dl2 .picked { background: color-mix(in srgb, var(--accent) 16%, var(--card)); }
+.dnote { position: sticky; left: 8px; width: 560px; max-width: calc(100vw - 96px); box-sizing: border-box; margin: 4px 8px 8px; padding: 8px 10px;
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; white-space: normal; background: var(--card);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; }
+.dnote.sent { border-left-color: var(--ok); opacity: .85; }
+.dnote-h { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mute); }
+.dnote-h .icon { width: 22px; height: 22px; padding: 0; }
+.dnote-k { font-weight: 600; color: var(--fg); }
+.dnote.sent .dnote-k { color: var(--ok); }
+.dnote-t { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dnote textarea { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; padding: 6px 8px; font: inherit; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; resize: vertical; }
+.dnote textarea:focus { outline: none; border-color: var(--accent); }
+.dnote-a { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.dnote-a button { padding: 4px 10px; }
+.review-bar { display: flex; align-items: center; gap: 10px; flex: none; padding: 6px 10px; font-size: 13px; border: 1px solid var(--line);
+  border-left: 3px solid var(--accent); border-radius: 10px; background: var(--card); }
+.review-bar .err { color: var(--err); }
+.review-bar button { padding: 4px 12px; }
 .dnav { display: inline-flex; flex: none; }
 .dnav .icon { width: 26px; height: 26px; font-size: 13px; }
 @media (max-width: 1000px) { .split { flex-direction: column; } .inspector { width: auto; } .files { max-height: 260px; } }

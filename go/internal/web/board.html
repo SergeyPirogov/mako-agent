@@ -65,6 +65,10 @@ let workOf = null, workStarted = false, changes = null, openFiles = [], fileTab 
 let review = null, mrNote = "", journalOpen = false;
 // The branch's history for the commits' graph, and the commits opened in it (hash → their message and files).
 let commitLog = null, commitOpen = {};
+// Comments on the diff's lines, per task: a draft review until it goes to the agent, then shown on the lines
+// until the agent changes them. The lines being commented ({path, rows, line, edit}) and what is written so far.
+let notes = (() => { try { return JSON.parse(localStorage.getItem("mako-notes")) || {}; } catch { return {}; } })();
+let pick = null, pickText = "", reviewNote = "";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -339,7 +343,10 @@ async function loadWork() {
   });
   await Promise.all([
     part(`/api/changes?${q}`, (v) => (changes = v), !changes),
-    part(path && `/api/diff?${q}&path=${encodeURIComponent(path)}${diffWhole ? "&whole=1" : ""}`, (v) => (diffs[path] = v.error ? `⚠ ${v.error}` : v.diff || ""), !(path in diffs)),
+    part(path && `/api/diff?${q}&path=${encodeURIComponent(path)}${diffWhole ? "&whole=1" : ""}`, (v) => {
+      diffs[path] = v.error ? `⚠ ${v.error}` : v.diff || "";
+      if (!v.error) dropChangedNotes(r.id, path, diffs[path]);
+    }, !(path in diffs)),
     part(r.prUrl && `/api/review?${q}`, (v) => {
       review = v;
       // An MR ready to merge opens the side card on its tab, once per task and not over the user's own choice.
@@ -375,7 +382,7 @@ let diffWhole = (() => { try { return localStorage.getItem("mako-diff-whole") ==
 
 // A unified diff as hunks of rows (context, removed, added) with their line numbers; what is not a row is a note.
 function parseDiff(text) {
-  const d = { notes: [], hunks: [], numbered: false };
+  const d = { notes: [], hunks: [], rows: [], numbered: false };
   let h = null, o = 1, n = 1;
   for (const l of String(text ?? "").split("\n")) {
     const m = l.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)/);
@@ -386,7 +393,10 @@ function parseDiff(text) {
     const t = l[0];
     if (t !== "+" && t !== "-" && t !== " ") { if (l.trim()) d.notes.push(l); continue; }
     if (!h) { h = { rows: [] }; d.hunks.push(h); } // an edit without hunk headers: a tool card's
-    h.rows.push(t === "+" ? { t, n: n++, s: l.slice(1) } : t === "-" ? { t, o: o++, s: l.slice(1) } : { t, o: o++, n: n++, s: l.slice(1) });
+    const row = t === "+" ? { t, n: n++, s: l.slice(1) } : t === "-" ? { t, o: o++, s: l.slice(1) } : { t, o: o++, n: n++, s: l.slice(1) };
+    row.i = d.rows.length;
+    d.rows.push(row);
+    h.rows.push(row);
     h.oEnd = o;
   }
   for (const hk of d.hunks) markWords(hk.rows);
@@ -417,8 +427,14 @@ const codeHTML = (r) => !r ? "" : r.mark && r.mark[1] > r.mark[0]
   : esc(r.s) || " ";
 
 // The diff: line numbers, the changed words marked, unchanged lines between hunks folded; one column or side by side.
-function diffHTML(text, mode = "unified") {
+// annotate, when given, makes the line numbers pickable for comments: it says which rows are picked and what
+// goes under a row ({picked: Set, after: {row: html}, end: html}).
+function diffHTML(text, mode = "unified", annotate = null) {
   const d = parseDiff(text), CLS = { "+": "da", "-": "dd", " ": "" };
+  const ann = d.hunks.length && d.numbered && annotate ? annotate(d) : null;
+  const ln = (num, r) => `<span class="ln"${ann ? ` data-row="${r.i}"` : ""}>${num ?? ""}</span>`;
+  const picked = (r) => (ann?.picked.has(r.i) ? " picked" : "");
+  const after = (...rs) => (ann ? [...new Set(rs.filter(Boolean))].map((r) => ann.after[r.i] ?? "").join("") : "");
   const notes = d.notes.map((x) => `<div class="diff-note">${esc(x)}</div>`).join("");
   if (!d.hunks.length) return `<div class="diff">${notes || `<div class="diff-note">Змін немає</div>`}</div>`;
   const last = Math.max(...d.hunks.map((h) => h.oEnd ?? 0), ...d.hunks.flatMap((h) => h.rows.map((r) => r.n ?? 0)));
@@ -433,25 +449,117 @@ function diffHTML(text, mode = "unified") {
     if (mode === "split") {
       for (let i = 0; i < h.rows.length;) {
         const r = h.rows[i];
-        if (r.t === " ") { out += splitRow(r, r); i++; continue; }
+        if (r.t === " ") { out += splitRow(r, r, false, ann) + after(r); i++; continue; }
         let j = i; while (j < h.rows.length && h.rows[j].t === "-") j++;
         let k = j; while (k < h.rows.length && h.rows[k].t === "+") k++;
-        for (let p = 0; p < Math.max(j - i, k - j); p++) out += splitRow(i + p < j ? h.rows[i + p] : null, j + p < k ? h.rows[j + p] : null, p === 0);
+        for (let p = 0; p < Math.max(j - i, k - j); p++) {
+          const a = i + p < j ? h.rows[i + p] : null, b = j + p < k ? h.rows[j + p] : null;
+          out += splitRow(a, b, p === 0, ann) + after(a, b);
+        }
         i = k;
       }
     } else {
-      h.rows.forEach((r, x) => out += `<div class="dl ${CLS[r.t]}${r.t !== " " && h.rows[x - 1]?.t !== r.t && h.rows[x - 1]?.t !== "-" ? " dstart" : ""}"><span class="ln">${r.o ?? ""}</span><span class="ln">${r.n ?? ""}</span><span class="sg">${r.t.trim()}</span><span class="code">${codeHTML(r)}</span></div>`);
+      h.rows.forEach((r, x) => out += `<div class="dl ${CLS[r.t]}${r.t !== " " && h.rows[x - 1]?.t !== r.t && h.rows[x - 1]?.t !== "-" ? " dstart" : ""}${picked(r)}">${ln(r.o, r)}${ln(r.n, r)}<span class="sg">${r.t.trim()}</span><span class="code">${codeHTML(r)}</span></div>` + after(r));
     }
   }
-  return `<div class="diff ${mode}${d.numbered ? "" : " bare"}" style="--lw:${lw}">${notes}<div class="diff-rows">${out}</div></div>`;
+  if (ann?.end) out += ann.end;
+  return `<div class="diff ${mode}${d.numbered ? "" : " bare"}"${ann ? " data-notes" : ""} style="--lw:${lw}">${notes}<div class="diff-rows">${out}</div></div>`;
 }
-const splitRow = (a, b, start) => `<div class="dl2${start ? " dstart" : ""}"><span class="ln ${a ? CLS2(a) : "dx"}">${a?.o ?? ""}</span><span class="code ${a ? CLS2(a) : "dx"}">${codeHTML(a)}</span>` +
-  `<span class="ln ${b ? CLS2(b) : "dx"}">${b?.n ?? ""}</span><span class="code ${b ? CLS2(b) : "dx"}">${codeHTML(b)}</span></div>`;
+const splitRow = (a, b, start, ann) => {
+  const cell = (r, num) => {
+    const cls = r ? CLS2(r) + (ann?.picked.has(r.i) ? " picked" : "") : "dx";
+    return `<span class="ln ${cls}"${r && ann ? ` data-row="${r.i}"` : ""}>${r ? num(r) ?? "" : ""}</span><span class="code ${cls}">${codeHTML(r)}</span>`;
+  };
+  return `<div class="dl2${start ? " dstart" : ""}">${cell(a, (r) => r.o)}${cell(b, (r) => r.n)}</div>`;
+};
 const CLS2 = (r) => ({ "+": "da", "-": "dd", " ": "" })[r.t];
+
+// Comments on lines. A comment keeps the lines it was written on ({t, o, n, s}): it is shown where the same lines
+// are in the diff now, and is gone once the agent has changed them.
+const saveNotes = () => { try { localStorage.setItem("mako-notes", JSON.stringify(notes)); } catch {} };
+const notesOf = (id) => (notes[id] ??= []);
+const lineOf = (r) => r.n ?? r.o ?? 0;
+// Where the lines are in the diff: the run of the same rows nearest to where they were, or -1.
+function linesAt(rows, want, line) {
+  let best = -1;
+  for (let p = 0; p + want.length <= rows.length; p++) {
+    if (!want.every((x, j) => rows[p + j].t === x.t && rows[p + j].s === x.s)) continue;
+    if (best < 0 || Math.abs(lineOf(rows[p]) - line) < Math.abs(lineOf(rows[best]) - line)) best = p;
+  }
+  return best;
+}
+// The lines are not in the diff, though it shows where they were: the agent has changed them.
+function linesChanged(rows, want) {
+  if (linesAt(rows, want, lineOf(want[0])) >= 0) return false;
+  const side = want.some((x) => x.n != null) ? "n" : "o", nums = want.map((x) => x[side]).filter((x) => x != null);
+  const lo = Math.min(...nums), hi = Math.max(...nums);
+  return rows.some((r) => r[side] != null && r[side] >= lo && r[side] <= hi);
+}
+// A comment already with the agent is let go once the agent has changed its lines; a draft stays until sent.
+function dropChangedNotes(id, path, text) {
+  const list = notes[id];
+  if (!list?.length) return;
+  const rows = parseDiff(text).rows;
+  const keep = list.filter((n) => !n.sent || n.path !== path || !linesChanged(rows, n.rows));
+  if (keep.length !== list.length) { notes[id] = keep; saveNotes(); }
+}
+// «рядок 12», «рядки 12–15»; only removed lines are counted in the file as it was.
+function linesLabel(rows) {
+  const ns = rows.map((x) => x.n).filter((x) => x != null), os = rows.map((x) => x.o).filter((x) => x != null);
+  const span = (a) => { const lo = Math.min(...a), hi = Math.max(...a); return lo === hi ? `${lo}` : `${lo}–${hi}`; };
+  if (ns.length) return `${ns.length > 1 ? "рядки" : "рядок"} ${span(ns)}`;
+  return `${os.length > 1 ? "видалені рядки" : "видалений рядок"} ${span(os)}`;
+}
+// The draft review as one message to the agent: for each comment the file, the lines, their code and the comment.
+function reviewMessage(list) {
+  const items = list.map((n, i) => {
+    const code = n.rows.map((x) => x.t + x.s).join("\n");
+    const fence = "`".repeat(Math.max(3, ...(code.match(/`+/g) ?? []).map((m) => m.length + 1)));
+    return `${i + 1}. ${n.path}, ${linesLabel(n.rows)}:\n${fence}diff\n${code}\n${fence}\n${n.text}`;
+  });
+  return `Коментарі до змін — виправ, будь ласка (у фрагментах «+» додано, «-» видалено):\n\n${items.join("\n\n")}`;
+}
+// A file's comments in its diff: the picked lines with the box to write in, the comments under their lines.
+function noteAnnotations(id, path) {
+  return (d) => {
+    const ann = { picked: new Set(), after: {}, end: "" };
+    const put = (at, html) => (at < 0 ? (ann.end += html) : (ann.after[at] = (ann.after[at] ?? "") + html));
+    for (const n of notesOf(id)) {
+      if (n.path !== path || n.id === pick?.edit) continue;
+      const p = linesAt(d.rows, n.rows, n.line);
+      if (p < 0) continue;
+      put(p + n.rows.length - 1, `<div class="dnote${n.sent ? " sent" : ""}"><div class="dnote-h">
+          <span class="dnote-k">${n.sent ? "Надіслано агенту" : "Чернетка"}</span><span>${linesLabel(n.rows)}</span><span class="spacer"></span>
+          ${n.sent ? "" : `<button type="button" class="icon" data-note-edit="${esc(n.id)}" title="Змінити" aria-label="Змінити">✎</button>`}
+          <button type="button" class="icon" data-note-del="${esc(n.id)}" title="${n.sent ? "Сховати" : "Видалити"}" aria-label="${n.sent ? "Сховати" : "Видалити"}">×</button>
+        </div><div class="dnote-t">${esc(n.text)}</div></div>`);
+    }
+    if (pick?.path === path) {
+      const p = linesAt(d.rows, pick.rows, pick.line);
+      for (let i = 0; p >= 0 && i < pick.rows.length; i++) ann.picked.add(p + i);
+      put(p < 0 ? -1 : p + pick.rows.length - 1, `<div class="dnote edit"><div class="dnote-h"><span class="dnote-k">Коментар агенту</span><span>${linesLabel(pick.rows)}</span></div>
+        <textarea id="note-input" rows="3" aria-label="Коментар до рядків" placeholder="Що тут не так або що змінити"></textarea>
+        <div class="dnote-a"><button type="button" class="primary" data-note-save>${pick.edit ? "Зберегти" : "Додати в рев'ю"}</button>
+          <button type="button" data-note-cancel>Скасувати</button><span class="muted">⌘/Ctrl+Enter — додати · Esc — скасувати</span></div></div>`);
+    }
+    return ann;
+  };
+}
+// The draft review under the diff: how many comments wait for the agent, and the way to send them.
+function reviewBar(id) {
+  const drafts = notesOf(id).filter((n) => !n.sent);
+  if (!drafts.length && !reviewNote) return "";
+  const files = new Set(drafts.map((n) => n.path)).size;
+  return `<div class="review-bar">${drafts.length ? `<span>Чернетка рев'ю: <b>${drafts.length}</b> ${plural(drafts.length, "коментар", "коментарі", "коментарів")}${files > 1 ? ` у ${files} файлах` : ""}</span>` : ""}
+    ${reviewNote ? `<span class="${reviewNote.startsWith("⚠") ? "err" : "muted"}">${esc(reviewNote)}</span>` : ""}<span class="spacer"></span>
+    ${drafts.length ? `<button type="button" data-review-clear>Очистити</button><button type="button" class="primary" data-review-send>Надіслати агенту</button>` : ""}</div>`;
+}
 
 // An open file: its path, what it gained and lost, the view and the way to the editor, then its diff.
 function diffView(r, path) {
   const f = changes?.files?.find((x) => x.path === path);
+  // Comments go to Mako's own agent; an agent in Orca has no way to get them.
+  const canNote = r.executor === "terminal";
   const cut = path.lastIndexOf("/") + 1;
   const status = f ? (f.status === "?" ? "N" : f.status) : "";
   const seg = ["unified", "split"].map((m) => `<button type="button" class="${diffMode === m ? "on" : ""}" data-dmode="${m}">${m === "unified" ? "Рядком" : "Поруч"}</button>`).join("");
@@ -464,7 +572,7 @@ function diffView(r, path) {
       <span class="seg" role="group" aria-label="Скільки файла">${scope}</span>
       <span class="seg" role="group" aria-label="Вигляд змін">${seg}</span>
       ${data.editor ? `<button type="button" class="icon" data-open-file="${esc(path)}" title="Відкрити в ${esc(data.editor)}" aria-label="Відкрити в ${esc(data.editor)}">${ICON.code}</button>` : ""}
-    </div>${path in diffs ? diffHTML(diffs[path], diffMode) : `<div class="diff"><div class="diff-note">Читаю…</div></div>`}</div>`;
+    </div>${path in diffs ? diffHTML(diffs[path], diffMode, canNote ? noteAnnotations(r.id, path) : null) : `<div class="diff"><div class="diff-note">Читаю…</div></div>`}${canNote ? reviewBar(r.id) : ""}</div>`;
 }
 
 // The changed files as a tree of folders; a folder with only one folder inside shares its row («src/app»).
@@ -874,6 +982,7 @@ function renderDetail() {
     workOf = r.id;
     itab = "changes"; itabPicked = false;
     changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
+    pick = null; pickText = ""; reviewNote = "";
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
   } else if (started && !workStarted) {
@@ -931,7 +1040,18 @@ function renderDetail() {
   // The board reloads every 5 s: the same page is left as it is, so the terminal keeps its focus and selection.
   if (html === shown) return;
   const typing = tv?.el.contains(document.activeElement) || cv?.el.contains(document.activeElement);
+  // The diff stays where it was scrolled to, and a comment being written keeps its cursor.
+  const box = $("detail").querySelector(".diff-view > .diff"), scrolled = box && { path: box.dataset.path, top: box.scrollTop, left: box.scrollLeft };
+  const writing = document.activeElement?.id === "note-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   $("detail").innerHTML = shown = html;
+  const box2 = $("detail").querySelector(".diff-view > .diff");
+  if (box2) box2.dataset.path = fileTab;
+  if (box2 && scrolled?.path === fileTab) { box2.scrollTop = scrolled.top; box2.scrollLeft = scrolled.left; }
+  const input = $("note-input");
+  if (input) {
+    input.value = pickText;
+    if (writing) { input.focus(); input.setSelectionRange(...writing); }
+  }
   if (term && $("term-slot") && view === "chat") {
     closeTerminal();
     const c = chatFor(r.id);
@@ -989,6 +1109,7 @@ function renderDetail() {
   for (const btn of $("detail").querySelectorAll("[data-open]")) btn.onclick = () => fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=${btn.dataset.open}`, { method: "POST" });
   for (const btn of $("detail").querySelectorAll("[data-open-file]")) btn.onclick = () =>
     fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=editor&file=${encodeURIComponent(btn.dataset.openFile)}`, { method: "POST" });
+  bindNotes(r);
   for (const btn of $("detail").querySelectorAll("[data-dwhole]")) btn.onclick = () => {
     diffWhole = btn.dataset.dwhole === "1";
     try { localStorage.setItem("mako-diff-whole", diffWhole ? "1" : "0"); } catch {}
@@ -1030,6 +1151,100 @@ function renderDetail() {
   };
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
   $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
+}
+
+// Comments on the open file's lines: a click on a line number (Shift+click or a drag for several) opens the box
+// to write in; the comments gather in the draft review, which goes to the agent as one message.
+function bindNotes(r) {
+  const box = $("detail").querySelector(".diff-view > .diff[data-notes]");
+  if (box) {
+    const rows = () => parseDiff(diffs[fileTab]).rows;
+    const show = (a, b) => {
+      for (const el of box.querySelectorAll("[data-row]")) {
+        const on = +el.dataset.row >= Math.min(a, b) && +el.dataset.row <= Math.max(a, b);
+        if (el.parentElement.classList.contains("dl")) el.parentElement.classList.toggle("picked", on);
+        else { el.classList.toggle("picked", on); el.nextElementSibling?.classList.toggle("picked", on); }
+      }
+    };
+    box.onmousedown = (e) => {
+      const ln = e.target.closest("[data-row]");
+      if (!ln || e.button !== 0) return;
+      e.preventDefault();
+      const all = rows(), at = +ln.dataset.row;
+      // Shift+click goes on from the lines already picked in this file.
+      const from = e.shiftKey && pick?.path === fileTab && !pick.edit ? linesAt(all, pick.rows, pick.line) : -1;
+      const drag = { a: from >= 0 ? from : at, b: at };
+      show(drag.a, drag.b);
+      box.onmouseover = (ev) => {
+        const over = ev.target.closest("[data-row]");
+        if (over) { drag.b = +over.dataset.row; show(drag.a, drag.b); }
+      };
+      document.addEventListener("mouseup", () => {
+        box.onmouseover = null;
+        const lo = Math.min(drag.a, drag.b), hi = Math.max(drag.a, drag.b), picked = all.slice(lo, hi + 1).map(({ t, o, n, s }) => ({ t, o, n, s }));
+        if (!pick || pick.edit) pickText = "";
+        pick = { path: fileTab, rows: picked, line: lineOf(picked[0]) };
+        renderDetail();
+        $("note-input")?.focus();
+      }, { once: true });
+    };
+  }
+  const input = $("note-input");
+  const cancel = () => { pick = null; pickText = ""; renderDetail(); };
+  const save = () => {
+    const text = pickText.trim(), list = notesOf(r.id);
+    if (pick.edit) {
+      const n = list.find((x) => x.id === pick.edit);
+      if (n && text) n.text = text;
+      else if (n) list.splice(list.indexOf(n), 1);
+    } else if (text) list.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), path: pick.path, rows: pick.rows, line: pick.line, text });
+    saveNotes();
+    reviewNote = "";
+    cancel();
+  };
+  if (input) {
+    input.oninput = () => (pickText = input.value);
+    input.onkeydown = (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+      else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+    };
+  }
+  for (const btn of $("detail").querySelectorAll("[data-note-save]")) btn.onclick = save;
+  for (const btn of $("detail").querySelectorAll("[data-note-cancel]")) btn.onclick = cancel;
+  for (const btn of $("detail").querySelectorAll("[data-note-edit]")) btn.onclick = () => {
+    const n = notesOf(r.id).find((x) => x.id === btn.dataset.noteEdit);
+    if (!n) return;
+    pick = { path: n.path, rows: n.rows, line: n.line, edit: n.id };
+    pickText = n.text;
+    renderDetail();
+    $("note-input")?.focus();
+  };
+  for (const btn of $("detail").querySelectorAll("[data-note-del]")) btn.onclick = () => {
+    notes[r.id] = notesOf(r.id).filter((x) => x.id !== btn.dataset.noteDel);
+    saveNotes();
+    renderDetail();
+  };
+  for (const btn of $("detail").querySelectorAll("[data-review-clear]")) btn.onclick = () => {
+    if (!confirm("Видалити всі коментарі чернетки?")) return;
+    notes[r.id] = notesOf(r.id).filter((x) => x.sent);
+    saveNotes();
+    reviewNote = "";
+    renderDetail();
+  };
+  for (const btn of $("detail").querySelectorAll("[data-review-send]")) btn.onclick = async () => {
+    const drafts = notesOf(r.id).filter((x) => !x.sent);
+    if (!drafts.length) return;
+    btn.disabled = true;
+    const res = await fetch(`/api/say?id=${encodeURIComponent(r.id)}`, { method: "POST", body: reviewMessage(drafts) }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    if (res.ok === false) reviewNote = `⚠ ${res.error}`;
+    else {
+      for (const n of drafts) n.sent = true;
+      saveNotes();
+      reviewNote = `Надіслано агенту: ${drafts.length} ${plural(drafts.length, "коментар", "коментарі", "коментарів")}`;
+      if (cv?.id === r.id) { if (!cv.snap?.live) cv.version = -1; pollChat(); }
+    }
+    renderDetail();
+  };
 }
 
 // The task from the link, else the one open last time.
