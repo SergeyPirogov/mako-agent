@@ -220,3 +220,11 @@ func TestChecks(t *testing.T) {
 		t.Errorf("timeout %s tries %d", cfg.Terminal.CheckTimeout(), cfg.Terminal.CheckTries())
 	}
 }
+
+func TestParseAutoTakeOnly(t *testing.T) {
+	for in, want := range map[string]string{"": AutoTakeAll, "all": AutoTakeAll, "smallClear": AutoTakeSmallClear, "small": AutoTakeSmall, "big": AutoTakeAll} {
+		if c, _ := Parse([]byte(`{"notifications":{"autoTake":true,"autoTakeOnly":"`+in+`"}}`), nil); c.Notifications.AutoTakeOnly != want || !c.Notifications.AutoTake {
+			t.Errorf("autoTakeOnly %q: %+v, want %q", in, c.Notifications, want)
+		}
+	}
+}

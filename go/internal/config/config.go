@@ -61,6 +61,13 @@ type Reviewer struct {
 	When string
 }
 
+// Notifications' AutoTakeOnly.
+const (
+	AutoTakeAll        = "all"
+	AutoTakeSmallClear = "smallClear"
+	AutoTakeSmall      = "small"
+)
+
 // Reviewer's When.
 const (
 	ReviewAlways = "always"
@@ -81,10 +88,13 @@ const (
 )
 
 type Notifications struct {
-	Enabled   bool
-	AutoTake  bool
-	SnoozeMin int
-	Port      int
+	Enabled  bool
+	AutoTake bool
+	// AutoTakeOnly: which new tasks AutoTake takes, by their estimate: "all", "smallClear" (small, clear and
+	// with no questions about the description) or "small". In the last two a task with no estimate stays.
+	AutoTakeOnly string
+	SnoozeMin    int
+	Port         int
 	// MorningMin: when the morning digest goes out, in minutes after midnight; -1: never.
 	MorningMin int
 	// AwayHours: the board not seen this long shows what happened meanwhile.
@@ -267,12 +277,13 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		BranchPattern:    orStr(raw.BranchPattern, DefaultBranchPattern),
 		Env:              env,
 		Notifications: Notifications{
-			Enabled:   raw.Notifications.Enabled == nil || *raw.Notifications.Enabled,
-			AutoTake:  raw.Notifications.AutoTake != nil && *raw.Notifications.AutoTake,
-			SnoozeMin: orInt(raw.Notifications.SnoozeMin, 60),
-			Port:      orInt(raw.Notifications.InboxPort, 7777),
-			AwayHours: orInt(raw.Notifications.AwayHours, 4),
-			Off:       map[string]bool{},
+			Enabled:      raw.Notifications.Enabled == nil || *raw.Notifications.Enabled,
+			AutoTake:     raw.Notifications.AutoTake != nil && *raw.Notifications.AutoTake,
+			AutoTakeOnly: autoTakeOnly(raw.Notifications.AutoTakeOnly),
+			SnoozeMin:    orInt(raw.Notifications.SnoozeMin, 60),
+			Port:         orInt(raw.Notifications.InboxPort, 7777),
+			AwayHours:    orInt(raw.Notifications.AwayHours, 4),
+			Off:          map[string]bool{},
 		},
 		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
 		Reviewer: Reviewer{
@@ -558,6 +569,15 @@ type rawConfig struct {
 	Trackers        []rawTracker `json:"trackers"`
 }
 
+// autoTakeOnly: Notifications' AutoTakeOnly, "all" for anything else.
+func autoTakeOnly(s string) string {
+	switch s = strings.TrimSpace(s); s {
+	case AutoTakeSmallClear, AutoTakeSmall:
+		return s
+	}
+	return AutoTakeAll
+}
+
 // reviewWhen: the reviewer's When, "always" for anything else.
 func reviewWhen(s string) string {
 	switch s = strings.TrimSpace(s); s {
@@ -582,10 +602,12 @@ func (r rawConfig) executorOrder() []string {
 }
 
 type rawNotifications struct {
-	Enabled   *bool `json:"enabled"`
-	AutoTake  *bool `json:"autoTake"`
-	SnoozeMin *int  `json:"snoozeMin"`
-	InboxPort *int  `json:"inboxPort"`
+	Enabled  *bool `json:"enabled"`
+	AutoTake *bool `json:"autoTake"`
+	// AutoTakeOnly: "all" (default), "smallClear" or "small".
+	AutoTakeOnly string `json:"autoTakeOnly"`
+	SnoozeMin    *int   `json:"snoozeMin"`
+	InboxPort    *int   `json:"inboxPort"`
 	// MorningDigest: "09:00", "-" for none.
 	MorningDigest string `json:"morningDigest"`
 	AwayHours     *int   `json:"awayHours"`
