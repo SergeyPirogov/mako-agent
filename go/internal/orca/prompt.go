@@ -80,11 +80,15 @@ const DefaultHandoffForMe = "## Finish with commits, not a merge request\n" +
 	"4. Reply with a ready merge request: a title (what it does, in a sentence) and a Markdown description with\n" +
 	"   \"## What changed\", \"## How it was checked\", \"## Worth a look\", ending with \"{closingRef}\"."
 
-// FullPrompt: the task, what to do differently when it is a new attempt, and how to finish.
+// FullPrompt: the task, what to do differently when it is a new attempt, screenshots for UI changes and how to
+// finish.
 func FullPrompt(j Job, o config.Orca) string {
 	parts := []string{Prompt(j.Task, j.TrackerName)}
 	if again := Again(j.RetryNote, j.LastAttempt); again != "" {
 		parts = append(parts, again)
+	}
+	if shots := Screenshots(j); shots != "" {
+		parts = append(parts, shots)
 	}
 	return strings.Join(append(parts, Instructions(o.Instructions, o.MRBy, j)), "\n\n")
 }
@@ -105,6 +109,40 @@ func Again(note, last string) string {
 		b.WriteString("\n\n### What the developer wants done differently\n" + note + "\n\nFollow this over anything the last attempt did.")
 	}
 	return b.String()
+}
+
+// MakoCommand: how the agent runs this Mako (its executable, quoted for the shell); "" leaves screenshots out of
+// the prompt.
+var MakoCommand = ""
+
+// Screenshots: how the agent shows a UI change, «before» and «after», in the chat and the MR.
+func Screenshots(j Job) string {
+	if MakoCommand == "" {
+		return ""
+	}
+	base := "HEAD" // origin/HEAD: the remote's default branch
+	if j.Repo != nil && j.Repo.BaseBranch != "" {
+		base = j.Repo.BaseBranch
+	}
+	shot := MakoCommand + " screenshot -task " + ShellQuote(j.Task.ID)
+	return "## Screenshots for UI changes\n" +
+		"If the task changes what people see (a page, a form, the board, the settings), show it «before» and «after»:\n" +
+		"1. Before you change it: `" + shot + " -name before -rev origin/" + base + "`; once it works: `" + shot + " -name after`.\n" +
+		"   Add `-page /settings` (or the page you changed; `-size 390x844` for a phone) when it is not the main page.\n" +
+		"   This builds Mako from the worktree (or the revision) and runs it read-only on a free port with a copy of the\n" +
+		"   current Mako's data, then photographs it in headless Chrome. For a project other than Mako, run its local\n" +
+		"   build on a free port (the base branch in a temporary `git worktree` for «before») and add `-url http://127.0.0.1:<port>/<page>`.\n" +
+		"2. Mako shows each screenshot in the task's chat on its board; the command prints a Markdown image for it.\n" +
+		"   Put both in the merge request description under \"## Screenshots\" (before, then after).\n" +
+		"3. If a screenshot cannot be taken (no Chrome, the app does not start), say why in the description."
+}
+
+// ShellQuote: s as one word for the shell.
+func ShellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 var placeholder = regexp.MustCompile(`\{(\w+)\}`)

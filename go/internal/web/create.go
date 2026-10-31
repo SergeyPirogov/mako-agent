@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
@@ -59,5 +61,41 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "markdown": md})
+	})
+	// `mako screenshot`: the task's agent hands over a screenshot of its UI, for the chat and the MR.
+	mux.HandleFunc("POST /api/screenshot", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) || remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(r.Body, maxImage+1))
+		if err == nil && len(data) > maxImage {
+			writeJSON(w, map[string]any{"ok": false, "error": "зображення більше 10 МБ"})
+			return
+		}
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		q := r.URL.Query()
+		local, md, upErr, err := s.D.Screenshot(context.WithoutCancel(r.Context()), q.Get("id"), q.Get("name"), data)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		reply := map[string]any{"ok": true, "url": local, "markdown": md}
+		if upErr != nil {
+			reply["uploadError"] = upErr.Error()
+		}
+		writeJSON(w, reply)
+	})
+	mux.HandleFunc("GET /api/screenshots/{task}/{file}", func(w http.ResponseWriter, r *http.Request) {
+		task, file := r.PathValue("task"), r.PathValue("file")
+		if task != filepath.Base(task) || file != filepath.Base(file) || strings.HasPrefix(task, ".") || strings.HasPrefix(file, ".") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+		http.ServeFile(w, r, filepath.Join(s.D.Config().StateDir, "screenshots", task, file))
 	})
 }

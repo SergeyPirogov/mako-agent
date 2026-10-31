@@ -24,6 +24,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/desktop"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
+	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
@@ -40,23 +41,43 @@ var source = ""
 func init() { runtime.LockOSThread() }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "screenshot" {
+		if err := screenshot(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "mako screenshot:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	homeFlag := flag.String("home", "", "папка з mako.config.json і .env (типово MAKO_HOME, ~/.mako або папка застосунку Mako)")
 	open := flag.Bool("open", false, "відкрити дошку в браузері")
 	noTray := flag.Bool("no-tray", false, "без значка в рядку меню: лише дошка в браузері")
+	readonly := flag.Bool("readonly", false, "лише показати дошку (для скриншотів): без пошуку задач, агентів і змін")
+	port := flag.Int("port", 0, "порт дошки замість налаштованого")
 	flag.Parse()
-	if err := run(*homeFlag, *open, *noTray); err != nil {
+	if *readonly {
+		*noTray, *open = true, false
+	}
+	if err := run(*homeFlag, *open, *noTray, *readonly, *port); err != nil {
 		fmt.Fprintln(os.Stderr, "mako:", err)
 		os.Exit(1)
 	}
 }
 
-func run(homeFlag string, open, noTray bool) error {
+func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	desktop.FixPath()
 	home := findHome(homeFlag)
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err
 	}
 	cfg, ts, problems := setup.Build(home)
+	if readonly {
+		// A Mako for screenshots runs on a copy of the data in home: never on the state of the real one.
+		cfg.StateDir = filepath.Join(home, ".mako")
+		cfg.Notifications.Enabled = false
+	}
+	if port > 0 {
+		cfg.Notifications.Port = port
+	}
 	if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
 		return err
 	}
@@ -74,7 +95,7 @@ func run(homeFlag string, open, noTray bool) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		// Mako is already running: show its board (in its window) instead of starting a second one.
-		if running("http://" + addr) {
+		if !readonly && running("http://"+addr) {
 			if !showRunning("http://" + addr) {
 				notify.Open("http://" + addr)
 			}
@@ -102,6 +123,11 @@ func run(homeFlag string, open, noTray bool) error {
 	phones, err := phone.Open(cfg.StateDir)
 	if err != nil {
 		return err
+	}
+	if readonly {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return serveReadonly(ctx, ln, &web.Server{D: d, Version: version, Home: home, Show: func(string) {}, Phones: phones})
 	}
 	// Everything the Mac is told goes to the paired phones too, with board links made relative to the app.
 	push := func(m phone.Message) {
@@ -141,6 +167,7 @@ func run(homeFlag string, open, noTray bool) error {
 	var updater *update.Updater
 	if exe, err := os.Executable(); err == nil {
 		exe, _ = filepath.EvalSymlinks(exe)
+		orca.MakoCommand = orca.ShellQuote(exe) // agents take screenshots of UI changes with it
 		if src := update.Locate(source, exe); src != "" {
 			d.Source = src
 			updater = &update.Updater{Source: src, Revision: update.BuiltRevision(), Exe: exe, Args: os.Args[1:], Busy: d.Busy, Quit: quit}
@@ -175,6 +202,25 @@ func run(homeFlag string, open, noTray bool) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	return relaunch()
+}
+
+// serveReadonly shows the board until Mako is told to stop: no polling, no agents, and nothing but GET
+// requests, so a screenshot never changes a task or the tracker.
+func serveReadonly(ctx context.Context, ln net.Listener, s *web.Server) error {
+	h := s.Handler()
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "лише для читання", http.StatusForbidden)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})}
+	go srv.Serve(ln)
+	log.Printf("Mako %s лише для читання: http://%s", version, ln.Addr())
+	<-ctx.Done()
+	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return srv.Shutdown(shutdown)
 }
 
 // relaunch replaces Mako with the binary at its path, which may be a new build: the same pid, arguments and
