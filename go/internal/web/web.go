@@ -82,6 +82,8 @@ type recordView struct {
 type trackerView struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Projects: where «+ Задача» can write a task; nil when the tracker cannot open issues (Jira).
+	Projects []string `json:"projects,omitempty"`
 }
 
 func (s *Server) Handler() http.Handler {
@@ -122,8 +124,9 @@ func (s *Server) Handler() http.Handler {
 			v.Live = s.D.Live(rec.ID)
 			reply.Records = append(reply.Records, v)
 		}
+		projects := s.D.NewTaskProjects()
 		for _, t := range s.D.TrackerList() {
-			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name()})
+			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name(), Projects: projects[t.ID()]})
 		}
 		writeJSON(w, reply)
 	})
@@ -208,6 +211,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": s.Update.Start()})
 	})
+	s.createRoutes(mux)
 	mux.HandleFunc("POST /api/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)

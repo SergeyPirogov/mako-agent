@@ -540,3 +540,18 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
 .menu-pop button { border: 0; border-radius: 6px; text-align: left; padding: 7px 10px; background: none; }
 .menu-pop button:hover { background: var(--hover); }
 .notice.later-note { display: flex; align-items: center; gap: 8px; border-color: var(--line); color: var(--mute); }
+
+/* «+ Задача»: the button over the list and the form where a card goes. */
+.new-task { flex: none; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.new-task[hidden] { display: none; }
+.new-task button { width: 100%; height: 28px; padding: 0 8px; font-size: 12.5px; }
+.new-form { max-width: 720px; display: flex; flex-direction: column; gap: 12px; }
+.new-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--mute); }
+.new-form input:not([type=checkbox]), .new-form textarea, .new-form select { font: inherit; font-size: 14px; color: var(--fg); background: var(--card);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.new-form textarea { resize: vertical; min-height: 160px; }
+.new-form .nt-row { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
+.new-form label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); font-size: 14px; }
+.new-form .nt-actions { display: flex; gap: 8px; }
+.new-form .nt-error { color: var(--err); white-space: pre-wrap; overflow-wrap: anywhere; }
+.new-form .nt-error[hidden] { display: none; }

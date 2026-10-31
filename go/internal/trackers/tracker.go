@@ -5,6 +5,9 @@ package trackers
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -67,4 +70,43 @@ func New(t *config.Tracker, cfg *config.Config) (Tracker, error) {
 
 func missing(name, where string) error {
 	return fmt.Errorf("немає %s: додайте його в .env (%s)", name, where)
+}
+
+// NewIssue is a task written on the board: «+ Задача».
+type NewIssue struct {
+	Project     string // "group/app"
+	Title       string
+	Description string
+	Bug         bool
+}
+
+// Creator is a tracker that can open an issue from the board (GitLab, GitHub): assigned to me, with the
+// trigger label when one is set, so the next search finds it too.
+type Creator interface {
+	Create(ctx context.Context, n NewIssue) (core.Task, error)
+	// Upload stores a pasted image for the project and returns the Markdown that shows it in the issue.
+	Upload(ctx context.Context, project, name string, data []byte) (string, error)
+}
+
+// newLabels: the trigger label, and bug for a bug where the tracker marks it with one.
+func newLabels(t *config.Tracker, bug bool) []string {
+	labels := []string{}
+	if t.Trigger != "" {
+		labels = append(labels, t.Trigger)
+	}
+	if bug {
+		labels = append(labels, "bug")
+	}
+	return labels
+}
+
+var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+// uploadPath: where an image pasted on the board goes, unique by the time.
+func uploadPath(name string) string {
+	name = strings.Trim(unsafeName.ReplaceAllString(name, "-"), "-.")
+	if name == "" {
+		name = "image.png"
+	}
+	return fmt.Sprintf(".mako/uploads/%s-%s", time.Now().UTC().Format("20060102-150405.000"), name)
 }
