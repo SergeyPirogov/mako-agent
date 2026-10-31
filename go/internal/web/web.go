@@ -39,6 +39,7 @@ type stateReply struct {
 	Trackers []trackerView              `json:"trackers"`
 	Problems []string                   `json:"problems"`
 	Paused   bool                       `json:"paused"`
+	Agents   map[string]dispatch.Agent  `json:"agents"`
 }
 
 type recordView struct {
@@ -72,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 		now := time.Now().UnixMilli()
 		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
+		reply.Agents = s.D.Agents()
 		for _, rec := range s.D.Store.All() {
 			reply.Records = append(reply.Records, recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now)})
 		}
@@ -109,6 +111,11 @@ func (s *Server) Handler() http.Handler {
 			s.D.Cancel(id)
 		case "retry":
 			s.D.Retry(ctx, id)
+		case "focus":
+			if err := s.D.FocusAgent(ctx, id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "archive":
 			s.D.Archive(id, true)
 		case "unarchive":

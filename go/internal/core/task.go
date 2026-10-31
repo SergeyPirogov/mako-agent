@@ -72,6 +72,7 @@ type Record struct {
 	Gone           string        `json:"gone,omitempty"` // "closed", "deleted": in the tracker
 	TrackerStatus  *TrackerState `json:"trackerStatus,omitempty"`
 	Error          string        `json:"error,omitempty"`
+	Summary        string        `json:"summary,omitempty"` // what the agent did, written when its MR appeared
 	Attempt        int           `json:"attempt,omitempty"`
 }
 

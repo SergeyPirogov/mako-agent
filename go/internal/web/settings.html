@@ -351,6 +351,7 @@ function renderOrca() {
   ta.oninput = () => { if (ta.value.trim()) o.instructions = ta.value; else delete o.instructions; changed(); };
   box.append(instr);
   box.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
+  box.append(check(o, "summaryComment", "Додавати підсумок роботи агента в коментар до задачі", { hint: "Коли з'являється MR, Mako пише з термінала агента і змін гілки, що зроблено й як перевірено. Підсумок завжди видно на дошці" }));
   const more = document.createElement("details");
   more.innerHTML = "<summary>Додатково</summary>";
   more.append(select(o, "setup", "Підготовка worktree", [["inherit", "як налаштовано в Orca"], ["run", "запускати"], ["skip", "пропускати"]], { def: "inherit" }));

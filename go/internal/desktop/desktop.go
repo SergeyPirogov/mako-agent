@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -104,15 +105,31 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 	if v.NewCount > 0 {
 		v.Title = fmt.Sprint(v.NewCount)
 	}
+	// An agent waiting for you comes first and lights the icon.
+	agents := d.Agents()
+	waiting := 0
+	sort.SliceStable(active, func(i, j int) bool {
+		return agents[active[i].ID].State == "waiting" && agents[active[j].ID].State != "waiting"
+	})
 	for _, r := range append(news, active...) {
-		if len(v.Items) == maxItems {
-			break
-		}
 		status := map[string]string{"new": "нова", "doing": "в Orca", "review": "на рев'ю"}[r.Column(now.UnixMilli())]
-		if r.Status == core.Queued {
+		mark := ""
+		switch {
+		case r.Status == core.Queued:
 			status = "у черзі"
+		case agents[r.ID].State == "waiting":
+			status, mark = "чекає на вас", "● "
+			waiting++
+		case agents[r.ID].State == "quiet":
+			status = "агент зупинився"
 		}
-		v.Items = append(v.Items, Item{ID: r.ID, Label: fmt.Sprintf("%s  %s — %s", r.ID, clip(r.Task.Title, 40), status)})
+		if len(v.Items) < maxItems {
+			v.Items = append(v.Items, Item{ID: r.ID, Label: fmt.Sprintf("%s%s  %s — %s", mark, r.ID, clip(r.Task.Title, 40), status)})
+		}
+	}
+	if waiting > 0 {
+		v.Attention = true
+		v.Title = strings.TrimSpace("✋ " + v.Title)
 	}
 	return v
 }

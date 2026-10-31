@@ -21,6 +21,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
+	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
 // fakeGitLab: one project grp/app with issues, statuses, notes and merge requests, enough for the dispatcher.
@@ -130,6 +131,10 @@ func git(t *testing.T, dir string, args ...string) {
 
 func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 	notify.Enabled = false
+	// Never the real Claude Code from a test.
+	old := writer.Claude
+	writer.Claude = "mako-test-no-claude"
+	t.Cleanup(func() { writer.Claude = old })
 	f := &fakeGitLab{issues: map[int]map[string]any{}}
 	srv := httptest.NewServer(http.StripPrefix("", f))
 	t.Cleanup(srv.Close)
@@ -164,6 +169,7 @@ func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 		t.Fatal(err)
 	}
 	d := New(cfg, store, []trackers.Tracker{gl})
+	d.Term = &fakeTerminals{}
 	jobs := &[]orca.Job{}
 	d.Hand = func(ctx context.Context, o config.Orca, j orca.Job, log func(string)) (*orca.Result, error) {
 		*jobs = append(*jobs, j)

@@ -87,3 +87,45 @@ func TestInstructions(t *testing.T) {
 		t.Fatalf("custom: %s", got)
 	}
 }
+
+func TestTerminals(t *testing.T) {
+	cmd, calls := fakeOrca(t, `true`)
+	// Answers as Orca's --json does: {ok, result, _meta}.
+	os.WriteFile(cmd, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> `+calls+`
+case "$1 $2" in
+  "terminal list") echo '{"id":"1","ok":true,"result":{"terminals":[{"handle":"term_1","title":"zsh","connected":true,"lastOutputAt":1700000000000,"preview":"$"},{"handle":"term_2","title":"claude","agentIdentity":"claude","connected":true,"lastOutputAt":1700000005000,"preview":"Running tests"}],"totalCount":2,"truncated":false},"_meta":{"runtimeId":"r"}}' ;;
+  "terminal show") echo '{"ok":true,"result":{"terminal":{"handle":"term_2","agentWait":{"source":"hook","reason":"permission","since":1700000006000}}}}' ;;
+  "terminal read") echo '{"ok":true,"result":{"terminal":{"handle":"term_2","status":"running","tail":["Do you want to proceed?","❯ 1. Yes",""],"truncated":false,"nextCursor":null,"source":"screen"}}}' ;;
+  *) echo '{"ok":false,"error":{"code":"bad","message":"unknown"}}'; exit 1 ;;
+esac
+`), 0o755)
+	o := config.Orca{Command: cmd}
+	ctx := context.Background()
+	wt := t.TempDir()
+	ts, err := Terminals(ctx, o, wt)
+	if err != nil || len(ts) != 2 {
+		t.Fatalf("%v %+v", err, ts)
+	}
+	agent := AgentTerminal(ts)
+	if agent.Handle != "term_2" || agent.Agent != "claude" || agent.LastOutputAt != 1700000005000 {
+		t.Fatalf("agent terminal %+v", agent)
+	}
+	w, err := Waiting(ctx, o, wt, agent.Handle)
+	if err != nil || w == nil || w.Reason != "permission" {
+		t.Fatalf("wait %v %+v", err, w)
+	}
+	screen, err := Screen(ctx, o, wt, agent.Handle)
+	if err != nil || screen[0] != "Do you want to proceed?" {
+		t.Fatalf("screen %v %q", err, screen)
+	}
+	log, _ := os.ReadFile(calls)
+	for _, want := range []string{"terminal list --worktree path:" + wt + " --json", "terminal show --terminal term_2 --json", "terminal read --terminal term_2 --screen --json"} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("no %q in\n%s", want, log)
+		}
+	}
+	if err := Focus(ctx, o, wt, "term_2"); err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Errorf("a failing command should say why: %v", err)
+	}
+}

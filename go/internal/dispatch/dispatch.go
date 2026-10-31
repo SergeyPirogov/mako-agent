@@ -38,6 +38,7 @@ type Dispatcher struct {
 	Store    *state.Store
 	Trackers []trackers.Tracker
 	Hand     Hand
+	Term     Terminals
 	BoardURL string
 	// Hosts: code hosts made for repos whose tracker is not one (Jira tasks), by web host.
 	hosts map[string]trackers.CodeHost
@@ -50,6 +51,7 @@ type Dispatcher struct {
 	searches map[string]Search
 	logs     []LogLine
 	starting map[string]bool
+	agents   map[string]*Agent
 	wake     chan struct{}
 }
 
@@ -61,8 +63,8 @@ type LogLine struct {
 
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	return &Dispatcher{
-		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{},
+		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{},
 		wake: make(chan struct{}, 1),
 	}
 }
@@ -167,6 +169,19 @@ func (d *Dispatcher) Wake() {
 
 // Run polls until ctx ends: trackers every PollIntervalSec, merge requests every minute.
 func (d *Dispatcher) Run(ctx context.Context) {
+	// The agents in Orca are watched more often than the trackers: a question should not wait a minute.
+	go func() {
+		tick := time.NewTicker(10 * time.Second)
+		defer tick.Stop()
+		for {
+			d.WatchAgents(ctx, time.Now())
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+		}
+	}()
 	for {
 		d.Tick(ctx)
 		select {
@@ -563,6 +578,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		d.move(ctx, t, r.Task, trackers.AtReview)
 		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
+		d.summarize(ctx, r, repo.BaseBranch, review.URL)
 		orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
 		notify.Inform("✅ "+r.ID+": є MR", review.URL, review.URL)
 		if review.State != "open" {

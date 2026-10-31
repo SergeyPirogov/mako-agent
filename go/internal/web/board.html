@@ -26,7 +26,9 @@
 <script src="/theme.js"></script>
 <script>
 const COLUMNS = [["new", "Нові"], ["doing", "В Orca"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
-const LABEL = { new: "нова", later: "відкладена", doing: "в Orca", review: "на рев'ю", done: "готово", failed: "не виконано" };
+const LABEL = { new: "нова", later: "відкладена", doing: "в Orca", review: "на рев'ю", done: "готово", failed: "не виконано",
+  working: "агент працює", waiting: "чекає на вас", quiet: "агент зупинився", gone: "термінал закрито" };
+const AGENT_NOTE = { waiting: "Агент чекає на вас", quiet: "Агент нічого не пише понад півтори хвилини: закінчив або чекає відповіді", gone: "Термінала агента в Orca вже немає", unknown: "Orca не відповідає" };
 let data = null, selected = null, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [];
 
 const $ = (id) => document.getElementById(id);
@@ -40,7 +42,23 @@ const ago = (iso) => {
   if (m < 1440) return `${Math.round(m / 60)} год тому`;
   return `${Math.round(m / 1440)} дн тому`;
 };
-const state = (r) => (r.column === "new" && r.postponed ? "later" : r.column);
+const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
+// In Orca, the agent's own state says more than «в Orca».
+const state = (r) => {
+  if (r.column === "new" && r.postponed) return "later";
+  const a = agentOf(r);
+  return a && LABEL[a.state] ? a.state : r.column;
+};
+const ATTENTION = { waiting: 0, quiet: 1 };
+// A tiny Markdown: headings, bullets, code and links, enough for the summary.
+const md = (text) => text.trim().split(/\n/).map((l) => {
+  const h = l.match(/^#{1,4}\s+(.*)/);
+  if (h) return `<h4>${esc(h[1])}</h4>`;
+  const li = l.match(/^\s*[-*]\s+(.*)/);
+  const inline = (x) => linkify(x).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  if (li) return `<li>${inline(li[1])}</li>`;
+  return l.trim() ? `<p>${inline(l)}</p>` : "";
+}).join("").replace(/(<li>.*?<\/li>)+/g, (m) => `<ul>${m}</ul>`);
 
 async function post(action, id, extra = "") {
   await fetch(`/api/${action}?id=${encodeURIComponent(id ?? "")}${extra}`, { method: "POST" });
@@ -73,7 +91,10 @@ function render() {
   const live = data.records.filter((r) => !r.archivedAt);
   const doing = live.filter((r) => r.column === "doing").length;
   $("wip").className = "wip" + (data.wipLimit && doing >= data.wipLimit ? " full" : "");
-  $("wip").innerHTML = data.wipLimit ? `В Orca <b>${doing}</b> з ${data.wipLimit}` : `В Orca <b>${doing}</b>`;
+  const waiting = live.filter((r) => agentOf(r)?.state === "waiting").length;
+  $("wip").innerHTML = (data.wipLimit ? `В Orca <b>${doing}</b> з ${data.wipLimit}` : `В Orca <b>${doing}</b>`) +
+    (waiting ? ` · <span class="wait">✋ чекає на вас: ${waiting}</span>` : "");
+  document.title = waiting ? `(${waiting}) Mako` : "Mako";
   const searches = Object.entries(data.searches);
   const failed = searches.filter(([, s]) => s.error);
   $("search").className = "search" + (failed.length ? " err" : "");
@@ -105,7 +126,8 @@ function render() {
   const rows = visible();
   let html = "";
   for (const [col, title] of COLUMNS) {
-    const items = rows.filter((r) => r.column === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed : 0));
+    const rank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
+    const items = rows.filter((r) => r.column === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed : col === "doing" ? rank(a) - rank(b) : 0));
     if (!items.length) continue;
     html += `<div class="group">${title}<span class="n">${items.length}</span></div>`;
     for (const r of items) {
@@ -127,6 +149,19 @@ async function select(id) {
   render();
 }
 
+function agentBlock(r) {
+  const a = agentOf(r);
+  if (!a) return "";
+  const since = a.since ? ` · ${ago(new Date(a.since).toISOString()).replace(" тому", "")}` : "";
+  const name = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode", gemini: "Gemini" }[a.name] ?? a.name ?? "";
+  const note = a.state === "waiting" ? `${AGENT_NOTE.waiting}${a.reason ? `: ${esc(a.reason)}` : ""}` : AGENT_NOTE[a.state] ?? "";
+  return `<div class="agent ${a.state}">
+    <div class="agent-head"><span class="s ${a.state}">${LABEL[a.state] ?? "агент"}${since}</span>${name ? `<span class="muted">${esc(name)}</span>` : ""}
+      ${note ? `<span class="agent-note">${note}</span>` : ""}</div>
+    ${a.screen?.length ? `<pre class="screen">${a.screen.map(esc).join("\n")}</pre>` : a.error ? `<div class="muted">${esc(a.error)}</div>` : ""}
+  </div>`;
+}
+
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
   $("work").classList.toggle("detail", !!r);
@@ -136,7 +171,7 @@ function renderDetail() {
   let actions = "";
   if (r.column === "new") actions = b("take", "Віддати в Orca", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
   else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
-  else if (r.column === "doing") actions = b("cancel", "Більше не стежити", "danger");
+  else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + b("cancel", "Більше не стежити", "danger");
   else if (r.column === "failed") actions = b("retry", "Повторити", "primary") + b("archive", "В архів");
   else actions = b("archive", "В архів");
   if (r.archivedAt) actions = b("unarchive", "Повернути з архіву");
@@ -159,6 +194,8 @@ function renderDetail() {
     <div class="actions">${actions}</div>
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею в Orca.</div>` : ""}
+    ${agentBlock(r)}
+    ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
     ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     <h3>Опис</h3>
     <div class="text">${t.description?.trim() ? linkify(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
@@ -169,6 +206,11 @@ function renderDetail() {
 }
 
 selected = decodeURIComponent(location.hash.slice(1)) || null;
+// A link to a task (from a notification or the menu) opens it even when the board is already open.
+window.addEventListener("hashchange", () => {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (id && id !== selected) select(id);
+});
 load();
 setInterval(load, 5000);
 </script>

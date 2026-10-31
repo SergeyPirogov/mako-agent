@@ -99,3 +99,39 @@ func clipTo(s string, n int) string {
 	}
 	return s
 }
+
+// TaskSummary: what the task came to, in Ukrainian, for the card (and the issue comment): from the agent's last
+// words in its terminal, the commits and the diff.
+func TaskSummary(ctx context.Context, worktree, baseBranch string, t core.Task, agentText, reviewURL string) (string, error) {
+	var commits, stat, diff string
+	if base, err := gitx.Run(ctx, worktree, "merge-base", "origin/"+baseBranch, "HEAD"); err == nil && base != "" {
+		commits, _ = gitx.Run(ctx, worktree, "log", "--format=- %s", base+"..HEAD")
+		stat, _ = gitx.Run(ctx, worktree, "diff", "--stat", base, "HEAD")
+		diff, _ = gitx.Run(ctx, worktree, "diff", base, "HEAD")
+	}
+	if len(agentText) > 8000 {
+		agentText = agentText[len(agentText)-8000:]
+	}
+	review := "No merge request was opened."
+	if reviewURL != "" {
+		review = "Merge request: " + reviewURL
+	}
+	return Ask(ctx, worktree, strings.Join([]string{
+		"Summarize, in Ukrainian, what was done for this task, for the developer who will read it later on a task board.",
+		"Use Markdown with these sections, each short (bullets, at most ~6 per section), skipping a section that has nothing:",
+		"## Що зроблено",
+		"## Як перевірено",
+		"## На що звернути увагу (open questions, risks, follow-ups, anything left undone)",
+		"Base it on the end of the agent's terminal session and the actual changes below. Do not invent checks that are not mentioned. Answer with the summary only.",
+		"", fmt.Sprintf("Task: %s — %s", t.ID, t.Title), review,
+		"", "End of the agent's terminal session:", orNone(agentText),
+		"", "Commits:", orNone(commits), stat, clip(diff),
+	}, "\n"))
+}
+
+func orNone(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "(none)"
+	}
+	return s
+}

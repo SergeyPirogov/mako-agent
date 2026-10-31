@@ -49,7 +49,9 @@ type Orca struct {
 	LinkIssue    bool
 	Instructions string // replaces the default end of the prompt; {branch} {baseBranch} {taskId} {title} {url} {closingRef}
 	MRBy         string // "agent" (default) or "me"
-	ExtraArgs    []string
+	// SummaryComment: when the MR appears, the summary of the agent's work also goes to the issue as a comment.
+	SummaryComment bool
+	ExtraArgs      []string
 }
 
 type Transitions struct {
@@ -188,6 +190,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		c.Orca.LinkIssue = e.LinkIssue == nil || *e.LinkIssue
 		c.Orca.Instructions = e.Instructions
 		c.Orca.MRBy = orStr(e.MRBy, "agent")
+		c.Orca.SummaryComment = e.SummaryComment
 		c.Orca.ExtraArgs = e.ExtraArgs
 		break
 	}
@@ -421,14 +424,15 @@ type rawNotifications struct {
 }
 
 type rawExecutor struct {
-	Type         string   `json:"type"`
-	Command      string   `json:"command"`
-	Agent        string   `json:"agent"`
-	Setup        string   `json:"setup"`
-	LinkIssue    *bool    `json:"linkIssue"`
-	Instructions string   `json:"instructions"`
-	MRBy         string   `json:"mrBy"`
-	ExtraArgs    []string `json:"extraArgs"`
+	Type           string   `json:"type"`
+	Command        string   `json:"command"`
+	Agent          string   `json:"agent"`
+	Setup          string   `json:"setup"`
+	LinkIssue      *bool    `json:"linkIssue"`
+	Instructions   string   `json:"instructions"`
+	MRBy           string   `json:"mrBy"`
+	SummaryComment bool     `json:"summaryComment"`
+	ExtraArgs      []string `json:"extraArgs"`
 }
 
 type rawTracker struct {
