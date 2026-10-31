@@ -72,6 +72,7 @@ type stateReply struct {
 	Stats    core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
 	Update   *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
 	Restart  restartView                `json:"restart"`
+	Faults   []dispatch.Fault           `json:"faults"` // Mako's own errors, the newest first
 	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
 	Digest *core.Digest `json:"digest,omitempty"`
 }
@@ -136,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
 		all := s.D.Store.All()
 		reply.Stats = core.Summarize(all, time.Now())
+		reply.Faults = s.D.Faults()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
@@ -238,6 +240,29 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]bool{"ok": s.Update.Start()})
 	})
 	s.createRoutes(mux)
+	// Mako's own errors: «На аналіз» opens an issue with them in Mako's repository, «Очистити» forgets them.
+	mux.HandleFunc("POST /api/faults/{action}", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var err error
+		id := ""
+		switch r.PathValue("action") {
+		case "report":
+			id, err = s.D.ReportFaults(context.WithoutCancel(r.Context()))
+		case "clear":
+			err = s.D.ClearFaults()
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "id": id})
+	})
 	mux.HandleFunc("POST /api/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)

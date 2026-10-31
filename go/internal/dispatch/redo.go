@@ -85,7 +85,7 @@ func (d *Dispatcher) dropAttempt(ctx context.Context, r core.Record, note string
 		}
 		s, err := writer.AttemptSummary(ctx, r.Worktree, base, r.Task, words, note)
 		if err != nil {
-			d.Log(r.ID, "підсумок минулої спроби не написано: "+err.Error())
+			d.Fault(r.ID, "підсумок минулої спроби не написано", err)
 		} else {
 			last = s
 		}
@@ -96,9 +96,9 @@ func (d *Dispatcher) dropAttempt(ctx context.Context, r core.Record, note string
 
 	if r.PRURL != "" && r.ReviewState == "" {
 		if desk, err := d.desk(ctx, r.ID); err != nil {
-			d.Log(r.ID, "MR не закрито: "+err.Error())
+			d.Fault(r.ID, "MR не закрито", err)
 		} else if err := desk.Close(ctx, r.PRURL); err != nil {
-			d.Log(r.ID, "MR не закрито: "+err.Error())
+			d.Fault(r.ID, "MR не закрито", err)
 		} else {
 			d.Log(r.ID, "MR минулої спроби закрито: "+r.PRURL)
 		}
@@ -115,7 +115,7 @@ func (d *Dispatcher) dropAttempt(ctx context.Context, r core.Record, note string
 		err = d.RemoveWorkspace(ctx, repoPath, r.Worktree, branchOf(r))
 	}
 	if err != nil {
-		d.Log(r.ID, "worktree минулої спроби лишився: "+err.Error())
+		d.Fault(r.ID, "worktree минулої спроби лишився", err)
 	} else {
 		d.Log(r.ID, "worktree минулої спроби прибрано")
 	}

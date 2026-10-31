@@ -88,6 +88,7 @@ func run(homeFlag string, open, noTray bool) error {
 	}
 	d := dispatch.New(cfg, store, ts)
 	d.Problems = problems
+	d.Version = version
 	d.BoardURL = "http://" + ln.Addr().String()
 	d.KeepAwake = awake.Keep // the Mac does not fall asleep while an agent works
 	// The board opens in Mako's own window on macOS (it needs the menu bar's run loop), else in the browser.
@@ -139,6 +140,7 @@ func run(homeFlag string, open, noTray bool) error {
 	if exe, err := os.Executable(); err == nil {
 		exe, _ = filepath.EvalSymlinks(exe)
 		if src := update.Locate(source, exe); src != "" {
+			d.Source = src
 			updater = &update.Updater{Source: src, Revision: update.BuiltRevision(), Exe: exe, Args: os.Args[1:], Busy: d.Busy, Quit: quit}
 			go updater.Watch(ctx, 30*time.Minute)
 		}

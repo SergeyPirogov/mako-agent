@@ -292,7 +292,7 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 	o := d.Config().Orca
 	text, err := writer.TaskSummary(ctx, r.Worktree, baseBranch, r.Task, d.agentWords(ctx, r), reviewURL)
 	if err != nil {
-		d.Log(r.ID, "підсумок не написано: "+err.Error())
+		d.Fault(r.ID, "підсумок не написано", err)
 		return
 	}
 	d.Store.Update(r.ID, func(r *core.Record) { r.Summary = text })
@@ -302,7 +302,7 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
 		if err := t.Comment(ctx, r.Task, "Що зроблено:\n\n"+text); err != nil {
-			d.Log(r.ID, "підсумок у задачу не додано: "+err.Error())
+			d.Fault(r.ID, "підсумок у задачу не додано", err)
 		}
 	}
 }

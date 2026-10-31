@@ -176,7 +176,7 @@ func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Home = dir
+	cfg.Home, cfg.StateDir = dir, filepath.Join(dir, ".mako")
 	store, err := state.Open(filepath.Join(dir, ".mako"))
 	if err != nil {
 		t.Fatal(err)
