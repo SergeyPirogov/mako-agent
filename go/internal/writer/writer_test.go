@@ -41,3 +41,18 @@ func TestParseAssessment(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRetro(t *testing.T) {
+	r, err := ParseRetro("```json\n" + `{"good":["Зроблено з першої спроби"],"bad":"- Двічі правили тест","next":[]}` + "\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != "done" || r.Good != "- Зроблено з першої спроби" || r.Bad != "- Двічі правили тест" || r.Next != "" {
+		t.Fatalf("%+v", r)
+	}
+	for _, bad := range []string{"немає", `{"good":[],"bad":[],"next":""}`} {
+		if _, err := ParseRetro(bad); err == nil {
+			t.Errorf("ParseRetro(%q) passed", bad)
+		}
+	}
+}
