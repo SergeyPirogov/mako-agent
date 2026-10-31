@@ -542,6 +542,58 @@ func (s *Session) Answer(requestID string, answers map[string]string) error {
 	return s.reply(requestID, resp, func(it *Item) { it.Status, it.Answers = "answered", answers })
 }
 
+// Asked: the request the agent waits on (a permission or AskUserQuestion), nil when there is none.
+func (s *Session) Asked() *Item {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.items {
+		if it := s.items[i]; it.Kind == "permission" && it.Status == "asked" {
+			if _, ok := s.pending[it.ID]; ok {
+				return &it
+			}
+		}
+	}
+	return nil
+}
+
+// Choices: the question and its options when an AskUserQuestion asks exactly one question with one answer, the
+// kind a single tap answers; ok is false for anything else.
+func Choices(it Item) (question string, options []string, ok bool) {
+	if it.Tool != "AskUserQuestion" {
+		return "", nil, false
+	}
+	var in struct {
+		Questions []struct {
+			Question    string `json:"question"`
+			MultiSelect bool   `json:"multiSelect"`
+			Options     []struct {
+				Label string `json:"label"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	if json.Unmarshal(it.Input, &in) != nil || len(in.Questions) != 1 || in.Questions[0].MultiSelect {
+		return "", nil, false
+	}
+	q := in.Questions[0]
+	for _, o := range q.Options {
+		options = append(options, o.Label)
+	}
+	return q.Question, options, q.Question != "" && len(options) > 0
+}
+
+// Choose answers a one-question AskUserQuestion with its option number option (from 0).
+func (s *Session) Choose(requestID string, option int) error {
+	it := s.Asked()
+	if it == nil || it.ID != requestID {
+		return fmt.Errorf("на це питання вже відповіли")
+	}
+	q, options, ok := Choices(*it)
+	if !ok || option < 0 || option >= len(options) {
+		return fmt.Errorf("такої відповіді немає")
+	}
+	return s.Answer(requestID, map[string]string{q: options[option]})
+}
+
 // reply sends Claude the answer to a request. The request is marked answered and the session working before
 // Claude reads the answer: a turn it then ends at once would otherwise be set back to working. If the answer
 // cannot be sent, the request is asked again.

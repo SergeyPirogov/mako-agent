@@ -150,8 +150,22 @@ func TestAskAndSleep(t *testing.T) {
 		}
 	}
 	until(func() bool { st, _, _ := s.State(); return st == "waiting" })
-	if err := s.Answer("q1", map[string]string{"Яку гілку?": "master"}); err != nil {
+	it := s.Asked()
+	if it == nil || it.ID != "q1" {
+		t.Fatalf("asked %+v", it)
+	}
+	if q, options, ok := Choices(*it); !ok || q != "Яку гілку?" || strings.Join(options, ",") != "main,master" {
+		t.Fatalf("choices %q %v %v", q, options, ok)
+	}
+	if err := s.Choose("q1", 5); err == nil {
+		t.Fatal("no such option, yet chosen")
+	}
+	// A notification's button: option 1 is «master».
+	if err := s.Choose("q1", 1); err != nil {
 		t.Fatal(err)
+	}
+	if s.Asked() != nil || s.Choose("q1", 1) == nil {
+		t.Fatal("answered twice")
 	}
 	until(func() bool { st, _, _ := s.State(); return st == "done" })
 	if b, _ := os.ReadFile(filepath.Join(dir, "answer.json")); !strings.Contains(string(b), `"answers":{"Яку гілку?":"master"}`) || !strings.Contains(string(b), `"questions"`) {

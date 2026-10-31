@@ -293,7 +293,7 @@ func (s *Server) Handler() http.Handler {
 			}
 		case "stop":
 			s.D.StopTerminal(id)
-		case "say", "permit", "answer", "interrupt", "view", "mode":
+		case "say", "permit", "answer", "choose", "interrupt", "view", "mode":
 			var err error
 			c := s.D.Chats.Get(id)
 			switch {
@@ -309,6 +309,12 @@ func (s *Server) Handler() http.Handler {
 				var answers map[string]string
 				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
 				err = c.Answer(r.URL.Query().Get("req"), answers)
+			case action == "choose":
+				// An option of the agent's question, from a notification's button.
+				option, convErr := strconv.Atoi(r.URL.Query().Get("option"))
+				if err = convErr; err == nil {
+					err = c.Choose(r.URL.Query().Get("req"), option)
+				}
 			case action == "mode":
 				err = c.SetMode(r.URL.Query().Get("to"))
 			case action == "permit":

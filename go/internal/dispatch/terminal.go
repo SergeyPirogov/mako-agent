@@ -401,9 +401,9 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 	case state == "exited":
 		a.State, a.Reason = "stopped", "агент вийшов"
 	case state == "waiting" && strings.HasPrefix(tool, "AskUserQuestion"):
-		a.State, a.Reason = "waiting", "агент питає"
+		a.State, a.Reason, a.Asked = "waiting", "агент питає", s.Asked()
 	case state == "waiting":
-		a.State, a.Reason = "waiting", "дозвіл на "+tool
+		a.State, a.Reason, a.Asked = "waiting", "дозвіл на "+tool, s.Asked()
 	case state == "done":
 		a.State = "done"
 	default:

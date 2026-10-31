@@ -13,17 +13,27 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 )
 
-// pushes catches what goes to the phone.
+// pushes catches what goes to the phone: «title | message | url», with « | <action> → <url>» for each button,
+// and «withdraw <tag>» for a notification taken away.
 func pushes(t *testing.T) func() []string {
 	var mu sync.Mutex
 	var got []string
-	old := notify.Remote
-	notify.Remote = func(title, message, url string) {
+	old, oldWithdraw := notify.Remote, notify.RemoteWithdraw
+	notify.Remote = func(n notify.Notice) {
 		mu.Lock()
 		defer mu.Unlock()
-		got = append(got, title+" | "+message+" | "+url)
+		line := n.Title + " | " + n.Message + " | " + n.URL
+		for _, a := range n.Actions {
+			line += " | " + a.Title + " → " + a.URL
+		}
+		got = append(got, line)
 	}
-	t.Cleanup(func() { notify.Remote = old })
+	notify.RemoteWithdraw = func(tag string) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, "withdraw "+tag)
+	}
+	t.Cleanup(func() { notify.Remote, notify.RemoteWithdraw = old, oldWithdraw })
 	return func() []string {
 		time.Sleep(50 * time.Millisecond) // Inform pushes in a goroutine
 		mu.Lock()

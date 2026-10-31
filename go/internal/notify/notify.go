@@ -10,30 +10,60 @@ import (
 // Enabled turns the Mac's notifications off for tests and when the config says so.
 var Enabled = true
 
+// Action is a button of a notification: pressing it POSTs to URL (a path of the board), which answers on its own,
+// without opening the board.
+type Action struct {
+	Title       string `json:"title"`
+	URL         string `json:"url"`
+	Destructive bool   `json:"destructive,omitempty"`
+}
+
+// Notice is one notification. A Tag names it: a later one with the same tag replaces it, and Withdraw takes it away.
+type Notice struct {
+	Title, Message, URL string
+	Tag                 string
+	Actions             []Action
+}
+
 // Native shows a notification of Mako.app itself (macOS); false when it cannot.
-var Native func(title, message, url string) bool
+var Native func(n Notice) bool
+
+// NativeWithdraw takes Mako.app's notification with the tag away.
+var NativeWithdraw func(tag string)
 
 // Remote also gets every notification: the paired phones' pushes.
-var Remote func(title, message, url string)
+var Remote func(n Notice)
+
+// RemoteWithdraw takes the phones' notification with the tag away.
+var RemoteWithdraw func(tag string)
 
 // Inform shows a notification; with url, clicking it opens that page where the system allows (terminal-notifier
 // on macOS, the «Відкрити» action of notify-send on Linux).
 func Inform(title, message, url string) {
+	Show(Notice{Title: title, Message: message, URL: url})
+}
+
+// Show shows a notification; its actions only where the system lets Mako answer them (Mako.app, the phones).
+func Show(n Notice) {
 	if Remote != nil {
-		go Remote(title, message, url)
+		go Remote(n)
 	}
 	if !Enabled {
 		return
 	}
+	title, message, url := n.Title, n.Message, n.URL
 	switch runtime.GOOS {
 	case "darwin":
-		if Native != nil && Native(title, message, url) {
+		if Native != nil && Native(n) {
 			return
 		}
 		if tn, err := exec.LookPath("terminal-notifier"); err == nil {
 			args := []string{"-title", "Mako", "-subtitle", title, "-message", message, "-sound", "default"}
 			if url != "" {
 				args = append(args, "-open", url)
+			}
+			if n.Tag != "" {
+				args = append(args, "-group", n.Tag)
 			}
 			go exec.Command(tn, args...).Run()
 			return
@@ -51,6 +81,25 @@ func Inform(title, message, url string) {
 				Open(url)
 			}
 		}()
+	}
+}
+
+// Withdraw takes away the notification with the tag, wherever it was shown: what it asked is no longer asked.
+func Withdraw(tag string) {
+	if tag == "" {
+		return
+	}
+	if RemoteWithdraw != nil {
+		go RemoteWithdraw(tag)
+	}
+	if !Enabled || runtime.GOOS != "darwin" {
+		return
+	}
+	if NativeWithdraw != nil {
+		NativeWithdraw(tag)
+	}
+	if tn, err := exec.LookPath("terminal-notifier"); err == nil {
+		go exec.Command(tn, "-remove", tag).Run()
 	}
 }
 
