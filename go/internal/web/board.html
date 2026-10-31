@@ -502,7 +502,7 @@ function commitGraph(commits) {
 }
 
 // The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
-let itab = (() => { try { return localStorage.getItem("mako-itab") || "changes"; } catch { return "changes"; } })();
+let itab = "changes";
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
@@ -703,9 +703,10 @@ function renderDetail() {
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${linkify(c.body)}</div></div>`).join("")}` : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
       <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
-  // A new task opened: a terminal task in progress opens on its terminal.
+  // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
     workOf = r.id;
+    itab = "changes";
     changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
@@ -786,7 +787,6 @@ function renderDetail() {
   }
   for (const btn of $("detail").querySelectorAll("[data-itab]")) btn.onclick = () => {
     itab = btn.dataset.itab;
-    try { localStorage.setItem("mako-itab", itab); } catch {}
     renderDetail();
     loadWork().then(renderDetail);
   };
