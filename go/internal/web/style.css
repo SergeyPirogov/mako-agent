@@ -571,8 +571,6 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .chat-ctx { font-variant-numeric: tabular-nums; }
 .chat-ctx.full { color: var(--warn); font-weight: 600; }
 .chat-keys { margin-left: auto; }
-.chat-limits { font-variant-numeric: tabular-nums; }
-.chat-limits .warn { color: var(--warn); font-weight: 600; } .chat-limits .bad { color: var(--err); font-weight: 600; }
 .chat-stop[hidden], .chat-send[hidden] { display: none; }
 details.journal { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 10px 16px; }
 details.journal summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); list-style-position: inside; }
