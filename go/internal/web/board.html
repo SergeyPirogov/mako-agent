@@ -16,7 +16,7 @@
 </head>
 <body>
 <header>
-  <span class="logo">🦈 Mako</span>
+  <span class="logo">🦈<span class="logo-t"> Mako</span></span>
   <span class="wip" id="wip"></span>
   <span id="waiting"></span>
   <span id="restart-note"></span>
@@ -82,6 +82,8 @@ let folded = (() => { try { return { done: true, failed: true, ...JSON.parse(loc
 let query = "";
 const FILTER_FROM = 15;
 let statsDays = localStorage.getItem("mako-stats-days") || "";
+// A phone's width: the list and the task are screens of their own, the right panel a tab.
+const narrow = matchMedia("(max-width: 760px)");
 let data = null, shown = "", selected = null, statsOpen = false, newOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
 // The last changes seen per task: a task opened again shows them at once, while the fresh ones load.
 const changesOf = new Map();
@@ -281,7 +283,7 @@ function limitsHTML(l) {
   const meter = (label, w, what) => {
     if (!w) return "";
     const pct = Math.round(w.used * 100), cls = pct >= bad ? "bad" : pct >= 60 ? "warn" : "";
-    return `<span class="limit ${cls}" title="${what}: використано ${pct}%, оновиться ${resetTime(w.resetsAt)}">${label}<span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b></span>`;
+    return `<span class="limit ${cls}" title="${what}: використано ${pct}%, оновиться ${resetTime(w.resetsAt)}"><span class="lk">${label}</span><span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b></span>`;
   };
   return meter("5 год", l?.fiveHour, "Ліміт Claude на 5 годин") + meter("Тиждень", l?.week, "Ліміт Claude на тиждень");
 }
@@ -316,7 +318,7 @@ function downHTML(failed) {
 function pausedHTML(ts) {
   if (!ts.length) return "";
   return `<div class="banner paused">${ts.map((t) =>
-    `<div><b>⏸ ${esc(t.name)}${t.host ? ` · ${esc(t.host)}` : ""}</b>: пошук нових задач на паузі
+    `<div class="paused-row"><span class="pt"><b>⏸ ${esc(t.name)}${t.host ? ` · ${esc(t.host)}` : ""}</b>: пошук нових задач на паузі</span>
       <button data-resume-tracker="${esc(t.id)}">Продовжити</button></div>`).join("")}</div>`;
 }
 
@@ -383,7 +385,9 @@ function render() {
   const where = data.executor === "terminal" ? "В роботі" : "В Orca";
   COLUMNS[1][1] = where;
   LABEL.doing = where.toLowerCase();
-  $("wip").innerHTML = data.wipLimit ? `${where} <b>${doing}</b> з ${data.wipLimit}` : `${where} <b>${doing}</b>`;
+  // On a phone the word goes: «2/5» fits next to the limits.
+  $("wip").innerHTML = `<span class="w">${where} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> з </span><span class="sl">/</span>${data.wipLimit}` : "");
+  $("wip").title = data.wipLimit ? `${where}: ${doing} з ${data.wipLimit}` : `${where}: ${doing}`;
   $("waiting").innerHTML = waiting ? `<span class="waiting-chip"><span class="dot"></span>чекає на вас: ${waiting}</span>` : "";
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
   $("limits").innerHTML = limitsHTML(data.limits);
@@ -1537,7 +1541,7 @@ function renderDetail() {
   if (r.repo) chips.push(chip(`<span class="k">Репо</span>${esc(r.repo)}`));
   const branch = r.branch || r.branchName;
   if (branch) chips.push(chip(`${ICON.pr}<code>${esc(branch)}</code>${copy(branch, "назву гілки")}`, "", "Гілка"));
-  if (r.worktree) chips.push(chip(`${ICON.folder}<code>${esc(shortPath(r.worktree))}</code>${copy(r.worktree, "шлях до worktree")}`, "", r.worktree));
+  if (r.worktree) chips.push(chip(`${ICON.folder}<code>${esc(shortPath(r.worktree))}</code>${copy(r.worktree, "шлях до worktree")}`, "wt", r.worktree));
   if (r.prUrl) {
     const rs = r.reviewState === "merged" ? ["змерджено", "merged"] : r.reviewState === "closed" ? ["закрито", "closed"] : ["відкрито", ""];
     chips.push(`<a class="tchip mr ${rs[1]}" href="${esc(r.prUrl)}" target="_blank" rel="noopener" title="${esc(r.prUrl)}"><span class="dot"></span>${esc(mrName(r.prUrl))} · ${rs[0]} ↗</a>`);
@@ -1579,11 +1583,14 @@ function renderDetail() {
       ${task}</div>` : "";
   const orca = (r.worktree ? workArea(r, term, taskPane) : "") + (term ? "" : agentBlock(r));
   if (!orca.trim()) tab = "task";
+  // «Зміни» is a tab of its own only on a phone; a window grown wide shows the panel next to the agent again.
+  if (tab === "side" && !(term && narrow.matches)) tab = "orca";
   const waiting = agentOf(r)?.state === "waiting";
   // One bar: the task, the agent's terminal (or Orca), and the files opened from the changes.
   const bar = orca.trim() ? `<div class="tabs">
       <button class="tab ${tab === "task" ? "on" : ""}" data-tab="task">Задача</button>
       <button class="tab ${tab === "orca" && !fileTab ? "on" : ""}" data-tab="orca">${term ? "Агент" : "Orca"}${waiting ? ` <span class="wait">· чекає на вас</span>` : ""}</button>
+      ${term ? `<button class="tab tab-phone ${tab === "side" ? "on" : ""}" data-tab="side">Зміни${changes?.files?.length ? ` <span class="ibadge">${changes.files.length}</span>` : ""}</button>` : ""}
       ${openFiles.map((p) => `<button class="tab ${tab === "orca" && p === fileTab ? "on" : ""}" data-ftab="${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())}<span class="x" data-close="${esc(p)}" title="Закрити">×</span></button>`).join("")}
     </div>` : "";
   const ws = !!term;
@@ -1593,6 +1600,7 @@ function renderDetail() {
   const views = agentOn ? `<span class="seg" role="group" aria-label="Вигляд агента">
       <button type="button" class="${view === "chat" ? "on" : ""}" data-view="chat">Чат</button><button type="button" class="${view === "terminal" ? "on" : ""}" data-view="terminal">Термінал</button></span>` : "";
   $("detail").classList.toggle("ws", ws);
+  $("detail").dataset.tab = ws ? (fileTab && tab === "orca" ? "file" : tab) : "";
   if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
 
   const notices = `
@@ -1714,7 +1722,7 @@ function renderDetail() {
   };
   for (const btn of $("detail").querySelectorAll("[data-tab]")) btn.onclick = () => {
     tab = btn.dataset.tab;
-    if (tab === "orca") fileTab = "";
+    if (tab === "orca" || tab === "side") fileTab = "";
     renderDetail();
     if (tab === "orca") { tv?.term.focus(); cv?.input.focus(); }
     loadWork().then(renderDetail);
@@ -2270,7 +2278,8 @@ const digestHash = () => { const h = decodeURIComponent(location.hash.slice(1));
 const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
-else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })();
+// On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
+else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
 // An open menu closes on a click anywhere else.
 document.addEventListener("click", (e) => {
@@ -2313,16 +2322,23 @@ function setupPhone() {
   phoneReady = true;
   document.body.classList.add("phone");
   $("settings-link").hidden = true;
+  // The hint to install the app: once closed with «×», not shown again on this phone.
+  const hintHidden = (() => { try { return localStorage.getItem("mako-hint-hidden") === "1"; } catch { return false; } })();
+  const hint = (body) => {
+    $("phone-hint").innerHTML = `<div class="banner hint"><div class="hint-row"><div>${body}</div>
+      <button class="icon-btn" id="hint-close" title="Сховати" aria-label="Сховати">×</button></div></div>`;
+    $("hint-close").onclick = () => { $("phone-hint").innerHTML = ""; try { localStorage.setItem("mako-hint-hidden", "1"); } catch {} };
+  };
   if (!standalone && ios) {
     // iOS gives pushes only to an app added to the home screen.
-    $("phone-hint").innerHTML = `<div class="banner"><div>Додайте Mako на екран «Додому»: ${iosAddHome()}</div>
-      <div class="muted">Потім відкривайте Mako зі значка: лише так приходять сповіщення.</div></div>`;
+    if (!hintHidden) hint(`Додайте Mako на екран «Додому»: ${iosAddHome()}
+      <div class="muted">Потім відкривайте Mako зі значка: лише так приходять сповіщення.</div>`);
     return;
   }
-  if (!standalone) {
+  if (!standalone && !hintHidden) {
     // Android: pushes work in the browser too, the app on the home screen is for convenience.
-    $("phone-hint").innerHTML = `<div class="banner"><div>Встановіть Mako як додаток: меню браузера <b>⋮</b> → «Додати на головний екран».</div>
-      <button class="primary" id="install-app"${installPrompt ? "" : " hidden"}>Встановити</button></div>`;
+    hint(`Встановіть Mako як додаток: меню браузера <b>⋮</b> → «Додати на головний екран».
+      <button class="primary" id="install-app"${installPrompt ? "" : " hidden"}>Встановити</button>`);
     $("install-app").onclick = async () => {
       if (!installPrompt) return;
       installPrompt.prompt();
@@ -2355,6 +2371,15 @@ const subscribe = (sub) => fetch("/api/push/subscribe", { method: "POST", header
 function urlKey(b64) {
   const raw = atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+// The keyboard on iOS covers the page instead of shrinking it: the body takes the visible part, so the
+// chat's input stays above the keyboard.
+narrow.addEventListener("change", () => { if (data) renderDetail(); });
+if (window.visualViewport) {
+  const fit = () => document.documentElement.style.setProperty("--vvh", `${Math.round(visualViewport.height)}px`);
+  visualViewport.addEventListener("resize", fit);
+  fit();
 }
 
 load().then(() => { setupPhone(); if (startDigest) loadDigest(startDigest); });

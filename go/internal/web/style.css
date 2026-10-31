@@ -15,6 +15,8 @@
 :root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+/* The visible part of the window: on iOS the keyboard covers the page, --vvh (board.html) is what is left. */
+body { height: var(--vvh, 100dvh); }
 body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); display: flex; flex-direction: column; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -33,12 +35,15 @@ button.icon:hover { background: var(--hover); color: var(--fg); }
 button.icon.danger:hover { color: var(--err); }
 button.ghost { border-color: transparent; background: none; color: var(--mute); }
 button.ghost:hover { color: var(--fg); background: var(--hover); }
-header { display: flex; align-items: center; gap: 14px; padding: 0 10px 0 14px; height: 44px; background: var(--card); border-bottom: 1px solid var(--line); flex: none; }
+/* Clear of the notch and the Dynamic Island when the board is an app on the home screen (env() is 0 elsewhere). */
+header { display: flex; align-items: center; gap: 14px; height: calc(44px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left)); background: var(--card); border-bottom: 1px solid var(--line); flex: none; }
 .logo { font-weight: 700; font-size: 14px; white-space: nowrap; flex: none; }
 header > button, header > a { flex: none; white-space: nowrap; }
 .wip { color: var(--mute); font-size: 13px; white-space: nowrap; flex: none; }
 .wip b { color: var(--fg); }
 .wip.full b { color: var(--warn); }
+.wip .sl { display: none; }
 .waiting-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
   background: color-mix(in srgb, var(--warn) 14%, var(--card)); color: var(--warn); white-space: nowrap; }
 .waiting-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
@@ -79,7 +84,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .chip { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--mute); }
 .chip.on { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 .chip .n { opacity: .65; margin-left: 4px; }
-.work { flex: 1; display: grid; grid-template-columns: 232px 1fr; min-height: 0; }
+.work { flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 0; }
 .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .side-bar { height: 36px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
 .side-bar .icon-btn { width: 26px; height: 26px; }
@@ -258,7 +263,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .fix-btn.busy svg, .mr-h .icon[data-ask].busy svg { animation: twinkle .9s ease-in-out infinite; }
 @keyframes twinkle { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.25) rotate(18deg); } }
 @keyframes glow { to { box-shadow: 0 0 0 7px transparent; } }
-#toast { position: fixed; left: 50%; bottom: 24px; z-index: 100; transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+#toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 100; transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
   padding: 8px 14px; border-radius: 9px; font-size: 13px; color: var(--fg); background: var(--card);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 6px 24px rgb(0 0 0 / .18);
   transition: opacity .2s, transform .2s; }
@@ -508,7 +513,7 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .turn-end { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); }
 .chat-working { display: flex; align-items: center; gap: 8px; color: var(--mute); font-size: 12.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .chat-working .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; animation: pulse 1.6s ease-in-out infinite; }
-.chat-foot { flex: none; padding: 10px 14px 10px; border-top: 1px solid var(--line); }
+.chat-foot { flex: none; padding: 10px 14px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
 .chat-box { max-width: 780px; margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .chat-box:focus-within { border-color: var(--accent); }
 .chat-box[hidden], .chat-resume[hidden], .chat-quick[hidden] { display: none; }
@@ -568,8 +573,9 @@ details.journal .log { margin-top: 8px; }
 .labels { display: flex; gap: 4px; flex-wrap: wrap; }
 .label { font-size: 11.5px; padding: 1px 7px; border-radius: 4px; background: var(--hover); color: var(--mute); }
 .back { display: none; }
+.tab-phone { display: none; }
 @media (max-width: 760px) {
-  .work { grid-template-columns: 1fr; }
+  .work { grid-template-columns: minmax(0, 1fr); }
   .work.detail .side { display: none; }
   .work:not(.detail) section { display: none; }
   .back { display: inline-block; margin-bottom: 8px; }
@@ -578,14 +584,93 @@ details.journal .log { margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } .s.ag-working::before { animation: none; }
   .fix-btn.busy, .fix-btn.busy svg, .mr-h .icon[data-ask].busy, .mr-h .icon[data-ask].busy svg { animation: none; } #toast { transition: none; } }
 
-/* the board on a phone, as an app on the home screen: clear of the notch and the home indicator */
-body.phone header { padding-top: env(safe-area-inset-top); height: calc(50px + env(safe-area-inset-top)); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); gap: 8px; }
-body.phone section, body.phone aside { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
-body.phone .wip { font-size: 12px; }
-body.phone header > button { padding: 6px 8px; }
+/* The board on a phone (iPhone 15 Pro Max is 430 px wide, SE 375): nothing wider than the screen, one scroll
+   per screen, touch targets of 44 px, clear of the notch and the home indicator. */
 @media (max-width: 760px) {
   .actions button { padding: 10px 14px; }
+  /* The header: 🦈, «2/5», the limits as numbers, the icons. */
+  header { gap: 4px; height: calc(48px + env(safe-area-inset-top)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(4px, env(safe-area-inset-right)); }
+  .logo-t, .wip .w, #restart-note { display: none; }
+  .wip .sl { display: inline; }
+  .wip { font-size: 13px; margin-left: 4px; }
+  #waiting { min-width: 0; overflow: hidden; }
+  .limits { gap: 8px; min-width: 0; }
+  .limit .lbar { display: none; }
+  .limit { gap: 3px; }
+  .limit .lk { font-size: 11px; }
+  .limit b { width: auto; }
+  header .icon-btn, header > button, #theme { width: 40px; min-width: 40px; height: 44px; padding: 0; justify-content: center; }
+  #theme { display: inline-flex; align-items: center; }
+  /* Touch targets: the icons, «×», copying. */
+  .icon-btn, button.icon, .side-bar .icon-btn, .mr-h button.icon, .dnav .icon { width: 44px; height: 44px; }
+  .tchip button.icon { width: 32px; height: 32px; margin: -4px -2px; }
+  .tchip { height: 32px; }
+  .tab .x { display: inline-block; padding: 8px 10px; margin: -8px -10px -8px 0; }
+  .fix-btn { width: 36px; height: 36px; }
+  .side-bar { height: 44px; }
+  /* Banners: one or two lines each. */
+  .banner { padding: 6px 12px; font-size: 12.5px; }
+  .banner.down code { font-size: 11px; }
+  .paused-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .paused-row .pt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  [data-pause-tracker], [data-resume-tracker] { flex: none; margin-left: 0; height: 32px; }
+  /* The list: room to tap. */
+  .item { height: 56px; }
+  .new-task button { height: 36px; }
+  /* The task, a screen of its own: «← Задачі» stays on top. */
+  section { padding: 0 12px calc(40px + env(safe-area-inset-bottom)); }
+  .back { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; width: calc(100% + 24px); height: 44px; margin: 0 -12px 4px;
+    padding: 0 12px; border-radius: 0; background: var(--bg); color: var(--accent); text-align: left; }
+  .back:hover { background: var(--bg); }
+  .d-main { min-width: 0; }
+  .score { grid-template-columns: 96px auto 30px; }
+  /* The agent's workspace: tabs and buttons in one bar without a scrollbar; the right panel is the «Зміни» tab. */
+  section.ws { padding: 0 8px max(6px, env(safe-area-inset-bottom)); }
+  section.ws .back { width: calc(100% + 16px); margin: 0 -8px; padding: 0 8px; }
+  .ws-bar { flex-wrap: wrap; gap: 0 6px; margin-bottom: 6px; }
+  .ws-bar .tabs { flex: 1 1 100%; }
+  /* Чат / Термінал only under «Агент»; without it the buttons share the tabs' row. */
+  section.ws:not([data-tab="orca"]) .ws-bar .seg { display: none; }
+  .ws-bar:not(:has(.seg, [data-ftab])), section.ws:not([data-tab="orca"]) .ws-bar:not(:has([data-ftab])) { flex-wrap: nowrap; }
+  .ws-bar:not(:has(.seg, [data-ftab])) .tabs, section.ws:not([data-tab="orca"]) .ws-bar:not(:has([data-ftab])) .tabs { flex: 1 1 auto; }
+  section.ws .task-pane h1 { white-space: normal; overflow-wrap: anywhere; }
+  .ws-bar .actions { margin-left: auto; }
+  .tabs { gap: 0; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { padding: 10px 10px; min-height: 44px; }
+  .tab-phone { display: inline-block; }
+  .ws-bar .seg button { height: 32px; padding: 0 12px; }
+  .ws-bar .actions { gap: 0; }
+  section.ws .split { flex-direction: column; gap: 0; }
+  section.ws .inspector { display: none; }
+  section.ws[data-tab="side"] .split-main { display: none; }
+  section.ws[data-tab="side"] .inspector { display: flex; flex: 1; min-height: 0; width: auto; overflow-y: auto; }
+  section.ws[data-tab="side"] .insp-card { flex: none; min-height: 0; max-height: none; overflow: visible; }
+  section.ws[data-tab="side"] .insp-panel { overflow: visible; }
+  .itabs { height: 44px; }
+  .task-pane { padding: 4px 2px 24px; }
+  .tchip.wt { display: none; }
+  /* A file's diff: its name on a line of its own, the switches under it. */
+  .diff-head { flex-wrap: wrap; gap: 4px 8px; padding: 4px 0; }
+  .diff-head .dpath { flex: 1 1 60%; }
+  .diff-head .seg { margin-left: 0; }
+  .dnote { width: auto; max-width: calc(100vw - 48px); }
+  /* The chat: the whole width, no zoom when typing (iOS zooms into fields under 16 px). */
+  .chat-list { padding: 12px 12px 8px; }
+  .chat-foot { padding: 8px 8px max(8px, env(safe-area-inset-bottom)); }
+  .chat-hint { flex-wrap: wrap; gap: 4px 10px; }
+  .chat-keys { display: none; }
+  .chat-send { width: 40px; height: 40px; }
+  input, textarea, select, .chat-box textarea, .filter input, .filter select { font-size: 16px; }
+  .filter input, .filter select { height: 36px; }
+  .menu-pop { right: auto; left: 0; max-width: calc(100vw - 24px); }
 }
+/* An iPhone SE: the limits as bare numbers, their names in the tooltip. */
+@media (max-width: 400px) { .limit .lk { display: none; } .limits { gap: 6px; } }
+.hint-row { display: flex; align-items: center; gap: 8px; }
+.hint-row > div { flex: 1; min-width: 0; }
+.hint-row .icon-btn { font-size: 20px; }
+.hint-row #install-app { margin-left: 6px; padding: 2px 10px; }
 
 /* A task in Orca: its agent's whole conversation, folded under the agent. */
 details.convo { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
