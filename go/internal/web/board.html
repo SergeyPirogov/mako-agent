@@ -260,14 +260,26 @@ function limitsHTML(l) {
 // Past the threshold the queue waits for the limit to reset; agents already working go on.
 // Trackers Mako cannot search now (no internet, the VPN dropped, the service is down): which one, why in
 // words, since when; the raw error under «Деталі».
+// «Сховати» snoozes a tracker's alert for an hour; it comes back only if the tracker is still down then.
+const SNOOZE_MS = 60 * 60 * 1000;
+let downSnoozed = (() => { try { return JSON.parse(localStorage.getItem("mako-down-snoozed")) || {}; } catch { return {}; } })();
+const snoozed = (id) => Date.now() - (downSnoozed[id] || 0) < SNOOZE_MS;
+function snoozeDown(ids) {
+  const now = Date.now();
+  for (const id of Object.keys(downSnoozed)) if (now - downSnoozed[id] >= SNOOZE_MS) delete downSnoozed[id];
+  for (const id of ids) downSnoozed[id] = now;
+  try { localStorage.setItem("mako-down-snoozed", JSON.stringify(downSnoozed)); } catch {}
+}
 function downHTML(failed) {
+  failed = failed.filter(([id]) => !snoozed(id));
   if (!failed.length) return "";
   const since = (iso) => iso ? ` з ${new Date(iso).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}` : "";
   return `<div class="banner down" role="alert">${failed.map(([id, s]) =>
     `<div><b>⚠ ${esc(s.down || id)}</b><span class="muted">${since(s.since)}</span>
       <details><summary>Деталі</summary><code>${esc(s.error)}</code></details></div>`).join("")}
     <div class="muted">Нові задачі з ${failed.length > 1 ? "цих трекерів" : "цього трекера"} не з'являться, доки він недоступний; Mako перевіряє знову сам.
-      <button class="ghost" id="poll-again">Перевірити зараз</button></div></div>`;
+      <button class="ghost" id="poll-again">Перевірити зараз</button>
+      <button class="ghost" id="down-hide" data-ids="${esc(failed.map(([id]) => id).join("\n"))}" title="Не показувати годину; якщо трекер і далі недоступний, сповіщення повернеться">Сховати на годину</button></div></div>`;
 }
 
 function limitHoldHTML(h) {
@@ -332,6 +344,8 @@ function render() {
     $("trackers-down").innerHTML = $("trackers-down").dataset.html = down;
     const pt = $("poll-again");
     if (pt) pt.onclick = () => $("poll").click();
+    const dh = $("down-hide");
+    if (dh) dh.onclick = () => { snoozeDown(dh.dataset.ids.split("\n")); render(); };
   }
   $("search").className = "search" + (failed.length ? " err" : "");
   $("search").textContent = failed.length
