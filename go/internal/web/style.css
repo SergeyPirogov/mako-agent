@@ -146,6 +146,14 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .stat span, .stat small { color: var(--mute); font-size: 12px; }
 .stat b { font-size: 22px; font-variant-numeric: tabular-nums; }
 .stats .facts dt { font-variant-numeric: tabular-nums; text-align: right; }
+.digest-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.digest-list { list-style: none; margin: 0; padding: 0; }
+.digest-list li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.digest-list li > a:first-child { color: inherit; text-decoration: none; }
+.digest-list li > a:first-child:hover b { text-decoration: underline; }
+.digest-list .muted { font-size: 12px; margin-top: 2px; }
+.digest-list .mr { font-size: 12px; margin-left: 6px; }
+.digest-new { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
 .stats-note { color: var(--mute); font-size: 12px; margin-top: 16px; }
 #theme { display: inline-flex; padding: 7px 9px; }
 .d-id .s { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }

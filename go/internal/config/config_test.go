@@ -97,3 +97,25 @@ func TestLimitPausePct(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDigest(t *testing.T) {
+	cfg, err := Parse([]byte(`{}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notifications.MorningMin != 9*60 || cfg.Notifications.AwayHours != 4 {
+		t.Fatalf("defaults %+v", cfg.Notifications)
+	}
+	cfg, err = Parse([]byte(`{"notifications": {"morningDigest": "7:30", "awayHours": 0}}`), nil)
+	if err != nil || cfg.Notifications.MorningMin != 7*60+30 || cfg.Notifications.AwayHours != 0 {
+		t.Fatalf("set %+v %v", cfg.Notifications, err)
+	}
+	if cfg, err = Parse([]byte(`{"notifications": {"morningDigest": "-"}}`), nil); err != nil || cfg.Notifications.MorningMin != -1 {
+		t.Fatalf("off %+v %v", cfg, err)
+	}
+	for _, bad := range []string{"25:00", "ранок", "9"} {
+		if _, err := Parse([]byte(`{"notifications": {"morningDigest": "`+bad+`"}}`), nil); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

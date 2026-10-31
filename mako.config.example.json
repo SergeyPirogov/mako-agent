@@ -11,6 +11,8 @@
     "enabled": true,
     "autoTake": false,
     "snoozeMin": 60,
+    "morningDigest": "09:00",
+    "awayHours": 4,
     "timeoutSec": 600,
     "inboxPort": 7777
   },

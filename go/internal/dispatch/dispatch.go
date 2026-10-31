@@ -71,6 +71,7 @@ type Dispatcher struct {
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
 	restartPending bool
+	absence        absence // when the board was last seen, the morning digest last sent
 }
 
 type LogLine struct {
@@ -219,6 +220,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.CheckGone(ctx)
 	d.AutoArchive(time.Now())
 	d.remind(time.Now())
+	d.morning(time.Now())
 	d.schedule(ctx)
 }
 

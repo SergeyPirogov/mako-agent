@@ -60,7 +60,13 @@ type Notifications struct {
 	AutoTake  bool
 	SnoozeMin int
 	Port      int
+	// MorningMin: when the morning digest goes out, in minutes after midnight; -1: never.
+	MorningMin int
+	// AwayHours: the board not seen this long shows what happened meanwhile.
+	AwayHours int
 }
+
+const DefaultMorningDigest = "09:00"
 
 // Orca is the executor the dispatcher hands every task to.
 type Orca struct {
@@ -214,6 +220,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			AutoTake:  raw.Notifications.AutoTake != nil && *raw.Notifications.AutoTake,
 			SnoozeMin: orInt(raw.Notifications.SnoozeMin, 60),
 			Port:      orInt(raw.Notifications.InboxPort, 7777),
+			AwayHours: orInt(raw.Notifications.AwayHours, 4),
 		},
 		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
 		Comments: Comments{
@@ -252,6 +259,11 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		c.Orca.ExtraArgs = e.ExtraArgs
 		break
 	}
+	morning, err := clock(orStr(strings.TrimSpace(raw.Notifications.MorningDigest), DefaultMorningDigest))
+	if err != nil {
+		return nil, fmt.Errorf("ранковий підсумок: %w", err)
+	}
+	c.Notifications.MorningMin = morning
 	for i, rt := range raw.Trackers {
 		t, err := c.tracker(rt)
 		if err != nil {
@@ -485,6 +497,21 @@ type rawNotifications struct {
 	AutoTake  *bool `json:"autoTake"`
 	SnoozeMin *int  `json:"snoozeMin"`
 	InboxPort *int  `json:"inboxPort"`
+	// MorningDigest: "09:00", "-" for none.
+	MorningDigest string `json:"morningDigest"`
+	AwayHours     *int   `json:"awayHours"`
+}
+
+// clock reads "HH:MM" as minutes after midnight; "-" is -1.
+func clock(s string) (int, error) {
+	if s == "-" {
+		return -1, nil
+	}
+	var h, m int
+	if n, err := fmt.Sscanf(s, "%d:%d", &h, &m); err != nil || n != 2 || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, fmt.Errorf("%q: потрібен час ГГ:ХХ, наприклад 09:00, або «-»", s)
+	}
+	return h*60 + m, nil
 }
 
 // has: some executor is of type t.
