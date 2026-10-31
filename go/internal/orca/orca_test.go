@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -151,5 +152,34 @@ echo '{"id":"1","ok":true,"result":{"worktrees":[{"worktreeId":"w1","path":"/Use
 	log, _ := os.ReadFile(calls)
 	if !strings.Contains(string(log), "worktree ps --agent-wait --json") {
 		t.Fatalf("calls %s", log)
+	}
+}
+
+func TestLastMessage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	wt := "/Users/s/orca/workspaces/market-autotests/market-autotests-31"
+	dir := filepath.Join(home, ".claude", "projects", "-Users-s-orca-workspaces-market-autotests-market-autotests-31")
+	os.MkdirAll(dir, 0o755)
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"Розбери нічний ран"}}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Спершу подивлюсь звіт."}]}}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","name":"Read","input":{}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"…"}]}}`,
+		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Ось коротша версія:\n\n| # | Тести |\n|---|---|\n| 1 | @67276 |"}]}}`,
+		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Я досі нічого не змінював."}]}}`,
+		`{"type":"assistant","isSidechain":true,"message":{"id":"s1","role":"assistant","content":[{"type":"text","text":"subagent noise"}]}}`,
+	}
+	os.WriteFile(filepath.Join(dir, "old.jsonl"), []byte(`{"type":"assistant","message":{"id":"x","role":"assistant","content":[{"type":"text","text":"old session"}]}}`+"\n"), 0o644)
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(filepath.Join(dir, "new.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	got := LastMessage(wt)
+	want := "Ось коротша версія:\n\n| # | Тести |\n|---|---|\n| 1 | @67276 |\n\nЯ досі нічого не змінював."
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+	if LastMessage("/no/such/worktree") != "" {
+		t.Fatal("a message for a worktree without sessions")
 	}
 }

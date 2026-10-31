@@ -146,6 +146,11 @@ func (d *Dispatcher) look(ctx context.Context, o config.Orca, r core.Record, ws 
 		return a
 	}
 	a.Name, a.Message, a.Since = row.AgentType, strings.TrimSpace(row.LastAssistantMessage), row.StateStartedAt
+	if (row.AgentType == "" || row.AgentType == "claude") && d.LastMessage != nil && r.Worktree != "" {
+		if full := d.LastMessage(r.Worktree); full != "" {
+			a.Message = full
+		}
+	}
 	if row.ToolName != "" {
 		a.Tool = row.ToolName + orBlank(": ", clipText(firstLine(row.ToolInput), 160))
 	}

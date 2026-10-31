@@ -52,15 +52,40 @@ const state = (r) => {
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
-// A tiny Markdown: headings, bullets, code and links, enough for the summary.
-const md = (text) => text.trim().split(/\n/).map((l) => {
-  const h = l.match(/^#{1,4}\s+(.*)/);
-  if (h) return `<h4>${esc(h[1])}</h4>`;
-  const li = l.match(/^\s*[-*]\s+(.*)/);
+// A small Markdown for what agents write: headings, lists, tables, code blocks, inline code, bold and links.
+function md(text) {
   const inline = (x) => linkify(x).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
-  if (li) return `<li>${inline(li[1])}</li>`;
-  return l.trim() ? `<p>${inline(l)}</p>` : "";
-}).join("").replace(/(<li>.*?<\/li>)+/g, (m) => `<ul>${m}</ul>`);
+  const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+  const lines = text.trim().split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*```/.test(l)) {
+      const code = [];
+      while (++i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i]);
+      out.push(`<pre class="code">${esc(code.join("\n"))}</pre>`);
+      continue;
+    }
+    if (/^\s*\|/.test(l)) {
+      const rows = [];
+      for (; i < lines.length && /^\s*\|/.test(lines[i]); i++) rows.push(lines[i]);
+      i--;
+      const body = rows.filter((r) => !/^\s*\|?[\s:|-]+\|?\s*$/.test(r)).map(cells);
+      const sep = rows.length > 1 && /^\s*\|?[\s:|-]+\|?\s*$/.test(rows[1]);
+      const head = sep ? body.shift() : null;
+      out.push(`<div class="table"><table>${head ? `<thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>` : ""}<tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      continue;
+    }
+    const h = l.match(/^#{1,4}\s+(.*)/);
+    const li = l.match(/^\s*[-*]\s+(.*)/);
+    const num = l.match(/^\s*(\d+)[.)]\s+(.*)/);
+    if (h) out.push(`<h4>${inline(h[1])}</h4>`);
+    else if (li) out.push(`<li>${inline(li[1])}</li>`);
+    else if (num) out.push(`<p class="num"><span>${num[1]}.</span> ${inline(num[2])}</p>`);
+    else if (l.trim()) out.push(`<p>${inline(l)}</p>`);
+  }
+  return out.join("").replace(/(<li>.*?<\/li>)+/g, (m) => `<ul>${m}</ul>`);
+}
 
 async function post(action, id, extra = "") {
   await fetch(`/api/${action}?id=${encodeURIComponent(id ?? "")}${extra}`, { method: "POST" });
@@ -200,9 +225,9 @@ function renderDetail() {
     <div class="actions">${actions}</div>
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею в Orca.</div>` : ""}
+    ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     ${agentBlock(r)}
     ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
-    ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     <h3>Опис</h3>
     <div class="text">${t.description?.trim() ? linkify(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${linkify(c.body)}</div></div>`).join("")}` : ""}

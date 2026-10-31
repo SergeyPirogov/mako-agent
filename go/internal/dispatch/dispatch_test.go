@@ -170,6 +170,7 @@ func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 	}
 	d := New(cfg, store, []trackers.Tracker{gl})
 	d.Term = &fakeTerminals{}
+	d.LastMessage = func(string) string { return "" }
 	jobs := &[]orca.Job{}
 	d.Hand = func(ctx context.Context, o config.Orca, j orca.Job, log func(string)) (*orca.Result, error) {
 		*jobs = append(*jobs, j)
