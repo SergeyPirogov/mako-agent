@@ -111,7 +111,7 @@ func (d *Dispatcher) maybeReview(id string) {
 	case notes == "":
 		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "clean"})
 		d.Log(id, "рецензент не має зауважень: рев'ю агентом пройдено")
-		notify.Inform("🔍 "+id+": рев'ю агентом пройдено", r.Task.Title, link)
+		notify.Inform(notify.AgentReview, "🔍 "+id+": рев'ю агентом пройдено", r.Task.Title, link)
 	default:
 		if err := d.tellAgent(id, reviewRequest(notes, branchOf(r), push)); err != nil {
 			d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "failed", Notes: notes, Error: "зауваження не передано агенту: " + err.Error()})
@@ -120,7 +120,7 @@ func (d *Dispatcher) maybeReview(id string) {
 		}
 		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "notes", Notes: notes})
 		d.Log(id, "рецензент має зауваження, їх передано агенту")
-		notify.Inform("🔍 "+id+": зауваження рецензента", clipText(firstLine(notes), 140), link)
+		notify.Inform(notify.AgentReview, "🔍 "+id+": зауваження рецензента", clipText(firstLine(notes), 140), link)
 	}
 }
 

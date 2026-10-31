@@ -488,6 +488,24 @@ function renderNotifications() {
   box.append(text(n, "morningDigest", "Ранковий підсумок о", { placeholder: "09:00", hint: "Одне сповіщення (і пуш на телефон): що чекає на вас, які MR готові до мерджу, що впало, що змерджено. «-» — не надсилати" }));
   box.append(num(n, "awayHours", "Підсумок на дошці після відсутності, год", { placeholder: "4", hint: "Дошку не відкривали стільки годин (або Mac спав) — покаже, що сталося за цей час. 0 — не показувати" }));
   box.append(num(n, "inboxPort", "Порт дошки", { placeholder: "7777", hint: "Діє після перезапуску Mako" }));
+  // Which notifications to get: only the ones turned off are written, {"newTask": false}.
+  n.events ??= {};
+  const kinds = document.createElement("div");
+  kinds.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Про що сповіщати</h3>
+    <div class="hint" style="font-size:12.5px;color:var(--mute);margin-bottom:6px">На Mac і на телефон. Вимкнене видно лише на дошці</div>`;
+  for (const [kind, label] of [
+    ["waiting", "✋ Агент чекає на відповідь"],
+    ["finished", "✅ Агент закінчив хід"],
+    ["stopped", "⏹ Агент зупинився або задачу не передано"],
+    ["review", "✅ З'явився MR"],
+    ["agentReview", "🔍 Рев'ю агентом-рецензентом"],
+    ["merged", "🎉 MR змерджено"],
+    ["newTask", "🦈 Нова задача"],
+    ["reminder", "⏰ Час повернутися до відкладеної задачі"],
+    ["gone", "🦈 Задачу в роботі закрито чи видалено в трекері"],
+    ["limits", "⏳ Черга на паузі через ліміт Claude і продовжується"],
+  ]) kinds.append(check(n.events, kind, label, { def: true }));
+  box.append(kinds);
 }
 
 // The left menu: each tracker on its own, then the rest. The open section is kept in the address (#orca).
@@ -651,6 +669,7 @@ $("save").onclick = async () => {
     if (t.labels && !Object.keys(t.labels).length) delete t.labels;
     if (t.transitions && !Object.keys(t.transitions).length) delete t.transitions;
   }
+  if (cfg.notifications?.events && !Object.keys(cfg.notifications.events).length) delete cfg.notifications.events;
   if (cfg.notifications && !Object.keys(cfg.notifications).length) delete cfg.notifications;
   if (cfg.comments && !Object.keys(cfg.comments).length) delete cfg.comments;
   try {

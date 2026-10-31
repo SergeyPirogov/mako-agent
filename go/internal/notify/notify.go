@@ -23,7 +23,26 @@ type Notice struct {
 	Title, Message, URL string
 	Tag                 string
 	Actions             []Action
+	// Kind: what the notification is about (one of the Kinds), so it can be turned off in the settings.
+	Kind string
 }
+
+// Kinds of notifications one can turn off in the settings. The morning digest has its own switch.
+const (
+	NewTask     = "newTask"     // a new task appeared in a tracker
+	Waiting     = "waiting"     // an agent waits for an answer
+	Finished    = "finished"    // an agent finished its turn
+	Stopped     = "stopped"     // an agent stopped, a hand-off failed or was abandoned
+	Review      = "review"      // a merge request appeared
+	Merged      = "merged"      // a merge request was merged
+	AgentReview = "agentReview" // the reviewer agent passed a branch or left remarks
+	Reminder    = "reminder"    // a snoozed task is back
+	Gone        = "gone"        // a task in work was closed or deleted in the tracker
+	Limits      = "limits"      // the queue paused at the Claude limit or went on
+)
+
+// Muted says the kind is turned off: such notifications are not shown, nor pushed to the phones.
+var Muted func(kind string) bool
 
 // Native shows a notification of Mako.app itself (macOS); false when it cannot.
 var Native func(n Notice) bool
@@ -37,14 +56,17 @@ var Remote func(n Notice)
 // RemoteWithdraw takes the phones' notification with the tag away.
 var RemoteWithdraw func(tag string)
 
-// Inform shows a notification; with url, clicking it opens that page where the system allows (terminal-notifier
+// Inform shows a notification of the kind; with url, clicking it opens that page where the system allows (terminal-notifier
 // on macOS, the «Відкрити» action of notify-send on Linux).
-func Inform(title, message, url string) {
-	Show(Notice{Title: title, Message: message, URL: url})
+func Inform(kind, title, message, url string) {
+	Show(Notice{Kind: kind, Title: title, Message: message, URL: url})
 }
 
 // Show shows a notification; its actions only where the system lets Mako answer them (Mako.app, the phones).
 func Show(n Notice) {
+	if n.Kind != "" && Muted != nil && Muted(n.Kind) {
+		return
+	}
 	if Remote != nil {
 		go Remote(n)
 	}

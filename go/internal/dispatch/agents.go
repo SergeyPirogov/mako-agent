@@ -151,14 +151,14 @@ func (d *Dispatcher) tell(r core.Record, a Agent) {
 		if a.Asked != nil {
 			question, _, _ = chat.Choices(*a.Asked)
 		}
-		notify.Show(notify.Notice{Title: "✋ " + r.ID + ": агент чекає на вас", Message: firstOf(question, a.Reason, lastLine(a.Screen, ""), r.Task.Title),
+		notify.Show(notify.Notice{Kind: notify.Waiting, Title: "✋ " + r.ID + ": агент чекає на вас", Message: firstOf(question, a.Reason, lastLine(a.Screen, ""), r.Task.Title),
 			URL: link, Tag: waitTag(r.ID), Actions: askActions(r.ID, a.Asked)})
 	case "done":
 		d.Log(r.ID, "агент закінчив")
-		notify.Inform("✅ "+r.ID+": агент закінчив", firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
+		notify.Inform(notify.Finished, "✅ "+r.ID+": агент закінчив", firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
 	case "stopped":
 		d.Log(r.ID, "агент зупинився"+orBlank(": ", a.Reason))
-		notify.Inform("⏹ "+r.ID+": агент зупинився", firstOf(a.Reason, r.Task.Title), link)
+		notify.Inform(notify.Stopped, "⏹ "+r.ID+": агент зупинився", firstOf(a.Reason, r.Task.Title), link)
 	}
 }
 

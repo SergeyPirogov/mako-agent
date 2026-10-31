@@ -132,3 +132,17 @@ func TestParseReviewer(t *testing.T) {
 		t.Fatalf("0 rounds: %+v", c.Reviewer)
 	}
 }
+
+func TestParseNotificationEvents(t *testing.T) {
+	cfg, err := Parse([]byte(`{}`), nil)
+	if err != nil || cfg.Notifications.Muted("newTask") {
+		t.Fatalf("by default every kind is shown: %+v %v", cfg.Notifications, err)
+	}
+	cfg, err = Parse([]byte(`{"notifications": {"events": {"newTask": false, "merged": true}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Notifications.Muted("newTask") || cfg.Notifications.Muted("merged") || cfg.Notifications.Muted("waiting") {
+		t.Fatalf("off %+v", cfg.Notifications.Off)
+	}
+}
