@@ -419,6 +419,7 @@ section.ws .files { max-height: none; flex: 1; min-height: 0; }
 .limit .lbar > span { display: block; height: 100%; background: var(--accent); }
 .limit b { width: 32px; text-align: right; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
 .limit.warn .lbar > span { background: var(--warn); } .limit.warn b { color: var(--warn); }
+.limit .ls { display: none; }
 .limit.bad .lbar > span { background: var(--err); } .limit.bad b { color: var(--err); }
 
 /* The right panel: the branch, then one tab at a time; the card keeps its size, only the tab scrolls. */
@@ -602,7 +603,7 @@ details.journal .log { margin-top: 8px; }
   .wip .sl { display: inline; }
   .wip { font-size: 13px; margin-left: 4px; }
   /* Nothing in the header may push it past the screen: iOS would widen the page and drop the phone layout. */
-  #waiting { min-width: 0; overflow: hidden; }
+  #waiting { flex: none; } /* who waits for you: never cut */
   .waiting-chip .wt { display: none; }
   .limits { gap: 8px; min-width: 0; overflow: hidden; }
   .limit .lbar { display: none; }
@@ -675,8 +676,13 @@ details.journal .log { margin-top: 8px; }
   .filter input, .filter select { height: 36px; }
   .menu-pop { right: auto; left: 0; max-width: calc(100vw - 24px); }
 }
-/* A phone (an iPhone Pro Max is 430 px): the limits as bare numbers, their names in the tooltip. */
-@media (max-width: 480px) { .limit .lk { display: none; } .limits { gap: 6px; } }
+/* A phone (iPhone SE 375 px, Pro Max 430): the limits in two short lines, «5г 12%» over «тиж 21%»,
+   so the icons, 🔔 and «чекає на вас» fit next to them. */
+@media (max-width: 480px) {
+  .limits { flex-direction: column; align-items: flex-end; gap: 0; font-size: 11px; line-height: 1.25; }
+  .limit .lk { display: none; }
+  .limit .ls { display: inline; }
+}
 .hint-row { display: flex; align-items: center; gap: 8px; }
 .hint-row > div { flex: 1; min-width: 0; }
 .hint-row .icon-btn { font-size: 20px; }
