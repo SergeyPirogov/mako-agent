@@ -78,6 +78,11 @@ type Dispatcher struct {
 	absence        absence // when the board was last seen, the morning digest last sent
 
 	lessonsMu sync.Mutex // lessons.json
+	faultsMu  sync.Mutex // errors.json: Mako's own errors
+
+	// Version and Source: this Mako's version and the clone it is built from ("" when unknown), for the
+	// report of its errors.
+	Version, Source string
 }
 
 type LogLine struct {
@@ -245,7 +250,7 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 		s := Search{At: time.Now(), Found: len(tasks)}
 		if err != nil {
 			s.Error = err.Error()
-			d.Log(t.ID(), "пошук не вдався: "+err.Error())
+			d.Fault(t.ID(), "пошук не вдався", err)
 		}
 		d.mu.Lock()
 		d.searches[t.ID()] = s
@@ -462,7 +467,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		executor = terminalExecutor
 	}
 	fail := func(err error) {
-		d.Log(id, "не передано: "+err.Error())
+		d.Fault(id, "не передано", err)
 		d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now() })
 		notify.Inform("❌ "+id+": не передано "+map[string]string{"orca": "в Orca", terminalExecutor: "агенту"}[executor], err.Error(), d.BoardURL)
 	}
@@ -490,7 +495,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	if t.Config().AssignOnTake {
 		if me, _ := t.Me(ctx); me == "" || !contains(r.Task.Assignees, me) {
 			if err := t.AssignToMe(ctx, r.Task); err != nil {
-				d.Log(id, "не вдалось призначити задачу на вас: "+err.Error())
+				d.Fault(id, "не вдалось призначити задачу на вас", err)
 			}
 		}
 	}
@@ -533,7 +538,7 @@ func (d *Dispatcher) comment(ctx context.Context, t trackers.Tracker, task core.
 		return m
 	})
 	if err := t.Comment(ctx, task, text); err != nil {
-		d.Log(task.ID, "коментар не додано: "+err.Error())
+		d.Fault(task.ID, "коментар не додано", err)
 	}
 }
 
@@ -541,7 +546,7 @@ func (d *Dispatcher) comment(ctx context.Context, t trackers.Tracker, task core.
 func (d *Dispatcher) move(ctx context.Context, t trackers.Tracker, task core.Task, moment string) {
 	status, err := t.Move(ctx, task, moment)
 	if err != nil {
-		d.Log(task.ID, "статус у трекері не змінено: "+err.Error())
+		d.Fault(task.ID, "статус у трекері не змінено", err)
 		d.Store.Update(task.ID, func(r *core.Record) { r.TrackerStatus = &core.TrackerState{OK: false, Text: err.Error()} })
 		return
 	}
@@ -619,7 +624,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		host, project, err := d.host(ctx, t, repo)
 		if err != nil {
-			d.Log(r.ID, "MR не перевірено: "+err.Error())
+			d.Fault(r.ID, "MR не перевірено", err)
 			continue
 		}
 		branch := r.Branch
@@ -628,7 +633,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		review, err := host.FindReview(ctx, project, branch)
 		if err != nil {
-			d.Log(r.ID, "MR не перевірено: "+err.Error())
+			d.Fault(r.ID, "MR не перевірено", err)
 			continue
 		}
 		if review == nil {
@@ -644,7 +649,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		d.Log(r.ID, "є MR: "+review.URL)
 		if err := d.describeIfBare(ctx, host, r, repo, review.URL); err != nil {
-			d.Log(r.ID, "опис MR не написано: "+err.Error())
+			d.Fault(r.ID, "опис MR не написано", err)
 		}
 		d.comment(ctx, t, r.Task, d.Config().Comments.OnReview, map[string]string{"branch": branch, "mr": review.URL})
 		d.move(ctx, t, r.Task, trackers.AtReview)
@@ -720,7 +725,7 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 		}
 		st, err := host.ReviewState(ctx, r.PRURL)
 		if err != nil {
-			d.Log(r.ID, "стан MR не перевірено: "+err.Error())
+			d.Fault(r.ID, "стан MR не перевірено", err)
 			continue
 		}
 		switch st {

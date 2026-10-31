@@ -286,6 +286,10 @@ function render() {
   // «Перезапустити, коли агенти закінчать хід»: Mako waits for the agents that work now, then restarts.
   const rs = data.restart || {};
   $("restart").classList.toggle("on", !!rs.pending);
+  // Mako's own errors not sent for analysis yet: a dot on «Статистика», where they are listed.
+  const faults = (data.faults || []).filter((f) => !f.reported).length;
+  $("stats-btn").classList.toggle("fault", faults > 0);
+  $("stats-btn").title = $("stats-btn").ariaLabel = faults ? `Статистика · помилки Mako: ${faults}` : "Статистика";
   $("restart").title = $("restart").ariaLabel = rs.pending ? "Скасувати перезапуск" : "Перезапустити Mako, коли агенти закінчать хід";
   $("restart-note").innerHTML = rs.pending
     ? `<span class="waiting-chip" title="${esc((rs.busy || []).join(", "))}">${rs.busy?.length ? `Перезапуск, коли агенти закінчать хід: ${rs.busy.length}` : "Перезапуск…"}</span>` : "";
@@ -1093,6 +1097,43 @@ function statsHTML(s) {
   </div>`;
 }
 
+// Mako's own errors, one row per kind: «На аналіз» writes them into an issue in Mako's repository.
+function faultsHTML(fs) {
+  if (!fs?.length) return "";
+  const fresh = fs.filter((f) => !f.reported).length;
+  const at = (t) => new Date(t).toLocaleString("uk", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const row = (f) => `<li class="${f.reported ? "reported" : ""}"><div><b>${esc(f.what)}</b> <span class="muted">${f.count}× · ${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span></div>`
+    + `<div class="fault-text">${esc(f.error)}</div>`
+    + (f.reported ? `<div class="muted">на аналізі: ${/^https?:/.test(f.reported) ? `<a href="${esc(f.reported)}" target="_blank" rel="noopener">${esc(f.reported)}</a>` : esc(f.reported)}</div>` : "") + `</li>`;
+  return `<div class="stats faults">
+    <div class="digest-head"><h3>Помилки Mako <span class="muted">${fs.length}</span></h3>
+      <span class="actions">${fresh && !data.remote ? `<button id="faults-report"${faultsBusy ? " disabled" : ""} title="Створити в репозиторії Mako задачу з цими помилками, щоб агент їх розібрав">${faultsBusy ? "Створюю задачу…" : `На аналіз: ${fresh}`}</button>` : ""}
+      ${data.remote ? "" : `<button class="ghost" id="faults-clear">Очистити</button>`}</span></div>
+    <ul class="digest-list">${fs.map(row).join("")}</ul>
+    <p class="stats-note">Що не вдалося на боці Mako: пошук, коментарі, статуси, перевірка MR, worktree. Однакові помилки зібрано в одну.</p>
+  </div>`;
+}
+// The board re-renders every few seconds: the report under way is remembered here, not in the button.
+let faultsBusy = false;
+function bindFaults() {
+  const rep = $("faults-report"), clr = $("faults-clear");
+  if (rep) rep.onclick = async () => {
+    if (faultsBusy) return;
+    faultsBusy = true; render();
+    const res = await fetch("/api/faults/report", { method: "POST" }).then((r) => r.json()).catch((err) => ({ error: err.message }));
+    faultsBusy = false;
+    if (!res.ok) { toast(res.error || "Не вдалося створити задачу", true); await load(); return; }
+    toast("Задачу з помилками Mako створено");
+    await load();
+    select(res.id);
+  };
+  if (clr) clr.onclick = async () => {
+    if (!confirm("Забути всі помилки Mako?")) return;
+    await fetch("/api/faults/clear", { method: "POST" });
+    await load();
+  };
+}
+
 // One row per project or agent: how its tasks went. Hidden while there is only one.
 function groupsHTML(title, groups, col, name = (n) => n) {
   if (!groups || groups.length < 2) return "";
@@ -1133,8 +1174,9 @@ function renderDetail() {
   }
   if (!r) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
-    $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Задачі</button>` : "") + statsHTML(data.stats);
+    $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Задачі</button>` : "") + statsHTML(data.stats) + faultsHTML(data.faults);
     if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
+    bindFaults();
     return;
   }
   const t = r.task, st = state(r);
