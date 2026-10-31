@@ -128,3 +128,13 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
   .search { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } .s.ag-working::before { animation: none; } }
+
+/* the board on a phone, as an app on the home screen: clear of the notch and the home indicator */
+body.phone header { padding-top: env(safe-area-inset-top); height: calc(50px + env(safe-area-inset-top)); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); gap: 8px; }
+body.phone section, body.phone aside { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+body.phone .wip { font-size: 12px; }
+body.phone header > button { padding: 6px 8px; }
+@media (max-width: 760px) {
+  .item { padding-top: 12px; padding-bottom: 12px; }
+  .actions button { padding: 10px 14px; }
+}

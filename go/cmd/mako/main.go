@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/desktop"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
+	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/web"
@@ -87,7 +89,21 @@ func run(homeFlag string, open, noTray bool) error {
 	if tray && desktop.HasWindow() {
 		show = desktop.OpenWindow
 	}
-	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show}).Handler()}
+	phones, err := phone.Open(cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	// Everything the Mac is told goes to the paired phones too, with board links made relative to the app.
+	notify.Remote = func(title, message, link string) {
+		link = strings.TrimPrefix(link, d.BoardURL)
+		if link == "" {
+			link = "/"
+		}
+		for _, err := range phones.Push(context.Background(), phone.Message{Title: title, Body: message, URL: link}) {
+			log.Printf("телефон: %v", err)
+		}
+	}
+	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones}).Handler()}
 	go srv.Serve(ln)
 	log.Printf("Mako %s: %s, дошка %s", version, home, d.BoardURL)
 	if len(cfg.Trackers) == 0 {

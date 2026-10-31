@@ -22,6 +22,14 @@ body { display: block; }
 .pane.on { display: block; }
 .pane > h2:first-child { margin-top: 0; }
 .where { color: var(--faint); font-size: 12px; margin-top: 24px; overflow-wrap: anywhere; }
+.step { font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--fg); margin: 0 0 10px; }
+.row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.qr { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.qr img { width: 220px; height: 220px; image-rendering: pixelated; border-radius: 8px; background: #fff; padding: 8px; }
+.qr ol { margin: 0; padding-left: 18px; max-width: 360px; }
+.qr li { margin: 4px 0; }
+.device { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.device:last-of-type { border-bottom: 0; }
 .add-big { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .add-big button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px; text-align: left; border-radius: 12px; }
 .add-big span { color: var(--mute); font-size: 12.5px; }
@@ -108,6 +116,11 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <h2>Задачі й ліміти</h2>
       <p class="lead">Скільки задач одночасно, як часто шукати, як називати гілки.</p>
       <div class="card" id="limits"></div>
+    </div>
+    <div class="pane" data-pane="phone">
+      <h2>Телефон</h2>
+      <p class="lead">Mako на iPhone: дошка як додаток на екрані «Додому», «Віддати в Orca» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
+      <div id="phone"></div>
     </div>
     <div class="pane" data-pane="notifications">
       <h2>Сповіщення</h2>
@@ -412,7 +425,7 @@ function renderNav() {
     ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
     `<div class="group">Робота</div>` + item("orca", "Orca", { agent: "агент: агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
-    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення");
+    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення") + item("phone", "Телефон", phoneNote);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
   const on = $("side").querySelector(".on");
@@ -427,7 +440,70 @@ function show(id) {
   for (const el of document.querySelectorAll(".pane")) el.classList.toggle("on", el.dataset.pane === kind);
   renderNav();
   renderTrackers();
+  if (id === "phone") renderPhone();
   window.scrollTo(0, 0);
+}
+
+// The phone: Tailscale brings the iPhone to this Mac with HTTPS; a QR code pairs it once.
+let phoneNote = "";
+async function renderPhone(qr) {
+  const box = $("phone");
+  let st;
+  try {
+    st = await (await fetch("/api/phone")).json();
+  } catch {
+    box.innerHTML = `<div class="card bad">Mako не відповідає</div>`;
+    return;
+  }
+  const t = st.tailscale;
+  const ok = (x) => `<span class="ok">✓</span> ${x}`;
+  let step1;
+  if (!t.installed) {
+    step1 = `Встановіть <a href="https://tailscale.com/download/mac" target="_blank" rel="noopener">Tailscale на Mac</a> і
+      <a href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">на iPhone</a>, увійдіть в обох одним акаунтом.
+      Це безкоштовний приватний VPN: телефон бачитиме Mac удома й поза домом, а більше ніхто. Потім натисніть «Перевірити».
+      <div class="row"><button data-p="refresh">Перевірити</button></div>`;
+  } else if (!t.running) {
+    step1 = `${esc(t.error || "Tailscale не підключено")}. Увійдіть у застосунку Tailscale на Mac.
+      <div class="row"><button data-p="refresh">Перевірити</button></div>`;
+  } else if (!t.serving) {
+    step1 = `${ok(`Tailscale працює: <code>${esc(t.host)}</code>`)}
+      <p>Відкрийте Mako для ваших пристроїв у Tailscale. Він буде доступний за адресою <code>https://${esc(t.host)}</code>, і пускатиме лише підключені телефони.</p>
+      <div class="row"><button class="primary" data-p="serve">Відкрити Mako для телефона</button></div>`;
+  } else {
+    step1 = `${ok(`Mako доступний на <code>${esc(st.url)}</code> для пристроїв вашого Tailscale`)}
+      <div class="row"><button class="ghost danger" data-p="unserve">Закрити доступ</button></div>`;
+  }
+  const step2 = !st.url ? `<span class="muted">Спершу крок 1.</span>`
+    : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR-код"><ol>
+        <li>Наведіть камеру iPhone на код і відкрийте посилання. Код діє 10 хвилин і один раз.</li>
+        <li>У Safari: «Поділитися» <b>⎙</b> → «На екран “Додому”».</li>
+        <li>Відкрийте Mako зі значка й натисніть 🔔, щоб отримувати сповіщення.</li></ol></div>`
+    : `<div class="row"><button class="primary" data-p="pairing">Показати QR-код</button></div>`;
+  const devices = st.devices.length
+    ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">підключено ${new Date(d.created).toLocaleDateString("uk")}, востаннє ${new Date(d.lastSeen).toLocaleString("uk")}</span>
+        <div class="muted">${d.push ? "сповіщення увімкнено" : "сповіщення вимкнено: натисніть 🔔 у додатку"}</div></div>
+        <button class="ghost danger" data-p="remove" data-id="${esc(d.id)}">Відключити</button></div>`).join("") +
+      `<div class="row"><button data-p="test">Надіслати тестове сповіщення</button><span class="msg" id="phone-msg"></span></div>`
+    : `<span class="muted">Ще немає.</span>`;
+  box.innerHTML = `<div class="card"><h3 class="step">1. Доступ з телефона</h3>${step1}</div>
+    <div class="card"><h3 class="step">2. Підключити iPhone</h3>${step2}</div>
+    <div class="card"><h3 class="step">Підключені телефони</h3>${devices}</div>`;
+  phoneNote = st.devices.length ? `${st.devices.length} підключено` : t.serving ? "готово до підключення" : "";
+  for (const b of box.querySelectorAll("[data-p]")) {
+    b.onclick = async () => {
+      const action = b.dataset.p;
+      if (action === "refresh") return renderPhone();
+      if (action === "remove" && !confirm("Відключити цей телефон? Щоб повернути, доведеться відсканувати QR-код знову.")) return;
+      b.disabled = true;
+      const r = await (await fetch(`/api/phone/${action}${b.dataset.id ? `?id=${encodeURIComponent(b.dataset.id)}` : ""}`, { method: "POST" })).json();
+      b.disabled = false;
+      if (!r.ok) return alert(r.error);
+      if (action === "test") return ($("phone-msg").textContent = "Надіслано");
+      renderPhone(action === "pairing" ? r : undefined);
+    };
+  }
+  renderNav();
 }
 
 function render() {

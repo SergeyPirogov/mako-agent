@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 )
 
@@ -87,5 +89,92 @@ func TestSettingsSaveReloads(t *testing.T) {
 	}
 	if strings.Contains(string(got.Config), "tok") {
 		t.Fatal("the token leaked into the page")
+	}
+}
+
+func TestPhone(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{}, store, nil)
+	phones, _ := phone.Open(t.TempDir())
+	srv := httptest.NewServer((&Server{D: d, Phones: phones}).Handler())
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// Through `tailscale serve`: from 127.0.0.1, with forwarding headers.
+	get := func(path string) *http.Response {
+		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+		req.Header.Set("X-Forwarded-For", "100.101.102.103")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := get("/api/state"); res.StatusCode != 401 {
+		t.Fatalf("unpaired phone got the state: %d", res.StatusCode)
+	}
+	if res := get("/"); res.StatusCode != 401 {
+		t.Fatalf("unpaired phone got the board: %d", res.StatusCode)
+	}
+	if res := get("/pair?code=guess"); res.StatusCode != 401 {
+		t.Fatalf("a made-up code paired: %d", res.StatusCode)
+	}
+	// The QR's code pairs the phone once.
+	res := get("/pair?code=" + phones.NewPairing())
+	if res.StatusCode != 302 {
+		t.Fatalf("pair: %d", res.StatusCode)
+	}
+	var cookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == deviceCookie {
+			cookie = c
+		}
+	}
+	if cookie == nil || !cookie.HttpOnly || !cookie.Secure {
+		t.Fatalf("cookie %+v", cookie)
+	}
+	if res := get("/api/state"); res.StatusCode != 200 {
+		t.Fatalf("paired phone: %d", res.StatusCode)
+	}
+	var st stateReply
+	json.NewDecoder(get("/api/state").Body).Decode(&st)
+	if !st.Remote {
+		t.Fatal("a phone's state should say so")
+	}
+	// Settings stay on the Mac.
+	for _, p := range []string{"/settings", "/api/settings", "/api/phone"} {
+		if res := get(p); res.StatusCode != 403 {
+			t.Fatalf("%s from the phone: %d", p, res.StatusCode)
+		}
+	}
+	// The installed app signs itself in from its start_url.
+	var manifest struct {
+		StartURL string `json:"start_url"`
+	}
+	json.NewDecoder(get("/manifest.webmanifest").Body).Decode(&manifest)
+	if !strings.HasPrefix(manifest.StartURL, "/pair/d/") {
+		t.Fatalf("start_url %q", manifest.StartURL)
+	}
+	jar2, _ := cookiejar.New(nil)
+	client.Jar = jar2
+	if res := get(manifest.StartURL); res.StatusCode != 302 {
+		t.Fatalf("start_url: %d", res.StatusCode)
+	}
+	if res := get("/api/state"); res.StatusCode != 200 {
+		t.Fatalf("app after start_url: %d", res.StatusCode)
+	}
+	// Pushes: the app subscribes.
+	req, _ := http.NewRequest("POST", srv.URL+"/api/push/subscribe", strings.NewReader(`{"endpoint":"https://web.push.apple.com/x","keys":{"auth":"a","p256dh":"b"}}`))
+	req.Header.Set("X-Forwarded-For", "100.101.102.103")
+	if res, _ := client.Do(req); res.StatusCode != 200 {
+		t.Fatalf("subscribe: %d", res.StatusCode)
+	}
+	if list := phones.Devices(); len(list) != 1 || list[0].Push == nil {
+		t.Fatalf("devices %+v", list)
+	}
+	// This Mac itself needs no key.
+	if res, _ := http.Get(srv.URL + "/settings"); res.StatusCode != 200 {
+		t.Fatalf("Mac settings: %d", res.StatusCode)
 	}
 }

@@ -2,9 +2,16 @@
 <html lang="uk">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mako</title>
 <link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mako">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
 </head>
 <body>
 <header>
@@ -14,9 +21,11 @@
   <span class="spacer"></span>
   <button class="ghost" id="poll" title="Перевірити трекери зараз">Оновити</button>
   <button class="ghost" id="pause" title="Пауза: не шукати нових задач"></button>
-  <a class="ghost-link" href="/settings">Налаштування</a>
+  <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
+  <a class="ghost-link" id="settings-link" href="/settings">Налаштування</a>
   <button class="ghost" id="theme" title="Тема"></button>
 </header>
+<div id="phone-hint"></div>
 <div id="problems"></div>
 <div class="chips" id="chips"></div>
 <div class="work" id="work">
@@ -112,7 +121,7 @@ function visible() {
 
 function render() {
   $("problems").innerHTML = data.problems?.length
-    ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}<a href="/settings">Відкрити налаштування →</a></div>` : "";
+    ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}${data.remote ? "" : `<a href="/settings">Відкрити налаштування →</a>`}</div>` : "";
   $("pause").textContent = data.paused ? "Продовжити" : "Пауза";
   $("pause").title = data.paused ? "Пошук нових задач на паузі" : "Пауза: не шукати нових задач";
   const live = data.records.filter((r) => !r.archivedAt);
@@ -242,7 +251,45 @@ window.addEventListener("hashchange", () => {
   const id = decodeURIComponent(location.hash.slice(1));
   if (id && id !== selected) select(id);
 });
-load();
+// On a phone: the app on the home screen, its service worker, and pushes once the user allows them.
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+let phoneReady = false;
+function setupPhone() {
+  if (phoneReady || !data?.remote) return;
+  phoneReady = true;
+  document.body.classList.add("phone");
+  $("settings-link").hidden = true;
+  if (!standalone) {
+    // iOS gives pushes only to an app added to the home screen.
+    $("phone-hint").innerHTML = `<div class="banner"><div>Додайте Mako на екран «Додому»: «Поділитися» <b>⎙</b> → «На екран “Додому”». Потім відкривайте Mako зі значка: так приходять сповіщення.</div></div>`;
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  navigator.serviceWorker.register("/sw.js").then(async (reg) => {
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && Notification.permission === "granted") return send(sub);
+    $("bell").hidden = false;
+  });
+  $("bell").onclick = async () => {
+    try {
+      if ((await Notification.requestPermission()) !== "granted") return alert("Сповіщення не дозволено. Увімкніть їх: Параметри → Сповіщення → Mako.");
+      const reg = await navigator.serviceWorker.ready;
+      const { key } = await (await fetch("/api/push/key")).json();
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlKey(key) });
+      await send(sub);
+      $("bell").hidden = true;
+    } catch (e) {
+      alert("Не вдалося увімкнути сповіщення: " + e.message);
+    }
+  };
+}
+const send = (sub) => fetch("/api/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub) });
+function urlKey(b64) {
+  const raw = atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+load().then(setupPhone);
 setInterval(load, 5000);
 </script>
 </body>

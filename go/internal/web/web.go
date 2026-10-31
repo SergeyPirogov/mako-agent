@@ -13,6 +13,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 )
 
 //go:embed board.html
@@ -30,6 +31,8 @@ type Server struct {
 	Home    string // where mako.config.json and .env live
 	// Show opens a page of the board for the user (Mako's window or the browser); a second start asks for it.
 	Show func(url string)
+	// Phones: the paired iPhones; nil turns the phone off.
+	Phones *phone.Phones
 }
 
 type stateReply struct {
@@ -42,6 +45,7 @@ type stateReply struct {
 	Problems []string                   `json:"problems"`
 	Paused   bool                       `json:"paused"`
 	Agents   map[string]dispatch.Agent  `json:"agents"`
+	Remote   bool                       `json:"remote"` // the page is open on a phone
 }
 
 type recordView struct {
@@ -58,6 +62,7 @@ type trackerView struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.settingsRoutes(mux)
+	s.phoneRoutes(mux)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -76,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
+		reply.Remote = remote(r)
 		for _, rec := range s.D.Store.All() {
 			reply.Records = append(reply.Records, recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now)})
 		}
@@ -137,7 +143,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
-	return mux
+	return s.guard(mux)
 }
 
 // sameOrigin keeps other sites in the browser from pressing the board's buttons.
@@ -147,7 +153,11 @@ func sameOrigin(r *http.Request) bool {
 		return r.Header.Get("Sec-Fetch-Site") == "" || r.Header.Get("Sec-Fetch-Site") == "same-origin"
 	}
 	u, err := url.Parse(origin)
-	return err == nil && strings.EqualFold(u.Host, r.Host)
+	host := r.Host
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+		host = fh // through `tailscale serve`
+	}
+	return err == nil && (strings.EqualFold(u.Host, host) || strings.EqualFold(u.Host, r.Host))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
