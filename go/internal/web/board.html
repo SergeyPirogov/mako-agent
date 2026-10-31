@@ -450,8 +450,10 @@ function render() {
   let html = "";
   for (const [col, title] of COLUMNS) {
     const rank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
+    // «Нові»: the clear and small ones first, the not estimated last.
+    const newRank = (r) => { const e = estimated(r); return e ? SIZE_RANK[e.size] * 5 + (5 - (e.clarity?.value || 0)) : 99; };
     // A held-up task keeps its column for its actions, but is listed under «Заблоковані».
-    const items = rows.filter((r) => (r.blocked ? "blocked" : r.column) === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed : col === "doing" ? rank(a) - rank(b) : 0));
+    const items = rows.filter((r) => (r.blocked ? "blocked" : r.column) === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed || newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
     if (!items.length) continue;
     // While filtering, every match shows: a folded group would hide what was asked for.
     const fold = !words.length && !!folded[col];
@@ -463,7 +465,7 @@ function render() {
       const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Оцінка наперед: ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, опис ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }
@@ -1018,14 +1020,38 @@ function assessmentHTML(r, card) {
   if (!a) return card("Оцінка агента", `<div class="tcard-b muted">Ще не оцінено.</div>`, "", btn("Оцінити"));
   if (a.state === "running") return card("Оцінка агента", `<div class="tcard-b muted">Агент оцінює задачу…</div>`);
   if (a.state === "failed") return card("Оцінка агента", `<div class="tcard-b mr-err">${esc(a.error || "Не вдалось оцінити")}</div>`, "", btn("Спробувати ще"));
-  const rows = ASSESS.map(([k, label, way]) => {
-    const s = a[k] || {}, v = s.value || 0;
-    const tone = !way ? "" : (way === "up" ? v : 6 - v) >= 4 ? "good" : (way === "up" ? v : 6 - v) <= 2 ? "bad" : "mid";
-    const pips = [1, 2, 3, 4, 5].map((i) => `<i class="${i <= v ? "on" : ""}"></i>`).join("");
-    return `<div class="score ${tone}"><span class="k">${label}</span><span class="pips" title="${v} з 5">${pips}</span><b>${v}/5</b>${s.why ? `<span class="score-why">${esc(s.why)}</span>` : ""}</div>`;
-  }).join("");
+  const rows = ASSESS.map(([k, label, way]) => scoreRow(label, way, a[k])).join("");
+  // What the estimate before the start expected, against how hard it turned out.
+  const was = r.estimate?.state === "done" && SIZE_NAMES[r.estimate.size], came = SIZE_NAMES[a.size || (a.complexity?.value ? sizeOfComplexity(a.complexity.value) : "")];
+  const sizes = was && came ? `<div class="score expected"><span class="k">Розмір</span><span>очікувалось: <b>${was}</b> → вийшла: <b>${came}</b></span></div>` : "";
   const missing = a.missing?.trim() ? `<div class="sec warn"><h4><span class="ic">!</span>Чого бракувало в описі</h4>${md(a.missing)}</div>` : "";
-  return card("Оцінка агента", `<div class="tcard-b scores">${rows}</div>${missing}`, "assess", btn("Оцінити ще раз"));
+  return card("Оцінка агента", `<div class="tcard-b scores">${rows}${sizes}</div>${missing}`, "assess", btn("Оцінити ще раз"));
+}
+// One score from 1 to 5 as pips; way: "up" — more is better, "down" — less is, "" — neither.
+function scoreRow(label, way, s = {}) {
+  const v = s?.value || 0;
+  const tone = !way ? "" : (way === "up" ? v : 6 - v) >= 4 ? "good" : (way === "up" ? v : 6 - v) <= 2 ? "bad" : "mid";
+  const pips = [1, 2, 3, 4, 5].map((i) => `<i class="${i <= v ? "on" : ""}"></i>`).join("");
+  return `<div class="score ${tone}"><span class="k">${label}</span><span class="pips" title="${v} з 5">${pips}</span><b>${v}/5</b>${s?.why ? `<span class="score-why">${esc(s.why)}</span>` : ""}</div>`;
+}
+
+// The estimate before the start: how clear the task is and what to ask, how big, how risky, how to take it.
+const SIZE_RANK = { small: 0, medium: 1, big: 2 };
+const sizeOfComplexity = (v) => (v <= 2 ? "small" : v === 3 ? "medium" : "big");
+const estimated = (r) => (r.estimate?.size && (r.estimate.state === "done" || r.estimate.state === "running") ? r.estimate : null);
+function estimateHTML(r, card) {
+  if (r.column !== "new") return "";
+  const e = r.estimate;
+  const btn = (label) => `<button class="ghost" data-a="estimate" title="Агент прочитає задачу й структуру репозиторію: ясність опису, розмір, ризик, з чим брати">${label}</button>`;
+  if (e?.state === "running" && !e.size) return card("Оцінка наперед", `<div class="tcard-b muted">Агент оцінює задачу…</div>`);
+  // A failed estimate is quiet: the task is just without one.
+  if (!e || e.state !== "done" && !e.size) return card("Оцінка наперед", `<div class="tcard-b muted">Ще не оцінено.</div>`, "", btn("Оцінити"));
+  const size = `<div class="score"><span class="k">Розмір</span><span class="size ${esc(e.size)}">${SIZE_NAMES[e.size] ?? esc(e.size)}</span><span></span>${e.parts ? `<span class="score-why">${esc(e.parts)}</span>` : ""}</div>`;
+  const advice = [e.plan ? "план спочатку" : "", e.split ? "розбити на кілька задач" : "", e.model ? `модель <code>${esc(e.model)}</code>` : ""].filter(Boolean);
+  const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.map((a) => `<span class="tchip">${a}</span>`).join("")}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
+  const questions = e.questions?.trim() ? `<div class="sec warn"><h4><span class="ic">?</span>Що уточнити в трекері</h4>${md(e.questions)}</div>` : "";
+  const note = e.state === "running" ? `<span class="muted">оцінюю наново…</span>` : btn("Оцінити ще раз");
+  return card("Оцінка наперед", `<div class="tcard-b scores">${scoreRow("Опис задачі", "up", e.clarity)}${size}${scoreRow("Ризик", "down", e.risk)}</div>${questions}${rec}`, "assess", note);
 }
 
 // The look back at a merged task: what went well, what did not, what to do differently next time.
@@ -1547,6 +1573,7 @@ function renderDetail() {
   // The task itself first; what the agent does in Orca and Mako's log in their own tab.
   const task = `
     ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
+    ${estimateHTML(r, card)}
     ${assessmentHTML(r, card)}
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${retroHTML(r, card)}

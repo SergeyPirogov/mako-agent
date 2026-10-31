@@ -56,3 +56,24 @@ func TestParseRetro(t *testing.T) {
 		}
 	}
 }
+
+func TestParseEstimate(t *testing.T) {
+	e, err := ParseEstimate("Ось:\n" + `{"clarity":{"score":2,"why":"мало"},"questions":["Який трекер?","- Де кнопка?"],"size":"Medium","parts":"web","risk":{"score":3,"why":"налаштування"},"plan":true,"split":true,"model":"gpt","advice":"розбити"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.State != "done" || e.Size != "medium" || e.Clarity.Value != 2 || e.Risk.Why != "налаштування" || !e.Plan || !e.Split ||
+		e.Model != "" || e.Questions != "- Який трекер?\n- Де кнопка?" || e.Advice != "розбити" {
+		t.Fatalf("%+v", e)
+	}
+	for _, bad := range []string{
+		`{"clarity":{"score":6},"size":"small","risk":{"score":1}}`,
+		`{"clarity":{"score":3},"size":"huge","risk":{"score":1}}`,
+		`{"clarity":{"score":3},"size":"small"}`,
+		"не JSON",
+	} {
+		if _, err := ParseEstimate(bad); err == nil {
+			t.Errorf("%s: no error", bad)
+		}
+	}
+}

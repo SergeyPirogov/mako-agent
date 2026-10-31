@@ -734,4 +734,12 @@ a.tchip:hover { text-decoration: none; background: var(--hover); }
 .score.good .pips i.on { background: var(--ok); }
 .score.mid .pips i.on { background: var(--warn); }
 .score.bad .pips i.on { background: var(--err); }
+/* The estimate before the start: the task's size, on its card and in «Нові». */
+.size { justify-self: start; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+  color: var(--mute); background: var(--hover); }
+.size.small { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--card)); }
+.size.medium { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--card)); }
+.size.big { color: var(--err); background: color-mix(in srgb, var(--err) 12%, var(--card)); }
+.item .size { font-size: 10.5px; padding: 0 6px; }
+.score.expected { grid-template-columns: 130px 1fr; }
 @media (max-width: 640px) { .score { grid-template-columns: 110px auto 34px; } .score .score-why { grid-column: 1 / -1; } }

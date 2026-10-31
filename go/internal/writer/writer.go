@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -402,4 +403,112 @@ func ParseRetro(answer string) (core.Retro, error) {
 		return core.Retro{}, errors.New("ретро порожнє")
 	}
 	return r, nil
+}
+
+// RepoOutline: the repository's layout for an estimate, without its code: the folders with how many files each
+// holds, and the start of README.md and CLAUDE.md; "" when dir is no git repository.
+func RepoOutline(ctx context.Context, dir string) string {
+	files, err := gitx.Run(ctx, dir, "ls-files")
+	if err != nil || strings.TrimSpace(files) == "" {
+		return ""
+	}
+	counts, order := map[string]int{}, []string{}
+	for _, f := range strings.Split(strings.TrimSpace(files), "\n") {
+		d := "."
+		if i := strings.LastIndex(f, "/"); i > 0 {
+			d = f[:i]
+		}
+		if counts[d] == 0 {
+			order = append(order, d)
+		}
+		counts[d]++
+	}
+	var lines []string
+	for i, d := range order {
+		if i == 300 {
+			lines = append(lines, fmt.Sprintf("… and %d more folders", len(order)-300))
+			break
+		}
+		lines = append(lines, fmt.Sprintf("%s/ (%d files)", d, counts[d]))
+	}
+	out := []string{"Folders (files in each):", strings.Join(lines, "\n")}
+	for _, name := range []string{"README.md", "CLAUDE.md"} {
+		if b, err := os.ReadFile(filepath.Join(dir, name)); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+			out = append(out, "", name+":", clipTo(string(b), 3000))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// Estimate: the agent's look at a new task before it starts, from its text and the repository's layout (not its
+// code): how clear it is and what to ask, how big, how risky, and how to take it. Its text is in Ukrainian.
+func Estimate(ctx context.Context, dir string, t core.Task, outline string) (core.Estimate, error) {
+	var comments []string
+	for _, c := range t.Comments {
+		comments = append(comments, "- "+c.Author+": "+clipTo(c.Body, 1500))
+	}
+	text, err := Ask(ctx, dir, strings.Join([]string{
+		"A developer is deciding whether to give the task below to a coding agent, and how. Before anyone starts, estimate it",
+		"from its text and the repository's layout (you do not see the code). Answer with JSON only, no code fences, in this shape:",
+		`{"clarity":{"score":1,"why":"..."},"questions":["..."],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
+		"- clarity: 5 when the task says all that is needed (what, where, how to tell it is done), 1 when the agent would have to guess most of it;",
+		"- questions: at most 4 concrete questions to answer in the tracker first, only for what is really missing ([] when nothing);",
+		"- size: \"small\" (a few lines in one place), \"medium\" (several files of one part), or \"big\" (many parts, new subsystems, migrations);",
+		"- parts: which folders or parts of the code it will likely touch, one short line;",
+		"- risk: 1 safe, 5 likely to break something; \"why\" names what it touches (settings, updates, stored data, security, the UI, …);",
+		"- plan: true when the agent should first plan and have the plan approved; split: true when it is several tasks in one;",
+		"- model: \"haiku\", \"sonnet\" or \"opus\", the cheapest that will do it well;",
+		"- advice: one short sentence on how to take the task.",
+		"All text (why, questions, parts, advice) in Ukrainian, short.",
+		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
+		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
+		"", "Repository:", orNone(outline),
+	}, "\n"))
+	if err != nil {
+		return core.Estimate{}, err
+	}
+	return ParseEstimate(text)
+}
+
+// ParseEstimate reads the JSON Estimate asks for; a score out of 1..5 or an unknown size is an error.
+func ParseEstimate(answer string) (core.Estimate, error) {
+	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
+	if start < 0 || end < start {
+		return core.Estimate{}, errors.New("оцінка не в JSON")
+	}
+	type score struct {
+		Score int    `json:"score"`
+		Why   string `json:"why"`
+	}
+	var in struct {
+		Clarity, Risk      score
+		Questions          json.RawMessage
+		Size, Parts, Model string
+		Advice             string
+		Plan, Split        bool
+	}
+	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
+		return core.Estimate{}, fmt.Errorf("оцінка не в JSON: %v", err)
+	}
+	e := core.Estimate{
+		State: "done", Questions: pointsText(in.Questions), Size: strings.ToLower(strings.TrimSpace(in.Size)),
+		Parts: clipTo(strings.TrimSpace(in.Parts), 500), Plan: in.Plan, Split: in.Split,
+		Model: strings.ToLower(strings.TrimSpace(in.Model)), Advice: clipTo(strings.TrimSpace(in.Advice), 500),
+	}
+	if !slices.Contains(core.Sizes, e.Size) {
+		return core.Estimate{}, fmt.Errorf("невідомий розмір %q", in.Size)
+	}
+	if !slices.Contains([]string{"haiku", "sonnet", "opus"}, e.Model) {
+		e.Model = ""
+	}
+	for _, s := range []struct {
+		in  score
+		out *core.Score
+	}{{in.Clarity, &e.Clarity}, {in.Risk, &e.Risk}} {
+		if s.in.Score < 1 || s.in.Score > 5 {
+			return core.Estimate{}, fmt.Errorf("оцінка %d поза 1–5", s.in.Score)
+		}
+		*s.out = core.Score{Value: s.in.Score, Why: clipTo(strings.TrimSpace(s.in.Why), 500)}
+	}
+	return e, nil
 }
