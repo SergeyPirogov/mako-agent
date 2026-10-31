@@ -277,6 +277,12 @@ async function select(id) {
 const getJSON = (url) => fetch(url).then((r) => r.json()).catch((e) => ({ error: e.message }));
 
 // The changed files (and the open file's diff) of the selected task, while its work tab is open.
+// As many commits as the panel shows without scrolling: a row is 28px, the panel and the graph pad 16px.
+function commitsFit() {
+  const h = document.querySelector("#detail .insp-panel")?.clientHeight ?? 0;
+  return h ? Math.max(1, Math.floor((h - 16) / 28)) : 10;
+}
+
 async function loadWork() {
   const r = data?.records.find((x) => x.id === selected);
   if (!r?.worktree || workOf !== r.id || (tab !== "orca" && r.executor !== "terminal")) return;
@@ -298,7 +304,7 @@ async function loadWork() {
         if (itab !== "mr") { itab = "mr"; renderDetail(); }
       }
     }, !review),
-    part(itab === "commits" && `/api/commits?${q}`, (v) => { if (!v.error) commitLog = v; }, !commitLog),
+    part(itab === "commits" && `/api/commits?${q}&n=${commitsFit()}`, (v) => { if (!v.error) commitLog = v; }, !commitLog),
   ]);
 }
 

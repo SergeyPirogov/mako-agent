@@ -142,7 +142,8 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, snap)
 	})
 	mux.HandleFunc("GET /api/commits", func(w http.ResponseWriter, r *http.Request) {
-		h, err := s.D.History(r.Context(), r.URL.Query().Get("id"))
+		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+		h, err := s.D.History(r.Context(), r.URL.Query().Get("id"), n)
 		if err != nil {
 			writeJSON(w, map[string]string{"error": err.Error()})
 			return

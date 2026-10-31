@@ -495,13 +495,17 @@ func (d *Dispatcher) workOf(id string) (worktree, baseBranch string, err error) 
 	return r.Worktree, gitx.DetectBaseBranch(r.Worktree), nil
 }
 
-// History: the last 10 commits of the task's branch, for the commits' graph.
-func (d *Dispatcher) History(ctx context.Context, id string) (*gitx.History, error) {
+// History: the last n commits of the task's branch, for the commits' graph; as many as the panel fits, 10 when
+// it does not say, never more than 200.
+func (d *Dispatcher) History(ctx context.Context, id string, n int) (*gitx.History, error) {
 	wt, base, err := d.workOf(id)
 	if err != nil {
 		return nil, err
 	}
-	return gitx.Log(ctx, wt, base, 10)
+	if n <= 0 {
+		n = 10
+	}
+	return gitx.Log(ctx, wt, base, min(n, 200))
 }
 
 // CommitInfo: one commit of the task's worktree, its message and files.
