@@ -21,6 +21,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
+	"github.com/SergeyPirogov/mako-agent/go/internal/update"
 )
 
 //go:embed board.html
@@ -48,6 +49,8 @@ type Server struct {
 	Show func(url string)
 	// Phones: the paired iPhones; nil turns the phone off.
 	Phones *phone.Phones
+	// Update: Mako's own new commits and their install; nil when Mako is not built from a clone.
+	Update *update.Updater
 }
 
 type stateReply struct {
@@ -60,11 +63,12 @@ type stateReply struct {
 	Problems []string                   `json:"problems"`
 	Paused   bool                       `json:"paused"`
 	Agents   map[string]dispatch.Agent  `json:"agents"`
-	Executor string                     `json:"executor"` // who gets new tasks: "orca" or "terminal"
-	Editor   string                     `json:"editor"`   // the code editor a worktree opens in, "" when none
-	Limits   chat.Limits                `json:"limits"`   // Claude's usage limits, as the agents last reported them
-	Remote   bool                       `json:"remote"`   // the page is open on a phone
-	Stats    core.Stats                 `json:"stats"`    // how the taken tasks went, archived ones too
+	Executor string                     `json:"executor"`         // who gets new tasks: "orca" or "terminal"
+	Editor   string                     `json:"editor"`           // the code editor a worktree opens in, "" when none
+	Limits   chat.Limits                `json:"limits"`           // Claude's usage limits, as the agents last reported them
+	Remote   bool                       `json:"remote"`           // the page is open on a phone
+	Stats    core.Stats                 `json:"stats"`            // how the taken tasks went, archived ones too
+	Update   *update.Status             `json:"update,omitempty"` // new commits of Mako itself; not on a phone
 }
 
 type recordView struct {
@@ -107,6 +111,10 @@ func (s *Server) Handler() http.Handler {
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		reply.Remote = remote(r)
+		if s.Update != nil && !reply.Remote {
+			st := s.Update.Status()
+			reply.Update = &st
+		}
 		all := s.D.Store.All()
 		reply.Stats = core.Summarize(all, time.Now())
 		for _, rec := range all {
@@ -187,6 +195,18 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/log", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.D.Logs(r.URL.Query().Get("id")))
+	})
+	// «Оновити Mako»: test, build and restart on the new commits; from the Mac only.
+	mux.HandleFunc("POST /api/update", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) || remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if s.Update == nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "Mako зібраний не з репозиторію"})
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": s.Update.Start()})
 	})
 	mux.HandleFunc("POST /api/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {

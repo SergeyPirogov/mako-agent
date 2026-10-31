@@ -778,6 +778,19 @@ func (m *Manager) StopAll() {
 	}
 }
 
+// Busy: how many agents are in the middle of a turn (Mako's restart waits for them).
+func (m *Manager) Busy() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, s := range m.all {
+		if st, _, _ := s.State(); st == "working" && s.Running() {
+			n++
+		}
+	}
+	return n
+}
+
 func (m *Manager) SetLimits(l Limits) {
 	m.mu.Lock()
 	m.limits = l

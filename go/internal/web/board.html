@@ -28,6 +28,7 @@
 </header>
 <div id="phone-hint"></div>
 <div id="problems"></div>
+<div id="update"></div>
 <div class="work" id="work">
   <div class="side">
     <!-- The search for tasks: when it last looked, look now, pause -->
@@ -202,7 +203,25 @@ function visible() {
   return data.records.filter((r) => (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
 }
 
+// «Оновити Mako»: new commits on Mako's own main branch, and how their install goes.
+function updateHTML(u) {
+  if (!u || (!u.count && !u.state)) return "";
+  const titles = (u.titles || []).slice(0, 5).map((t) => `<li>${esc(t)}</li>`).join("")
+    + (u.count > 5 ? `<li class="muted">і ще ${u.count - 5}</li>` : "");
+  const step = {
+    testing: "Запускаю тести…", building: "Збираю Mako…", restarting: "Перезапускаюсь…",
+    waiting: `Чекаю, доки ${u.busy} ${plural(u.busy, "агент закінчить", "агенти закінчать", "агентів закінчать")} хід…`,
+  }[u.state];
+  const failed = u.state === "failed" ? `<div class="update-error"><b>Не вдалося оновити, нічого не змінено.</b><pre>${esc(u.error || "")}</pre></div>` : "";
+  const button = step ? `<span class="muted">${step}</span>` : u.count ? `<button class="primary" id="update-btn">${u.state === "failed" ? "Спробувати ще раз" : "Оновити Mako"}</button>` : "";
+  const head = u.count ? `Оновити Mako: ${u.count} ${plural(u.count, "нова зміна", "нові зміни", "нових змін")}` : "Оновлення Mako";
+  return `<div class="banner update"><div class="update-head"><b>${head}</b>${button}</div>${titles ? `<ul>${titles}</ul>` : ""}${failed}</div>`;
+}
+
 function render() {
+  $("update").innerHTML = updateHTML(data.update);
+  const ub = $("update-btn");
+  if (ub) ub.onclick = async () => { ub.disabled = true; await fetch("/api/update", { method: "POST" }); await load(); };
   $("problems").innerHTML = data.problems?.length
     ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}${data.remote ? "" : `<a href="/settings">Відкрити налаштування →</a>`}</div>` : "";
   $("pause").innerHTML = data.paused ? ICON.play : ICON.pause;
