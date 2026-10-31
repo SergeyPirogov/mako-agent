@@ -217,7 +217,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		reply := map[string]any{"ok": true}
 		switch r.PathValue("action") {
 		case "serve":
-			err = phone.Serve(r.Context(), port)
+			err = phone.Serve(r.Context(), port, r.URL.Query().Get("public") == "1")
 		case "unserve":
 			err = phone.Unserve(r.Context())
 		case "pairing":

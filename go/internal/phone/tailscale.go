@@ -18,6 +18,7 @@ type Tailscale struct {
 	Running   bool   `json:"running"`
 	Host      string `json:"host,omitempty"` // mac.tailnet.ts.net
 	Serving   bool   `json:"serving"`        // `tailscale serve` passes https://Host to Mako
+	Public    bool   `json:"public"`         // through Funnel: from any network, no Tailscale on the phone
 	Error     string `json:"error,omitempty"`
 }
 
@@ -75,22 +76,42 @@ func TailscaleState(ctx context.Context, port int) Tailscale {
 	t.Host = strings.TrimSuffix(st.Self.DNSName, ".")
 	if out, err := ts(ctx, "serve", "status", "--json"); err == nil {
 		t.Serving = strings.Contains(string(out), fmt.Sprintf("127.0.0.1:%d", port)) || strings.Contains(string(out), fmt.Sprintf("localhost:%d", port))
+		var st struct {
+			AllowFunnel map[string]bool `json:"AllowFunnel"`
+		}
+		if json.Unmarshal(out, &st) == nil {
+			for _, on := range st.AllowFunnel {
+				t.Public = t.Public || on
+			}
+		}
 	}
 	return t
 }
 
-// Serve publishes Mako in the tailnet: https://<mac>.<tailnet>.ts.net → http://127.0.0.1:<port>. Only devices
-// of your tailnet reach it, and the board still asks them for a paired phone's key.
-func Serve(ctx context.Context, port int) error {
-	_, err := ts(ctx, "serve", "--bg", "--https=443", fmt.Sprintf("http://127.0.0.1:%d", port))
-	if err != nil && strings.Contains(err.Error(), "HTTPS") {
+// Serve publishes Mako at https://<mac>.<tailnet>.ts.net → http://127.0.0.1:<port>. Private: only devices of
+// your tailnet reach it. Public (Funnel): any network reaches it, the phone needs no Tailscale. Either way the
+// board shows nothing without a paired phone's key.
+func Serve(ctx context.Context, port int, public bool) error {
+	Unserve(ctx) // switching between the two: one at a time
+	mode := "serve"
+	if public {
+		mode = "funnel"
+	}
+	_, err := ts(ctx, mode, "--bg", "--https=443", fmt.Sprintf("http://127.0.0.1:%d", port))
+	switch {
+	case err == nil:
+		return nil
+	case public && strings.Contains(strings.ToLower(err.Error()), "funnel"):
+		return fmt.Errorf("%v\nFunnel треба дозволити для цього Mac у Tailscale: відкрийте посилання вище або login.tailscale.com → Access controls (nodeAttrs \"funnel\")", err)
+	case strings.Contains(err.Error(), "HTTPS"):
 		return fmt.Errorf("%v\nУвімкніть HTTPS у Tailscale: login.tailscale.com → DNS → HTTPS Certificates", err)
 	}
 	return err
 }
 
-// Unserve stops publishing Mako in the tailnet.
+// Unserve stops publishing Mako, in the tailnet and on the internet.
 func Unserve(ctx context.Context) error {
+	ts(ctx, "funnel", "--https=443", "off")
 	_, err := ts(ctx, "serve", "--https=443", "off")
 	return err
 }
