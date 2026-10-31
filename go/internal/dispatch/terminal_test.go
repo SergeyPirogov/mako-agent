@@ -154,9 +154,7 @@ echo "$more" > more.json
 	if err := d.sayTo(r.ID, "Полагодь CI"); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 300 && s.Running(); i++ {
-		time.Sleep(10 * time.Millisecond)
-	}
+	s.Wait() // its exit is reported before the resume below starts another
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "more.json")); !strings.Contains(string(b), "Полагодь CI") {
 		t.Fatalf("more %s", b)
 	}
@@ -183,4 +181,7 @@ echo "$more" > more.json
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "args.txt")); !strings.Contains(string(b), "--resume sess-1") {
 		t.Fatalf("args %s", b)
 	}
+	// The resumed agent saves the task when it exits: let it finish before the temp dirs go.
+	d.StopTerminal(r.ID)
+	d.Chats.Get(r.ID).Wait()
 }
