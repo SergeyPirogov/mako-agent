@@ -233,6 +233,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.CheckHandoffs(ctx)
 	d.CheckMerges(ctx)
 	d.AutoFix(ctx, time.Now())
+	d.CheckBlocked(ctx)
 	d.CheckGone(ctx)
 	d.AutoArchive(time.Now())
 	d.remind(time.Now())
