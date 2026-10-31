@@ -41,6 +41,16 @@ type Config struct {
 	// Instructions, MRBy, SummaryComment) is the same for both.
 	Executor string
 	Terminal Terminal
+	// Reviewer: a second agent reads the task and the branch's diff before the MR reaches you.
+	Reviewer Reviewer
+}
+
+// Reviewer is the agent that reviews another agent's branch with a clean context and writes it its remarks;
+// it changes no code. Only Mako's own agents get it: the remarks go into their chat.
+type Reviewer struct {
+	Enabled   bool
+	MaxRounds int    // reviews of one task at most, 1 by default
+	Model     string // "" — the agents' model
 }
 
 // Comments Mako leaves in the issue, written as the developer: {branch} {taskId} {title} {url} {mr} are filled
@@ -225,6 +235,11 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			AwayHours: orInt(raw.Notifications.AwayHours, 4),
 		},
 		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
+		Reviewer: Reviewer{
+			Enabled:   raw.AgentReview.Enabled,
+			MaxRounds: max(orInt(raw.AgentReview.MaxRounds, 1), 1),
+			Model:     strings.TrimSpace(raw.AgentReview.Model),
+		},
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
@@ -476,6 +491,11 @@ type rawConfig struct {
 		OnStart  string `json:"onStart"`
 		OnReview string `json:"onReview"`
 	} `json:"comments"`
+	AgentReview struct {
+		Enabled   bool   `json:"enabled"`
+		MaxRounds *int   `json:"maxRounds"`
+		Model     string `json:"model"`
+	} `json:"agentReview"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
 }
