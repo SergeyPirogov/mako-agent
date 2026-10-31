@@ -54,7 +54,7 @@ const LABEL = { new: "нова", later: "відкладена", doing: "в ро�
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
 let data = null, shown = "", selected = null, statsOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
 // The task's work: its changed files, the files open in tabs over the terminal and their diffs.
-let workOf = null, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
+let workOf = null, workStarted = false, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
 // The task's MR as the code host has it ({review} or {error}), and what the last MR action said.
 let review = null, mrNote = "", journalOpen = false;
 // The branch's history for the commits' graph, and the commits opened in it (hash → their message and files).
@@ -771,6 +771,7 @@ function renderDetail() {
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${richText(c.body)}</div></div>`).join("")}` : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
       <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
+  const started = r.column === "doing" && !!r.worktree;
   // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
     workOf = r.id;
@@ -778,7 +779,12 @@ function renderDetail() {
     changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
+  } else if (started && !workStarted) {
+    // Taken while open: once the agent has started, show its work instead of the task.
+    tab = "orca"; fileTab = "";
+    loadWork().then(renderDetail);
   }
+  workStarted = started;
   // A task of Mako's own agent is one workspace: the tabs only change the centre, the right panel stays.
   const taskPane = term ? `<div class="task-pane">
       <div class="d-id">${kind(r)}<span class="s ${st}">${LABEL[st]}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span>${esc(t.project)}</span></div>
