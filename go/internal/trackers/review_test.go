@@ -72,3 +72,31 @@ func TestGitLabReview(t *testing.T) {
 		t.Fatal("not closed", err)
 	}
 }
+
+// A running pipeline holds the merge back even where the code host would allow it (no «pipelines must succeed»).
+func TestReviewHeldWhileCIRuns(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		send := func(v any) { json.NewEncoder(w).Encode(v) }
+		switch p := r.URL.EscapedPath(); p {
+		case "/api/v4/projects/grp%2Fapp/merge_requests/9":
+			send(map[string]any{"iid": 9, "state": "opened", "web_url": "u", "detailed_merge_status": "mergeable",
+				"head_pipeline": map[string]any{"id": 77, "status": "running", "web_url": "pipe"}})
+		case "/repos/o/r/pulls/5":
+			send(map[string]any{"number": 5, "state": "open", "mergeable": true, "mergeable_state": "unstable", "head": map[string]any{"sha": "abc"}})
+		case "/repos/o/r/commits/abc/check-runs":
+			send(map[string]any{"check_runs": []map[string]any{{"id": 1, "name": "test", "status": "in_progress"}}})
+		default:
+			send([]any{})
+		}
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	gl, _ := NewGitLab(&config.Tracker{BaseURL: srv.URL}, "tok")
+	if c, err := gl.CheckReview(ctx, srv.URL+"/grp/app/-/merge_requests/9"); err != nil || c.Mergeable || c.Blocked != "CI ще йде" {
+		t.Fatalf("gitlab %+v %v", c, err)
+	}
+	gh, _ := NewGitHub(&config.Tracker{APIURL: srv.URL}, "tok")
+	if c, err := gh.CheckReview(ctx, "https://github.com/o/r/pull/5"); err != nil || c.CI != "running" || c.Mergeable || c.Blocked != "CI ще йде" {
+		t.Fatalf("github %+v %v", c, err)
+	}
+}

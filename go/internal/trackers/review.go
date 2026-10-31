@@ -53,6 +53,22 @@ type ReviewDesk interface {
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r`)
 
+// CIRunning: the pipeline has not finished yet (GitLab's and GitHub's words for it).
+func CIRunning(ci string) bool {
+	switch ci {
+	case "running", "pending", "created", "preparing", "waiting_for_resource", "scheduled":
+		return true
+	}
+	return false
+}
+
+// holdForCI: no merge while CI is still running, even where the code host itself would allow it.
+func holdForCI(c *ReviewCheck) {
+	if c.Mergeable && CIRunning(c.CI) {
+		c.Mergeable, c.Blocked = false, "CI ще йде"
+	}
+}
+
 func tail(log string, n int) string {
 	log = ansi.ReplaceAllString(log, "")
 	ls := strings.Split(strings.TrimRight(log, "\n"), "\n")
@@ -137,6 +153,7 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 			c.Blocked = strings.ReplaceAll(mr.MergeStatus, "_", " ")
 		}
 	}
+	holdForCI(c)
 	return c, nil
 }
 
@@ -259,6 +276,7 @@ func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 			c.Blocked = "GitHub ще перевіряє"
 		}
 	}
+	holdForCI(c)
 	return c, nil
 }
 
