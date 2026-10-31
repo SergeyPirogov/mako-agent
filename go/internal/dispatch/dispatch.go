@@ -254,6 +254,13 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 		return
 	}
 	for _, t := range d.TrackerList() {
+		if t.Config().Paused {
+			// Its last search, failed or not, says nothing now: the board shows it as paused instead.
+			d.mu.Lock()
+			delete(d.searches, t.ID())
+			d.mu.Unlock()
+			continue
+		}
 		tasks, err := t.FetchMine(ctx)
 		s := Search{At: time.Now(), Found: len(tasks)}
 		if err != nil {

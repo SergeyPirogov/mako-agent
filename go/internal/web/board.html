@@ -276,10 +276,19 @@ function downHTML(failed) {
   const since = (iso) => iso ? ` з ${new Date(iso).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}` : "";
   return `<div class="banner down" role="alert">${failed.map(([id, s]) =>
     `<div><b>⚠ ${esc(s.down || id)}</b><span class="muted">${since(s.since)}</span>
+      <button data-pause-tracker="${esc(id)}" title="Не шукати нових задач у цьому трекері, доки не продовжите; інші трекери шукаються">Пауза</button>
       <details><summary>Деталі</summary><code>${esc(s.error)}</code></details></div>`).join("")}
     <div class="muted">Нові задачі з ${failed.length > 1 ? "цих трекерів" : "цього трекера"} не з'являться, доки він недоступний; Mako перевіряє знову сам.
       <button class="ghost" id="poll-again">Перевірити зараз</button>
       <button class="ghost" id="down-hide" data-ids="${esc(failed.map(([id]) => id).join("\n"))}" title="Не показувати годину; якщо трекер і далі недоступний, сповіщення повернеться">Сховати на годину</button></div></div>`;
+}
+
+// The trackers put on pause one by one: not searched until «Продовжити»; the others are.
+function pausedHTML(ts) {
+  if (!ts.length) return "";
+  return `<div class="banner paused">${ts.map((t) =>
+    `<div><b>⏸ ${esc(t.name)}${t.host ? ` · ${esc(t.host)}` : ""}</b>: пошук нових задач на паузі
+      <button data-resume-tracker="${esc(t.id)}">Продовжити</button></div>`).join("")}</div>`;
 }
 
 function limitHoldHTML(h) {
@@ -340,18 +349,26 @@ function render() {
   const searches = Object.entries(data.searches);
   const failed = searches.filter(([, s]) => s.error);
   // Replaced only when it changes, so an open «Деталі» stays open between refreshes.
-  const down = data.paused ? "" : downHTML(failed);
+  const pausedTrackers = (data.trackers || []).filter((t) => t.paused);
+  const down = (data.paused ? "" : downHTML(failed)) + pausedHTML(pausedTrackers);
   if ($("trackers-down").dataset.html !== down) {
     $("trackers-down").innerHTML = $("trackers-down").dataset.html = down;
     const pt = $("poll-again");
     if (pt) pt.onclick = () => $("poll").click();
     const dh = $("down-hide");
     if (dh) dh.onclick = () => { snoozeDown(dh.dataset.ids.split("\n")); render(); };
+    for (const b of $("trackers-down").querySelectorAll("[data-pause-tracker], [data-resume-tracker]")) b.onclick = async () => {
+      b.disabled = true;
+      const pause = b.dataset.pauseTracker !== undefined;
+      await fetch(`/api/tracker-pause?id=${encodeURIComponent(pause ? b.dataset.pauseTracker : b.dataset.resumeTracker)}&on=${pause ? 1 : 0}`, { method: "POST" });
+      await load();
+    };
   }
+  const allPaused = data.paused || (pausedTrackers.length && pausedTrackers.length === (data.trackers || []).length);
   $("search").className = "search" + (failed.length ? " err" : "");
   $("search").textContent = failed.length
     ? `Недоступно: ${failed.map(([id]) => id).join(", ")}`
-    : data.paused ? "Пошук задач на паузі"
+    : allPaused ? "Пошук задач на паузі"
     : searches.length ? `Перевірено ${ago(searches.map(([, s]) => s.at).sort().pop())}` : "Перша перевірка трекерів…";
   $("search").title = $("search").textContent;
 

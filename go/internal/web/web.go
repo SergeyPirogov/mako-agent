@@ -99,6 +99,8 @@ type trackerView struct {
 	Host string `json:"host,omitempty"` // "git.example.com": tells two trackers of one kind apart
 	// Projects: where «+ Задача» can write a task; nil when the tracker cannot open issues (Jira).
 	Projects []string `json:"projects,omitempty"`
+	// Paused: its search for new tasks is on pause, the other trackers are searched.
+	Paused bool `json:"paused,omitempty"`
 }
 
 func (s *Server) Handler() http.Handler {
@@ -151,7 +153,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		projects := s.D.NewTaskProjects()
 		for _, t := range s.D.TrackerList() {
-			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name(), Host: dispatch.TrackerHost(t), Projects: projects[t.ID()]})
+			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name(), Host: dispatch.TrackerHost(t), Projects: projects[t.ID()], Paused: t.Config().Paused})
 		}
 		writeJSON(w, reply)
 	})

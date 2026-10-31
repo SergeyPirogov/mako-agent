@@ -135,8 +135,10 @@ type Tracker struct {
 	AllProjects     bool
 	AssignOnTake    bool
 	SkipOthersTasks bool
-	Transitions     Transitions
-	Projects        map[string]*Project
+	// Paused: no searching this tracker for new tasks (its VPN is off, its work is put aside); the others go on.
+	Paused      bool
+	Transitions Transitions
+	Projects    map[string]*Project
 }
 
 type Project struct {
@@ -323,6 +325,7 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 		AllProjects:     rt.AllProjects,
 		AssignOnTake:    rt.AssignOnTake == nil || *rt.AssignOnTake,
 		SkipOthersTasks: rt.SkipOthersTasks == nil || *rt.SkipOthersTasks,
+		Paused:          rt.Paused,
 		Projects:        map[string]*Project{},
 	}
 	switch t.Type {
@@ -600,6 +603,7 @@ type rawTracker struct {
 	AllProjects     bool                       `json:"allProjects"`
 	AssignOnTake    *bool                      `json:"assignOnTake"`
 	SkipOthersTasks *bool                      `json:"skipOthersTasks"`
+	Paused          bool                       `json:"paused"`
 	Transitions     map[string]json.RawMessage `json:"transitions"`
 	Projects        map[string]json.RawMessage `json:"projects"`
 }

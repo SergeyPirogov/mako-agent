@@ -254,6 +254,7 @@ function renderTrackers() {
       if (!noLabel) card.append(text(t.labels, "trigger", "Мітка для агента", { placeholder: "claude-agent", hint: "Задачі з цією міткою" }));
       card.append(text(t, "assignee", "Лише призначені на", { placeholder: noLabel || t.allProjects ? "мене" : "будь-кого", hint: "Логін або me" }));
     }
+    card.append(check(t, "paused", "Пауза: не шукати нових задач у цьому трекері", { hint: "Напр. коли вимкнено VPN. Інші трекери шукаються; задачі, вже взяті в роботу, тривають" }));
     card.append(check(t, "assignOnTake", "«Взяти в роботу» призначає задачу на мене", { def: true }));
     card.append(check(t, "skipOthersTasks", "Не пропонувати задачі, призначені на інших", { def: true }));
 
@@ -520,7 +521,7 @@ function trackerNote(t) {
   if (t.type === "jira") return host(t.baseUrl || jiraBase) || "адреса не задана";
   const where = t.type === "gitlab" ? host(t.baseUrl || "https://gitlab.com") : t.apiUrl ? host(t.apiUrl) : "github.com";
   const n = Object.keys(t.projects ?? {}).length;
-  return [where, t.allProjects ? "усі проєкти" : n ? `${n} проєкт${n === 1 ? "" : n < 5 ? "и" : "ів"}` : ""].filter(Boolean).join(" · ");
+  return [t.paused ? "⏸ пауза" : "", where, t.allProjects ? "усі проєкти" : n ? `${n} проєкт${n === 1 ? "" : n < 5 ? "и" : "ів"}` : ""].filter(Boolean).join(" · ");
 }
 function renderNav() {
   const ts = cfg.trackers ?? [];
