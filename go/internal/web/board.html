@@ -520,6 +520,9 @@ function commitGraph(commits) {
   }).join("")}</div>`;
 }
 
+// CI running: a spinning arc, not the «⟳» glyph, which fonts draw small and off-centre in the badge.
+const IBADGE_SPIN = `<svg class="spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" role="img" aria-label="CI виконується"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>`;
+
 // The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
 let itab = "changes";
 function inspectorTabs(r, term, nFiles, list) {
@@ -533,7 +536,7 @@ function inspectorTabs(r, term, nFiles, list) {
     : itab === "mr" ? mrCard(r, term)
     : `${changes?.base ? `<div class="files-sub">від ${esc(changes.base)}</div>` : ""}${list}`;
   return `<div class="insp-card"><div class="itabs" role="tablist">${tabs.map(([k, label, [badge, cls]]) =>
-      `<button type="button" role="tab" class="itab ${itab === k ? "on" : ""}" data-itab="${k}">${label}${badge ? `<span class="ibadge ${cls}">${esc(badge)}</span>` : ""}</button>`).join("")}</div>
+      `<button type="button" role="tab" class="itab ${itab === k ? "on" : ""}" data-itab="${k}">${label}${badge ? `<span class="ibadge ${cls}">${cls === "run" ? IBADGE_SPIN : esc(badge)}</span>` : ""}</button>`).join("")}</div>
     <div class="insp-panel">${panel}</div></div>`;
 }
 
