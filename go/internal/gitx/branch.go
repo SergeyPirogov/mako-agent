@@ -86,6 +86,20 @@ func RemoveWorktree(ctx context.Context, repo, worktree, branch string) error {
 	return nil
 }
 
+// DropWorktree takes a dropped attempt's worktree and local branch away, uncommitted work and all.
+func DropWorktree(ctx context.Context, repo, worktree, branch string) error {
+	if _, err := Run(ctx, repo, "worktree", "remove", "--force", worktree); err != nil {
+		return err
+	}
+	fetchedMu.Lock()
+	delete(fetched, worktree)
+	fetchedMu.Unlock()
+	if branch != "" {
+		Run(ctx, repo, "branch", "-D", branch)
+	}
+	return nil
+}
+
 // GuessSetup: how a new worktree of a JavaScript project gets its dependencies, from its lockfile.
 func GuessSetup(worktree string) string {
 	for _, l := range []struct{ file, cmd string }{

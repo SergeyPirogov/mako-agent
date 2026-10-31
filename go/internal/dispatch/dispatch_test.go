@@ -124,7 +124,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PUT" {
 			var ch map[string]any
 			json.Unmarshal(body, &ch)
-			mr["title"], mr["description"] = ch["title"], ch["description"]
+			if ch["state_event"] == "close" {
+				mr["state"] = "closed"
+			} else {
+				mr["title"], mr["description"] = ch["title"], ch["description"]
+			}
 		}
 		reply(mr)
 	default:
@@ -341,5 +345,68 @@ func TestLaterAndRemind(t *testing.T) {
 	d.Later(id, -1)
 	if r, _ := d.Store.Get(id); r.Postponed(time.Now().UnixMilli()) {
 		t.Fatal("«Повернути» left it put off")
+	}
+}
+
+// «Повторити інакше» on a task in review: its MR closes, its workspace goes, and the task starts over on -try2
+// with the note, an account of the last attempt and the chosen model.
+func TestRedo(t *testing.T) {
+	d, f, jobs := setup(t)
+	ctx := context.Background()
+	var removed []string
+	d.RemoveWorkspace = func(ctx context.Context, repoPath, worktree, branch string) error {
+		removed = append(removed, worktree+"@"+branch)
+		return nil
+	}
+	d.Poll(ctx)
+	id := "grp/app#5"
+	d.Take(ctx, id)
+	d.Wait()
+	r, _ := d.Store.Get(id)
+	f.mu.Lock()
+	f.mrs = append(f.mrs, map[string]any{"iid": 9, "state": "opened", "web_url": f.base + "/grp/app/-/merge_requests/9", "source_branch": r.Branch,
+		"title": "Fix the payment button", "description": strings.Repeat("written by a person ", 10)})
+	f.mu.Unlock()
+	d.CheckHandoffs(ctx)
+	d.Store.Update(id, func(r *core.Record) { r.Summary = "- changed the backend handler" })
+	if r, _ = d.Store.Get(id); r.Column(time.Now().UnixMilli()) != "review" {
+		t.Fatalf("not in review: %+v", r)
+	}
+
+	if err := d.Redo(ctx, id, "  Fix it on the frontend, leave the API alone  ", "opus"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Redo(ctx, id, "again", ""); err == nil {
+		t.Fatal("a second redo while the first one starts")
+	}
+	d.Wait()
+	r, _ = d.Store.Get(id)
+	if r.Status != core.HandedOff || r.Attempt != 2 || r.Branch != "fix/5-knopka-oplaty-ne-pratsyuye-try2" || r.PRURL != "" {
+		t.Fatalf("not started over: %+v", r)
+	}
+	if f.mrs[0]["state"] != "closed" {
+		t.Fatalf("old MR left open: %v", f.mrs[0]["state"])
+	}
+	if len(removed) != 1 || !strings.HasSuffix(removed[0], "@fix/5-knopka-oplaty-ne-pratsyuye") {
+		t.Fatalf("old workspace: %v", removed)
+	}
+	if len(*jobs) != 2 {
+		t.Fatalf("hand-offs: %d", len(*jobs))
+	}
+	j := (*jobs)[1]
+	if j.Model != "opus" || j.RetryNote != "Fix it on the frontend, leave the API alone" || j.LastAttempt != "- changed the backend handler" {
+		t.Fatalf("new attempt's job: %+v", j)
+	}
+	if p := orca.FullPrompt(j, d.Config().Orca); !strings.Contains(p, "Fix it on the frontend") || !strings.Contains(p, "changed the backend handler") ||
+		!strings.Contains(p, "fix/5-knopka-oplaty-ne-pratsyuye-try2") {
+		t.Fatalf("prompt:\n%s", p)
+	}
+
+	// A new task cannot be redone.
+	f.issues[6] = map[string]any{"id": 1006, "iid": 6, "state": "opened", "title": "Інша", "web_url": "u", "labels": []string{},
+		"assignees": []any{}, "references": map[string]string{"full": "grp/app#6"}}
+	d.Poll(ctx)
+	if err := d.Redo(ctx, "grp/app#6", "x", ""); err == nil {
+		t.Fatal("a new task was redone")
 	}
 }

@@ -103,15 +103,8 @@ func clipTo(s string, n int) string {
 // TaskSummary: what the task came to, in Ukrainian, for the card (and the issue comment): from the agent's last
 // words in its terminal, the commits and the diff.
 func TaskSummary(ctx context.Context, worktree, baseBranch string, t core.Task, agentText, reviewURL string) (string, error) {
-	var commits, stat, diff string
-	if base, err := gitx.Run(ctx, worktree, "merge-base", "origin/"+baseBranch, "HEAD"); err == nil && base != "" {
-		commits, _ = gitx.Run(ctx, worktree, "log", "--format=- %s", base+"..HEAD")
-		stat, _ = gitx.Run(ctx, worktree, "diff", "--stat", base, "HEAD")
-		diff, _ = gitx.Run(ctx, worktree, "diff", base, "HEAD")
-	}
-	if len(agentText) > 8000 {
-		agentText = agentText[len(agentText)-8000:]
-	}
+	commits, stat, diff := BranchWork(ctx, worktree, baseBranch)
+	agentText = lastOf(agentText, 8000)
 	review := "No merge request was opened."
 	if reviewURL != "" {
 		review = "Merge request: " + reviewURL
@@ -125,6 +118,39 @@ func TaskSummary(ctx context.Context, worktree, baseBranch string, t core.Task, 
 		"Base it on the end of the agent's terminal session and the actual changes below. Do not invent checks that are not mentioned. Answer with the summary only.",
 		"", fmt.Sprintf("Task: %s — %s", t.ID, t.Title), review,
 		"", "End of the agent's terminal session:", orNone(agentText),
+		"", "Commits:", orNone(commits), stat, clip(diff),
+	}, "\n"))
+}
+
+// BranchWork: the branch's commits, diffstat and diff against its base; empty when there is no base.
+func BranchWork(ctx context.Context, worktree, baseBranch string) (commits, stat, diff string) {
+	if base, err := gitx.Run(ctx, worktree, "merge-base", "origin/"+baseBranch, "HEAD"); err == nil && base != "" {
+		commits, _ = gitx.Run(ctx, worktree, "log", "--format=- %s", base+"..HEAD")
+		stat, _ = gitx.Run(ctx, worktree, "diff", "--stat", base, "HEAD")
+		diff, _ = gitx.Run(ctx, worktree, "diff", base, "HEAD")
+	}
+	return commits, stat, diff
+}
+
+func lastOf(s string, n int) string {
+	if len(s) > n {
+		return s[len(s)-n:]
+	}
+	return s
+}
+
+// AttemptSummary: a short account of an attempt the developer is dropping, for the next attempt's prompt: the
+// approach it took, what it changed, and what went wrong, read against the developer's note.
+func AttemptSummary(ctx context.Context, worktree, baseBranch string, t core.Task, agentText, note string) (string, error) {
+	commits, stat, diff := BranchWork(ctx, worktree, baseBranch)
+	return Ask(ctx, worktree, strings.Join([]string{
+		"A coding agent worked on this task, and the developer is dropping its attempt to start over on a fresh branch.",
+		"Write, in English, a short account for the agent of the next attempt: at most 6 bullets, no headings.",
+		"Cover the approach the attempt took, what it changed (files, key decisions), and what did not work or was left undone;",
+		"use the developer's note to tell what went wrong. Do not invent anything not in the material below. Answer with the bullets only.",
+		"", fmt.Sprintf("Task: %s — %s", t.ID, t.Title),
+		"", "The developer's note on what to do differently:", orNone(note),
+		"", "End of the agent's session:", orNone(lastOf(agentText, 8000)),
 		"", "Commits:", orNone(commits), stat, clip(diff),
 	}, "\n"))
 }

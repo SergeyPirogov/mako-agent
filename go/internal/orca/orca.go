@@ -24,6 +24,10 @@ type Job struct {
 	TrackerName string
 	Repo        *config.Repo
 	Branch      string
+	// Model for the agent, "" for its default; RetryNote and LastAttempt: a new attempt's «what to do differently».
+	Model       string
+	RetryNote   string
+	LastAttempt string
 }
 
 // Result: where Orca put the work. Branch may differ from Job.Branch: Orca suffixes a taken name.
@@ -47,10 +51,13 @@ func Hand(ctx context.Context, o config.Orca, j Job, log func(string)) (*Result,
 		"--branch", j.Branch,
 		"--base-branch", j.Repo.BaseBranch,
 		"--agent", agent,
-		"--prompt", Prompt(j.Task, j.TrackerName) + "\n\n" + Instructions(o.Instructions, o.MRBy, j),
+		"--prompt", FullPrompt(j, o),
 		"--setup", orStr(o.Setup, "inherit"),
 		"--no-parent",
 		"--json",
+	}
+	if j.Model != "" {
+		base = append(base, "--model", j.Model)
 	}
 	base = append(base, o.ExtraArgs...)
 	withLink := base
@@ -121,6 +128,22 @@ func Hand(ctx context.Context, o config.Orca, j Job, log func(string)) (*Result,
 	}
 	mark(ctx, command, j.Repo.Path, res.Worktree, res.Branch, "in-progress")
 	return res, nil
+}
+
+// Remove takes the task's workspace out of Orca: its agent stops, the worktree and its local branch go.
+func Remove(ctx context.Context, o config.Orca, repoPath, worktree, branch string) error {
+	command, err := Resolve(o.Command)
+	if err != nil {
+		return err
+	}
+	sel := "branch:" + branch
+	if worktree != "" {
+		sel = "path:" + worktree
+	}
+	if out, ok := run(ctx, command, repoPath, "worktree", "rm", "--worktree", sel, "--force", "--json"); !ok {
+		return fmt.Errorf("orca worktree rm: %s", parseFailure(out).Message)
+	}
+	return nil
 }
 
 // Mark moves the task's workspace to a column of Orca's board ("in-progress", "in-review", "done").

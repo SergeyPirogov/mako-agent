@@ -75,7 +75,11 @@ type Record struct {
 	Summary        string        `json:"summary,omitempty"`   // what the agent did, written when its MR appeared
 	SessionID      string        `json:"sessionId,omitempty"` // Mako's own agent: its Claude Code session
 	Attempt        int           `json:"attempt,omitempty"`
-	Cost           float64       `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
+	// «Повторити інакше»: what to do differently this attempt, what the last one came to, and the model for it.
+	RetryNote   string  `json:"retryNote,omitempty"`
+	LastAttempt string  `json:"lastAttempt,omitempty"`
+	Model       string  `json:"model,omitempty"` // "" — the configured one
+	Cost        float64 `json:"cost,omitempty"`  // USD Mako's own agent spent on the task, over all attempts
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
 	// Lesson: a rule for CLAUDE.md Mako drew from your last correction of the agent, until you save it or say no.

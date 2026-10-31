@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
 
@@ -78,6 +79,33 @@ const DefaultHandoffForMe = "## Finish with commits, not a merge request\n" +
 	"3. Do not push and do not open a merge request: the developer reviews the changes and opens it from Orca.\n" +
 	"4. Reply with a ready merge request: a title (what it does, in a sentence) and a Markdown description with\n" +
 	"   \"## What changed\", \"## How it was checked\", \"## Worth a look\", ending with \"{closingRef}\"."
+
+// FullPrompt: the task, what to do differently when it is a new attempt, and how to finish.
+func FullPrompt(j Job, o config.Orca) string {
+	parts := []string{Prompt(j.Task, j.TrackerName)}
+	if again := Again(j.RetryNote, j.LastAttempt); again != "" {
+		parts = append(parts, again)
+	}
+	return strings.Join(append(parts, Instructions(o.Instructions, o.MRBy, j)), "\n\n")
+}
+
+// Again: the part of a new attempt's prompt about the one before it; "" for a first attempt.
+func Again(note, last string) string {
+	note, last = strings.TrimSpace(note), strings.TrimSpace(last)
+	if note == "" && last == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## This is a new attempt\n")
+	b.WriteString("An earlier attempt at this task did not work out; its branch and merge request were dropped, and you start from the base branch.")
+	if last != "" {
+		b.WriteString("\n\n### What the last attempt did\n" + last)
+	}
+	if note != "" {
+		b.WriteString("\n\n### What the developer wants done differently\n" + note + "\n\nFollow this over anything the last attempt did.")
+	}
+	return b.String()
+}
 
 var placeholder = regexp.MustCompile(`\{(\w+)\}`)
 

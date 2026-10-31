@@ -33,7 +33,7 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 	if err != nil {
 		return nil, err
 	}
-	prompt := orca.Prompt(j.Task, j.TrackerName) + "\n\n" + orca.Instructions(cfg.Orca.Instructions, cfg.Orca.MRBy, j)
+	prompt := orca.FullPrompt(j, cfg.Orca)
 	setup := setupOf(j.Repo, cfg.Terminal, worktree)
 	if setup != "" {
 		log("підготовка worktree: " + setup)
@@ -61,6 +61,9 @@ func viewOf(t config.Terminal) string {
 func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setup string) error {
 	t := d.Config().Terminal
 	r, _ := d.Store.Get(id)
+	if r.Model != "" {
+		t.Model = r.Model // chosen for this attempt with «Повторити інакше»
+	}
 	again := []string{"--continue"}
 	if orca.HasSession(worktree, r.SessionID) {
 		again = []string{"--resume", r.SessionID}
@@ -215,8 +218,8 @@ func (d *Dispatcher) resume(id, message string) error {
 			return err
 		}
 		cfg := d.Config()
-		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r)}
-		prompt, cont = orca.Prompt(j.Task, j.TrackerName)+"\n\n"+orca.Instructions(cfg.Orca.Instructions, cfg.Orca.MRBy, j), false
+		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt}
+		prompt, cont = orca.FullPrompt(j, cfg.Orca), false
 	}
 	if err := d.runAgent(id, r.Worktree, r.View, prompt, cont, ""); err != nil {
 		return err
