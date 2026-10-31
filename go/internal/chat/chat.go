@@ -106,6 +106,7 @@ type Session struct {
 	spent     float64                    // claude reports the cost so far of its process: what of it is already counted
 	pending   map[string]json.RawMessage // permission request → the tool's input
 	o         Options
+	ended     chan struct{} // closed once the agent has exited and OnState has heard of it
 }
 
 const maxOutput = 6000
@@ -115,7 +116,8 @@ var IdleAfter = 20 * time.Minute
 
 // Start runs the setup and then the agent, in the background: the conversation shows both.
 func Start(o Options) *Session {
-	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode}
+	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode,
+		ended: make(chan struct{})}
 	if s.mode == "" {
 		s.mode = "default"
 	}
@@ -203,7 +205,11 @@ func (s *Session) end() {
 	s.version++
 	s.mu.Unlock()
 	s.changed()
+	close(s.ended)
 }
+
+// Wait blocks until the agent has exited and its last change is reported.
+func (s *Session) Wait() { <-s.ended }
 
 // replay shows a transcript: it has the same messages claude streams.
 func (s *Session) replay(path string) {
