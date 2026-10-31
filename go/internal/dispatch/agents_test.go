@@ -80,6 +80,8 @@ func TestWatchAgents(t *testing.T) {
 	r, _ := d.Store.Get("grp/app#5")
 	// Orca knows the workspace under another spelling of the path: the branch finds it.
 	term.ws = &orca.Workspace{Path: "/private" + r.Worktree, Branch: "refs/heads/" + r.Branch}
+	var awake []bool // what the Mac was asked: stay awake or not
+	d.KeepAwake = func(on bool) { awake = append(awake, on) }
 
 	// A chat agent (no terminal) at work.
 	term.agent("working", orca.AgentRow{AgentType: "claude", State: "working", ToolName: "Read", ToolInput: "summary.md", StateStartedAt: now.UnixMilli() - 60000})
@@ -88,12 +90,18 @@ func TestWatchAgents(t *testing.T) {
 	if a.State != "working" || a.Name != "claude" || a.Tool != "Read: summary.md" || a.Since != now.UnixMilli()-60000 || a.Screen != nil {
 		t.Fatalf("working: %+v", a)
 	}
+	if len(awake) != 1 || !awake[0] {
+		t.Fatalf("a working agent should keep the Mac awake: %v", awake)
+	}
 
 	// It asks to run a command.
 	term.agent("permission", orca.AgentRow{AgentType: "claude", State: "blocked", ToolName: "Bash", ToolInput: "npm test -- payment"})
 	d.WatchAgents(ctx, now.Add(10*time.Second))
 	if a = d.Agents()["grp/app#5"]; a.State != "waiting" || a.Reason != "дозвіл на Bash: npm test -- payment" {
 		t.Fatalf("waiting: %+v", a)
+	}
+	if awake[len(awake)-1] {
+		t.Fatalf("an agent waiting for you should let the Mac sleep: %v", awake)
 	}
 	if logs := d.Logs("grp/app#5"); !strings.Contains(logs[len(logs)-1].Text, "чекає на вас") {
 		t.Fatalf("not told: %+v", logs)
