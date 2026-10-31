@@ -147,8 +147,19 @@ const state = (r) => {
 };
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
 // A small Markdown for what agents write: headings, lists, tables, code blocks, inline code, bold and links.
+// Markdown images in what agents write (screenshots for the MR, Mako's own ones), shown as images.
+const MD_IMG = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/api\/screenshots\/[^\s)]+)\)/g;
+const pic = (src, alt) => `<a href="${esc(src)}" target="_blank" rel="noopener"><img class="pic" src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></a>`;
 function md(text) {
-  const inline = (x) => linkify(x).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const plain = (x) => linkify(x).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const inline = (x) => {
+    let out = "", at = 0;
+    for (const m of x.matchAll(MD_IMG)) {
+      out += plain(x.slice(at, m.index)) + pic(m[2], m[1]);
+      at = m.index + m[0].length;
+    }
+    return out + plain(x.slice(at));
+  };
   const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
   const lines = text.trim().split("\n");
   const out = [];
@@ -1731,6 +1742,8 @@ function chatItem(it, i, v) {
     }
     case "error":
       return `<div class="notice">${esc(it.text)}</div>`;
+    case "image":
+      return `<figure class="shot">${pic(it.text, it.output)}<figcaption>Скриншот · ${esc(it.output)}</figcaption></figure>`;
   }
   return "";
 }

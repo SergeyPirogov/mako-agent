@@ -22,7 +22,7 @@ import (
 
 // Item is one thing in the conversation, as the board draws it.
 type Item struct {
-	Kind string `json:"kind"` // "user", "text", "tool", "permission", "result", "error"
+	Kind string `json:"kind"` // "user", "text", "tool", "permission", "result", "error", "image" (Text: its link, Output: its name)
 	Text string `json:"text,omitempty"`
 	// A tool call and, once it ran, its result; a permission request for one.
 	ID     string          `json:"id,omitempty"`
@@ -422,6 +422,9 @@ func (s *Session) add(it Item) {
 	s.mu.Unlock()
 	s.changed()
 }
+
+// Show puts what Mako has to show into the conversation, as a screenshot the agent took.
+func (s *Session) Show(it Item) { s.add(it) }
 
 func (s *Session) finishTool(id, output string, failed bool) {
 	s.mu.Lock()

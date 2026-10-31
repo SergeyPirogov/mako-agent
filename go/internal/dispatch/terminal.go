@@ -103,7 +103,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		mode = old.Snapshot().Mode // a continued conversation keeps the mode you chose
 	}
 	d.Chats.Put(chat.Start(chat.Options{
-		ID: id, Worktree: worktree, Command: command, Args: args, Env: []string{"MAKO_TASK=" + id}, Setup: setup, Prompt: prompt, Mode: mode, History: history,
+		ID: id, Worktree: worktree, Command: command, Args: args, Env: d.agentEnv(id), Setup: setup, Prompt: prompt, Mode: mode, History: history,
 		OnState:  func() { d.watchTerminals(time.Now()) },
 		OnLimits: d.limitsReported,
 		// The task keeps its session: a later resume goes on with exactly this conversation.
@@ -293,7 +293,7 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 	} else {
 		all = args
 	}
-	env := []string{"MAKO_TASK=" + id}
+	env := d.agentEnv(id)
 	if setup != "" {
 		all = append([]string{"-c", setupScript, command}, all...)
 		command = "/bin/sh"
@@ -538,4 +538,13 @@ func (d *Dispatcher) CommitInfo(ctx context.Context, id, hash string) (*gitx.Com
 		return nil, err
 	}
 	return gitx.CommitInfo(ctx, wt, hash)
+}
+
+// agentEnv: what Mako's agent knows of Mako: its task and the board, where `mako screenshot` hands screenshots.
+func (d *Dispatcher) agentEnv(id string) []string {
+	env := []string{"MAKO_TASK=" + id}
+	if d.BoardURL != "" {
+		env = append(env, "MAKO_URL="+d.BoardURL)
+	}
+	return env
 }
