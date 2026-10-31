@@ -1082,8 +1082,18 @@ function estimateHTML(r, card) {
   // A failed estimate is quiet: the task is just without one.
   if (!e || e.state !== "done" && !e.size) return card("Оцінка наперед", `<div class="tcard-b muted">Ще не оцінено.</div>`, "", btn("Оцінити"));
   const size = `<div class="score"><span class="k">Розмір</span><span class="size ${esc(e.size)}">${SIZE_NAMES[e.size] ?? esc(e.size)}</span><span></span>${e.parts ? `<span class="score-why">${esc(e.parts)}</span>` : ""}</div>`;
-  const advice = [e.plan ? "план спочатку" : "", e.split ? "розбити на кілька задач" : "", e.model ? `модель <code>${esc(e.model)}</code>` : ""].filter(Boolean);
-  const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.map((a) => `<span class="tchip">${a}</span>`).join("")}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
+  // «план спочатку» and the model are taken with a click, before «Взяти в роботу»; a second click lets them go.
+  // Splitting is the person's to do in the tracker: a plain chip.
+  const plan = !!r.planFirst, model = r.model || "";
+  const pick = (m, p) => `&model=${encodeURIComponent(m)}&plan=${p ? 1 : 0}`;
+  const chip = (on, label, x, title) => `<button type="button" class="tchip pick${on ? " on" : ""}" data-a="pick" data-x="${esc(x)}" title="${esc(title)}" aria-pressed="${on}">${on ? "✓ " : ""}${label}</button>`;
+  const advice = [
+    e.plan ? chip(plan, "план спочатку", pick(model, !plan), plan ? "Агент почне з плану. Натисніть, щоб скасувати" : "Агент почне з плану: нічого не змінить, доки ви його не затвердите") : "",
+    e.split ? `<span class="tchip">розбити на кілька задач</span>` : "",
+    e.model ? chip(model === e.model, `модель <code>${esc(e.model)}</code>`, pick(model === e.model ? "" : e.model, plan), model === e.model ? "Агент почне з цією моделлю. Натисніть, щоб скасувати" : `Агент почне з моделлю ${e.model} замість налаштованої`) : "",
+  ].filter(Boolean);
+  const picked = model && model !== e.model ? `<span class="muted">модель для задачі: <code>${esc(model)}</code></span>` : "";
+  const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.join("")}${picked}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
   const questions = e.questions?.trim() ? `<div class="sec warn"><h4><span class="ic">?</span>Що уточнити в трекері</h4>${md(e.questions)}</div>` : "";
   const note = e.state === "running" ? `<span class="muted">оцінюю наново…</span>` : btn("Оцінити ще раз");
   return card("Оцінка наперед", `<div class="tcard-b scores">${scoreRow("Опис задачі", "up", e.clarity)}${size}${scoreRow("Ризик", "down", e.risk)}</div>${questions}${rec}`, "assess", note);

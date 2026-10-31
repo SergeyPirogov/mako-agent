@@ -510,6 +510,7 @@ function renderOrca() {
   box.append(check(o, "summaryComment", "Додавати підсумок роботи агента в коментар до задачі", { hint: "Коли з'являється MR, Mako пише з термінала агента і змін гілки, що зроблено й як перевірено. Підсумок завжди видно на дошці" }));
   cfg.estimate ??= {};
   box.append(check(cfg.estimate, "enabled", "Оцінювати нові задачі до старту", { def: true, hint: "Щойно задача з'являється в «Нових», Haiku читає її текст і структуру репозиторію (не код): наскільки зрозумілий опис і що уточнити в трекері, розмір, ризик, з чим брати. Наново — лише коли змінився опис. Помилка — просто без оцінки" }));
+  box.append(check(cfg.estimate, "useModel", "Брати модель з оцінки", { def: false, hint: "Агент починає з моделлю, яку радить оцінка (haiku, sonnet, opus), якщо для задачі не вибрано іншу. Вимкнено: модель — лише з налаштувань або вибрана на картці" }));
   // The reviewer agent: only Mako's own agents can be written to, so only with Claude Code in Mako.
   if (onTerminal()) {
     cfg.agentReview ??= {};

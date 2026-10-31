@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -19,9 +20,13 @@ var planLabels = []string{"plan", "план"}
 // bigDescription: a task's description this long (in characters) is big enough for a plan with PlanFirst "big".
 const bigDescription = 1500
 
-// wantsPlan: the task's agent starts with a plan. With PlanFirst "big", a plan label decides first, then the
-// estimate of the task's current text (e), then the length of its description.
-func wantsPlan(t config.Terminal, task core.Task, e *core.Estimate) bool {
+// wantsPlan: the task's agent starts with a plan. «план спочатку» picked on the card (picked) decides first. With
+// PlanFirst "big", then a plan label, then the estimate of the task's current text (e: big, or it advises a
+// plan), then the length of its description.
+func wantsPlan(t config.Terminal, task core.Task, e *core.Estimate, picked bool) bool {
+	if picked {
+		return true
+	}
 	switch t.PlanFirst {
 	case "always":
 		return true
@@ -33,8 +38,8 @@ func wantsPlan(t config.Terminal, task core.Task, e *core.Estimate) bool {
 				}
 			}
 		}
-		if e != nil && e.State == "done" && e.Size != "" && e.For == estimateKey(task) {
-			return e.Size == "big"
+		if estimateFresh(e, task) {
+			return e.Size == "big" || e.Plan
 		}
 		return utf8.RuneCountInString(strings.TrimSpace(task.Description)) >= bigDescription
 	}
@@ -73,5 +78,43 @@ func (d *Dispatcher) RevisePlan(id, requestID, notes string) error {
 		return err
 	}
 	d.Log(id, "план повернуто на правки: "+clipText(firstLine(notes), 120))
+	return nil
+}
+
+// estimateFresh: e is a finished estimate of the task's current text.
+func estimateFresh(e *core.Estimate, task core.Task) bool {
+	return e != nil && e.State == "done" && e.Size != "" && e.For == estimateKey(task)
+}
+
+// modelFor: the model of the task's agent: picked for the task (on the card or with «Повторити інакше»), else
+// the estimate's advice when the settings take it, else "" (the configured one).
+func modelFor(cfg *config.Config, r core.Record) string {
+	if r.Model != "" {
+		return r.Model
+	}
+	if cfg.EstimateModel && estimateFresh(r.Estimate, r.Task) {
+		return r.Estimate.Model
+	}
+	return ""
+}
+
+// Pick takes the estimate's advice for a task not started yet: model ("" the configured one) and «план спочатку».
+func (d *Dispatcher) Pick(id, model string, plan bool) error {
+	r, ok := d.Store.Get(id)
+	if !ok {
+		return errors.New("немає такої задачі")
+	}
+	if r.Worktree != "" || r.Status == core.HandedOff || r.Status == core.Done {
+		return errors.New("агент уже почав: змінити можна через «Повторити інакше»")
+	}
+	d.Store.Update(id, func(r *core.Record) { r.Model, r.PlanFirst = model, plan })
+	switch {
+	case model != "" && plan:
+		d.Log(id, "агент почне з плану, модель "+model)
+	case model != "":
+		d.Log(id, "агент почне з моделлю "+model)
+	case plan:
+		d.Log(id, "агент почне з плану")
+	}
 	return nil
 }

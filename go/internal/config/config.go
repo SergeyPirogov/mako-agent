@@ -48,6 +48,8 @@ type Config struct {
 	Reviewer Reviewer
 	// Estimate: a new task gets the agent's estimate (clarity, size, risk, advice) as it appears.
 	Estimate bool
+	// EstimateModel: the agent gets the model the estimate advises, unless one is picked for the task.
+	EstimateModel bool
 }
 
 // Reviewer is the agent that reviews another agent's branch with a clean context and writes it its remarks;
@@ -292,7 +294,8 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			Model:     strings.TrimSpace(raw.AgentReview.Model),
 			When:      reviewWhen(raw.AgentReview.When),
 		},
-		Estimate: raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
+		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
+		EstimateModel: raw.Estimate.UseModel,
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
@@ -563,7 +566,8 @@ type rawConfig struct {
 		When      string `json:"when"`
 	} `json:"agentReview"`
 	Estimate struct {
-		Enabled *bool `json:"enabled"`
+		Enabled  *bool `json:"enabled"`
+		UseModel bool  `json:"useModel"`
 	} `json:"estimate"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`

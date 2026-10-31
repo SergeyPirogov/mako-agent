@@ -334,6 +334,12 @@ func (s *Server) Handler() http.Handler {
 		case "later":
 			min, _ := strconv.Atoi(r.URL.Query().Get("min"))
 			s.D.Later(id, min)
+		case "pick":
+			// The estimate's advice taken on the card: ?model=sonnet&plan=1 (empty: as the settings say).
+			if err := s.D.Pick(id, r.URL.Query().Get("model"), r.URL.Query().Get("plan") == "1"); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "cancel":
 			s.D.Cancel(id)
 		case "retry":

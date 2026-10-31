@@ -775,6 +775,10 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
 .tchip code { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .tchip button.icon { width: 20px; height: 20px; border-radius: 50%; color: var(--faint); flex: none; }
 .tchip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+/* The estimate's advice, taken with a click. */
+.tchip.pick { cursor: pointer; font: inherit; background: var(--card); border-style: dashed; }
+.tchip.pick:hover { background: var(--hover); }
+.tchip.pick.on { border-style: solid; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
 .tchip.st { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 35%, var(--line)); }
 /* A tracker's error can be long: one line, cut; the whole of it in the tooltip. */
 .tchip { max-width: 100%; min-width: 0; }

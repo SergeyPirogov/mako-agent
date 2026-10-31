@@ -43,7 +43,10 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 	}
 	view := viewOf(cfg.Terminal)
 	rec, _ := d.Store.Get(j.Task.ID)
-	planning := wantsPlan(cfg.Terminal, j.Task, rec.Estimate)
+	planning := wantsPlan(cfg.Terminal, j.Task, rec.Estimate, rec.PlanFirst)
+	if m := modelFor(cfg, rec); m != "" && rec.Model == "" {
+		log("модель " + m + ": як радить оцінка")
+	}
 	d.Store.Update(j.Task.ID, func(r *core.Record) { r.View, r.Planning = view, planning })
 	if planning {
 		log("агент починає з плану: нічого не змінює, доки ви його не затвердите")
@@ -69,8 +72,8 @@ func viewOf(t config.Terminal) string {
 func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setup string) error {
 	t := d.Config().Terminal
 	r, _ := d.Store.Get(id)
-	if r.Model != "" {
-		t.Model = r.Model // chosen for this attempt with «Повторити інакше»
+	if m := modelFor(d.Config(), r); m != "" {
+		t.Model = m // picked for the task, or the estimate's advice
 	}
 	again := []string{"--continue"}
 	if orca.HasSession(worktree, r.SessionID) {

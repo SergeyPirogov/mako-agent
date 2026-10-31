@@ -83,10 +83,12 @@ type Record struct {
 	SessionID    string `json:"sessionId,omitempty"` // Mako's own agent: its Claude Code session
 	Attempt      int    `json:"attempt,omitempty"`
 	// «Повторити інакше»: what to do differently this attempt, what the last one came to, and the model for it.
-	RetryNote   string  `json:"retryNote,omitempty"`
-	LastAttempt string  `json:"lastAttempt,omitempty"`
-	Model       string  `json:"model,omitempty"` // "" — the configured one
-	Cost        float64 `json:"cost,omitempty"`  // USD Mako's own agent spent on the task, over all attempts
+	RetryNote   string `json:"retryNote,omitempty"`
+	LastAttempt string `json:"lastAttempt,omitempty"`
+	Model       string `json:"model,omitempty"` // "" — the configured one (or the estimate's, when the settings say)
+	// PlanFirst: «план спочатку» picked on the card from the estimate: the agent starts with a plan.
+	PlanFirst bool    `json:"planFirst,omitempty"`
+	Cost      float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
 	// Planning: the agent started in plan mode and its plan is not approved yet; it starts in plan mode again
