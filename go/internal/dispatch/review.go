@@ -180,6 +180,11 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	// Asked afresh, not from the card's cache: a push a moment ago may have started CI again.
+	if c, err := desk.CheckReview(ctx, r.PRURL); err == nil && trackers.CIRunning(c.CI) {
+		d.forgetReview(id)
+		return fmt.Errorf("CI ще йде: змерджити можна, коли він закінчиться")
+	}
 	if err := desk.Merge(ctx, r.PRURL); err != nil {
 		return err
 	}
