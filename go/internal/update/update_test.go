@@ -1,0 +1,135 @@
+package update
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func git(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// repos: origin with one commit, a clone of it on main, then two more commits on origin.
+func repos(t *testing.T) (clone, built string) {
+	t.Helper()
+	root := t.TempDir()
+	origin, clone := filepath.Join(root, "origin"), filepath.Join(root, "clone")
+	os.MkdirAll(origin, 0o755)
+	git(t, origin, "init", "-q", "-b", "main")
+	git(t, origin, "commit", "-q", "--allow-empty", "-m", "first")
+	git(t, root, "clone", "-q", origin, clone)
+	built = git(t, clone, "rev-parse", "HEAD")
+	git(t, origin, "commit", "-q", "--allow-empty", "-m", "second")
+	git(t, origin, "commit", "-q", "--allow-empty", "-m", "third")
+	return clone, built
+}
+
+func TestCheckCountsNewCommits(t *testing.T) {
+	clone, built := repos(t)
+	u := &Updater{Source: clone, Revision: built}
+	if err := u.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s := u.Status()
+	if s.Count != 2 || strings.Join(s.Titles, ",") != "third,second" {
+		t.Fatalf("status = %+v", s)
+	}
+}
+
+func TestLocateFindsTheMainCheckout(t *testing.T) {
+	clone, _ := repos(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	git(t, clone, "worktree", "add", "-q", "--detach", wt)
+	want, _ := filepath.EvalSymlinks(clone)
+	got, _ := filepath.EvalSymlinks(Locate(wt, "/nowhere/mako"))
+	if got != want {
+		t.Fatalf("from a worktree: %q, want %q", got, want)
+	}
+	got, _ = filepath.EvalSymlinks(Locate("/gone", filepath.Join(clone, "go", "mako")))
+	if got != want {
+		t.Fatalf("around the binary: %q, want %q", got, want)
+	}
+	if got := Locate("", filepath.Join(t.TempDir(), "mako")); got != "" {
+		t.Fatalf("no repo: %q", got)
+	}
+}
+
+func TestFailingTestsChangeNothing(t *testing.T) {
+	clone, built := repos(t)
+	exe := filepath.Join(t.TempDir(), "mako")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	u := &Updater{Source: clone, Revision: built, Exe: exe,
+		Test:    func(context.Context, string) error { return errors.New("FAIL") },
+		Build:   func(context.Context, string, string) error { t.Fatal("built after failing tests"); return nil },
+		Restart: func(int, []string) error { t.Fatal("restarted"); return nil },
+	}
+	if err := u.Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "FAIL") {
+		t.Fatalf("err = %v", err)
+	}
+	if head := git(t, clone, "rev-parse", "HEAD"); head != built {
+		t.Fatal("the clone moved")
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "old" {
+		t.Fatal("the binary changed")
+	}
+	if out := git(t, clone, "worktree", "list"); strings.Count(out, "\n") != 0 {
+		t.Fatalf("the update's checkout is left: %s", out)
+	}
+}
+
+func TestApplyInstallsAndRestarts(t *testing.T) {
+	busyPoll = time.Millisecond
+	clone, built := repos(t)
+	exe := filepath.Join(t.TempDir(), "mako")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	var tested, restarted []string
+	busy, quit := 2, false
+	u := &Updater{Source: clone, Revision: built, Exe: exe, Args: []string{"-open"},
+		Busy: func() int { busy--; return busy },
+		Quit: func() { quit = true },
+		Test: func(_ context.Context, tree string) error {
+			tested = append(tested, git(t, tree, "log", "-1", "--format=%s"))
+			return nil
+		},
+		Build:   func(_ context.Context, _, out string) error { return os.WriteFile(out, []byte("new"), 0o755) },
+		Restart: func(_ int, command []string) error { restarted = command; return nil },
+	}
+	if err := u.Apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(tested) != 1 || tested[0] != "third" {
+		t.Fatalf("tested %v", tested)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "new" {
+		t.Fatalf("binary = %q", b)
+	}
+	if git(t, clone, "log", "-1", "--format=%s") != "third" {
+		t.Fatal("the clone was not pulled")
+	}
+	if strings.Join(restarted, " ") != exe+" -open" || !quit || busy != 0 {
+		t.Fatalf("restart %v, quit %v, busy %d", restarted, quit, busy)
+	}
+}
+
+func TestAppBundle(t *testing.T) {
+	if got := appBundle("/Applications/Mako.app/Contents/MacOS/mako"); got != "/Applications/Mako.app" {
+		t.Fatal(got)
+	}
+	if got := appBundle("/Users/me/mako/go/mako"); got != "" {
+		t.Fatal(got)
+	}
+}

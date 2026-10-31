@@ -119,6 +119,9 @@ func (d *Dispatcher) Live(id string) bool {
 }
 
 // sayTo hands the task's running agent a request, in its chat or its terminal.
+// Busy: Mako's own agents in the middle of a turn; they end with Mako, so its restart waits for them.
+func (d *Dispatcher) Busy() int { return d.Sessions.Busy() + d.Chats.Busy() }
+
 func (d *Dispatcher) sayTo(id, text string) error {
 	if s := d.Chats.Get(id); s != nil && s.Running() {
 		return s.Send(text)

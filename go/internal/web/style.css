@@ -54,6 +54,10 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .ghost-link:hover { color: var(--fg); background: var(--hover); text-decoration: none; }
 .banner { padding: 10px 16px; background: color-mix(in srgb, var(--warn) 12%, var(--card)); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
 .banner a { font-weight: 600; }
+.banner.update { background: color-mix(in srgb, var(--accent) 10%, var(--card)); gap: 6px; }
+.banner.update ul { margin: 0; padding-left: 20px; }
+.update-head { display: flex; align-items: center; gap: 12px; }
+.update-error pre { margin: 4px 0 0; max-height: 160px; overflow: auto; font-size: 12px; white-space: pre-wrap; color: var(--err); }
 .search { color: var(--mute); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .search.err { color: var(--err); }
 .filter { flex: none; padding: 6px 8px; border-bottom: 1px solid var(--line); }

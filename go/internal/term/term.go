@@ -410,6 +410,19 @@ func (m *Manager) StopAll() {
 	}
 }
 
+// Busy: how many agents are in the middle of a turn (Mako's restart waits for them).
+func (m *Manager) Busy() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, s := range m.all {
+		if st := s.State(); st.State == "working" {
+			n++
+		}
+	}
+	return n
+}
+
 // ClaudeSettings writes the settings that add Mako's hooks (Claude Code merges them with the user's own) and
 // returns the file.
 func (m *Manager) ClaudeSettings(name, hookURL string) (string, error) {

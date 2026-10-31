@@ -5,6 +5,8 @@ set -eu
 cd "$(dirname "$0")/../.."
 VERSION="${1:-$(git describe --tags --always 2>/dev/null || echo dev)}"
 VERSION="${VERSION#v}"
+# The clone Mako is built from (the main one, when building in a worktree): Mako updates itself from it.
+SOURCE="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo .)")"
 OUT="dist"
 APP="$OUT/Mako.app"
 rm -rf "$OUT"
@@ -12,7 +14,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # The menu bar icon needs cgo (AppKit); each architecture is built natively by clang, then joined.
 for arch in arm64 amd64; do
-  CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/mako-$arch" ./cmd/mako
+  CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X 'main.source=$SOURCE'" -o "$OUT/mako-$arch" ./cmd/mako
 done
 lipo -create -output "$APP/Contents/MacOS/mako" "$OUT/mako-arm64" "$OUT/mako-amd64"
 rm "$OUT/mako-arm64" "$OUT/mako-amd64"

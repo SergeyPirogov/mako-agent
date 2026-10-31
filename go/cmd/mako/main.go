@@ -26,10 +26,14 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
+	"github.com/SergeyPirogov/mako-agent/go/internal/update"
 	"github.com/SergeyPirogov/mako-agent/go/internal/web"
 )
 
 var version = "dev"
+
+// source: the clone this Mako is built from (build-app.sh names it), for updating itself.
+var source = ""
 
 // The menu bar (AppKit) must run on the main thread: keep the main goroutine on it.
 func init() { runtime.LockOSThread() }
@@ -106,7 +110,20 @@ func run(homeFlag string, open, noTray bool) error {
 			log.Printf("телефон: %v", err)
 		}
 	}
-	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones}).Handler()}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, quit := context.WithCancel(ctx)
+	defer quit()
+	// Mako built from a clone of its repository updates itself from it.
+	var updater *update.Updater
+	if exe, err := os.Executable(); err == nil {
+		exe, _ = filepath.EvalSymlinks(exe)
+		if src := update.Locate(source, exe); src != "" {
+			updater = &update.Updater{Source: src, Revision: update.BuiltRevision(), Exe: exe, Args: os.Args[1:], Busy: d.Busy, Quit: quit}
+			go updater.Watch(ctx, 30*time.Minute)
+		}
+	}
+	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones, Update: updater}).Handler()}
 	go srv.Serve(ln)
 	log.Printf("Mako %s: %s, дошка %s", version, home, d.BoardURL)
 	if len(cfg.Trackers) == 0 {
@@ -115,8 +132,6 @@ func run(homeFlag string, open, noTray bool) error {
 		show(d.BoardURL) // opened as an app: show the board, as the menu bar icon may be hidden
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	if !tray {
 		d.Run(ctx)
 	} else {

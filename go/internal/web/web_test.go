@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -9,12 +11,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
+	"github.com/SergeyPirogov/mako-agent/go/internal/update"
 )
 
 func TestBoard(t *testing.T) {
@@ -176,5 +180,40 @@ func TestPhone(t *testing.T) {
 	// This Mac itself needs no key.
 	if res, _ := http.Get(srv.URL + "/settings"); res.StatusCode != 200 {
 		t.Fatalf("Mac settings: %d", res.StatusCode)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{}, store, nil)
+	started := make(chan bool, 1)
+	u := &update.Updater{Source: t.TempDir(), Exe: filepath.Join(t.TempDir(), "mako"),
+		Test: func(context.Context, string) error { started <- true; return errors.New("no") }}
+	srv := httptest.NewServer((&Server{D: d, Update: u}).Handler())
+	defer srv.Close()
+
+	res, _ := http.Get(srv.URL + "/api/state")
+	var st stateReply
+	json.NewDecoder(res.Body).Decode(&st)
+	if st.Update == nil {
+		t.Fatal("no update status on the Mac")
+	}
+	// A phone sees no update and cannot start one.
+	req, _ := http.NewRequest("POST", srv.URL+"/api/update", nil)
+	req.Header.Set("X-Forwarded-For", "100.64.0.2")
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode == 200 || u.Status().State != "" {
+		t.Fatalf("from a phone: %d", res.StatusCode)
+	}
+	req, _ = http.NewRequest("POST", srv.URL+"/api/update", nil)
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 {
+		t.Fatalf("update: %d", res.StatusCode)
+	}
+	// Not a repository: the update fails before testing, and says so.
+	for i := 0; i < 100 && u.Status().State != "failed"; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if s := u.Status(); s.State != "failed" || s.Error == "" || len(started) != 0 {
+		t.Fatalf("status %+v", s)
 	}
 }
