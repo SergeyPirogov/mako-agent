@@ -96,6 +96,13 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		return err
 	}
 	var args []string
+	if isClaude(command) && d.BoardURL != "" {
+		settings, err := d.Sessions.GuardSettings(id, d.guardURL(id))
+		if err != nil {
+			return err
+		}
+		args = append(args, "--settings", settings)
+	}
 	if cont {
 		args = append(args, again...)
 	}
@@ -289,7 +296,7 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 	token := randomToken()
 	var all []string
 	if isClaude(command) {
-		settings, err := d.Sessions.ClaudeSettings(id, fmt.Sprintf("%s/hook?id=%s&token=%s", d.BoardURL, escapeQuery(id), token))
+		settings, err := d.Sessions.ClaudeSettings(id, fmt.Sprintf("%s/hook?id=%s&token=%s", d.BoardURL, escapeQuery(id), token), d.guardURL(id))
 		if err != nil {
 			return err
 		}

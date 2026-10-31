@@ -158,3 +158,48 @@ func renamedTo(p string) string {
 	}
 	return p
 }
+
+// maxPushDiff: how much of a push the secret check reads; a branch that big is read in part.
+const maxPushDiff = 8 << 20
+
+// PushDiff: everything a push of the branch can carry, for the secret check: each commit since the fork point
+// (a secret added and removed again is still in the history), then the uncommitted changes and the untracked
+// files as additions, since the agent often commits in the same command it pushes with. Added lines, -U0.
+func PushDiff(ctx context.Context, worktree, baseBranch string) (string, error) {
+	base := forkPoint(ctx, worktree, baseBranch)
+	var b strings.Builder
+	history, err := Run(ctx, worktree, "-c", "core.quotePath=false", "log", "-p", "-U0", "--no-color", "--no-ext-diff", "--format=commit %H", base+"..HEAD")
+	if err != nil {
+		return "", err
+	}
+	b.WriteString(history)
+	work, err := Run(ctx, worktree, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	b.WriteString("\ncommit \n" + work + "\n")
+	untracked, err := Run(ctx, worktree, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return "", err
+	}
+	for _, p := range lines(untracked) {
+		if b.Len() > maxPushDiff {
+			break
+		}
+		fmt.Fprintf(&b, "diff --git a/%s b/%s\n+++ b/%s\n", p, p, p)
+		data, err := os.ReadFile(filepath.Join(worktree, p))
+		if err != nil || len(data) > maxNewFile || bytes.Contains(data, []byte{0}) {
+			continue
+		}
+		ls := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		fmt.Fprintf(&b, "@@ -0,0 +1,%d @@\n", len(ls))
+		for _, l := range ls {
+			b.WriteString("+" + l + "\n")
+		}
+	}
+	s := b.String()
+	if len(s) > maxPushDiff {
+		s = s[:maxPushDiff]
+	}
+	return s, nil
+}
