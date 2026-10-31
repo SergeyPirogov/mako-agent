@@ -140,6 +140,12 @@ func TestPhone(t *testing.T) {
 	if res := get("/"); res.StatusCode != 401 {
 		t.Fatalf("unpaired phone got the board: %d", res.StatusCode)
 	}
+	// The service worker's icons, Android's status-bar badge among them, load without a key.
+	for _, p := range []string{"/icons/icon-192.png", "/icons/badge-96.png"} {
+		if res := get(p); res.StatusCode != 200 || res.Header.Get("Content-Type") != "image/png" {
+			t.Fatalf("%s: %d", p, res.StatusCode)
+		}
+	}
 	if res := get("/pair?code=guess"); res.StatusCode != 401 {
 		t.Fatalf("a made-up code paired: %d", res.StatusCode)
 	}

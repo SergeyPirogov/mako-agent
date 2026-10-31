@@ -54,6 +54,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .ghost-link:hover { color: var(--fg); background: var(--hover); text-decoration: none; }
 .banner { padding: 10px 16px; background: color-mix(in srgb, var(--warn) 12%, var(--card)); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
 .banner a { font-weight: 600; }
+.banner > button { align-self: flex-start; margin-top: 4px; }
 .banner.update { background: color-mix(in srgb, var(--accent) 10%, var(--card)); gap: 6px; }
 .update-head { display: flex; align-items: center; gap: 12px; }
 .update-error pre { margin: 4px 0 0; max-height: 160px; overflow: auto; font-size: 12px; white-space: pre-wrap; color: var(--err); }

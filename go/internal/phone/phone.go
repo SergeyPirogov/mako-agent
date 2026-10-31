@@ -1,4 +1,4 @@
-// Package phone lets an iPhone use Mako: the board installed on its home screen (a web app), reached over
+// Package phone lets an iPhone or Android phone use Mako: the board installed on its home screen (a web app), reached over
 // Tailscale with HTTPS, paired once with a QR code, and push notifications to it.
 package phone
 
