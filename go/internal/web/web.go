@@ -108,7 +108,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		reply.Remote = remote(r)
 		all := s.D.Store.All()
-		reply.Stats = core.Summarize(all)
+		reply.Stats = core.Summarize(all, time.Now())
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
