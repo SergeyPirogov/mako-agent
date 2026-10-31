@@ -94,6 +94,8 @@ type Terminal struct {
 	SetupCommand string
 	// View: how the agent is shown, "chat" (default) or "terminal".
 	View string
+	// AutoFix: the agent is asked by itself to fix its MR's failed CI, conflicts and new review comments.
+	AutoFix bool
 }
 
 type Transitions struct {
@@ -239,7 +241,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View}
+			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix}
 			break
 		}
 	}
@@ -539,6 +541,7 @@ type rawExecutor struct {
 	SetupCommand   string   `json:"setupCommand"`
 	View           string   `json:"view"`
 	Model          string   `json:"model"`
+	AutoFix        bool     `json:"autoFix"`
 }
 
 type rawTracker struct {

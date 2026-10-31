@@ -225,11 +225,12 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// Tick is one round: new tasks, hand-offs that got an MR, merges, issues closed meanwhile, the archive.
+// Tick is one round: new tasks, hand-offs that got an MR, merges, MRs to fix, issues closed meanwhile, the archive.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	d.Poll(ctx)
 	d.CheckHandoffs(ctx)
 	d.CheckMerges(ctx)
+	d.AutoFix(ctx, time.Now())
 	d.CheckGone(ctx)
 	d.AutoArchive(time.Now())
 	d.remind(time.Now())
@@ -859,6 +860,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 	d.Store.Update(id, func(rec *core.Record) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
+		rec.AutoFixed, rec.AutoFixes = nil, 0
 	})
 	d.Take(ctx, id)
 }

@@ -84,6 +84,10 @@ type Record struct {
 	View string `json:"view,omitempty"`
 	// Lesson: a rule for CLAUDE.md Mako drew from your last correction of the agent, until you save it or say no.
 	Lesson *Lesson `json:"lesson,omitempty"`
+	// AutoFixed: what of the MR the agent was already asked to fix by itself, per kind ("ci", "conflicts",
+	// "comments"), so the same problem is asked about once; AutoFixes counts those requests.
+	AutoFixed map[string]string `json:"autoFixed,omitempty"`
+	AutoFixes int               `json:"autoFixes,omitempty"`
 }
 
 // Lesson is a rule for the repo's next agents, drawn from what you told one of them.

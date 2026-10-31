@@ -74,61 +74,65 @@ func (d *Dispatcher) desk(ctx context.Context, id string) (trackers.ReviewDesk, 
 // logs), "comments" (the open review threads), "conflicts", "push" (commit and push, so the MR has the work),
 // "open" (open the MR).
 func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
-	r, ok := d.Store.Get(id)
-	if !ok {
+	if _, ok := d.Store.Get(id); !ok {
 		return fmt.Errorf("немає такої задачі")
 	}
 	if !d.Live(id) {
 		return fmt.Errorf("агент не запущений: спершу «Продовжити»")
 	}
-	_, base, _ := d.workOf(id)
-	branch := branchOf(r)
-	var text string
-	var c *trackers.ReviewCheck
-	switch kind {
-	case "push":
-		text = fmt.Sprintf("Закоміть зроблене (нормальне повідомлення, як в інструкції) і запуш гілку %s, щоб MR її мав.", branch)
-	case "open":
-		text = fmt.Sprintf("Закоміть зроблене, запуш гілку %s і відкрий MR у %s, як описано в інструкції до задачі.", branch, base)
-	case "rebase":
-		text = fmt.Sprintf("Онови гілку %s з %s: git fetch origin %s, rebase на origin/%s, розвʼяжи конфлікти, якщо будуть, прожени тести. Якщо гілка вже запушена, запуш з --force-with-lease.", branch, base, base, base)
-	case "conflicts":
-		text = fmt.Sprintf("MR %s конфліктує з %s. Зроби rebase гілки %s на origin/%s, розвʼяжи конфлікти, прожени тести й запуш з --force-with-lease.", r.PRURL, base, branch, base)
-	case "ci", "comments":
-		var err error
-		c, err = d.Review(ctx, id)
-		if err != nil {
-			return err
-		}
-		if c == nil {
-			return fmt.Errorf("MR ще немає")
-		}
-		if kind == "ci" {
-			text, err = d.ciRequest(ctx, id, r.PRURL, c)
-			if err != nil {
-				return err
-			}
-		} else {
-			text = commentsRequest(r.PRURL, branch, c.Threads)
-		}
-	default:
-		return fmt.Errorf("невідомий запит %q", kind)
+	text, err := d.request(ctx, id, kind)
+	if err != nil {
+		return err
 	}
 	if err := d.sayTo(id, text); err != nil {
 		return err
 	}
 	if kind == "comments" {
-		// The reviewers' words, without Mako's request around them.
-		var said []string
-		for _, t := range c.Threads {
-			said = append(said, strings.TrimSpace(t.Body))
+		// The reviewers' words, without Mako's request around them; the MR is the one request just read.
+		if c, _ := d.Review(ctx, id); c != nil {
+			var said []string
+			for _, t := range c.Threads {
+				said = append(said, strings.TrimSpace(t.Body))
+			}
+			go d.suggestLesson(id, strings.Join(said, "\n\n"))
 		}
-		go d.suggestLesson(id, strings.Join(said, "\n\n"))
 	}
 	d.forgetReview(id)
-	d.Log(id, map[string]string{"push": "агента попрошено запушити зміни", "open": "агента попрошено відкрити MR",
-		"conflicts": "агента попрошено розвʼязати конфлікти", "rebase": "агента попрошено оновити гілку з основної", "ci": "агента попрошено полагодити CI", "comments": "агента попрошено виправити коментарі"}[kind])
+	d.Log(id, askedLog[kind])
 	return nil
+}
+
+var askedLog = map[string]string{"push": "агента попрошено запушити зміни", "open": "агента попрошено відкрити MR",
+	"conflicts": "агента попрошено розвʼязати конфлікти", "rebase": "агента попрошено оновити гілку з основної", "ci": "агента попрошено полагодити CI", "comments": "агента попрошено виправити коментарі"}
+
+// request: what the agent is told for kind, as in AskAgent.
+func (d *Dispatcher) request(ctx context.Context, id, kind string) (string, error) {
+	r, _ := d.Store.Get(id)
+	_, base, _ := d.workOf(id)
+	branch := branchOf(r)
+	switch kind {
+	case "push":
+		return fmt.Sprintf("Закоміть зроблене (нормальне повідомлення, як в інструкції) і запуш гілку %s, щоб MR її мав.", branch), nil
+	case "open":
+		return fmt.Sprintf("Закоміть зроблене, запуш гілку %s і відкрий MR у %s, як описано в інструкції до задачі.", branch, base), nil
+	case "rebase":
+		return fmt.Sprintf("Онови гілку %s з %s: git fetch origin %s, rebase на origin/%s, розвʼяжи конфлікти, якщо будуть, прожени тести. Якщо гілка вже запушена, запуш з --force-with-lease.", branch, base, base, base), nil
+	case "conflicts":
+		return fmt.Sprintf("MR %s конфліктує з %s. Зроби rebase гілки %s на origin/%s, розвʼяжи конфлікти, прожени тести й запуш з --force-with-lease.", r.PRURL, base, branch, base), nil
+	case "ci", "comments":
+		c, err := d.Review(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if c == nil {
+			return "", fmt.Errorf("MR ще немає")
+		}
+		if kind == "ci" {
+			return d.ciRequest(ctx, id, r.PRURL, c)
+		}
+		return commentsRequest(r.PRURL, branch, c.Threads), nil
+	}
+	return "", fmt.Errorf("невідомий запит %q", kind)
 }
 
 func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.ReviewCheck) (string, error) {
