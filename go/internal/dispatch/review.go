@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
@@ -97,9 +98,17 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 			go d.suggestLesson(id, strings.Join(said, "\n\n"))
 		}
 	}
-	d.forgetReview(id)
+	d.asked(id, kind)
 	d.Log(id, askedLog[kind])
 	return nil
+}
+
+// asked: the agent got the request for kind; a review's comments count, for the statistics, as rework.
+func (d *Dispatcher) asked(id, kind string) {
+	d.forgetReview(id)
+	if kind == "comments" {
+		d.Store.Update(id, func(rec *core.Record) { rec.ReviewFixes++ })
+	}
 }
 
 var askedLog = map[string]string{"push": "агента попрошено запушити зміни", "open": "агента попрошено відкрити MR",

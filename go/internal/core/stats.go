@@ -1,6 +1,7 @@
 package core
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -36,6 +37,36 @@ type Stats struct {
 	Complexity   float64 `json:"complexity"`
 	Completeness float64 `json:"completeness"`
 	Risk         float64 `json:"risk"`
+	// Forecast: the size the estimate expected before the start against the one the finished task came to.
+	Forecast Forecast `json:"forecast"`
+	// BySize: how the tasks of each expected size went, in the order of Sizes.
+	BySize []SizeGroup `json:"bySize"`
+	// Authors: by who wrote the task in the tracker, the busiest first.
+	Authors []Group `json:"authors"`
+}
+
+// Forecast compares the estimate before the start with the assessment after the MR, over the tasks that have
+// both sizes.
+type Forecast struct {
+	Compared int `json:"compared"`
+	Hits     int `json:"hits"` // the same size both times
+	// Matrix[expected][came to]: how many tasks, both in the order of Sizes.
+	Matrix [][]int `json:"matrix"`
+}
+
+// SizeGroup is how the tasks the estimate called one size went.
+type SizeGroup struct {
+	Size  string `json:"size"`
+	Taken int    `json:"taken"`
+	// Ended: merged or failed, whose outcome is known; Clean: merged with no rework («Повторити інакше», another
+	// attempt, fixes after a review).
+	Ended int `json:"ended"`
+	Clean int `json:"clean"`
+	// Seconds: the agent's average time to the MR over the Timed tasks; Cost: the average USD over the Priced.
+	Seconds float64 `json:"seconds"`
+	Timed   int     `json:"timed"`
+	Cost    float64 `json:"cost"`
+	Priced  int     `json:"priced"`
 }
 
 // Group is how the tasks of one project or one executor went.
@@ -48,24 +79,37 @@ type Group struct {
 	// Clarity: the average score of how well the tasks were described, over the Assessed ones.
 	Clarity  float64 `json:"clarity"`
 	Assessed int     `json:"assessed"`
+	// Unclear: the Assessed ones the agent hardly understood (clarity 1–2).
+	Unclear int `json:"unclear"`
 }
+
+// unclear: the highest clarity of a task the agent hardly understood.
+const unclear = 2
 
 type Reason struct {
 	Text  string `json:"text"`
 	Count int    `json:"count"`
 }
 
-// Summarize counts the records of the tasks that were taken; ones never handed off are not in it.
-func Summarize(records []Record, now time.Time) Stats {
-	st := Stats{Reasons: []Reason{}}
+// Summarize counts the records of the tasks that were taken since (zero: all of them); ones never handed off
+// are not in it.
+func Summarize(records []Record, now, since time.Time) Stats {
+	st := Stats{Reasons: []Reason{}, Forecast: Forecast{Matrix: make([][]int, len(Sizes))}, BySize: make([]SizeGroup, len(Sizes))}
+	for i, size := range Sizes {
+		st.Forecast.Matrix[i] = make([]int, len(Sizes))
+		st.BySize[i].Size = size
+	}
 	reasons := map[string]int{}
-	projects, executors := map[string]*Group{}, map[string]*Group{}
+	projects, executors, authors := map[string]*Group{}, map[string]*Group{}, map[string]*Group{}
 	var took []float64
 	var review time.Duration
 	reviewed := 0
 	weekAgo := now.Add(-7 * 24 * time.Hour)
 	for _, r := range records {
 		if r.StartedAt == "" && r.Status != Failed {
+			continue
+		}
+		if !since.IsZero() && !takenSince(r, since) {
 			continue
 		}
 		st.Taken++
@@ -84,6 +128,9 @@ func Summarize(records []Record, now time.Time) Stats {
 			executor = "—"
 		}
 		groups := []*Group{group(projects, project), group(executors, executor)}
+		if r.Task.Author != "" {
+			groups = append(groups, group(authors, r.Task.Author))
+		}
 		if r.Cost > 0 {
 			st.Cost += r.Cost
 			st.Priced++
@@ -101,8 +148,12 @@ func Summarize(records []Record, now time.Time) Stats {
 			for _, g := range groups {
 				g.Assessed++
 				g.Clarity += float64(a.Clarity.Value)
+				if a.Clarity.Value <= unclear {
+					g.Unclear++
+				}
 			}
 		}
+		bySize(&st, r)
 		switch {
 		case r.Status == Failed || r.Status == Cancelled || r.ReviewState == "closed":
 			st.Failed++
@@ -148,7 +199,16 @@ func Summarize(records []Record, now time.Time) Stats {
 	if n := float64(st.Assessed); n > 0 {
 		st.Clarity, st.Complexity, st.Completeness, st.Risk = st.Clarity/n, st.Complexity/n, st.Completeness/n, st.Risk/n
 	}
-	st.Projects, st.Executors = sorted(projects), sorted(executors)
+	for i := range st.BySize {
+		g := &st.BySize[i]
+		if g.Timed > 0 {
+			g.Seconds /= float64(g.Timed)
+		}
+		if g.Priced > 0 {
+			g.Cost /= float64(g.Priced)
+		}
+	}
+	st.Projects, st.Executors, st.Authors = sorted(projects), sorted(executors), sorted(authors)
 	for text, n := range reasons {
 		st.Reasons = append(st.Reasons, Reason{Text: text, Count: n})
 	}
@@ -157,6 +217,67 @@ func Summarize(records []Record, now time.Time) Stats {
 		return a.Count > b.Count || a.Count == b.Count && a.Text < b.Text
 	})
 	return st
+}
+
+// bySize counts r by the size its estimate expected, and against the size it came to when it has both.
+func bySize(st *Stats, r Record) {
+	e := r.Estimate
+	if e == nil || e.State != "done" {
+		return
+	}
+	want := slices.Index(Sizes, e.Size)
+	if want < 0 {
+		return
+	}
+	if a := r.Assessment; a != nil && a.State == "done" {
+		if got := slices.Index(Sizes, a.Size); got >= 0 {
+			st.Forecast.Compared++
+			st.Forecast.Matrix[want][got]++
+			if got == want {
+				st.Forecast.Hits++
+			}
+		}
+	}
+	g := &st.BySize[want]
+	g.Taken++
+	failed := r.Status == Failed || r.Status == Cancelled || r.ReviewState == "closed"
+	merged := r.Status == Done && r.ReviewState == "merged"
+	if failed || merged {
+		g.Ended++
+	}
+	if merged && r.Attempt <= 1 && r.ReviewFixes == 0 && !reviewed(r) {
+		g.Clean++
+	}
+	if r.Status == Done {
+		if d, ok := between(r.StartedAt, r.FinishedAt); ok {
+			g.Seconds += d.Seconds()
+			g.Timed++
+		}
+	}
+	if r.Cost > 0 {
+		g.Cost += r.Cost
+		g.Priced++
+	}
+}
+
+// reviewed: the reviewer agent sent the task's agent remarks to fix.
+func reviewed(r Record) bool {
+	for _, v := range r.AgentReviews {
+		if v.State == "notes" {
+			return true
+		}
+	}
+	return false
+}
+
+// takenSince: the task was handed off (or, never handed off, last changed) at since or later.
+func takenSince(r Record, since time.Time) bool {
+	at := r.StartedAt
+	if at == "" {
+		at = r.UpdatedAt
+	}
+	t, err := time.Parse(time.RFC3339Nano, at)
+	return err == nil && !t.Before(since)
 }
 
 func group(groups map[string]*Group, name string) *Group {

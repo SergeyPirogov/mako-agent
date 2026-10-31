@@ -36,6 +36,9 @@ type ghIssue struct {
 	Assignees []struct {
 		Login string `json:"login"`
 	} `json:"assignees"`
+	User *struct {
+		Login string `json:"login"`
+	} `json:"user"`
 	Comments   int `json:"comments"`
 	Repository *struct {
 		FullName string `json:"full_name"`
@@ -192,6 +195,10 @@ func (g *GitHub) toTask(repo string, is ghIssue) core.Task {
 	if len(labels) > 0 {
 		meta = "Labels: " + strings.Join(labels, ", ")
 	}
+	author := ""
+	if is.User != nil {
+		author = is.User.Login
+	}
 	return core.Task{
 		ID:          fmt.Sprintf("%s#%d", repo, is.Number),
 		Slug:        fmt.Sprintf("%s-%d", repo[strings.Index(repo, "/")+1:], is.Number),
@@ -206,6 +213,7 @@ func (g *GitHub) toTask(repo string, is ghIssue) core.Task {
 		Comments:    []core.Comment{},
 		ClosingRef:  fmt.Sprintf("Closes %s#%d", repo, is.Number),
 		Assignees:   assignees,
+		Author:      author,
 	}
 }
 

@@ -84,7 +84,7 @@ func (d *Dispatcher) autoAsk(ctx context.Context, id, kind string) error {
 	if err != nil {
 		return err
 	}
-	d.forgetReview(id)
+	d.asked(id, kind)
 	d.Log(id, "автофікс: "+askedLog[kind])
 	return nil
 }
