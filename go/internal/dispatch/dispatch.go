@@ -211,6 +211,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.CheckMerges(ctx)
 	d.CheckGone(ctx)
 	d.AutoArchive(time.Now())
+	d.remind(time.Now())
 	d.schedule(ctx)
 }
 
@@ -774,12 +775,32 @@ func (d *Dispatcher) AutoArchive(at time.Time) int {
 
 // Later postpones a new task for minutes (the notification's snooze when 0).
 func (d *Dispatcher) Later(id string, minutes int) {
-	if minutes <= 0 {
+	if minutes < 0 {
+		// «Повернути»: the task is not put off any more.
+		d.Store.Update(id, func(r *core.Record) { r.PostponedByYou, r.SnoozedUntil = false, 0 })
+		d.Log(id, "більше не відкладена")
+		return
+	}
+	if minutes == 0 {
 		minutes = d.Config().Notifications.SnoozeMin
 	}
+	until := time.Now().Add(time.Duration(minutes) * time.Minute)
 	d.Store.Update(id, func(r *core.Record) {
-		r.Status, r.PostponedByYou, r.SnoozedUntil = core.Snoozed, true, time.Now().Add(time.Duration(minutes)*time.Minute).UnixMilli()
+		r.Status, r.PostponedByYou, r.SnoozedUntil = core.Snoozed, true, until.UnixMilli()
 	})
+	d.Log(id, "відкладено до "+until.Format("02.01 15:04"))
+}
+
+// remind: a task you put off whose time has come is back on the board, with a notification.
+func (d *Dispatcher) remind(now time.Time) {
+	for _, r := range d.Store.All() {
+		if r.Status != core.Snoozed || !r.PostponedByYou || r.SnoozedUntil == 0 || r.SnoozedUntil > now.UnixMilli() || r.ArchivedAt != 0 {
+			continue
+		}
+		d.Store.Update(r.ID, func(r *core.Record) { r.PostponedByYou, r.SnoozedUntil = false, 0 })
+		d.Log(r.ID, "час повернутися до задачі")
+		notify.Inform("⏰ "+r.ID+": час повернутися до задачі", r.Task.Title, d.BoardURL+"/#"+r.ID)
+	}
 }
 
 // Cancel: Mako stops following the task (the work in Orca stays). An agent in Mako's terminal is stopped; its

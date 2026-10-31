@@ -82,6 +82,7 @@ const ICON = {
   folder: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
   code: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>`,
   pause: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>`,
+  clock: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   play: `<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14l12-7z" fill="currentColor"/></svg>`,
   fix: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4l-6.1-1.6a.5.5 0 0 1 0-1l6.1-1.6a2 2 0 0 0 1.4-1.4l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/><path d="M20 3v4M22 5h-4"/></svg>`,
   stop: `<svg viewBox="0 0 24 24" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>`,
@@ -618,6 +619,31 @@ async function mrAction(id, action, kind = "") {
   if (action === "ask" && !res.error) tv?.term.focus();
 }
 
+// «Відкласти»: one button, the times in its menu; the task shows how long it is put off and comes back with a
+// notification.
+function laterAt(kind) {
+  const d = new Date();
+  if (kind === "hour") return new Date(d.getTime() + 3600e3);
+  d.setHours(9, 0, 0, 0);
+  if (kind === "monday") d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
+  else d.setDate(d.getDate() + 1);
+  return d;
+}
+function laterMenu() {
+  const item = (kind, label) => {
+    const min = Math.max(1, Math.round((laterAt(kind) - Date.now()) / 60000));
+    return `<button type="button" data-a="later" data-x="&min=${min}">${label}</button>`;
+  };
+  const monday = new Date().getDay() === 1 ? "До наступного понеділка, 9:00" : "До понеділка, 9:00";
+  return `<details class="menu"><summary class="btn">${ICON.clock}Відкласти</summary>
+    <div class="menu-pop">${item("hour", "На годину")}${item("tomorrow", "До завтра, 9:00")}${item("monday", monday)}</div></details>`;
+}
+const untilText = (ms) => {
+  const d = new Date(ms), t = d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" });
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5);
+  return days === 0 ? `до ${t}` : days === 1 ? `до завтра, ${t}` : `до ${d.toLocaleDateString("uk", { weekday: "long" })}, ${t}`;
+};
+
 function agentBlock(r) {
   const a = agentOf(r);
   if (!a) return "";
@@ -675,7 +701,7 @@ function renderDetail() {
   const term = r.executor === "terminal" && r.worktree;
   // Mako's own agent goes on after its MR too (CI, review comments), until the merge.
   const agentOn = term && !r.archivedAt && r.reviewState !== "merged" && (r.column === "doing" || r.column === "review");
-  if (r.column === "new") actions = b("take", "Взяти в роботу", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
+  if (r.column === "new") actions = b("take", "Взяти в роботу", "primary") + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
   else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
   else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("archive", "В архів", "archive");
   else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("cancel", "Більше не стежити", "unwatch", "danger");
@@ -692,7 +718,6 @@ function renderDetail() {
   if (r.branch || r.branchName) facts.push(["Гілка", `<code>${esc(r.branch || r.branchName)}</code>`]);
   if (r.worktree) facts.push(["Worktree", `<code>${esc(r.worktree)}</code>`]);
   if (r.prUrl) facts.push(["MR", `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${esc(r.prUrl)}</a>${r.reviewState === "merged" ? " · змерджено" : r.reviewState === "closed" ? " · закрито" : ""}`]);
-  if (r.postponed) facts.push(["Відкладено до", new Date(r.snoozedUntil).toLocaleString("uk")]);
 
   // The task itself first; what the agent does in Orca and Mako's log in their own tab.
   const task = `
@@ -736,6 +761,7 @@ function renderDetail() {
   if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
 
   const notices = `
+    ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею ${term ? "в терміналі" : "в Orca"}.</div>` : ""}`;
   // In the workspace the tabs, the task's id and the buttons share one thin bar: the rest is the terminal's.
@@ -1210,6 +1236,10 @@ function closeTerminal() {
 
 selected = decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })();
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
+// An open menu closes on a click anywhere else.
+document.addEventListener("click", (e) => {
+  for (const m of document.querySelectorAll("details.menu[open]")) if (!m.contains(e.target)) m.open = false;
+});
 window.addEventListener("hashchange", () => {
   const id = decodeURIComponent(location.hash.slice(1));
   if (id && id !== selected) select(id);

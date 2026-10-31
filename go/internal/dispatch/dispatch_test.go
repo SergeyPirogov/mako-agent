@@ -306,3 +306,27 @@ func TestWipLimit(t *testing.T) {
 		t.Fatalf("third task: %s", r.Status)
 	}
 }
+
+// A task put off comes back at its time with a notification; «Повернути» brings it back at once.
+func TestLaterAndRemind(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Poll(context.Background())
+	id := "grp/app#5"
+	d.Later(id, 60)
+	if r, _ := d.Store.Get(id); !r.Postponed(time.Now().UnixMilli()) {
+		t.Fatalf("not put off: %+v", r)
+	}
+	d.remind(time.Now())
+	if r, _ := d.Store.Get(id); !r.Postponed(time.Now().UnixMilli()) {
+		t.Fatal("came back before its time")
+	}
+	d.remind(time.Now().Add(61 * time.Minute))
+	if r, _ := d.Store.Get(id); r.PostponedByYou || r.SnoozedUntil != 0 || r.Status != core.Snoozed {
+		t.Fatalf("not back at its time: %+v", r)
+	}
+	d.Later(id, 60)
+	d.Later(id, -1)
+	if r, _ := d.Store.Get(id); r.Postponed(time.Now().UnixMilli()) {
+		t.Fatal("«Повернути» left it put off")
+	}
+}
