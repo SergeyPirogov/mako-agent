@@ -616,10 +616,31 @@ function mrCard(r, term) {
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
 }
 
+// A short note at the bottom of the window that a click did something; it outlives the re-render of the card.
+let toastTimer = 0;
+function toast(text, bad = false) {
+  let el = $("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    document.body.append(el);
+  }
+  el.textContent = text;
+  el.classList.toggle("bad", bad);
+  el.classList.remove("show");
+  void el.offsetWidth;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
+}
+
 // The card's buttons: a request to the agent, or the merge.
 async function mrAction(id, action, kind = "") {
   const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
   mrNote = res.ok === false || res.error ? `⚠ ${res.error}` : { merge: "MR змерджено", close: "MR закрито без злиття" }[action] ?? "Передано агенту";
+  if (action === "ask") toast(res.ok === false || res.error ? mrNote : "✨ Передано агенту", res.ok === false || !!res.error);
   await loadWork();
   renderDetail();
   if (action === "ask" && !res.error) tv?.term.focus();
@@ -872,7 +893,7 @@ function renderDetail() {
     try { localStorage.setItem("mako-diff", diffMode); } catch {}
     renderDetail();
   };
-  for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; mrAction(r.id, "ask", btn.dataset.ask); };
+  for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; btn.classList.add("busy"); mrAction(r.id, "ask", btn.dataset.ask); };
   for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = () => {
     if (confirm("Змерджити MR? Гілку задачі буде видалено, задача отримає фінальний статус.")) { btn.disabled = true; mrAction(r.id, "merge"); }
   };
