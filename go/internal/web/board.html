@@ -2176,6 +2176,16 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 // iPadOS calls itself a Mac; its touch screen tells it apart.
 const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+// Each iOS browser hides «Поділитися» in its own place; Safari is the one without a name of its own in the UA.
+function iosAddHome() {
+  const ua = navigator.userAgent;
+  const home = "«На екран “Додому”» → «Додати»";
+  const fallback = "Якщо такого пункту немає, оновіть браузер та iOS (потрібна 16.4+) або відкрийте новий QR-код із налаштувань у Safari.";
+  if (/CriOS/.test(ua)) return `«Поділитися» <b>⎙</b> праворуч в адресному рядку (або <b>⋯</b> → «Поділитися») → ${home}. ${fallback}`;
+  if (/FxiOS/.test(ua)) return `меню <b>☰</b> → «Поділитися» → ${home}. ${fallback}`;
+  if (/EdgiOS/.test(ua)) return `<b>⋯</b> → «Поділитися» → ${home}. ${fallback}`;
+  return `«Поділитися» <b>⎙</b> → ${home}.`;
+}
 // Android's Chrome offers to install the app itself; the event comes once the page qualifies.
 let installPrompt = null;
 window.addEventListener("beforeinstallprompt", (e) => {
@@ -2192,7 +2202,8 @@ function setupPhone() {
   $("settings-link").hidden = true;
   if (!standalone && ios) {
     // iOS gives pushes only to an app added to the home screen.
-    $("phone-hint").innerHTML = `<div class="banner"><div>Додайте Mako на екран «Додому»: «Поділитися» <b>⎙</b> → «На екран “Додому”». Потім відкривайте Mako зі значка: так приходять сповіщення.</div></div>`;
+    $("phone-hint").innerHTML = `<div class="banner"><div>Додайте Mako на екран «Додому»: ${iosAddHome()}</div>
+      <div class="muted">Потім відкривайте Mako зі значка: лише так приходять сповіщення.</div></div>`;
     return;
   }
   if (!standalone) {
