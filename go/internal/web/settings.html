@@ -616,7 +616,12 @@ async function renderPhone(qr) {
       b.disabled = true;
       const query = b.dataset.id ? `?id=${encodeURIComponent(b.dataset.id)}` : b.dataset.public ? "?public=1" : "";
       if (action === "serve" || action === "unserve") b.textContent = "Зачекайте…";
-      const r = await (await fetch(`/api/phone/${action}${query}`, { method: "POST" })).json();
+      let r;
+      try {
+        r = await (await fetch(`/api/phone/${action}${query}`, { method: "POST" })).json();
+      } catch {
+        r = { ok: false, error: "Mako не відповідає" };
+      }
       b.disabled = false;
       phoneError = r.ok ? "" : r.error;
       if (!r.ok && action !== "serve" && action !== "unserve") return alert(r.error);
