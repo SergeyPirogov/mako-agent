@@ -75,6 +75,8 @@ let notes = (() => { try { return JSON.parse(localStorage.getItem("mako-notes"))
 let pick = null, pickText = "", reviewNote = "";
 // What happened while you were away ({since, until, waiting, review, failed, merged}): shown where a card goes.
 let digest = null;
+// The lesson Mako offers for CLAUDE.md, as you edit it before saving: { id, rule (as offered), text }.
+let lessonEdit = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -835,6 +837,16 @@ function mrCard(r, term) {
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
 }
 
+// The rule Mako drew from your correction of the agent: saved, it goes into the repo's CLAUDE.md for the next agents.
+function lessonHTML(r) {
+  const base = changes?.branch?.base;
+  return `<div class="notice lesson"><div class="lesson-h">💡 Урок для CLAUDE.md, щоб наступні агенти цього не повторювали</div>
+    <input type="text" id="lesson-input" value="${esc(r.lesson.rule)}" aria-label="Правило для CLAUDE.md" title="З вашого повідомлення: ${esc(r.lesson.from)}">
+    <div class="lesson-a"><button type="button" class="primary" data-lesson="branch" title="Окремий коміт у гілці задачі: піде в MR">Зберегти в гілку задачі</button>
+      <button type="button" data-lesson="base" title="Окремий коміт, одразу запушений в ${esc(base || "основну гілку")}">Зберегти в ${base ? `<code>${esc(base)}</code>` : "основну гілку"}</button>
+      <button type="button" class="ghost" data-lesson="no">Ні</button></div></div>`;
+}
+
 // A short note at the bottom of the window that a click did something; it outlives the re-render of the card.
 let toastTimer = 0;
 function toast(text, bad = false) {
@@ -1162,6 +1174,7 @@ function renderDetail() {
   const notices = `
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
+    ${r.lesson && !r.archivedAt ? lessonHTML(r) : ""}
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею ${term ? "в терміналі" : "в Orca"}.</div>` : ""}`;
   // In the workspace the tabs, the task's id and the buttons share one thin bar: the rest is the terminal's.
   const html = ws ? `
@@ -1187,10 +1200,26 @@ function renderDetail() {
   // The diff stays where it was scrolled to, and a comment being written keeps its cursor.
   const box = $("detail").querySelector(".diff-view > .diff"), scrolled = box && { path: box.dataset.path, top: box.scrollTop, left: box.scrollLeft };
   const writing = document.activeElement?.id === "note-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
+  if (lessonEdit) lessonEdit.at = document.activeElement?.id === "lesson-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   $("detail").innerHTML = shown = html;
   const box2 = $("detail").querySelector(".diff-view > .diff");
   if (box2) box2.dataset.path = fileTab;
   if (box2 && scrolled?.path === fileTab) { box2.scrollTop = scrolled.top; box2.scrollLeft = scrolled.left; }
+  const li = $("lesson-input");
+  if (li && lessonEdit?.id === r.id && lessonEdit.rule === r.lesson.rule) {
+    li.value = lessonEdit.text;
+    if (lessonEdit.at) { li.focus(); li.setSelectionRange(...lessonEdit.at); }
+  }
+  if (li) li.oninput = () => (lessonEdit = { id: r.id, rule: r.lesson.rule, text: li.value });
+  for (const btn of $("detail").querySelectorAll("[data-lesson]")) btn.onclick = async () => {
+    for (const x of $("detail").querySelectorAll("[data-lesson]")) x.disabled = true;
+    const to = btn.dataset.lesson;
+    const res = await fetch(`/api/lesson?id=${encodeURIComponent(r.id)}&to=${to}`, { method: "POST", body: li?.value ?? "" })
+      .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    if (res.ok === false) toast(res.error, true);
+    else { lessonEdit = null; if (to !== "no") toast(`Урок записано в CLAUDE.md (${to === "base" ? "основна гілка" : "гілка задачі"})`); }
+    await load();
+  };
   const input = $("note-input");
   if (input) {
     input.value = pickText;

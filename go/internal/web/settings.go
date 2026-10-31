@@ -118,6 +118,10 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, map[string]any{"ok": true, "me": me})
 	})
+	// The rules saved to the repos' CLAUDE.md from the agents' corrections, for each project's settings.
+	mux.HandleFunc("GET /api/settings/lessons", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, s.D.Lessons())
+	})
 	mux.HandleFunc("POST /api/pause", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
