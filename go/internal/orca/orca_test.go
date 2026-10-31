@@ -89,6 +89,25 @@ func TestInstructions(t *testing.T) {
 	}
 }
 
+func TestInstructionsWithChecks(t *testing.T) {
+	j := job(t)
+	j.Checks = []string{"go vet ./...", "go test ./..."}
+	got := Instructions("", "agent", j)
+	if !strings.Contains(got, "Do not push and do not open a merge request") || !strings.Contains(got, "   - `go test ./...`") ||
+		!strings.Contains(got, "into main") || strings.Contains(got, "gh pr create") || strings.Contains(got, "{checks}") {
+		t.Fatalf("with checks:\n%s", got)
+	}
+	// Your own end of the prompt is kept, with what Mako does after it.
+	got = Instructions("Візьми {taskId}", "agent", j)
+	if !strings.HasPrefix(got, "Візьми grp/app#5\n\n## Mako opens the merge request") || !strings.Contains(got, "`go vet ./...`") {
+		t.Fatalf("custom with checks:\n%s", got)
+	}
+	// You open the MRs: the checks are not Mako's to run.
+	if got := Instructions("", "me", j); got != Instructions("", "me", job(t)) {
+		t.Fatalf("for me with checks:\n%s", got)
+	}
+}
+
 func TestTerminals(t *testing.T) {
 	cmd, calls := fakeOrca(t, `true`)
 	// Answers as Orca's --json does: {ok, result, _meta}.

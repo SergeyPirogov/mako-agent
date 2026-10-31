@@ -38,7 +38,8 @@ func TestReviewDue(t *testing.T) {
 
 // reviewSetup: a task on Mako's terminal with its agent's turn over, its worktree on a branch with no commits
 // of its own, the reviewer on; idle waits for the agent's turn to end.
-func reviewSetup(t *testing.T) (d *Dispatcher, cfg *config.Config, id, wt string, idle func()) {
+// reviewSetup: Mako's agent on grp/app#5 in a worktree; prep changes the settings before it starts.
+func reviewSetup(t *testing.T, prep ...func(*config.Config)) (d *Dispatcher, cfg *config.Config, id, wt string, idle func()) {
 	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
 		t.Setenv(k, v)
 	}
@@ -71,6 +72,9 @@ done
 	cfg = &c
 	cfg.Executor, cfg.Terminal.Command, cfg.StateDir = "terminal", filepath.Join(bin, "claude"), t.TempDir()
 	cfg.Reviewer.Enabled, cfg.Reviewer.MaxRounds = true, 1
+	for _, f := range prep {
+		f(cfg)
+	}
 	d.Cfg = cfg
 	d.BoardURL = "http://127.0.0.1:1"
 	d.Poll(context.Background())

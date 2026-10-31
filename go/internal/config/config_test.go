@@ -201,3 +201,22 @@ func TestParseEstimate(t *testing.T) {
 		t.Fatal("turned off")
 	}
 }
+
+func TestChecks(t *testing.T) {
+	cfg, err := Parse([]byte(`{
+	  "executors": {"term": {"type": "terminal", "checkTimeoutSec": 90}},
+	  "trackers": [{"type": "github", "projects": {"acme/web": {"checks": ["go vet ./...", "  ", " go test ./... "]}, "acme/api": {}}}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := cfg.Trackers[0].Projects["acme/web"].Repos["web"]
+	if len(web.Checks) != 2 || web.Checks[1] != "go test ./..." {
+		t.Errorf("checks %q", web.Checks)
+	}
+	if api := cfg.Trackers[0].Projects["acme/api"].Repos["api"]; len(api.Checks) != 0 {
+		t.Errorf("no checks: %q", api.Checks)
+	}
+	if cfg.Terminal.CheckTimeout().Seconds() != 90 || cfg.Terminal.CheckTries() != 3 {
+		t.Errorf("timeout %s tries %d", cfg.Terminal.CheckTimeout(), cfg.Terminal.CheckTries())
+	}
+}

@@ -82,7 +82,9 @@ type Dispatcher struct {
 	guardTokens map[string]string
 	// estimates: the estimates of new tasks running in the background.
 	estimates sync.WaitGroup
-	wake      chan struct{}
+	// checking: the tasks whose checks before the MR run now.
+	checking map[string]bool
+	wake     chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
@@ -106,7 +108,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, rebased: map[string]baseLook{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove
@@ -237,9 +239,10 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// Tick is one round: new tasks, hand-offs that got an MR, merges, MRs to fix, issues closed meanwhile, the archive.
+// Tick is one round: new tasks, branches to check before their MR, hand-offs that got an MR, merges, MRs to fix, issues closed meanwhile, the archive.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	d.Poll(ctx)
+	d.CheckGates()
 	d.CheckHandoffs(ctx)
 	d.CheckMerges(ctx)
 	d.AutoRebase(ctx, time.Now())
@@ -633,6 +636,16 @@ func remoteHost(remote string) string {
 		return strings.ToLower(m[1])
 	}
 	return ""
+}
+
+// CheckGates: the branches of Mako's agents whose turn is over are checked before their MR, in the background
+// (after a restart too, when no agent's state changes).
+func (d *Dispatcher) CheckGates() {
+	for _, r := range d.Store.All() {
+		if d.checksFor(r) != nil && d.agentIdle(r.ID) {
+			go d.maybeCheck(r.ID)
+		}
+	}
 }
 
 // CheckHandoffs: a task in Orca is done on Mako's side once an MR from its branch exists. The issue moves to

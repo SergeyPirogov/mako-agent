@@ -66,6 +66,8 @@ textarea { min-height: 120px; font: 12.5px/1.5 var(--mono); resize: vertical; }
 .projects th { text-align: left; font-weight: 500; font-size: 12px; color: var(--mute); padding: 4px 6px; }
 .projects td { padding: 3px 6px 3px 0; vertical-align: top; }
 .projects td:last-child { width: 1%; }
+.projects .checks-row td { padding-bottom: 10px; }
+.projects .checks-row textarea { width: 100%; min-height: 34px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
 .ok { color: var(--ok); }
@@ -350,7 +352,8 @@ function projectsTable(t) {
   const what = t.type === "jira" ? "Ключ проєкту Jira" : t.type === "github" ? "Репозиторій GitHub" : "Проєкт GitLab";
   const ph = t.type === "jira" ? "PAY" : t.type === "github" ? "acme/web" : "group/app";
   wrap.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Проєкти</h3>
-    <div style="font-size:12.5px;color:var(--mute)">${t.type === "jira" ? "Для кожного проєкту Jira — де лежить код." : "Порожній шлях — клон у папці проєктів, адреса для клонування — за SSH."}</div>
+    <div style="font-size:12.5px;color:var(--mute)">${t.type === "jira" ? "Для кожного проєкту Jira — де лежить код." : "Порожній шлях — клон у папці проєктів, адреса для клонування — за SSH."}
+      Під проєктом — перевірка перед MR (тести, лінт, збірка): агент Mako лише комітить, Mako запускає команди в його worktree і відкриває MR, коли всі пройшли.</div>
     <table class="projects"><thead><tr><th>${what}</th><th>Шлях до репозиторію</th><th>Звідки клонувати</th><th title="Від якої гілки починати задачі й куди відкривати MR">Від гілки</th><th title="Команда, що готує новий worktree терміналу Mako">Підготовка</th><th></th></tr></thead><tbody></tbody></table>
     <button style="margin-top:6px" data-addp>+ Проєкт</button>`;
   const body = wrap.querySelector("tbody");
@@ -384,6 +387,24 @@ function projectsTable(t) {
     }
     tr.querySelector("button").onclick = () => { delete t.projects[current]; changed(); renderTrackers(); };
     body.append(tr);
+    // The checks before the MR: a line of their own under the project, one command a line.
+    if (!multi) {
+      const cr = document.createElement("tr");
+      cr.className = "checks-row";
+      cr.innerHTML = `<td colspan="5"><textarea rows="1" placeholder="Перевірка перед MR, команда на рядок: go vet ./...  go test ./...  npm run lint" title="Mako запускає їх у worktree агента перед тим, як відкрити MR"></textarea></td><td></td>`;
+      const ta = cr.querySelector("textarea");
+      ta.value = (p?.checks ?? []).join("\n");
+      const fit = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
+      ta.oninput = () => {
+        const list = ta.value.split("\n").map((x) => x.trim()).filter(Boolean);
+        const pp = (t.projects[current] ??= {});
+        if (list.length) pp.checks = list; else delete pp.checks;
+        fit();
+        changed();
+      };
+      requestAnimationFrame(fit);
+      body.append(cr);
+    }
   }
   wrap.insertAdjacentHTML("beforeend", lessonsHTML(t));
   if (!rows.length) body.innerHTML = `<tr><td colspan="4" style="color:var(--mute);font-size:12.5px;padding:6px 0">${t.allProjects ? "Не обовʼязково: задачі з усіх проєктів підхоплюються самі." : "Немає проєктів."}</td></tr>`;
@@ -464,6 +485,8 @@ function renderOrca() {
     box.append(text(t, "model", "Модель", { placeholder: "як у Claude Code", hint: "Наприклад, opus або sonnet" }));
     box.append(select(t, "planFirst", "Починати з плану", [["never", "ніколи"], ["big", "для великих задач"], ["always", "завжди"]],
       { def: "never", hint: "Агент стартує в режимі plan: досліджує й пише план, нічого не змінюючи. У чаті план — окремою карткою з кнопками «Затвердити й робити» і «Поправити». Велика задача — з міткою plan або «план»; інакше за оцінкою наперед, а без неї — з описом від 1500 символів" }));
+    box.append(num(t, "checkTimeoutSec", "Таймаут команди перевірки, с", { placeholder: "600", hint: "Для перевірки перед MR — команд, заданих у проєктів. Довше — команда перерветься й вважатиметься такою, що не пройшла" }));
+    box.append(num(t, "checkAttempts", "Спроб перевірки до «потребує уваги»", { placeholder: "3", hint: "Стільки разів поспіль агент отримує вивід невдалої перевірки, щоб виправити. Далі MR не відкривається, задача чекає на вас" }));
     box.append(check(t, "autoFix", "Автофікс MR", { hint: "Коли агент закінчив хід, Mako сам просить його розвʼязати конфлікти, полагодити впалий CI й виправити нові коментарі рев'ю, як кнопки ✨. Кожну проблему — один раз, до 5 запитів на задачу" }));
     box.append(select(t, "autoRebase", "Оновлювати гілку з основної", [["", "ні"], ["rebase", "rebase і push --force-with-lease"], ["merge", "merge основної в гілку і push"]],
       { def: "", hint: "Поки MR на рев'ю, Mako сам підтягує в гілку свіжу основну. З конфліктом — просить агента розвʼязати його. Поки агент працює чи MR змерджено, гілку не чіпає" }));

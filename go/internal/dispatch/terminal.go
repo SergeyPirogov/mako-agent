@@ -21,7 +21,8 @@ import (
 )
 
 // Mako's own terminal, the alternative to Orca: Mako makes the worktree and runs the agent in a terminal the
-// board shows. The rest is the same: the agent pushes and opens the MR, Mako follows it.
+// board shows. The rest is the same: the agent pushes and opens the MR, Mako follows it; with checks in the
+// repo's settings, Mako opens the MR itself once they pass (checks.go).
 
 const terminalExecutor = "terminal"
 
@@ -34,6 +35,7 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 	if err != nil {
 		return nil, err
 	}
+	j.Checks = gateChecks(cfg, j.Repo)
 	prompt := orca.FullPrompt(j, cfg.Orca)
 	setup := setupOf(j.Repo, cfg.Terminal, worktree)
 	if setup != "" {
@@ -245,7 +247,7 @@ func (d *Dispatcher) resume(id, message string) error {
 			return err
 		}
 		cfg := d.Config()
-		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt}
+		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo)}
 		prompt, cont = orca.FullPrompt(j, cfg.Orca), false
 	}
 	if err := d.runAgent(id, r.Worktree, r.View, prompt, cont, ""); err != nil {
@@ -453,6 +455,10 @@ func (d *Dispatcher) watchTerminals(now time.Time) {
 		// A turn that ended with the branch ready (or the fixes of the reviewer's remarks) is for the reviewer.
 		if d.reviewWanted(r) && d.agentIdle(r.ID) {
 			go d.maybeReview(r.ID)
+		}
+		// A turn that ended with the work committed is for the checks before the MR.
+		if d.checksFor(r) != nil && d.agentIdle(r.ID) {
+			go d.maybeCheck(r.ID)
 		}
 	}
 }

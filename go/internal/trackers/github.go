@@ -354,6 +354,15 @@ func (g *GitHub) DescribeReview(ctx context.Context, reviewURL, title, descripti
 	return g.do(ctx, "PATCH", "/repos/"+m[1]+"/pulls/"+m[2], map[string]any{"title": title, "body": description}, nil)
 }
 
+func (g *GitHub) OpenReview(ctx context.Context, repo, branch, base, title, description string) (*Review, error) {
+	var p ghPull
+	body := map[string]any{"title": title, "head": branch, "base": base, "body": description}
+	if err := g.do(ctx, "POST", "/repos/"+repo+"/pulls", body, &p); err != nil {
+		return nil, err
+	}
+	return &Review{URL: p.HTMLURL, Number: p.Number, State: p.state()}, nil
+}
+
 // --- new issues
 
 func (g *GitHub) Create(ctx context.Context, n NewIssue) (core.Task, error) {

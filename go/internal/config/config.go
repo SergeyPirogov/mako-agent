@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -134,6 +135,10 @@ type Terminal struct {
 	// before it changes anything: "never" (default), "big" (a task labelled plan or with a long description),
 	// "always".
 	PlanFirst string
+	// CheckTimeoutSec: how long one of a repo's checks before the MR may run (600 by default); CheckAttempts:
+	// failed runs of the checks before the task needs your attention (3 by default).
+	CheckTimeoutSec int
+	CheckAttempts   int
 }
 
 type Transitions struct {
@@ -174,6 +179,9 @@ type Repo struct {
 	WorktreesDir  string
 	// Setup: what prepares a new worktree of Mako's terminal ("pnpm install"); "-": nothing.
 	Setup string
+	// Checks: the commands that must pass in the agent's worktree before Mako opens its MR ("go vet ./...",
+	// "go test ./..."); none: the agent opens the MR itself, as before.
+	Checks []string
 }
 
 // ErrMissing: there is no mako.config.json yet (first start).
@@ -293,7 +301,8 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst}
+			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst,
+				CheckTimeoutSec: e.CheckTimeoutSec, CheckAttempts: e.CheckAttempts}
 			break
 		}
 	}
@@ -396,6 +405,7 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 			}
 			project.Repos[name] = c.NewRepo(name, r.RepoPath, orStr(r.CloneURL, clone), r.BaseBranch, r.BranchPattern)
 			project.Repos[name].Setup = r.Setup
+			project.Repos[name].Checks = cleanChecks(r.Checks)
 		}
 		t.Projects[key] = project
 	}
@@ -606,24 +616,26 @@ func (r *rawConfig) has(t string) bool {
 }
 
 type rawExecutor struct {
-	Type           string   `json:"type"`
-	Command        string   `json:"command"`
-	Agent          string   `json:"agent"`
-	Setup          string   `json:"setup"`
-	LinkIssue      *bool    `json:"linkIssue"`
-	Instructions   string   `json:"instructions"`
-	MRBy           string   `json:"mrBy"`
-	SummaryComment bool     `json:"summaryComment"`
-	ExtraArgs      []string `json:"extraArgs"`
-	PermissionMode string   `json:"permissionMode"`
-	AllowedTools   []string `json:"allowedTools"`
-	SetupCommand   string   `json:"setupCommand"`
-	View           string   `json:"view"`
-	Model          string   `json:"model"`
-	AutoFix        bool     `json:"autoFix"`
-	AutoRebase     string   `json:"autoRebase"`
-	RebaseEveryMin int      `json:"rebaseEveryMin"`
-	PlanFirst      string   `json:"planFirst"`
+	Type            string   `json:"type"`
+	Command         string   `json:"command"`
+	Agent           string   `json:"agent"`
+	Setup           string   `json:"setup"`
+	LinkIssue       *bool    `json:"linkIssue"`
+	Instructions    string   `json:"instructions"`
+	MRBy            string   `json:"mrBy"`
+	SummaryComment  bool     `json:"summaryComment"`
+	ExtraArgs       []string `json:"extraArgs"`
+	PermissionMode  string   `json:"permissionMode"`
+	AllowedTools    []string `json:"allowedTools"`
+	SetupCommand    string   `json:"setupCommand"`
+	View            string   `json:"view"`
+	Model           string   `json:"model"`
+	AutoFix         bool     `json:"autoFix"`
+	AutoRebase      string   `json:"autoRebase"`
+	RebaseEveryMin  int      `json:"rebaseEveryMin"`
+	PlanFirst       string   `json:"planFirst"`
+	CheckTimeoutSec int      `json:"checkTimeoutSec"`
+	CheckAttempts   int      `json:"checkAttempts"`
 }
 
 type rawTracker struct {
@@ -648,11 +660,39 @@ type rawProject struct {
 }
 
 type rawRepo struct {
-	RepoPath      string `json:"repoPath"`
-	CloneURL      string `json:"cloneUrl"`
-	BaseBranch    string `json:"baseBranch"`
-	Setup         string `json:"setup"`
-	BranchPattern string `json:"branchPattern"`
+	RepoPath      string   `json:"repoPath"`
+	CloneURL      string   `json:"cloneUrl"`
+	BaseBranch    string   `json:"baseBranch"`
+	Setup         string   `json:"setup"`
+	BranchPattern string   `json:"branchPattern"`
+	Checks        []string `json:"checks"`
+}
+
+// CheckTimeout: how long one check may run.
+func (t Terminal) CheckTimeout() time.Duration {
+	if t.CheckTimeoutSec <= 0 {
+		return 10 * time.Minute
+	}
+	return time.Duration(t.CheckTimeoutSec) * time.Second
+}
+
+// CheckTries: failed runs of the checks before the task needs your attention.
+func (t Terminal) CheckTries() int {
+	if t.CheckAttempts <= 0 {
+		return 3
+	}
+	return t.CheckAttempts
+}
+
+// cleanChecks: the commands without blank ones.
+func cleanChecks(list []string) []string {
+	var out []string
+	for _, c := range list {
+		if c = strings.TrimSpace(c); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // autoRebase: "rebase" or "merge" as set, anything else is off.

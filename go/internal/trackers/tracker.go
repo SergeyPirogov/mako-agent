@@ -50,6 +50,8 @@ type CodeHost interface {
 	ReviewState(ctx context.Context, url string) (string, error)
 	ReadReview(ctx context.Context, url string) (title, description string, err error)
 	DescribeReview(ctx context.Context, url, title, description string) error
+	// OpenReview opens an MR/PR from branch into base in project, once Mako's checks passed.
+	OpenReview(ctx context.Context, project, branch, base, title, description string) (*Review, error)
 	// Host is the web host of the code ("gitlab.example.com").
 	Host() string
 }
