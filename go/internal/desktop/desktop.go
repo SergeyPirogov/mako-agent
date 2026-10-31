@@ -90,7 +90,9 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 			if s.At.After(last) {
 				last = s.At
 			}
-			if s.Error != "" {
+			if s.Down != "" {
+				failed = s.Down
+			} else if s.Error != "" {
 				failed = id + ": " + s.Error
 			}
 		}
@@ -103,7 +105,7 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 			v.Line = "Перевірено о " + last.Format("15:04")
 		}
 	}
-	v.Attention = v.NewCount > 0 || len(problems) > 0
+	v.Attention = v.NewCount > 0 || len(problems) > 0 || strings.HasPrefix(v.Line, "⚠")
 	if v.NewCount > 0 {
 		v.Title = fmt.Sprint(v.NewCount)
 	}
