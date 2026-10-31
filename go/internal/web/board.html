@@ -149,6 +149,19 @@ const state = (r) => {
   const a = agentOf(r);
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
+// What the card says under its title: where the task is, in words ([text, class: "warn" or "err" or "", tooltip]).
+const cardStatus = (r) => {
+  if (r.status === "cancelled") return ["скасовано", ""];
+  if (r.error) return ["не вдалося", "err"];
+  if (r.blocked) return [r.blocked, "warn"];
+  if (r.reviewState === "closed") return ["MR закрито", "err"];
+  if (r.reviewState === "merged") return ["змерджено", ""];
+  if (r.status === "queued") return ["у черзі", ""];
+  const st = state(r);
+  if (st === "later") return ["відкладена", "", `Відкладена ${untilText(r.snoozedUntil)}`];
+  if (st === "review") return ["MR на рев'ю", ""];
+  return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
+};
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
 // A small Markdown for what agents write: headings, lists, tables, code blocks, inline code, bold and links.
 // Markdown images in what agents write (screenshots for the MR, Mako's own ones), shown as images.
@@ -432,9 +445,11 @@ function render() {
     html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
     for (const r of fold ? [] : items) {
       const st = state(r);
-      html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.task.title)}">
+      // The card shows the task's status; its number is in the tooltip and the task's panel.
+      const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
+      html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${trackerMark(r.task)}${kind(r)}<code>${esc(r.id)}</code>${r.blocked ? `<span class="blocked-why" title="${esc(r.blocked)}">${esc(r.blocked)}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${kind(r)}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }
