@@ -741,15 +741,27 @@ function statsHTML(s) {
     <h1>Статистика</h1>
     <div class="stat-row">
       ${tile("Взято задач", s.taken, s.running ? `${s.running} ще в роботі` : "")}
-      ${tile("Успішно", s.succeeded, `${pct(s.succeeded)}% · змерджено ${s.merged}`)}
+      ${tile("Успішно", s.succeeded, `${pct(s.succeeded)}% · змерджено ${s.merged}${s.succeeded > s.merged ? ` · на рев'ю ${s.succeeded - s.merged}` : ""}`)}
       ${tile("Не успішно", s.failed, `${pct(s.failed)}%`)}
-      ${tile("Середній час до MR", s.avgSeconds ? dur(s.avgSeconds) : "—")}
+      ${tile("Середній час до MR", s.avgSeconds ? dur(s.avgSeconds) : "—", s.medianSeconds ? `медіана ${dur(s.medianSeconds)}` : "")}
+      ${tile("Рев'ю до мерджу", s.reviewSeconds ? dur(s.reviewSeconds) : "—", "в середньому")}
+      ${tile("За 7 днів", s.lastWeek || 0, "взято задач")}
+      ${tile("Повторні спроби", s.retried || 0, `${pct(s.retried || 0)}% задач`)}
       ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу · ${s.priced} ${plural(s.priced, "задача", "задачі", "задач")}` : "лише агент у Mako")}
     </div>
+    ${groupsHTML("За проєктами", s.projects, "Проєкт")}
+    ${groupsHTML("За агентами", s.executors, "Агент", (n) => n === "terminal" ? "Агент у Mako" : n === "—" ? "—" : `Orca · ${n}`)}
     <h3>Причини невдач</h3>
     ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
-    <p class="stats-note">Час — від передачі агенту до відкриття MR. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє.</p>
+    <p class="stats-note">Час — від передачі агенту до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє.</p>
   </div>`;
+}
+
+// One row per project or agent: how its tasks went. Hidden while there is only one.
+function groupsHTML(title, groups, col, name = (n) => n) {
+  if (!groups || groups.length < 2) return "";
+  const row = (g) => `<tr><td>${esc(name(g.name))}</td><td>${g.taken}</td><td>${g.succeeded}</td><td>${g.failed}</td><td>${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td><td>${g.cost ? `$${g.cost.toFixed(2)}` : "—"}</td></tr>`;
+  return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th></tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
 }
 
 function renderDetail() {
