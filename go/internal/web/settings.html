@@ -7,7 +7,24 @@
 <link rel="stylesheet" href="/style.css">
 <style>
 body { display: block; }
-.page { max-width: 760px; margin: 0 auto; padding: 24px 16px 120px; }
+.layout { display: grid; grid-template-columns: 220px minmax(0, 760px); gap: 32px; max-width: 1040px; margin: 0 auto; padding: 24px 16px 120px; }
+.page { min-width: 0; }
+.side { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 74px; align-self: start; }
+.side .group { padding: 14px 10px 4px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); }
+.side .group:first-child { padding-top: 0; }
+.side button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 8px; color: var(--fg); }
+.side button:hover { background: var(--hover); }
+.side button.on { background: var(--sel); font-weight: 600; }
+.side button small { font-weight: 400; color: var(--mute); font-size: 12px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side button.add { color: var(--mute); }
+.side .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--err); margin-left: 6px; vertical-align: middle; }
+.pane { display: none; }
+.pane.on { display: block; }
+.pane > h2:first-child { margin-top: 0; }
+.where { color: var(--faint); font-size: 12px; margin-top: 24px; overflow-wrap: anywhere; }
+.add-big { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.add-big button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px; text-align: left; border-radius: 12px; }
+.add-big span { color: var(--mute); font-size: 12.5px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 .lead { color: var(--mute); margin: 0 0 20px; }
 h2 { font-size: 15px; margin: 32px 0 10px; }
@@ -34,11 +51,18 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
 .ok { color: var(--ok); }
 .bad { color: var(--err); }
 .savebar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line); padding: 12px 16px; }
-.savebar .in { max-width: 760px; margin: 0 auto; display: flex; gap: 12px; align-items: center; }
+.savebar .in { max-width: 1040px; margin: 0 auto; display: flex; gap: 12px; align-items: center; }
 .msg { color: var(--mute); font-size: 13px; overflow-wrap: anywhere; }
 .msg.bad { color: var(--err); }
 .msg.ok { color: var(--ok); }
 .add { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .layout { grid-template-columns: 1fr; gap: 12px; padding-top: 12px; }
+  .side { flex-direction: row; overflow-x: auto; position: static; gap: 4px; padding-bottom: 4px; }
+  .side .group { display: none; }
+  .side button { white-space: nowrap; flex: none; border: 1px solid var(--line); }
+  .side button small { display: none; }
+}
 @media (max-width: 640px) {
   .field { grid-template-columns: 1fr; }
   .field .hint { grid-column: 1; }
@@ -50,30 +74,42 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
 <header>
   <a class="logo" href="/" style="color:inherit">🦈 Mako</a>
   <a class="ghost-link" href="/">← Дошка</a>
+  <b>Налаштування</b>
   <span class="spacer"></span>
   <button class="ghost" id="theme" title="Тема"></button>
 </header>
 <div id="problems"></div>
-<div class="page">
-  <h1>Налаштування</h1>
-  <p class="lead" id="where"></p>
-
-  <h2>Трекери</h2>
-  <div id="trackers"></div>
-  <div class="add">
-    <button data-add="gitlab">+ GitLab</button>
-    <button data-add="github">+ GitHub</button>
-    <button data-add="jira">+ Jira Cloud</button>
+<div class="layout">
+  <nav class="side" id="side"></nav>
+  <div class="page">
+    <div class="pane" data-pane="tracker">
+      <div id="trackers"></div>
+    </div>
+    <div class="pane" data-pane="add">
+      <h2>Додати трекер</h2>
+      <p class="lead">Звідки брати задачі. Трекерів може бути кілька: наприклад, Jira для задач і GitLab для коду.</p>
+      <div class="add-big">
+        <button data-add="gitlab"><b>GitLab</b><span>gitlab.com або свій сервер</span></button>
+        <button data-add="github"><b>GitHub</b><span>github.com або Enterprise</span></button>
+        <button data-add="jira"><b>Jira Cloud</b><span>задачі за JQL, код — у GitLab чи GitHub</span></button>
+      </div>
+    </div>
+    <div class="pane" data-pane="orca">
+      <h2>Orca</h2>
+      <p class="lead">Як задача передається агенту в Orca і чим він має закінчити.</p>
+      <div class="card" id="orca"></div>
+    </div>
+    <div class="pane" data-pane="limits">
+      <h2>Задачі й ліміти</h2>
+      <p class="lead">Скільки задач одночасно, як часто шукати, як називати гілки.</p>
+      <div class="card" id="limits"></div>
+    </div>
+    <div class="pane" data-pane="notifications">
+      <h2>Сповіщення</h2>
+      <div class="card" id="notifications"></div>
+    </div>
+    <p class="where" id="where"></p>
   </div>
-
-  <h2>Orca</h2>
-  <div class="card" id="orca"></div>
-
-  <h2>Задачі й ліміти</h2>
-  <div class="card" id="limits"></div>
-
-  <h2>Сповіщення</h2>
-  <div class="card" id="notifications"></div>
 </div>
 <div class="savebar"><div class="in">
   <button class="primary" id="save">Зберегти</button>
@@ -84,13 +120,15 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let navTimer;
+const renderNavSoon = () => { clearTimeout(navTimer); navTimer = setTimeout(renderNav, 300); };
 let cfg = {}, env = {}, envSet = {}, jiraBase = "", dirty = false;
 const TOKENS = { gitlab: [["GITLAB_TOKEN", "Токен", "Personal access token зі scope api: GitLab → Preferences → Access tokens"]],
   github: [["GITHUB_TOKEN", "Токен", "Fine-grained token з доступом до Issues і Pull requests. Порожньо — береться з gh auth login"]],
   jira: [["JIRA_EMAIL", "Email в Atlassian", ""], ["JIRA_API_TOKEN", "API-токен", "id.atlassian.com → Security → API tokens"]] };
 const NAMES = { gitlab: "GitLab", github: "GitHub", jira: "Jira Cloud" };
 
-function changed() { dirty = true; $("msg").className = "msg"; $("msg").textContent = "Є незбережені зміни"; }
+function changed() { if (pane) renderNavSoon(); dirty = true; $("msg").className = "msg"; $("msg").textContent = "Є незбережені зміни"; }
 
 // Small form helpers bound to a path in an object: they write back on input.
 function text(obj, key, label, { hint = "", placeholder = "", type = "text", parse } = {}) {
@@ -166,6 +204,7 @@ function renderTrackers() {
   const box = $("trackers");
   box.innerHTML = "";
   (cfg.trackers ?? []).forEach((t, i) => {
+    if (pane !== `tracker:${i}`) return;
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `<div class="card-head"><b>${NAMES[t.type] ?? esc(t.type)}</b><span class="msg" data-me></span><span class="spacer"></span>
@@ -219,7 +258,7 @@ function renderTrackers() {
       if (!confirm(`Видалити трекер ${NAMES[t.type]}?`)) return;
       cfg.trackers.splice(i, 1);
       changed();
-      renderTrackers();
+      show(cfg.trackers.length ? "tracker:0" : "add");
     };
     card.querySelector("[data-check]").onclick = async (e) => {
       const out = card.querySelector("[data-me]");
@@ -231,7 +270,6 @@ function renderTrackers() {
     };
     box.append(card);
   });
-  if (!cfg.trackers?.length) box.innerHTML = `<div class="card" style="color:var(--mute)">Додайте хоча б один трекер.</div>`;
 }
 
 function projectsTable(t) {
@@ -341,14 +379,51 @@ function renderNotifications() {
   box.append(num(n, "inboxPort", "Порт дошки", { placeholder: "7777", hint: "Діє після перезапуску Mako" }));
 }
 
-function render() {
+// The left menu: each tracker on its own, then the rest. The open section is kept in the address (#orca).
+let pane = "", problems = [];
+const trackerId = (t) => t.id ?? t.type;
+function trackerNote(t) {
+  const host = (u) => { try { return new URL(u).host; } catch { return ""; } };
+  if (t.type === "jira") return host(t.baseUrl || jiraBase) || "адреса не задана";
+  const where = t.type === "gitlab" ? host(t.baseUrl || "https://gitlab.com") : t.apiUrl ? host(t.apiUrl) : "github.com";
+  const n = Object.keys(t.projects ?? {}).length;
+  return [where, t.allProjects ? "усі проєкти" : n ? `${n} проєкт${n === 1 ? "" : n < 5 ? "и" : "ів"}` : ""].filter(Boolean).join(" · ");
+}
+function renderNav() {
+  const ts = cfg.trackers ?? [];
+  const item = (id, title, note = "", bad = false) =>
+    `<button data-go="${id}" class="${pane === id ? "on" : ""}"><span>${title}${bad ? '<span class="dot" title="Є що виправити"></span>' : ""}</span>${note ? `<small>${esc(note)}</small>` : ""}</button>`;
+  $("side").innerHTML = `<div class="group">Трекери</div>` +
+    ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
+    `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
+    `<div class="group">Робота</div>` + item("orca", "Orca", { agent: "агент: агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
+    item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення");
+  for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
+  // On a phone the menu is a row that scrolls: keep the open section in view.
+  const on = $("side").querySelector(".on");
+  if (on && $("side").scrollWidth > $("side").clientWidth) $("side").scrollLeft = on.offsetLeft - 16;
+}
+function show(id) {
+  const ts = cfg.trackers ?? [];
+  if (!id || (id.startsWith("tracker:") && !ts[+id.slice(8)])) id = ts.length ? "tracker:0" : "add";
+  pane = id;
+  history.replaceState(null, "", "#" + id);
+  const kind = id.startsWith("tracker:") ? "tracker" : id;
+  for (const el of document.querySelectorAll(".pane")) el.classList.toggle("on", el.dataset.pane === kind);
+  renderNav();
   renderTrackers();
+  window.scrollTo(0, 0);
+}
+
+function render() {
+  show(pane || decodeURIComponent(location.hash.slice(1)));
   renderOrca();
   renderLimits();
   renderNotifications();
 }
 
 function showProblems(list) {
+  problems = list ?? [];
   $("problems").innerHTML = list?.length ? `<div class="banner">${list.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : "";
 }
 
@@ -358,7 +433,7 @@ async function load() {
   envSet = r.env;
   jiraBase = r.jiraBaseUrl ?? "";
   env = {};
-  $("where").innerHTML = `Зберігаються в <code>${esc(r.home)}/mako.config.json</code> і <code>.env</code>`;
+  $("where").innerHTML = `Налаштування зберігаються в <code>${esc(r.home)}/mako.config.json</code> і <code>.env</code>`;
   showProblems(r.problems);
   dirty = false;
   render();
@@ -371,7 +446,7 @@ for (const b of document.querySelectorAll("[data-add]")) {
     if (t.type !== "jira") { t.allProjects = true; t.labels = { trigger: null }; }
     cfg.trackers.push(t);
     changed();
-    renderTrackers();
+    show(`tracker:${cfg.trackers.length - 1}`);
   };
 }
 
