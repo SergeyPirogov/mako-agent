@@ -192,3 +192,12 @@ func TestParseTrackerPaused(t *testing.T) {
 		t.Fatalf("paused: %v %v", c.Trackers[0].Paused, c.Trackers[1].Paused)
 	}
 }
+
+func TestParseEstimate(t *testing.T) {
+	if c, _ := Parse([]byte(`{}`), nil); !c.Estimate {
+		t.Fatal("the estimate is on by default")
+	}
+	if c, _ := Parse([]byte(`{"estimate":{"enabled":false}}`), nil); c.Estimate {
+		t.Fatal("turned off")
+	}
+}

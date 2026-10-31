@@ -177,6 +177,7 @@ func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 		t.Fatal(err)
 	}
 	cfg.Home, cfg.StateDir = dir, filepath.Join(dir, ".mako")
+	cfg.Estimate = false // the tests of the estimate turn it on
 	store, err := state.Open(filepath.Join(dir, ".mako"))
 	if err != nil {
 		t.Fatal(err)

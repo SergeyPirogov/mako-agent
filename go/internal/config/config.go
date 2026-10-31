@@ -45,6 +45,8 @@ type Config struct {
 	Terminal Terminal
 	// Reviewer: a second agent reads the task and the branch's diff before the MR reaches you.
 	Reviewer Reviewer
+	// Estimate: a new task gets the agent's estimate (clarity, size, risk, advice) as it appears.
+	Estimate bool
 }
 
 // Reviewer is the agent that reviews another agent's branch with a clean context and writes it its remarks;
@@ -271,6 +273,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			Model:     strings.TrimSpace(raw.AgentReview.Model),
 			When:      reviewWhen(raw.AgentReview.When),
 		},
+		Estimate: raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
@@ -538,6 +541,9 @@ type rawConfig struct {
 		Model     string `json:"model"`
 		When      string `json:"when"`
 	} `json:"agentReview"`
+	Estimate struct {
+		Enabled *bool `json:"enabled"`
+	} `json:"estimate"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
 }

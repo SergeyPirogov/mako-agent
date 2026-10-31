@@ -80,7 +80,9 @@ type Dispatcher struct {
 	rebased map[string]baseLook
 	// guardTokens: the token each task's agent asks the push guard with (see secrets.go).
 	guardTokens map[string]string
-	wake        chan struct{}
+	// estimates: the estimates of new tasks running in the background.
+	estimates sync.WaitGroup
+	wake      chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
@@ -325,13 +327,16 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 		if d.Config().Notifications.AutoTake {
 			d.Take(ctx, task.ID)
 		}
+		d.maybeEstimate(task.ID)
 	case r.Status == core.Cancelled && r.Gone != "":
 		d.Log(task.ID, "знову відкрита в трекері")
 		d.Store.Update(task.ID, func(r *core.Record) {
 			r.Task, r.Status, r.SnoozedUntil, r.PostponedByYou, r.Gone, r.Error, r.ArchivedAt = task, core.Snoozed, 0, false, "", "", 0
 		})
+		d.maybeEstimate(task.ID)
 	case r.Status == core.Asking || r.Status == core.Snoozed:
 		d.Store.Update(task.ID, func(r *core.Record) { r.Task = task })
+		d.maybeEstimate(task.ID)
 	}
 }
 

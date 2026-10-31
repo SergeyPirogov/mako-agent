@@ -40,7 +40,8 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 		log("підготовка worktree: " + setup)
 	}
 	view := viewOf(cfg.Terminal)
-	planning := wantsPlan(cfg.Terminal, j.Task)
+	rec, _ := d.Store.Get(j.Task.ID)
+	planning := wantsPlan(cfg.Terminal, j.Task, rec.Estimate)
 	d.Store.Update(j.Task.ID, func(r *core.Record) { r.View, r.Planning = view, planning })
 	if planning {
 		log("агент починає з плану: нічого не змінює, доки ви його не затвердите")

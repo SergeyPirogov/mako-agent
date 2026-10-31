@@ -19,8 +19,9 @@ var planLabels = []string{"plan", "план"}
 // bigDescription: a task's description this long (in characters) is big enough for a plan with PlanFirst "big".
 const bigDescription = 1500
 
-// wantsPlan: the task's agent starts with a plan.
-func wantsPlan(t config.Terminal, task core.Task) bool {
+// wantsPlan: the task's agent starts with a plan. With PlanFirst "big", a plan label decides first, then the
+// estimate of the task's current text (e), then the length of its description.
+func wantsPlan(t config.Terminal, task core.Task, e *core.Estimate) bool {
 	switch t.PlanFirst {
 	case "always":
 		return true
@@ -31,6 +32,9 @@ func wantsPlan(t config.Terminal, task core.Task) bool {
 					return true
 				}
 			}
+		}
+		if e != nil && e.State == "done" && e.Size != "" && e.For == estimateKey(task) {
+			return e.Size == "big"
 		}
 		return utf8.RuneCountInString(strings.TrimSpace(task.Description)) >= bigDescription
 	}

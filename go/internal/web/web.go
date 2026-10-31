@@ -436,6 +436,11 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "estimate":
+			if err := s.D.Estimate(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "agentreview":
 			if err := s.D.ReviewNow(id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
