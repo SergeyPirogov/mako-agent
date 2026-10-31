@@ -21,6 +21,7 @@
   <span id="waiting"></span>
   <span class="spacer"></span>
   <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
+  <button class="icon-btn" id="stats-btn" title="Статистика" aria-label="Статистика"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
   <a class="icon-btn" id="settings-link" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
   <button class="ghost" id="theme" title="Тема"></button>
@@ -51,7 +52,7 @@ const LABEL = { new: "нова", later: "відкладена", doing: "в ро�
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
-let data = null, shown = "", selected = null, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
+let data = null, shown = "", selected = null, statsOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
 // The task's work: its changed files, the files open in tabs over the terminal and their diffs.
 let workOf = null, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
 // The task's MR as the code host has it ({review} or {error}), and what the last MR action said.
@@ -136,6 +137,12 @@ async function post(action, id, extra = "") {
   await load();
 }
 $("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
+$("stats-btn").onclick = () => {
+  selected = null; statsOpen = true;
+  history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+};
 $("poll").onclick = async () => { $("poll").classList.add("busy"); await post("poll"); setTimeout(() => $("poll").classList.remove("busy"), 1500); };
 
 async function load() {
@@ -245,7 +252,7 @@ function render() {
 }
 
 async function select(id) {
-  selected = id;
+  selected = id; statsOpen = false;
   history.replaceState(null, "", "#" + encodeURIComponent(id));
   try { localStorage.setItem("mako-selected", id); } catch {}
   // The card opens at once from what the board already has; its journal and conversation follow.
@@ -663,10 +670,39 @@ function convoHTML(turns) {
   return out.join("");
 }
 
+// How the taken tasks went: shown where a task's card goes while none is open.
+function statsHTML(s) {
+  if (!s?.taken) return `<div class="empty">Виберіть задачу зліва. Статистика з'явиться, коли агент візьме першу задачу.</div>`;
+  const pct = (n) => s.taken ? Math.round((n / s.taken) * 100) : 0;
+  const dur = (sec) => {
+    const m = Math.round(sec / 60);
+    return m < 60 ? `${m} хв` : m < 1440 ? `${Math.floor(m / 60)} год ${m % 60} хв` : `${Math.floor(m / 1440)} д ${Math.floor((m % 1440) / 60)} год`;
+  };
+  const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+  return `<div class="stats">
+    <h1>Статистика</h1>
+    <div class="stat-row">
+      ${tile("Взято задач", s.taken, s.running ? `${s.running} ще в роботі` : "")}
+      ${tile("Успішно", s.succeeded, `${pct(s.succeeded)}% · змерджено ${s.merged}`)}
+      ${tile("Не успішно", s.failed, `${pct(s.failed)}%`)}
+      ${tile("Середній час до MR", s.avgSeconds ? dur(s.avgSeconds) : "—")}
+      ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу · ${s.priced} ${plural(s.priced, "задача", "задачі", "задач")}` : "лише агент у Mako")}
+    </div>
+    <h3>Причини невдач</h3>
+    ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
+    <p class="stats-note">Час — від передачі агенту до відкриття MR. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє.</p>
+  </div>`;
+}
+
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
-  $("work").classList.toggle("detail", !!r);
-  if (!r) { closeTerminal(); shown = ""; $("detail").innerHTML = `<div class="empty">Виберіть задачу зліва</div>`; return; }
+  $("work").classList.toggle("detail", !!r || statsOpen);
+  if (!r) {
+    closeTerminal(); shown = ""; $("detail").classList.remove("ws");
+    $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Задачі</button>` : "") + statsHTML(data.stats);
+    if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
+    return;
+  }
   const t = r.task, st = state(r);
   const b = (action, label, cls = "", extra = "") => `<button class="${cls}" data-a="${action}" data-x="${extra}">${label}</button>`;
   // Icon buttons leave the room to the work; the name is in the tooltip.
@@ -856,7 +892,7 @@ function renderDetail() {
     if (!(fileTab in diffs)) loadWork().then(renderDetail);
   };
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
-  $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
+  $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
 }
 
 // The task from the link, else the one open last time.

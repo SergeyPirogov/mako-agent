@@ -102,6 +102,9 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		OnSession: func(sid string) {
 			d.Store.Update(id, func(r *core.Record) { r.SessionID = sid })
 		},
+		OnCost: func(usd float64) {
+			d.Store.Update(id, func(r *core.Record) { r.Cost += usd })
+		},
 	}))
 	return nil
 }

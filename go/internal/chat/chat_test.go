@@ -31,8 +31,9 @@ func TestChat(t *testing.T) {
 	os.WriteFile(bin, []byte(fakeClaude), 0o755)
 	var limits Limits
 	var session string
+	var cost float64
 	s := Start(Options{ID: "a#1", Worktree: dir, Command: bin, Setup: "echo prepared", Prompt: "Зроби задачу",
-		OnLimits: func(l Limits) { limits = l }, OnSession: func(id string) { session = id }})
+		OnLimits: func(l Limits) { limits = l }, OnSession: func(id string) { session = id }, OnCost: func(usd float64) { cost += usd }})
 	defer s.Stop()
 	wait := func(state string) {
 		t.Helper()
@@ -65,6 +66,9 @@ func TestChat(t *testing.T) {
 	}
 	if snap.Items[1].Output != "prepared\n" || snap.Items[3].Output != "written" || s.LastText() != "DONE" {
 		t.Fatalf("outputs %+v", snap.Items)
+	}
+	if cost != 0.01 {
+		t.Fatalf("cost %v", cost)
 	}
 	if session != "s-1" || limits.FiveHour == nil || limits.FiveHour.Used != 0.3 || limits.Week.ResetsAt != 200 {
 		t.Fatalf("session %q limits %+v", session, limits)
