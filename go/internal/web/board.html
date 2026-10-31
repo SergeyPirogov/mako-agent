@@ -22,6 +22,7 @@
   <span id="restart-note"></span>
   <span class="spacer"></span>
   <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
+  <button class="icon-btn" id="awake"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/><path class="slash" d="M3 3l18 18"/></svg></button>
   <button class="icon-btn" id="restart" title="Перезапустити Mako, коли агенти закінчать хід" aria-label="Перезапустити Mako, коли агенти закінчать хід"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v7"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg></button>
   <button class="icon-btn" id="stats-btn" title="Статистика" aria-label="Статистика"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
@@ -228,6 +229,7 @@ async function post(action, id, extra = "") {
   await load();
 }
 $("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
+$("awake").onclick = () => fetch(`/api/awake?on=${data?.awake?.on ? 0 : 1}`, { method: "POST" }).then(load);
 $("restart").onclick = () => fetch(`/api/restart?on=${data?.restart?.pending ? 0 : 1}`, { method: "POST" }).then(load);
 $("stats-btn").onclick = () => {
   selected = null; statsOpen = true; newOpen = false; digest = null;
@@ -373,6 +375,13 @@ function render() {
   // «Перезапустити, коли агенти закінчать хід»: Mako waits for the agents that work now, then restarts.
   const rs = data.restart || {};
   $("restart").classList.toggle("on", !!rs.pending);
+  // ☕: on — the Mac does not fall asleep while agents work (lit while it is being kept awake); off — crossed out.
+  const aw = data.awake ?? {};
+  $("awake").classList.toggle("off", !aw.on);
+  $("awake").classList.toggle("awake", !!aw.on && !!aw.active);
+  $("awake").title = $("awake").ariaLabel = !aw.on ? "Mac засинає як звичайно. Натисніть, щоб не давати заснути, поки агенти працюють"
+    : aw.active ? "Mac не засне: агенти працюють. Натисніть, щоб дозволити сон"
+    : "Mac не засне, поки агенти працюють. Натисніть, щоб дозволити сон";
   // Mako's own errors not sent for analysis yet: a dot on «Статистика», where they are listed.
   const faults = (data.faults || []).filter((f) => !f.reported).length;
   $("stats-btn").classList.toggle("fault", faults > 0);
@@ -2395,6 +2404,7 @@ function setupPhone() {
   phoneReady = true;
   document.body.classList.add("phone");
   $("settings-link").hidden = true;
+  $("awake").hidden = true; // the Mac's own sleep: its settings, not the phone's
   // The hint to install the app: once closed with «×», not shown again on this phone.
   const hintHidden = (() => { try { return localStorage.getItem("mako-hint-hidden") === "1"; } catch { return false; } })();
   const hint = (body) => {

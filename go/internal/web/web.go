@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/awake"
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
@@ -75,7 +76,12 @@ type stateReply struct {
 	Update   *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
 	Release  *update.Release            `json:"release,omitempty"`   // a newer release to download; not on a phone
 	Restart  restartView                `json:"restart"`
-	Faults   []dispatch.Fault           `json:"faults"` // Mako's own errors, the newest first
+	// Awake: the settings keep the Mac awake while agents work (on), and it is being kept awake now (active).
+	Awake struct {
+		On     bool `json:"on"`
+		Active bool `json:"active"`
+	} `json:"awake"`
+	Faults []dispatch.Fault `json:"faults"` // Mako's own errors, the newest first
 	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
 	Digest *core.Digest `json:"digest,omitempty"`
 }
@@ -146,6 +152,7 @@ func (s *Server) Handler() http.Handler {
 			reply.Release = s.Release.Latest()
 		}
 		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
+		reply.Awake.On, reply.Awake.Active = s.D.Config().KeepAwake, awake.Active()
 		all := s.D.Store.All()
 		// days: the board's period for the statistics, the last N days (none: all the time).
 		var since time.Time
@@ -316,6 +323,15 @@ func (s *Server) Handler() http.Handler {
 		}
 		if action == "poll" {
 			s.D.Wake()
+			writeJSON(w, map[string]bool{"ok": true})
+			return
+		}
+		if action == "awake" {
+			// The header's ☕: the settings' «Не давати Mac заснути», saved like the settings page saves it.
+			if err := s.setConfig("keepAwake", r.URL.Query().Get("on") == "1"); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 			writeJSON(w, map[string]bool{"ok": true})
 			return
 		}

@@ -45,3 +45,10 @@ func Keep(on bool) {
 		mu.Unlock()
 	}()
 }
+
+// Active: caffeinate holds the Mac awake now.
+func Active() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return cmd != nil
+}

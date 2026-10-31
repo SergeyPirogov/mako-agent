@@ -270,3 +270,38 @@ func assigneeProblems(ctx context.Context, ts []trackers.Tracker) []string {
 	}
 	return out
 }
+
+// setConfig sets one top-level key of mako.config.json (a default value removes it), writes the file as the
+// settings page does and has Mako work with it.
+func (s *Server) setConfig(key string, value bool) error {
+	path := filepath.Join(s.Home, "mako.config.json")
+	raw := map[string]any{}
+	if b, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(b, &raw); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if value {
+		delete(raw, key) // on is the default
+	} else {
+		raw[key] = value
+	}
+	pretty, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(s.Home, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path+".tmp", append(pretty, '\n'), 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(path+".tmp", path); err != nil {
+		return err
+	}
+	cfg, ts, problems := setup.Build(s.Home)
+	s.D.Reload(cfg, ts, problems)
+	return nil
+}
