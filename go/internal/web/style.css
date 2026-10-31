@@ -521,7 +521,7 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .chat-limits { font-variant-numeric: tabular-nums; }
 .chat-limits .warn { color: var(--warn); font-weight: 600; } .chat-limits .bad { color: var(--err); font-weight: 600; }
 .chat-stop[hidden], .chat-send[hidden] { display: none; }
-details.journal { margin-top: 24px; }
+details.journal { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 10px 16px; }
 details.journal summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); list-style-position: inside; }
 details.journal .log { margin-top: 8px; }
 .labels { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -592,3 +592,43 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
 #redo textarea { resize: vertical; }
 #redo textarea:focus, #redo input:focus { outline: none; border-color: var(--accent); }
 .redo-a { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12px; }
+/* The task tab: the facts as chips, then a card per part of the task. */
+.tchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
+.tchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card); font-size: 12.5px; color: var(--fg); max-width: 100%; min-width: 0; }
+.tchip:not(:has(button)) { padding-right: 10px; }
+.tchip > svg { color: var(--mute); flex: none; }
+.tchip .k { color: var(--mute); }
+.tchip code { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tchip button.icon { width: 20px; height: 20px; border-radius: 50%; color: var(--faint); flex: none; }
+.tchip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.tchip.st { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 35%, var(--line)); }
+.tchip.st.bad { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, var(--line)); }
+a.tchip.mr { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 8%, var(--card)); }
+a.tchip.mr .dot { background: var(--ok); }
+a.tchip.mr.merged { border-color: color-mix(in srgb, var(--purple) 45%, var(--line)); background: color-mix(in srgb, var(--purple) 8%, var(--card)); }
+a.tchip.mr.merged .dot { background: var(--purple); }
+a.tchip.mr.closed .dot { background: var(--mute); }
+a.tchip:hover { text-decoration: none; background: var(--hover); }
+.tcard { border: 1px solid var(--line); border-radius: 12px; background: var(--card); margin: 0 0 14px; overflow: hidden; }
+.tcard-h { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid var(--line);
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); }
+.tcard-h .r { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); }
+.tcard-b { padding: 12px 16px; }
+.tcard .sec { padding: 12px 16px; border-top: 1px solid var(--line); }
+.tcard-h + .sec { border-top: 0; }
+.tcard .sec h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 13.5px; }
+.tcard .sec .ic { width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex: none; }
+.tcard .sec.done .ic { background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
+.tcard .sec.check .ic { background: color-mix(in srgb, var(--ok) 14%, var(--card)); color: var(--ok); }
+.tcard .sec.warn { background: color-mix(in srgb, var(--warn) 6%, var(--card)); }
+.tcard .sec.warn .ic { background: color-mix(in srgb, var(--warn) 18%, var(--card)); color: var(--warn); }
+.tcard .sec ul { margin: 0; padding-left: 20px; }
+.tcard .sec li { margin: 3px 0; }
+.tcard .sec p { margin: 4px 0; }
+.tcard.sum code, .tcard-b code { background: var(--hover); padding: 1px 4px; border-radius: 4px; }
+.cmt { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.tcard-h + .cmt { border-top: 0; }
+.cmt b { font-size: 12.5px; }
+.av { width: 26px; height: 26px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; background: color-mix(in srgb, var(--accent) 18%, var(--card)); color: var(--accent); }

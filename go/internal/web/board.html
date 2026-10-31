@@ -877,6 +877,21 @@ function reviewerRow(r) {
   const n = r.agentReviews.filter((a) => a.state === "notes" || a.state === "clean").length;
   return row(icon, n > 1 ? `${text} · раунд ${n}` : text, "");
 }
+// The agent's summary, a section per heading: what was done, how it was checked (green), what to look at (amber).
+function summaryHTML(text) {
+  const parts = md(text).split(/(?=<h4>)/).filter((p) => p.trim());
+  return parts.map((p) => {
+    const h = p.match(/^<h4>(.*?)<\/h4>/)?.[1] || "";
+    const plain = h.replace(/<[^>]+>/g, "").toLowerCase();
+    const [cls, ic] = /уваг|ризик|risk|worth|attention|відкрит/.test(plain) ? ["warn", "!"] : /перевір|check|test|тест/.test(plain) ? ["check", "✓"] : ["done", "✎"];
+    return `<div class="sec ${h ? cls : ""}">${h ? `<h4><span class="ic">${ic}</span>${h}</h4>` : ""}${p.replace(/^<h4>.*?<\/h4>/, "")}</div>`;
+  }).join("");
+}
+// «PR #80», «MR !12»: what a link to a merge request is called on the card.
+const mrName = (url) => { const m = url.match(/\/pull\/(\d+)/) || url.match(/merge_requests\/(\d+)/); return m ? (url.includes("/pull/") ? `PR #${m[1]}` : `MR !${m[1]}`) : "MR"; };
+// The last folders of a long path: the whole one is in the tooltip and is what gets copied.
+const shortPath = (p) => { const s = p.split("/").filter(Boolean); return s.length > 3 ? "…/" + s.slice(-3).join("/") : p; };
+const initials = (name) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
 function reviewerHTML(r) {
   if (!r.agentReviews?.length) return "";
   return `<h3>Рев'ю агентом</h3>` + r.agentReviews.map((a, i) => {
@@ -1226,24 +1241,31 @@ function renderDetail() {
   else actions = ib("archive", "В архів", "archive");
   if (r.archivedAt) actions = ib("unarchive", "Повернути з архіву", "unarchive");
 
-  const facts = [];
-  if (t.meta) facts.push(["Трекер", esc(t.meta)]);
-  if (t.assignees?.length) facts.push(["Виконавці", esc(t.assignees.join(", "))]);
-  if (r.trackerStatus) facts.push(["Статус у трекері", r.trackerStatus.ok ? esc(r.trackerStatus.text) : `<span style="color:var(--err)">${esc(r.trackerStatus.text)}</span>`]);
-  if (r.repo) facts.push(["Репозиторій", esc(r.repo)]);
-  if (r.branch || r.branchName) facts.push(["Гілка", `<code>${esc(r.branch || r.branchName)}</code>`]);
-  if (r.worktree) facts.push(["Worktree", `<code>${esc(r.worktree)}</code>`]);
-  if (r.prUrl) facts.push(["MR", `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${esc(r.prUrl)}</a>${r.reviewState === "merged" ? " · змерджено" : r.reviewState === "closed" ? " · закрито" : ""}`]);
+  // The task's facts as chips: they wrap, so the narrow pane next to the agent and a phone fit them too.
+  const chip = (body, cls = "", title = "") => `<span class="tchip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${body}</span>`;
+  const copy = (v, what) => `<button type="button" class="icon" data-copy="${esc(v)}" title="Скопіювати ${what}" aria-label="Скопіювати ${what}">${ICON.copy}</button>`;
+  const chips = [];
+  if (r.trackerStatus) chips.push(chip(`<span class="dot"></span>${esc(r.trackerStatus.text)}`, r.trackerStatus.ok ? "st" : "st bad", "Статус у трекері"));
+  if (t.meta) chips.push(chip(esc(t.meta), "", "Трекер"));
+  if (t.assignees?.length) chips.push(chip(`<span class="k">Виконавці</span>${esc(t.assignees.join(", "))}`));
+  if (r.repo) chips.push(chip(`<span class="k">Репо</span>${esc(r.repo)}`));
+  const branch = r.branch || r.branchName;
+  if (branch) chips.push(chip(`${ICON.pr}<code>${esc(branch)}</code>${copy(branch, "назву гілки")}`, "", "Гілка"));
+  if (r.worktree) chips.push(chip(`${ICON.folder}<code>${esc(shortPath(r.worktree))}</code>${copy(r.worktree, "шлях до worktree")}`, "", r.worktree));
+  if (r.prUrl) {
+    const rs = r.reviewState === "merged" ? ["змерджено", "merged"] : r.reviewState === "closed" ? ["закрито", "closed"] : ["відкрито", ""];
+    chips.push(`<a class="tchip mr ${rs[1]}" href="${esc(r.prUrl)}" target="_blank" rel="noopener" title="${esc(r.prUrl)}"><span class="dot"></span>${esc(mrName(r.prUrl))} · ${rs[0]} ↗</a>`);
+  }
+  const card = (title, body, cls = "", note = "") => `<div class="tcard ${cls}"><div class="tcard-h">${title}${note ? `<span class="r">${note}</span>` : ""}</div>${body}</div>`;
 
   // The task itself first; what the agent does in Orca and Mako's log in their own tab.
   const task = `
-    ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
-    ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
+    ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
+    ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${reviewerHTML(r)}
-    ${r.retryNote ? `<h3>Спроба ${r.attempt || 2}: що зробити інакше</h3><div class="text">${richText(r.retryNote)}</div>${r.model ? `<p class="muted">Модель: <code>${esc(r.model)}</code></p>` : ""}` : ""}
-    <h3>Опис</h3>
-    <div class="text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
-    ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${richText(c.body)}</div></div>`).join("")}` : ""}
+    ${r.retryNote ? card(`Спроба ${r.attempt || 2}: що зробити інакше`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
+    ${card("Опис", `<div class="tcard-b text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", "з трекера")}
+    ${t.comments?.length ? card(`Коментарі · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="text">${richText(c.body)}</div></div></div>`).join("")) : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
       <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   const started = r.column === "doing" && !!r.worktree;
