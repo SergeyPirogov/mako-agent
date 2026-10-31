@@ -1273,7 +1273,7 @@ function renderDetail() {
   const chip = (body, cls = "", title = "") => `<span class="tchip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${body}</span>`;
   const copy = (v, what) => `<button type="button" class="icon" data-copy="${esc(v)}" title="Скопіювати ${what}" aria-label="Скопіювати ${what}">${ICON.copy}</button>`;
   const chips = [];
-  if (r.trackerStatus) chips.push(chip(`<span class="dot"></span>${esc(r.trackerStatus.text)}`, r.trackerStatus.ok ? "st" : "st bad", "Статус у трекері"));
+  if (r.trackerStatus) chips.push(chip(`<span class="dot"></span><span class="v">${esc(r.trackerStatus.text)}</span>`, r.trackerStatus.ok ? "st" : "st bad", r.trackerStatus.ok ? "Статус у трекері" : r.trackerStatus.text));
   if (t.meta) chips.push(chip(esc(t.meta), "", "Трекер"));
   if (t.assignees?.length) chips.push(chip(`<span class="k">Виконавці</span>${esc(t.assignees.join(", "))}`));
   if (r.repo) chips.push(chip(`<span class="k">Репо</span>${esc(r.repo)}`));

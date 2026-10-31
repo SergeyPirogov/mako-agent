@@ -244,10 +244,18 @@ func (g *GitHub) Move(ctx context.Context, t core.Task, moment string) (string, 
 	if moment != AtMerged {
 		return "", nil
 	}
-	if st, err := g.IssueState(ctx, t); err == nil && st == "open" {
-		return "", g.do(ctx, "PATCH", ghIssuePath(t), map[string]any{"state": "closed"}, nil)
+	if st, err := g.IssueState(ctx, t); err != nil || st != "open" {
+		return "", nil
 	}
-	return "", nil
+	err := g.do(ctx, "PATCH", ghIssuePath(t), map[string]any{"state": "closed"}, nil)
+	// The merge closes the issue by itself when the MR says «Closes #N»: GitHub may do it between our look and
+	// our PATCH and answer 422 «closed by another request».
+	if isStatus(err, 422) {
+		if st, e := g.IssueState(ctx, t); e == nil && st != "open" {
+			return "", nil
+		}
+	}
+	return "", err
 }
 
 // --- pull requests

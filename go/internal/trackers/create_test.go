@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 )
 
@@ -115,5 +116,32 @@ func TestGitLabCreateAndUpload(t *testing.T) {
 	md, err := g.Upload(ctx, "grp/app", "shot.png", []byte("PNG-DATA"))
 	if err != nil || md != "![shot.png](/uploads/x/shot.png)" || !strings.Contains(uploaded, `filename="shot.png"`) || !strings.Contains(uploaded, "PNG-DATA") {
 		t.Errorf("upload %q %v %q", md, err, uploaded)
+	}
+}
+
+// The MR's «Closes #N» closes the issue between Mako's look and its PATCH: GitHub answers 422, the issue is closed.
+func TestGitHubMoveClosedMeanwhile(t *testing.T) {
+	looks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/me/app/issues/7" && r.Method == "GET":
+			looks++
+			if looks == 1 {
+				w.Write([]byte(`{"number":7,"state":"open"}`))
+			} else {
+				w.Write([]byte(`{"number":7,"state":"closed"}`))
+			}
+		case r.URL.Path == "/repos/me/app/issues/7" && r.Method == "PATCH":
+			w.WriteHeader(422)
+			w.Write([]byte(`{"message":"Validation Failed","errors":[{"resource":"Issue","code":"custom","message":"This issue was closed by another request. Reload it and try again."}]}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	g, _ := NewGitHub(&config.Tracker{ID: "gh", APIURL: srv.URL}, "tok")
+	if _, err := g.Move(context.Background(), core.Task{ID: "me/app#7", Project: "me/app"}, AtMerged); err != nil {
+		t.Errorf("Move: %v", err)
 	}
 }
