@@ -66,23 +66,7 @@ var (
 
 // LastMessage: the agent's last message in its newest Claude Code session in worktree, "" when there is none.
 func LastMessage(worktree string) string {
-	var newest string
-	var newestInfo os.FileInfo
-	for _, dir := range claudeProjectDirs(worktree) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if !strings.HasSuffix(e.Name(), ".jsonl") {
-				continue
-			}
-			info, err := e.Info()
-			if err == nil && (newestInfo == nil || info.ModTime().After(newestInfo.ModTime())) {
-				newest, newestInfo = filepath.Join(dir, e.Name()), info
-			}
-		}
-	}
+	newest, newestInfo := newestSession(worktree)
 	if newest == "" {
 		return ""
 	}
@@ -177,4 +161,147 @@ func textBlocks(raw json.RawMessage) []string {
 		}
 	}
 	return out
+}
+
+// Turn is one step of a conversation as the board shows it.
+type Turn struct {
+	Role string `json:"role"` // "user", "agent", "tool"
+	Text string `json:"text"`
+	At   string `json:"at,omitempty"`
+}
+
+type conversationCache struct {
+	mod   time.Time
+	size  int64
+	turns []Turn
+}
+
+var (
+	convMu    sync.Mutex
+	convCache = map[string]conversationCache{}
+)
+
+// newestSession: the newest Claude Code transcript of a session started in worktree.
+func newestSession(worktree string) (string, os.FileInfo) {
+	var newest string
+	var newestInfo os.FileInfo
+	for _, dir := range claudeProjectDirs(worktree) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), ".jsonl") {
+				continue
+			}
+			if info, err := e.Info(); err == nil && (newestInfo == nil || info.ModTime().After(newestInfo.ModTime())) {
+				newest, newestInfo = filepath.Join(dir, e.Name()), info
+			}
+		}
+	}
+	return newest, newestInfo
+}
+
+// Conversation: the agent's newest Claude Code session in worktree, as the user's messages, the agent's words
+// and one line per tool it used; the last limit turns.
+func Conversation(worktree string, limit int) []Turn {
+	path, info := newestSession(worktree)
+	if path == "" {
+		return nil
+	}
+	convMu.Lock()
+	c, ok := convCache[path]
+	convMu.Unlock()
+	if !ok || !c.mod.Equal(info.ModTime()) || c.size != info.Size() {
+		c = conversationCache{mod: info.ModTime(), size: info.Size(), turns: readConversation(path, info.Size())}
+		convMu.Lock()
+		convCache[path] = c
+		convMu.Unlock()
+	}
+	if len(c.turns) > limit {
+		return c.turns[len(c.turns)-limit:]
+	}
+	return c.turns
+}
+
+// Lines Claude Code adds to the user's side that the user did not write.
+var notTyped = regexp.MustCompile(`^\s*<(command-|local-command|system-reminder|user-prompt-submit-hook|bash-)`)
+
+func readConversation(path string, size int64) []Turn {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	const tail = 8 << 20
+	if size > tail {
+		f.Seek(size-tail, io.SeekStart)
+	}
+	data, _ := io.ReadAll(f)
+	if size > tail {
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			data = data[i+1:]
+		}
+	}
+	var turns []Turn
+	s := bufio.NewScanner(bytes.NewReader(data))
+	s.Buffer(make([]byte, 1<<20), 64<<20)
+	for s.Scan() {
+		var e struct {
+			Type        string `json:"type"`
+			IsSidechain bool   `json:"isSidechain"`
+			IsMeta      bool   `json:"isMeta"`
+			Timestamp   string `json:"timestamp"`
+			Message     struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(s.Bytes(), &e) != nil || e.IsSidechain || e.IsMeta {
+			continue
+		}
+		switch e.Type {
+		case "user":
+			for _, t := range textBlocks(e.Message.Content) {
+				if !notTyped.MatchString(t) {
+					turns = append(turns, Turn{Role: "user", Text: strings.TrimSpace(t), At: e.Timestamp})
+				}
+			}
+		case "assistant":
+			var blocks []struct {
+				Type  string          `json:"type"`
+				Text  string          `json:"text"`
+				Name  string          `json:"name"`
+				Input json.RawMessage `json:"input"`
+			}
+			if json.Unmarshal(e.Message.Content, &blocks) != nil {
+				continue
+			}
+			for _, b := range blocks {
+				switch {
+				case b.Type == "text" && strings.TrimSpace(b.Text) != "":
+					turns = append(turns, Turn{Role: "agent", Text: strings.TrimSpace(b.Text), At: e.Timestamp})
+				case b.Type == "tool_use":
+					turns = append(turns, Turn{Role: "tool", Text: toolLine(b.Name, b.Input), At: e.Timestamp})
+				}
+			}
+		}
+	}
+	return turns
+}
+
+// toolLine: «Read: src/app.ts», «Bash: npm test» — the tool and what it was given, in a line.
+func toolLine(name string, input json.RawMessage) string {
+	var in map[string]any
+	json.Unmarshal(input, &in)
+	for _, key := range []string{"command", "file_path", "path", "pattern", "url", "query", "description", "prompt", "skill"} {
+		if v, ok := in[key].(string); ok && strings.TrimSpace(v) != "" {
+			v = strings.Join(strings.Fields(v), " ")
+			if r := []rune(v); len(r) > 160 {
+				v = string(r[:159]) + "…"
+			}
+			return name + ": " + v
+		}
+	}
+	return name
 }

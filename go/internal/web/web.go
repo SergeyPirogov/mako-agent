@@ -13,6 +13,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 )
 
@@ -89,6 +90,17 @@ func (s *Server) Handler() http.Handler {
 			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name()})
 		}
 		writeJSON(w, reply)
+	})
+	// The agent's conversation in its worktree, for the card (the task's own worktree, nothing else).
+	mux.HandleFunc("GET /api/chat", func(w http.ResponseWriter, r *http.Request) {
+		rec, ok := s.D.Store.Get(r.URL.Query().Get("id"))
+		turns := []orca.Turn{}
+		if ok && rec.Worktree != "" && s.D.Conversation != nil {
+			if t := s.D.Conversation(rec.Worktree, 300); t != nil {
+				turns = t
+			}
+		}
+		writeJSON(w, map[string]any{"turns": turns})
 	})
 	mux.HandleFunc("GET /api/log", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.D.Logs(r.URL.Query().Get("id")))

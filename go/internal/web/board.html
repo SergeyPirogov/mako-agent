@@ -112,7 +112,39 @@ async function load() {
     return;
   }
   if (selected) logs = await (await fetch(`/api/log?id=${encodeURIComponent(selected)}`)).json();
+  if (selected && chatOpen) await loadChat();
   render();
+}
+
+// The whole conversation with the agent, read from its Claude Code session; loaded while it is open.
+let chatOpen = false, chat = { id: null, turns: [] };
+try { chatOpen = localStorage.getItem("mako-chat") === "1"; } catch {}
+async function loadChat() {
+  const id = selected;
+  try {
+    const r = await (await fetch(`/api/chat?id=${encodeURIComponent(id)}`)).json();
+    if (id === selected) chat = { id, turns: r.turns };
+  } catch {}
+}
+function chatHTML(turns) {
+  if (!turns.length) return `<div class="muted chat-empty">Розмови не знайдено: агент працює не в Claude Code або ще нічого не написав.</div>`;
+  const out = [];
+  for (let i = 0; i < turns.length; i++) {
+    const t = turns[i];
+    if (t.role === "tool") {
+      const group = [];
+      for (; i < turns.length && turns[i].role === "tool"; i++) group.push(turns[i].text);
+      i--;
+      const shown = group.slice(-4);
+      out.push(`<div class="tools">${group.length > shown.length ? `<div>… ще ${group.length - shown.length}</div>` : ""}${shown.map((x) => `<div>${esc(x)}</div>`).join("")}</div>`);
+    } else if (t.role === "user") {
+      const long = t.text.length > 500;
+      out.push(`<div class="msg-user">${long ? `<details><summary>${esc(t.text.slice(0, 300))}…</summary><div class="text">${linkify(t.text)}</div></details>` : `<div class="text">${linkify(t.text)}</div>`}</div>`);
+    } else {
+      out.push(`<div class="msg-agent">${md(t.text)}</div>`);
+    }
+  }
+  return out.join("");
 }
 
 function visible() {
@@ -178,8 +210,11 @@ function render() {
   renderDetail();
 }
 
+let chatScroll = null;
 async function select(id) {
+  chatScroll = null;
   selected = id;
+  if (chatOpen) await loadChat();
   history.replaceState(null, "", "#" + encodeURIComponent(id));
   logs = await (await fetch(`/api/log?id=${encodeURIComponent(id)}`)).json();
   render();
@@ -197,7 +232,7 @@ function agentBlock(r) {
     <div class="agent-head"><span class="s ag-${a.state}">${LABEL["ag-" + a.state] ?? "агент"}${since}</span>${name ? `<span class="muted">${esc(name)}</span>` : ""}
       ${note ? `<span class="agent-note">${note}</span>` : ""}</div>
     ${a.screen?.length ? `<pre class="screen">${a.screen.map(esc).join("\n")}</pre>` : ""}
-    ${a.message ? `<div class="agent-msg"><div class="agent-msg-h">Останнє повідомлення агента</div>${md(a.message)}</div>` : ""}
+    ${a.message && !(chatOpen && chat.id === r.id && chat.turns.length) ? `<div class="agent-msg"><div class="agent-msg-h">Останнє повідомлення агента</div>${md(a.message)}</div>` : ""}
     ${a.error ? `<div class="agent-err">${esc(a.error)}</div>` : ""}
   </div>`;
 }
@@ -236,12 +271,27 @@ function renderDetail() {
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею в Orca.</div>` : ""}
     ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     ${agentBlock(r)}
+    ${r.worktree ? `<details class="chat" id="chat" ${chatOpen ? "open" : ""}><summary>Уся розмова з агентом${chat.id === r.id && chat.turns.length ? ` <span class="muted">· ${chat.turns.filter((t) => t.role !== "tool").length}</span>` : ""}</summary>
+      <div class="chat-body" id="chat-body">${chat.id === r.id ? chatHTML(chat.turns) : `<div class="muted chat-empty">Завантажую…</div>`}</div></details>` : ""}
     ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
     <h3>Опис</h3>
     <div class="text">${t.description?.trim() ? linkify(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${linkify(c.body)}</div></div>`).join("")}` : ""}
     ${logs.length ? `<h3>Журнал</h3><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div>` : ""}`;
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
+  const box = $("chat");
+  if (box) {
+    const body = $("chat-body");
+    // Stay at the end while the agent writes, unless the reader scrolled up.
+    if (chatScroll === null || chatScroll.atEnd) body.scrollTop = body.scrollHeight;
+    else body.scrollTop = chatScroll.top;
+    body.onscroll = () => (chatScroll = { top: body.scrollTop, atEnd: body.scrollTop + body.clientHeight >= body.scrollHeight - 30 });
+    box.ontoggle = async () => {
+      chatOpen = box.open;
+      try { localStorage.setItem("mako-chat", chatOpen ? "1" : "0"); } catch {}
+      if (chatOpen) { chatScroll = null; await loadChat(); renderDetail(); }
+    };
+  }
   $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); render(); };
 }
 

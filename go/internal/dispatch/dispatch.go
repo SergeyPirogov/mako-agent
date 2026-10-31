@@ -41,7 +41,9 @@ type Dispatcher struct {
 	Term     Terminals
 	// LastMessage: a Claude agent's whole last message from its transcript (Orca shows 200 characters).
 	LastMessage func(worktree string) string
-	BoardURL    string
+	// Conversation: the agent's whole Claude Code session, for the card.
+	Conversation func(worktree string, limit int) []orca.Turn
+	BoardURL     string
 	// Hosts: code hosts made for repos whose tracker is not one (Jira tasks), by web host.
 	hosts map[string]trackers.CodeHost
 
@@ -65,7 +67,7 @@ type LogLine struct {
 
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	return &Dispatcher{
-		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage,
+		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
 		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{},
 		wake: make(chan struct{}, 1),
 	}

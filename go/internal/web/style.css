@@ -138,3 +138,17 @@ body.phone header > button { padding: 6px 8px; }
   .item { padding-top: 12px; padding-bottom: 12px; }
   .actions button { padding: 10px 14px; }
 }
+
+/* the conversation with the agent */
+.chat { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.chat > summary { padding: 10px 12px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.chat-body { border-top: 1px solid var(--line); padding: 12px; max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.chat-empty { padding: 4px 0; }
+.msg-user { align-self: flex-end; max-width: 85%; background: var(--sel); border-radius: 12px 12px 4px 12px; padding: 8px 12px; font-size: 13.5px; }
+.msg-user summary { cursor: pointer; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-agent { max-width: 100%; overflow-wrap: anywhere; font-size: 13.5px; }
+.msg-agent p { margin: 4px 0; }
+.msg-agent h4 { font-size: 13px; margin: 8px 0 4px; }
+.msg-agent ul { margin: 0 0 6px; padding-left: 18px; }
+.tools { font: 11.5px/1.5 var(--mono); color: var(--mute); border-left: 2px solid var(--line); padding-left: 10px; overflow: hidden; }
+.tools div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

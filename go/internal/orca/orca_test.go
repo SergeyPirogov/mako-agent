@@ -183,3 +183,43 @@ func TestLastMessage(t *testing.T) {
 		t.Fatal("a message for a worktree without sessions")
 	}
 }
+
+func TestConversation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	wt := "/Users/s/orca/workspaces/app/app-7"
+	dir := filepath.Join(home, ".claude", "projects", "-Users-s-orca-workspaces-app-app-7")
+	os.MkdirAll(dir, 0o755)
+	lines := []string{
+		`{"type":"user","timestamp":"2026-10-31T08:15:00Z","message":{"role":"user","content":"You are working on GitLab issue app#7."}}`,
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>…"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Подивлюсь звіт."},{"type":"tool_use","name":"Read","input":{"file_path":"/w/summary.md"}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"big file"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"npm   test\n -- payment","description":"Run"}}]}}`,
+		`{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"subagent"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>x</system-reminder>"},{"type":"text","text":"Так, запускай"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Готово: 3 тести впали."}]}}`,
+	}
+	os.WriteFile(filepath.Join(dir, "s.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	got := Conversation(wt, 100)
+	want := []string{
+		"user You are working on GitLab issue app#7.",
+		"agent Подивлюсь звіт.",
+		"tool Read: /w/summary.md",
+		"tool Bash: npm test -- payment",
+		"user Так, запускай",
+		"agent Готово: 3 тести впали.",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i, w := range want {
+		if got[i].Role+" "+got[i].Text != w {
+			t.Errorf("%d: %q, want %q", i, got[i].Role+" "+got[i].Text, w)
+		}
+	}
+	if last := Conversation(wt, 2); len(last) != 2 || last[1].Text != "Готово: 3 тести впали." {
+		t.Fatalf("limit: %+v", last)
+	}
+}
