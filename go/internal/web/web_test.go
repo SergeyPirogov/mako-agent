@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,5 +44,48 @@ func TestBoard(t *testing.T) {
 	json.NewDecoder(res.Body).Decode(&st)
 	if len(st.Records) != 1 || !st.Records[0].Postponed || st.Records[0].Column != "new" {
 		t.Fatalf("state %+v", st.Records)
+	}
+}
+
+func TestSettingsSaveReloads(t *testing.T) {
+	home := t.TempDir()
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	post := func(body string) map[string]any {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/settings", strings.NewReader(body))
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return out
+	}
+	// Something Mako could not read is refused and nothing is written.
+	if r := post(`{"config":{"trackers":[{"type":"svn"}]}}`); r["ok"] != false {
+		t.Fatalf("bad config saved: %v", r)
+	}
+	r := post(`{"config":{"wipLimit":2,"keepMe":{"x":1},"trackers":[{"type":"github","allProjects":true}]},"env":{"GITHUB_TOKEN":"tok"}}`)
+	if r["ok"] != true {
+		t.Fatalf("save: %v", r)
+	}
+	if d.Config().WipLimit != 2 || len(d.TrackerList()) != 1 {
+		t.Fatalf("not reloaded: %+v %v", d.Config(), d.TrackerList())
+	}
+	data, _ := os.ReadFile(filepath.Join(home, "mako.config.json"))
+	if !strings.Contains(string(data), `"keepMe"`) {
+		t.Fatalf("unknown settings lost:\n%s", data)
+	}
+	res, _ := http.Get(srv.URL + "/api/settings")
+	var got settingsReply
+	json.NewDecoder(res.Body).Decode(&got)
+	if !got.Env["GITHUB_TOKEN"] || got.Env["GITLAB_TOKEN"] {
+		t.Fatalf("env %v", got.Env)
+	}
+	if strings.Contains(string(got.Config), "tok") {
+		t.Fatal("the token leaked into the page")
 	}
 }

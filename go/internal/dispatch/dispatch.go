@@ -42,6 +42,10 @@ type Dispatcher struct {
 	// Hosts: code hosts made for repos whose tracker is not one (Jira tasks), by web host.
 	hosts map[string]trackers.CodeHost
 
+	cfgMu    sync.RWMutex // Cfg, Trackers, Problems, Paused: the settings page replaces them
+	Problems []string     // why Mako cannot work as set up: no config, a tracker without a token
+	Paused   bool         // «Пауза»: no searching for tasks
+
 	mu       sync.Mutex // the trackers' projects, searches, logs
 	searches map[string]Search
 	logs     []LogLine
@@ -63,10 +67,59 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 	}
 }
 
+// Config and TrackerList: the current settings (the settings page may replace them at any time).
+func (d *Dispatcher) Config() *config.Config {
+	d.cfgMu.RLock()
+	defer d.cfgMu.RUnlock()
+	return d.Cfg
+}
+
+func (d *Dispatcher) TrackerList() []trackers.Tracker {
+	d.cfgMu.RLock()
+	defer d.cfgMu.RUnlock()
+	return d.Trackers
+}
+
+func (d *Dispatcher) Status() (problems []string, paused bool) {
+	d.cfgMu.RLock()
+	defer d.cfgMu.RUnlock()
+	return d.Problems, d.Paused
+}
+
+func (d *Dispatcher) SetPaused(on bool) {
+	d.cfgMu.Lock()
+	d.Paused = on
+	d.cfgMu.Unlock()
+	if !on {
+		d.Wake()
+	}
+}
+
+// Reload applies new settings; hand-offs already under way keep the ones they started with.
+func (d *Dispatcher) Reload(cfg *config.Config, ts []trackers.Tracker, problems []string) {
+	d.cfgMu.Lock()
+	d.Cfg, d.Trackers, d.Problems = cfg, ts, problems
+	d.cfgMu.Unlock()
+	d.mu.Lock()
+	d.hosts = map[string]trackers.CodeHost{}
+	d.searches = map[string]Search{}
+	d.mu.Unlock()
+	d.Wake()
+}
+
 func (d *Dispatcher) Log(id, text string) {
-	log.Printf("[%s] %s", id, text)
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// The same complaint every minute (a repo not cloned yet, a tracker down) is said once.
+	for i := len(d.logs) - 1; i >= 0; i-- {
+		if d.logs[i].ID == id {
+			if d.logs[i].Text == text {
+				return
+			}
+			break
+		}
+	}
+	log.Printf("[%s] %s", id, text)
 	d.logs = append(d.logs, LogLine{At: time.Now(), ID: id, Text: text})
 	if len(d.logs) > 500 {
 		d.logs = d.logs[len(d.logs)-500:]
@@ -96,7 +149,7 @@ func (d *Dispatcher) Searches() map[string]Search {
 }
 
 func (d *Dispatcher) tracker(id string) trackers.Tracker {
-	for _, t := range d.Trackers {
+	for _, t := range d.TrackerList() {
 		if t.ID() == id {
 			return t
 		}
@@ -120,7 +173,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-d.wake:
-		case <-time.After(time.Duration(d.Cfg.PollIntervalSec) * time.Second):
+		case <-time.After(time.Duration(d.Config().PollIntervalSec) * time.Second):
 		}
 	}
 }
@@ -140,7 +193,10 @@ func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 // --- new tasks
 
 func (d *Dispatcher) Poll(ctx context.Context) {
-	for _, t := range d.Trackers {
+	if _, paused := d.Status(); paused {
+		return
+	}
+	for _, t := range d.TrackerList() {
 		tasks, err := t.FetchMine(ctx)
 		s := Search{At: time.Now(), Found: len(tasks)}
 		if err != nil {
@@ -194,7 +250,7 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 		})
 		d.Log(task.ID, "нова задача: "+task.Title)
 		notify.Inform("🦈 Нова задача", task.ID+": "+task.Title, d.BoardURL)
-		if d.Cfg.Notifications.AutoTake {
+		if d.Config().Notifications.AutoTake {
 			d.Take(ctx, task.ID)
 		}
 	case r.Status == core.Cancelled && r.Gone != "":
@@ -217,7 +273,7 @@ func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 		return
 	}
 	taken := map[string]bool{}
-	for _, tr := range d.Trackers {
+	for _, tr := range d.TrackerList() {
 		for _, p := range tr.Config().Projects {
 			for _, r := range p.Repos {
 				taken[r.Path] = true
@@ -228,13 +284,13 @@ func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 	name := parts[len(parts)-1]
 	// Two projects called «frontend» in different groups must not share a folder.
 	for _, n := range []string{name, strings.Join(parts[len(parts)-2:], "-"), strings.ReplaceAll(project, "/", "-")} {
-		if !taken[filepath.Join(d.Cfg.ProjectsDir, n)] {
+		if !taken[filepath.Join(d.Config().ProjectsDir, n)] {
 			name = n
 			break
 		}
 	}
-	existing := gitx.FindClone(d.Cfg.Home, project)
-	repo := d.Cfg.NewRepo(name, existing, config.DefaultCloneURL(tc, project), "", "")
+	existing := gitx.FindClone(d.Config().Home, project)
+	repo := d.Config().NewRepo(name, existing, config.DefaultCloneURL(tc, project), "", "")
 	if tc.Projects == nil {
 		tc.Projects = map[string]*config.Project{}
 	}
@@ -305,7 +361,7 @@ func (d *Dispatcher) schedule(ctx context.Context) {
 	}
 	var start []string
 	for _, r := range d.Store.All() {
-		if r.Status == core.Queued && !d.starting[r.ID] && (d.Cfg.WipLimit <= 0 || active < d.Cfg.WipLimit) {
+		if r.Status == core.Queued && !d.starting[r.ID] && (d.Config().WipLimit <= 0 || active < d.Config().WipLimit) {
 			d.starting[r.ID] = true
 			start = append(start, r.ID)
 			active++
@@ -374,7 +430,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.move(ctx, t, r.Task, trackers.AtStart)
 
-	res, err := d.Hand(ctx, d.Cfg.Orca, orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch}, logf)
+	res, err := d.Hand(ctx, d.Config().Orca, orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch}, logf)
 	if err != nil {
 		d.move(ctx, t, r.Task, trackers.AtFailed)
 		fail(err)
@@ -385,7 +441,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	})
 	d.Log(id, "передано в Orca: "+res.Note)
 	who := "агент відкриє MR"
-	if d.Cfg.Orca.MRBy == "me" {
+	if d.Config().Orca.MRBy == "me" {
 		who = "MR відкриє розробник"
 	}
 	if err := t.Comment(ctx, r.Task, fmt.Sprintf("🦈 Mako: задачу передано агенту в Orca, гілка `%s`; %s.", res.Branch, who)); err != nil {
@@ -421,7 +477,7 @@ func (d *Dispatcher) host(ctx context.Context, t trackers.Tracker, repo *config.
 	if ch, ok := t.(trackers.CodeHost); ok && (h == "" || ch.Host() == h) {
 		return ch, project, nil
 	}
-	for _, other := range d.Trackers {
+	for _, other := range d.TrackerList() {
 		if ch, ok := other.(trackers.CodeHost); ok && ch.Host() == h {
 			return ch, project, nil
 		}
@@ -438,9 +494,9 @@ func (d *Dispatcher) host(ctx context.Context, t trackers.Tracker, repo *config.
 		if h != "github.com" {
 			cfg.APIURL = "https://" + h + "/api/v3"
 		}
-		ch, err = trackers.NewGitHub(cfg, trackers.GitHubToken(d.Cfg))
+		ch, err = trackers.NewGitHub(cfg, trackers.GitHubToken(d.Config()))
 	} else {
-		ch, err = trackers.NewGitLab(&config.Tracker{Type: "gitlab", ID: "gitlab@" + h, BaseURL: "https://" + h}, d.Cfg.Get("GITLAB_TOKEN"))
+		ch, err = trackers.NewGitLab(&config.Tracker{Type: "gitlab", ID: "gitlab@" + h, BaseURL: "https://" + h}, d.Config().Get("GITLAB_TOKEN"))
 	}
 	if err != nil {
 		return nil, "", err
@@ -507,7 +563,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		d.move(ctx, t, r.Task, trackers.AtReview)
 		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
-		orca.Mark(ctx, d.Cfg.Orca, repo.Path, r.Worktree, branch, "in-review")
+		orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
 		notify.Inform("✅ "+r.ID+": є MR", review.URL, review.URL)
 		if review.State != "open" {
 			d.CheckMerges(ctx)
@@ -583,7 +639,7 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			d.Log(r.ID, "MR змерджено")
 			d.Store.Update(r.ID, func(r *core.Record) { r.ReviewState, r.MergedAt = "merged", now() })
 			d.move(ctx, t, r.Task, trackers.AtMerged)
-			orca.Mark(ctx, d.Cfg.Orca, repo.Path, r.Worktree, r.Branch, "done")
+			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
 			notify.Inform("🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
 		case "closed":
 			d.Log(r.ID, "MR закрито без мерджу")
@@ -632,7 +688,7 @@ func (d *Dispatcher) markGone(r core.Record, st string) {
 
 // AutoArchive takes finished tasks off the board ArchiveAfterDays after they finished (not those in review).
 func (d *Dispatcher) AutoArchive(at time.Time) int {
-	days := d.Cfg.ArchiveAfterDays
+	days := d.Config().ArchiveAfterDays
 	if days <= 0 {
 		return 0
 	}
@@ -663,7 +719,7 @@ func (d *Dispatcher) AutoArchive(at time.Time) int {
 // Later postpones a new task for minutes (the notification's snooze when 0).
 func (d *Dispatcher) Later(id string, minutes int) {
 	if minutes <= 0 {
-		minutes = d.Cfg.Notifications.SnoozeMin
+		minutes = d.Config().Notifications.SnoozeMin
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.PostponedByYou, r.SnoozedUntil = core.Snoozed, true, time.Now().Add(time.Duration(minutes)*time.Minute).UnixMilli()

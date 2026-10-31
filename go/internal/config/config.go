@@ -5,10 +5,12 @@ package config
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -86,17 +88,24 @@ type Repo struct {
 	WorktreesDir  string
 }
 
-// Load reads mako.config.json and .env from home.
+// ErrMissing: there is no mako.config.json yet (first start).
+var ErrMissing = errors.New("Mako ще не налаштований")
+
+// Load reads mako.config.json and .env from home. When the file is missing or wrong it still returns a config
+// with the defaults, so Mako starts and the settings page can fix it; the error says what is wrong.
 func Load(home string) (*Config, error) {
 	path := filepath.Join(home, "mako.config.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("немає налаштувань %s: %w", path, err)
-	}
 	env := readEnv(filepath.Join(home, ".env"))
-	c, err := Parse(data, env)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		err = ErrMissing
+	}
+	var c *Config
+	if err == nil {
+		c, err = Parse(data, env)
+	}
 	if err != nil {
-		return nil, err
+		c, _ = Parse([]byte("{}"), env)
 	}
 	c.Path, c.Home = path, home
 	// As the TypeScript Mako: .mako next to the config, a relative stateDir from there too.
@@ -106,7 +115,43 @@ func Load(home string) (*Config, error) {
 	if !filepath.IsAbs(c.StateDir) {
 		c.StateDir = filepath.Join(home, c.StateDir)
 	}
-	return c, nil
+	return c, err
+}
+
+// SaveEnv sets keys in home/.env, keeping its other lines; an empty value removes the key.
+func SaveEnv(home string, updates map[string]string) error {
+	path := filepath.Join(home, ".env")
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	var lines []string
+	done := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+		k, _, ok := strings.Cut(strings.TrimSpace(line), "=")
+		k = strings.TrimSpace(k)
+		if v, change := updates[k]; ok && change && !strings.HasPrefix(k, "#") {
+			done[k] = true
+			if v == "" {
+				continue
+			}
+			line = k + "=" + v
+		}
+		if line != "" || len(lines) > 0 {
+			lines = append(lines, line)
+		}
+	}
+	keys := make([]string, 0, len(updates))
+	for k := range updates {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if !done[k] && updates[k] != "" {
+			lines = append(lines, k+"="+updates[k])
+		}
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
 }
 
 // Parse turns the raw config into what the dispatcher needs and fills the defaults.
@@ -152,9 +197,6 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			return nil, fmt.Errorf("трекер %d: %w", i+1, err)
 		}
 		c.Trackers = append(c.Trackers, t)
-	}
-	if len(c.Trackers) == 0 {
-		return nil, fmt.Errorf("у налаштуваннях немає жодного трекера")
 	}
 	return c, nil
 }

@@ -40,3 +40,27 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+
+  # The Go version: one small menu bar app (universal binary), see go/README.md.
+  mac-go:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - run: go test ./...
+        working-directory: go
+      - run: go/packaging/mac/build-app.sh ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: go/dist/*.zip
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: Mako-go-mac
+          path: go/dist/*.zip

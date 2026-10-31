@@ -1,0 +1,24 @@
+// Shared by the board and the settings: the theme button in the header.
+(() => {
+const ICONS = {
+  auto: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor"/></svg>',
+  light: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3"/></g></svg>',
+  dark: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7z" fill="currentColor"/></svg>',
+};
+const THEMES = ["auto", "light", "dark"], THEME_LABEL = { auto: "Тема: як у системі", light: "Тема: світла", dark: "Тема: темна" };
+function applyTheme(t) {
+  if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.dataset.theme = t;
+  document.getElementById("theme").innerHTML = ICONS[t];
+  document.getElementById("theme").title = THEME_LABEL[t];
+}
+let theme = (() => { try { return localStorage.getItem("mako-theme") || "auto"; } catch { return "auto"; } })();
+if (!THEMES.includes(theme)) theme = "auto";
+applyTheme(theme);
+document.getElementById("theme").onclick = () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  try { localStorage.setItem("mako-theme", theme); } catch {}
+  applyTheme(theme);
+};
+
+})();

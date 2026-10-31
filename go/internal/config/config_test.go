@@ -54,3 +54,22 @@ func TestLoadSharesTheTypeScriptState(t *testing.T) {
 		t.Errorf("state %s token %q", cfg.StateDir, cfg.Get("GITHUB_TOKEN"))
 	}
 }
+
+func TestLoadWithoutConfig(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != ErrMissing || cfg == nil || cfg.Notifications.Port != 7777 || len(cfg.Trackers) != 0 {
+		t.Fatalf("%v %+v", err, cfg)
+	}
+}
+
+func TestSaveEnv(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, ".env"), []byte("# tokens\nGITLAB_TOKEN=old\nOTHER=1\n"), 0o600)
+	if err := SaveEnv(home, map[string]string{"GITLAB_TOKEN": "new", "JIRA_EMAIL": "a@b", "OTHER": ""}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(home, ".env"))
+	if string(data) != "# tokens\nGITLAB_TOKEN=new\nJIRA_EMAIL=a@b\n" {
+		t.Fatalf("%q", data)
+	}
+}

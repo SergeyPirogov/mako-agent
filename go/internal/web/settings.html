@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mako · Налаштування</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+body { display: block; }
+.page { max-width: 760px; margin: 0 auto; padding: 24px 16px 120px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.lead { color: var(--mute); margin: 0 0 20px; }
+h2 { font-size: 15px; margin: 32px 0 10px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+.card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.card-head b { font-size: 15px; }
+.field { display: grid; grid-template-columns: 220px 1fr; gap: 6px 16px; align-items: start; padding: 7px 0; }
+.field > label { padding-top: 7px; color: var(--fg); }
+.field .hint { grid-column: 2; font-size: 12.5px; color: var(--mute); margin-top: -2px; }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; }
+.check input { margin-top: 3px; }
+.check .hint { font-size: 12.5px; color: var(--mute); }
+input[type=text], input[type=number], input[type=password], select, textarea {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; width: 100%; min-width: 0; }
+input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: 0; border-color: var(--accent); }
+input[type=number] { width: 120px; }
+textarea { min-height: 120px; font: 12.5px/1.5 var(--mono); resize: vertical; }
+.projects { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.projects th { text-align: left; font-weight: 500; font-size: 12px; color: var(--mute); padding: 4px 6px; }
+.projects td { padding: 3px 6px 3px 0; vertical-align: top; }
+.projects td:last-child { width: 1%; }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
+.ok { color: var(--ok); }
+.bad { color: var(--err); }
+.savebar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line); padding: 12px 16px; }
+.savebar .in { max-width: 760px; margin: 0 auto; display: flex; gap: 12px; align-items: center; }
+.msg { color: var(--mute); font-size: 13px; overflow-wrap: anywhere; }
+.msg.bad { color: var(--err); }
+.msg.ok { color: var(--ok); }
+.add { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .field { grid-template-columns: 1fr; }
+  .field .hint { grid-column: 1; }
+  .projects th:nth-child(3), .projects td:nth-child(3) { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/" style="color:inherit">🦈 Mako</a>
+  <a class="ghost-link" href="/">← Дошка</a>
+  <span class="spacer"></span>
+  <button class="ghost" id="theme" title="Тема"></button>
+</header>
+<div id="problems"></div>
+<div class="page">
+  <h1>Налаштування</h1>
+  <p class="lead" id="where"></p>
+
+  <h2>Трекери</h2>
+  <div id="trackers"></div>
+  <div class="add">
+    <button data-add="gitlab">+ GitLab</button>
+    <button data-add="github">+ GitHub</button>
+    <button data-add="jira">+ Jira Cloud</button>
+  </div>
+
+  <h2>Orca</h2>
+  <div class="card" id="orca"></div>
+
+  <h2>Задачі й ліміти</h2>
+  <div class="card" id="limits"></div>
+
+  <h2>Сповіщення</h2>
+  <div class="card" id="notifications"></div>
+</div>
+<div class="savebar"><div class="in">
+  <button class="primary" id="save">Зберегти</button>
+  <button class="ghost" id="revert">Скасувати зміни</button>
+  <span class="msg" id="msg"></span>
+</div></div>
+<script src="/theme.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let cfg = {}, env = {}, envSet = {}, jiraBase = "", dirty = false;
+const TOKENS = { gitlab: [["GITLAB_TOKEN", "Токен", "Personal access token зі scope api: GitLab → Preferences → Access tokens"]],
+  github: [["GITHUB_TOKEN", "Токен", "Fine-grained token з доступом до Issues і Pull requests. Порожньо — береться з gh auth login"]],
+  jira: [["JIRA_EMAIL", "Email в Atlassian", ""], ["JIRA_API_TOKEN", "API-токен", "id.atlassian.com → Security → API tokens"]] };
+const NAMES = { gitlab: "GitLab", github: "GitHub", jira: "Jira Cloud" };
+
+function changed() { dirty = true; $("msg").className = "msg"; $("msg").textContent = "Є незбережені зміни"; }
+
+// Small form helpers bound to a path in an object: they write back on input.
+function text(obj, key, label, { hint = "", placeholder = "", type = "text", parse } = {}) {
+  const id = "f" + Math.random().toString(36).slice(2);
+  const el = document.createElement("div");
+  el.className = "field";
+  const v = obj[key];
+  el.innerHTML = `<label for="${id}">${label}</label><input id="${id}" type="${type}" placeholder="${esc(placeholder)}" value="${esc(v ?? "")}">${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  el.querySelector("input").oninput = (e) => {
+    const raw = e.target.value;
+    if (raw.trim() === "") delete obj[key];
+    else obj[key] = parse ? parse(raw) : raw;
+    changed();
+  };
+  return el;
+}
+const num = (obj, key, label, opts = {}) => text(obj, key, label, { ...opts, type: "number", parse: (x) => Number(x) });
+function check(obj, key, label, { hint = "", def = false } = {}) {
+  const el = document.createElement("label");
+  el.className = "check";
+  el.innerHTML = `<input type="checkbox" ${(obj[key] ?? def) ? "checked" : ""}><span>${label}${hint ? `<div class="hint">${hint}</div>` : ""}</span>`;
+  el.querySelector("input").onchange = (e) => {
+    if (e.target.checked === def) delete obj[key];
+    else obj[key] = e.target.checked;
+    changed();
+  };
+  return el;
+}
+function select(obj, key, label, options, { hint = "", def = "" } = {}) {
+  const el = document.createElement("div");
+  el.className = "field";
+  const cur = obj[key] ?? def;
+  el.innerHTML = `<label>${label}</label><select>${options.map(([v, l]) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${l}</option>`).join("")}</select>${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  el.querySelector("select").onchange = (e) => {
+    if (e.target.value === def) delete obj[key];
+    else obj[key] = e.target.value;
+    changed();
+  };
+  return el;
+}
+function secret(key, label, hint) {
+  const el = document.createElement("div");
+  el.className = "field";
+  const plain = key === "JIRA_EMAIL";
+  el.innerHTML = `<label>${label}</label><input type="${plain ? "text" : "password"}" autocomplete="off" placeholder="${envSet[key] ? "задано — введіть, щоб замінити" : "не задано"}" value="${esc(env[key] ?? "")}">${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  el.querySelector("input").oninput = (e) => {
+    if (e.target.value.trim()) env[key] = e.target.value.trim();
+    else delete env[key];
+    changed();
+  };
+  return el;
+}
+
+// transitions: absent → Mako guesses (or leaves it, where it cannot), "" in the form → absent, «-» → null: leave alone
+function transition(t, key, label, auto) {
+  t.transitions ??= {};
+  const tr = t.transitions;
+  const el = document.createElement("div");
+  el.className = "field";
+  const v = tr[key] === null ? "-" : tr[key] ?? "";
+  el.innerHTML = `<label>${label}</label><input type="text" placeholder="${esc(auto)}" value="${esc(v)}">`;
+  el.querySelector("input").oninput = (e) => {
+    const raw = e.target.value.trim();
+    if (!raw) delete tr[key];
+    else tr[key] = raw === "-" ? null : raw;
+    if (!Object.keys(tr).length) delete t.transitions;
+    changed();
+  };
+  return el;
+}
+
+function renderTrackers() {
+  const box = $("trackers");
+  box.innerHTML = "";
+  (cfg.trackers ?? []).forEach((t, i) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<div class="card-head"><b>${NAMES[t.type] ?? esc(t.type)}</b><span class="msg" data-me></span><span class="spacer"></span>
+      <button data-check>Перевірити підключення</button><button class="ghost danger" data-del>Видалити</button></div>`;
+    if (t.type === "gitlab") card.append(text(t, "baseUrl", "Адреса GitLab", { placeholder: "https://gitlab.com" }));
+    if (t.type === "jira") card.append(text(t, "baseUrl", "Адреса Jira", { placeholder: jiraBase || "https://acme.atlassian.net" }));
+    for (const [key, label, hint] of TOKENS[t.type] ?? []) card.append(secret(key, label, hint));
+
+    if (t.type === "jira") {
+      card.append(text(t, "jql", "Які задачі брати (JQL)", { placeholder: "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC" }));
+    } else {
+      card.append(check(t, "allProjects", "Мої задачі з усіх проєктів", { hint: "Задача, призначена на вас у будь-якому проєкті. Проєкт додається сам, репозиторій клонується в папку проєктів при передачі в Orca" }));
+      t.labels ??= {};
+      const noLabel = t.labels.trigger === null;
+      const label = document.createElement("div");
+      label.append(check({ v: noLabel }, "v", "Брати всі мої задачі, без мітки"));
+      label.querySelector("input").onchange = (e) => {
+        if (e.target.checked) t.labels.trigger = null;
+        else delete t.labels.trigger;
+        if (!Object.keys(t.labels).length) delete t.labels;
+        changed();
+        renderTrackers();
+      };
+      card.append(label);
+      if (!noLabel) card.append(text(t.labels, "trigger", "Мітка для агента", { placeholder: "claude-agent", hint: "Задачі з цією міткою" }));
+      card.append(text(t, "assignee", "Лише призначені на", { placeholder: noLabel || t.allProjects ? "мене" : "будь-кого", hint: "Логін або me" }));
+    }
+    card.append(check(t, "assignOnTake", "«Віддати в Orca» призначає задачу на мене", { def: true }));
+    card.append(check(t, "skipOthersTasks", "Не пропонувати задачі, призначені на інших", { def: true }));
+
+    const statuses = document.createElement("details");
+    statuses.innerHTML = `<summary>Статуси задачі в трекері</summary><div class="hint" style="color:var(--mute);font-size:12.5px;margin:4px 0 6px">
+      Назва статусу${t.type === "jira" ? " або переходу" : ""}. Порожньо — як підказано сірим, «-» — не змінювати.${t.type === "github" ? " У GitHub статусів немає: після мерджу задача закривається." : ""}</div>`;
+    if (t.type !== "github") {
+      const auto = t.type === "gitlab";
+      statuses.append(transition(t, "onStart", "Коли передано в Orca", auto ? "автоматично: In progress" : "не змінювати"));
+      statuses.append(transition(t, "onSuccess", "Коли є MR", "не змінювати"));
+      statuses.append(transition(t, "onFailure", "Коли не вдалось", "не змінювати"));
+      statuses.append(transition(t, "onMerged", "Коли MR змерджено", "автоматично: Done"));
+      card.append(statuses);
+    }
+
+    card.append(projectsTable(t));
+    if (t.type === "github") {
+      const more = document.createElement("details");
+      more.innerHTML = "<summary>Додатково</summary>";
+      more.append(text(t, "apiUrl", "API GitHub Enterprise", { placeholder: "https://api.github.com" }));
+      card.append(more);
+    }
+    card.querySelector("[data-del]").onclick = () => {
+      if (!confirm(`Видалити трекер ${NAMES[t.type]}?`)) return;
+      cfg.trackers.splice(i, 1);
+      changed();
+      renderTrackers();
+    };
+    card.querySelector("[data-check]").onclick = async (e) => {
+      const out = card.querySelector("[data-me]");
+      out.className = "msg";
+      out.textContent = "Перевіряю…";
+      const r = await (await fetch("/api/settings/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tracker: t, env }) })).json();
+      out.className = "msg " + (r.ok ? "ok" : "bad");
+      out.textContent = r.ok ? `✓ Підключено: ${r.me}` : r.error;
+    };
+    box.append(card);
+  });
+  if (!cfg.trackers?.length) box.innerHTML = `<div class="card" style="color:var(--mute)">Додайте хоча б один трекер.</div>`;
+}
+
+function projectsTable(t) {
+  t.projects ??= {};
+  const wrap = document.createElement("div");
+  const what = t.type === "jira" ? "Ключ проєкту Jira" : t.type === "github" ? "Репозиторій GitHub" : "Проєкт GitLab";
+  const ph = t.type === "jira" ? "PAY" : t.type === "github" ? "acme/web" : "group/app";
+  wrap.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Проєкти</h3>
+    <div style="font-size:12.5px;color:var(--mute)">${t.type === "jira" ? "Для кожного проєкту Jira — де лежить код." : "Порожній шлях — клон у папці проєктів, адреса для клонування — за SSH."}</div>
+    <table class="projects"><thead><tr><th>${what}</th><th>Шлях до репозиторію</th><th>Звідки клонувати</th><th></th></tr></thead><tbody></tbody></table>
+    <button style="margin-top:6px" data-addp>+ Проєкт</button>`;
+  const body = wrap.querySelector("tbody");
+  const rows = Object.entries(t.projects);
+  for (const [key, p] of rows) {
+    const tr = document.createElement("tr");
+    const multi = p && p.repos && Object.keys(p.repos).length > 1;
+    tr.innerHTML = `<td><input type="text" value="${esc(key)}" data-key></td>` +
+      (multi ? `<td colspan="2" style="color:var(--mute);font-size:12.5px;padding-top:8px">Кілька репозиторіїв (${Object.keys(p.repos).map(esc).join(", ")}): змінюйте у mako.config.json</td>`
+        : `<td><input type="text" placeholder="~/mako/projects/${esc(key.split("/").pop() || "назва")}" value="${esc(p?.repoPath ?? "")}" data-f="repoPath"></td>
+           <td><input type="text" placeholder="${t.type === "jira" ? "git@host:group/app.git" : "автоматично"}" value="${esc(p?.cloneUrl ?? "")}" data-f="cloneUrl"></td>`) +
+      `<td><button class="ghost danger" title="Прибрати">✕</button></td>`;
+    let current = key;
+    tr.querySelector("[data-key]").onchange = (e) => {
+      const nk = e.target.value.trim();
+      if (!nk || nk === current || t.projects[nk]) { e.target.value = current; return; }
+      const entries = Object.entries(t.projects).map(([k, v]) => (k === current ? [nk, v] : [k, v]));
+      t.projects = Object.fromEntries(entries);
+      current = nk;
+      changed();
+    };
+    for (const inp of tr.querySelectorAll("[data-f]")) {
+      inp.oninput = () => {
+        const p = (t.projects[current] ??= {});
+        if (inp.value.trim()) p[inp.dataset.f] = inp.value.trim();
+        else delete p[inp.dataset.f];
+        changed();
+      };
+    }
+    tr.querySelector("button").onclick = () => { delete t.projects[current]; changed(); renderTrackers(); };
+    body.append(tr);
+  }
+  if (!rows.length) body.innerHTML = `<tr><td colspan="4" style="color:var(--mute);font-size:12.5px;padding:6px 0">${t.allProjects ? "Не обовʼязково: задачі з усіх проєктів підхоплюються самі." : "Немає проєктів."}</td></tr>`;
+  wrap.querySelector("[data-addp]").onclick = () => {
+    const key = prompt(`${what}, наприклад ${ph}`)?.trim();
+    if (!key || t.projects[key]) return;
+    t.projects[key] = {};
+    changed();
+    renderTrackers();
+  };
+  return wrap;
+}
+
+// The Orca executor: the default one, or the first; made when there is none.
+function orcaExecutor() {
+  cfg.executors ??= {};
+  const names = Object.keys(cfg.executors).filter((n) => cfg.executors[n]?.type === "orca");
+  const name = names.includes(cfg.defaultExecutor) ? cfg.defaultExecutor : names[0];
+  if (name) return cfg.executors[name];
+  cfg.executors.orca = { type: "orca" };
+  cfg.defaultExecutor = "orca";
+  cfg.mode = "dispatch";
+  return cfg.executors.orca;
+}
+
+function renderOrca() {
+  const o = orcaExecutor();
+  const box = $("orca");
+  box.innerHTML = "";
+  const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
+  if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
+  box.append(select(o, "agent", "Агент в Orca", agents, { def: "claude" }));
+  box.append(select(o, "mrBy", "Хто відкриває MR", [["agent", "агент: пушить гілку й відкриває MR"], ["me", "я: агент лише комітить, MR — кнопкою в Orca"]], { def: "agent" }));
+  const instr = document.createElement("div");
+  instr.className = "field";
+  instr.innerHTML = `<label>Що сказати агенту після опису задачі</label><textarea placeholder="Порожньо — стандартна інструкція: закомітити з нормальними повідомленнями, запушити гілку й відкрити MR з описом"></textarea>
+    <div class="hint">Підставляються {branch} {baseBranch} {taskId} {title} {url} {closingRef}</div>`;
+  const ta = instr.querySelector("textarea");
+  ta.value = o.instructions ?? "";
+  ta.oninput = () => { if (ta.value.trim()) o.instructions = ta.value; else delete o.instructions; changed(); };
+  box.append(instr);
+  box.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
+  const more = document.createElement("details");
+  more.innerHTML = "<summary>Додатково</summary>";
+  more.append(select(o, "setup", "Підготовка worktree", [["inherit", "як налаштовано в Orca"], ["run", "запускати"], ["skip", "пропускати"]], { def: "inherit" }));
+  more.append(text(o, "command", "Команда Orca", { placeholder: "автоматично (orca у PATH або в Orca.app)" }));
+  box.append(more);
+}
+
+function renderLimits() {
+  const box = $("limits");
+  box.innerHTML = "";
+  box.append(num(cfg, "wipLimit", "Задач в Orca одночасно (WIP)", { placeholder: "без ліміту", hint: "Решта чекає в черзі" }));
+  box.append(num(cfg, "pollIntervalSec", "Шукати задачі кожні, с", { placeholder: "60" }));
+  box.append(num(cfg, "archiveAfterDays", "Архівувати завершені через, днів", { placeholder: "2", hint: "0 — не архівувати" }));
+  box.append(text(cfg, "branchPattern", "Назва гілки задачі", { placeholder: "{type}/{id}-{title}", hint: "{type} — feature або fix, {id}, {title}, {slug}" }));
+  box.append(text(cfg, "projectsDir", "Папка для проєктів", { placeholder: "~/mako/projects" }));
+}
+
+function renderNotifications() {
+  cfg.notifications ??= {};
+  const n = cfg.notifications;
+  const box = $("notifications");
+  box.innerHTML = "";
+  box.append(check(n, "enabled", "Показувати системні сповіщення", { def: true }));
+  box.append(check(n, "autoTake", "Віддавати нові задачі в Orca без питань"));
+  box.append(num(n, "snoozeMin", "«Відкласти» без вибору — на, хв", { placeholder: "60" }));
+  box.append(num(n, "inboxPort", "Порт дошки", { placeholder: "7777", hint: "Діє після перезапуску Mako" }));
+}
+
+function render() {
+  renderTrackers();
+  renderOrca();
+  renderLimits();
+  renderNotifications();
+}
+
+function showProblems(list) {
+  $("problems").innerHTML = list?.length ? `<div class="banner">${list.map((p) => `<div>${esc(p)}</div>`).join("")}</div>` : "";
+}
+
+async function load() {
+  const r = await (await fetch("/api/settings")).json();
+  cfg = r.config ?? {};
+  envSet = r.env;
+  jiraBase = r.jiraBaseUrl ?? "";
+  env = {};
+  $("where").innerHTML = `Зберігаються в <code>${esc(r.home)}/mako.config.json</code> і <code>.env</code>`;
+  showProblems(r.problems);
+  dirty = false;
+  render();
+}
+
+for (const b of document.querySelectorAll("[data-add]")) {
+  b.onclick = () => {
+    cfg.trackers ??= [];
+    const t = { type: b.dataset.add, projects: {} };
+    if (t.type !== "jira") { t.allProjects = true; t.labels = { trigger: null }; }
+    cfg.trackers.push(t);
+    changed();
+    renderTrackers();
+  };
+}
+
+$("revert").onclick = () => load();
+$("save").onclick = async () => {
+  $("save").disabled = true;
+  $("msg").className = "msg";
+  $("msg").textContent = "Зберігаю…";
+  // Empty helper objects the form made stay out of the file.
+  for (const t of cfg.trackers ?? []) {
+    if (t.labels && !Object.keys(t.labels).length) delete t.labels;
+    if (t.transitions && !Object.keys(t.transitions).length) delete t.transitions;
+  }
+  if (cfg.notifications && !Object.keys(cfg.notifications).length) delete cfg.notifications;
+  try {
+    const r = await (await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config: cfg, env }) })).json();
+    if (!r.ok) {
+      $("msg").className = "msg bad";
+      $("msg").textContent = r.error;
+      return;
+    }
+    dirty = false;
+    for (const k of Object.keys(env)) envSet[k] = true;
+    env = {};
+    showProblems(r.problems);
+    $("msg").className = "msg ok";
+    $("msg").textContent = r.problems?.length ? "Збережено, але є що виправити (вгорі)" : "Усі зміни збережено. Mako вже працює з ними";
+    render();
+  } catch (e) {
+    $("msg").className = "msg bad";
+    $("msg").textContent = "Mako не відповідає: " + e.message;
+  } finally {
+    $("save").disabled = false;
+  }
+};
+window.addEventListener("beforeunload", (e) => { if (dirty) e.preventDefault(); });
+load();
+</script>
+</body>
+</html>

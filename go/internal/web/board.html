@@ -4,99 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mako</title>
-<style>
-:root {
-  color-scheme: light dark;
-  --bg: #fbfbfa; --card: #fff; --fg: #1c1d1f; --mute: #6f7277; --faint: #9a9da2; --line: #e7e7e4; --hover: #f3f3f1;
-  --accent: #2f6fde; --ok: #2f9e5b; --warn: #c27c0e; --err: #d14343; --purple: #7b61d9;
-  --primary: #1c1d1f; --primary-fg: #fff; --sel: #eef3fd;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #6c6f75; --line: #26282c; --hover: #1d1f22;
-    --accent: #6b9bff; --ok: #4cc27f; --warn: #e5a23b; --err: #f07070; --purple: #a493f5; --primary: #e9e9ea; --primary-fg: #111214; --sel: #1b2333; color-scheme: dark; }
-}
-:root[data-theme="dark"] { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #6c6f75; --line: #26282c; --hover: #1d1f22;
-  --accent: #6b9bff; --ok: #4cc27f; --warn: #e5a23b; --err: #f07070; --purple: #a493f5; --primary: #e9e9ea; --primary-fg: #111214; --sel: #1b2333; color-scheme: dark; }
-:root[data-theme="light"] { color-scheme: light; }
-* { box-sizing: border-box; }
-html, body { height: 100%; }
-body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); display: flex; flex-direction: column; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
-code { font: 12.5px var(--mono); }
-button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 6px 12px;
-  transition: transform 160ms var(--ease-out), background-color 160ms var(--ease-out); }
-button:hover { background: var(--hover); }
-button:active { transform: scale(0.97); }
-button.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
-button.primary:hover { opacity: .9; }
-button.danger { color: var(--err); }
-button.ghost { border-color: transparent; background: none; color: var(--mute); }
-button.ghost:hover { color: var(--fg); background: var(--hover); }
-header { display: flex; align-items: center; gap: 16px; padding: 0 16px; height: 50px; background: var(--card); border-bottom: 1px solid var(--line); flex: none; }
-.logo { font-weight: 700; font-size: 16px; }
-.wip { color: var(--mute); font-size: 13px; }
-.wip b { color: var(--fg); }
-.wip.full b { color: var(--warn); }
-.spacer { flex: 1; }
-.search { color: var(--mute); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.search.err { color: var(--err); }
-.chips { display: flex; gap: 6px; padding: 10px 16px; flex-wrap: wrap; border-bottom: 1px solid var(--line); flex: none; }
-.chip { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--mute); }
-.chip.on { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
-.chip .n { opacity: .65; margin-left: 4px; }
-.work { flex: 1; display: grid; grid-template-columns: minmax(280px, 380px) 1fr; min-height: 0; }
-aside { border-right: 1px solid var(--line); overflow-y: auto; padding: 8px 0 40px; }
-.group { padding: 14px 16px 6px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); display: flex; gap: 6px; }
-.group .n { color: var(--faint); }
-.item { display: block; width: 100%; text-align: left; border: 0; border-radius: 0; background: none; padding: 9px 16px 9px 14px; border-left: 2px solid transparent; }
-.item:hover { background: var(--hover); }
-.item:active { transform: none; }
-.item.sel { background: var(--sel); border-left-color: var(--accent); }
-.item .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item .m { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--mute); margin-top: 2px; }
-.item.later { opacity: .55; }
-.s { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mute); white-space: nowrap; }
-.s::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
-.s.new::before { background: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
-.s.later::before { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
-.s.doing::before { background: var(--accent); }
-.s.review::before { background: var(--purple); }
-.s.done::before { background: var(--ok); }
-.s.failed::before { background: var(--err); }
-.s.failed { color: var(--err); }
-section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
-.empty { color: var(--mute); padding: 48px 16px; text-align: center; }
-#theme { display: inline-flex; padding: 7px 9px; }
-.d-id .s { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-.d-id { font: 12.5px var(--mono); color: var(--mute); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-h1 { font-size: 20px; margin: 6px 0 12px; line-height: 1.3; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 18px; }
-.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-.facts dt { color: var(--mute); }
-.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.notice { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--err); background: var(--card); margin: 14px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.notice.warn { border-color: var(--warn); }
-h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); margin: 24px 0 8px; }
-.text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.comment { border-left: 2px solid var(--line); padding: 2px 0 2px 12px; margin: 10px 0; }
-.comment b { font-size: 12.5px; }
-.log { font: 12px/1.5 var(--mono); color: var(--mute); white-space: pre-wrap; overflow-wrap: anywhere; }
-.labels { display: flex; gap: 4px; flex-wrap: wrap; }
-.label { font-size: 11.5px; padding: 1px 7px; border-radius: 4px; background: var(--hover); color: var(--mute); }
-.back { display: none; }
-@media (max-width: 760px) {
-  .work { grid-template-columns: 1fr; }
-  .work.detail aside { display: none; }
-  .work:not(.detail) section { display: none; }
-  .back { display: inline-block; margin-bottom: 8px; }
-  section { padding: 16px; }
-  .search { display: none; }
-}
-@media (prefers-reduced-motion: reduce) { button { transition: none; } }
-</style>
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header>
@@ -105,13 +13,17 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
   <span class="search" id="search"></span>
   <span class="spacer"></span>
   <button class="ghost" id="poll" title="Перевірити трекери зараз">Оновити</button>
+  <button class="ghost" id="pause" title="Пауза: не шукати нових задач"></button>
+  <a class="ghost-link" href="/settings">Налаштування</a>
   <button class="ghost" id="theme" title="Тема"></button>
 </header>
+<div id="problems"></div>
 <div class="chips" id="chips"></div>
 <div class="work" id="work">
   <aside id="list"></aside>
   <section id="detail"><div class="empty">Виберіть задачу зліва</div></section>
 </div>
+<script src="/theme.js"></script>
 <script>
 const COLUMNS = [["new", "Нові"], ["doing", "В Orca"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
 const LABEL = { new: "нова", later: "відкладена", doing: "в Orca", review: "на рев'ю", done: "готово", failed: "не виконано" };
@@ -130,32 +42,11 @@ const ago = (iso) => {
 };
 const state = (r) => (r.column === "new" && r.postponed ? "later" : r.column);
 
-// theme: auto (system) → light → dark
-const ICONS = {
-  auto: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor"/></svg>',
-  light: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3" fill="currentColor"/><g stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3"/></g></svg>',
-  dark: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7z" fill="currentColor"/></svg>',
-};
-const THEMES = ["auto", "light", "dark"], THEME_LABEL = { auto: "Тема: як у системі", light: "Тема: світла", dark: "Тема: темна" };
-function applyTheme(t) {
-  if (t === "auto") document.documentElement.removeAttribute("data-theme");
-  else document.documentElement.dataset.theme = t;
-  $("theme").innerHTML = ICONS[t];
-  $("theme").title = THEME_LABEL[t];
-}
-let theme = (() => { try { return localStorage.getItem("mako-theme") || "auto"; } catch { return "auto"; } })();
-if (!THEMES.includes(theme)) theme = "auto";
-applyTheme(theme);
-$("theme").onclick = () => {
-  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
-  try { localStorage.setItem("mako-theme", theme); } catch {}
-  applyTheme(theme);
-};
-
 async function post(action, id, extra = "") {
   await fetch(`/api/${action}?id=${encodeURIComponent(id ?? "")}${extra}`, { method: "POST" });
   await load();
 }
+$("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
 $("poll").onclick = async () => { $("poll").textContent = "Перевіряю…"; await post("poll"); setTimeout(() => ($("poll").textContent = "Оновити"), 1500); };
 
 async function load() {
@@ -175,6 +66,10 @@ function visible() {
 }
 
 function render() {
+  $("problems").innerHTML = data.problems?.length
+    ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}<a href="/settings">Відкрити налаштування →</a></div>` : "";
+  $("pause").textContent = data.paused ? "Продовжити" : "Пауза";
+  $("pause").title = data.paused ? "Пошук нових задач на паузі" : "Пауза: не шукати нових задач";
   const live = data.records.filter((r) => !r.archivedAt);
   const doing = live.filter((r) => r.column === "doing").length;
   $("wip").className = "wip" + (data.wipLimit && doing >= data.wipLimit ? " full" : "");
@@ -184,6 +79,7 @@ function render() {
   $("search").className = "search" + (failed.length ? " err" : "");
   $("search").textContent = failed.length
     ? failed.map(([id, s]) => `${id}: ${s.error}`).join(" · ")
+    : data.paused ? "Пошук задач на паузі"
     : searches.length ? `Перевірено ${ago(searches.map(([, s]) => s.at).sort().pop())}` : "Перша перевірка трекерів…";
   $("search").title = $("search").textContent;
 

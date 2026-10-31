@@ -18,9 +18,16 @@ import (
 //go:embed board.html
 var board []byte
 
+//go:embed style.css
+var style []byte
+
+//go:embed theme.js
+var themeJS []byte
+
 type Server struct {
 	D       *dispatch.Dispatcher
 	Version string
+	Home    string // where mako.config.json and .env live
 }
 
 type stateReply struct {
@@ -30,6 +37,8 @@ type stateReply struct {
 	Records  []recordView               `json:"records"`
 	Searches map[string]dispatch.Search `json:"searches"`
 	Trackers []trackerView              `json:"trackers"`
+	Problems []string                   `json:"problems"`
+	Paused   bool                       `json:"paused"`
 }
 
 type recordView struct {
@@ -45,18 +54,28 @@ type trackerView struct {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	s.settingsRoutes(mux)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Write(board)
 	})
+	mux.HandleFunc("GET /style.css", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Write(style)
+	})
+	mux.HandleFunc("GET /theme.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Write(themeJS)
+	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMilli()
-		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Cfg.WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
+		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
+		reply.Problems, reply.Paused = s.D.Status()
 		for _, rec := range s.D.Store.All() {
 			reply.Records = append(reply.Records, recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now)})
 		}
-		for _, t := range s.D.Trackers {
+		for _, t := range s.D.TrackerList() {
 			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name()})
 		}
 		writeJSON(w, reply)
