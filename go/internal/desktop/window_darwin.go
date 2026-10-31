@@ -210,6 +210,22 @@ static BOOL makoAllowed;
 }
 - (void)userNotificationCenter:(UNUserNotificationCenter *)c didReceiveNotificationResponse:(UNNotificationResponse *)r withCompletionHandler:(void (^)(void))done {
 	NSURL *u = [NSURL URLWithString:r.notification.request.content.userInfo[@"url"] ?: @""];
+	NSString *act = r.actionIdentifier;
+	if (![act isEqualToString:UNNotificationDefaultActionIdentifier] && ![act isEqualToString:UNNotificationDismissActionIdentifier]) {
+		// A button: its identifier is the board's path that answers the agent. Only when that fails (already
+		// answered, the agent gone) the task opens in the window.
+		NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:act relativeToURL:makoBoard]];
+		req.HTTPMethod = @"POST";
+		NSURL *task = u.host ? u : makoBoard;
+		[[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *res, NSError *e) {
+			NSDictionary *j = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+			if (e != nil || ![j isKindOfClass:[NSDictionary class]] || ![j[@"ok"] boolValue]) {
+				makoOpenWindow(task.absoluteString.UTF8String);
+			}
+		}] resume];
+		done();
+		return;
+	}
 	if (u.host == nil || ([u.host isEqualToString:makoBoard.host] && [u.port isEqual:makoBoard.port])) {
 		makoOpenWindow((u.host ? u : makoBoard).absoluteString.UTF8String);
 	} else {
@@ -234,7 +250,12 @@ static void makoNotificationsOn(const char *board) {
 	});
 }
 
-static int makoNotify(const char *title, const char *body, const char *url) {
+// The buttons of each tag's notification: macOS knows actions only through categories, one per tag.
+static NSMutableDictionary<NSString *, UNNotificationCategory *> *makoCategories;
+
+// makoNotify shows a notification; tag ("" for none) replaces the one shown before with it, actions (a JSON
+// array of {title, url, destructive}) are its buttons.
+static int makoNotify(const char *title, const char *body, const char *url, const char *tag, const char *actions) {
 	if (!makoAllowed) {
 		return 0;
 	}
@@ -243,14 +264,62 @@ static int makoNotify(const char *title, const char *body, const char *url) {
 	c.body = [NSString stringWithUTF8String:body];
 	c.sound = [UNNotificationSound defaultSound];
 	c.userInfo = @{@"url": [NSString stringWithUTF8String:url]};
-	UNNotificationRequest *req = [UNNotificationRequest requestWithIdentifier:[NSUUID UUID].UUIDString content:c trigger:nil];
-	[[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:req withCompletionHandler:nil];
+	NSString *ident = [NSString stringWithUTF8String:tag];
+	if (ident.length == 0) {
+		ident = [NSUUID UUID].UUIDString;
+	}
+	NSArray *list = [NSJSONSerialization JSONObjectWithData:[[NSString stringWithUTF8String:actions] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+	NSMutableArray<UNNotificationAction *> *buttons = [NSMutableArray new];
+	if ([list isKindOfClass:[NSArray class]]) {
+		for (NSDictionary *a in list) {
+			if (![a isKindOfClass:[NSDictionary class]]) {
+				continue;
+			}
+			[buttons addObject:[UNNotificationAction actionWithIdentifier:a[@"url"] title:a[@"title"]
+				options:[a[@"destructive"] boolValue] ? UNNotificationActionOptionDestructive : UNNotificationActionOptionNone]];
+		}
+	}
+	NSString *category = [@"mako." stringByAppendingString:ident];
+	c.categoryIdentifier = category;
+	UNNotificationRequest *req = [UNNotificationRequest requestWithIdentifier:ident content:c trigger:nil];
+	dispatch_async(dispatch_get_main_queue(), ^{
+		UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+		if (makoCategories == nil) {
+			makoCategories = [NSMutableDictionary new];
+		}
+		if (buttons.count > 0) {
+			makoCategories[category] = [UNNotificationCategory categoryWithIdentifier:category actions:buttons intentIdentifiers:@[] options:UNNotificationCategoryOptionNone];
+		} else {
+			[makoCategories removeObjectForKey:category];
+		}
+		[center setNotificationCategories:[NSSet setWithArray:makoCategories.allValues]];
+		// The categories are set asynchronously: asking for them waits until they are, so the buttons show.
+		[center getNotificationCategoriesWithCompletionHandler:^(NSSet<UNNotificationCategory *> *set) {
+			[center addNotificationRequest:req withCompletionHandler:nil];
+		}];
+	});
 	return 1;
+}
+
+// makoWithdraw takes the notification with the tag away, shown or not yet.
+static void makoWithdraw(const char *tag) {
+	if (!makoAllowed) { // not an app (no notification center) or not allowed: nothing was shown
+		return;
+	}
+	NSString *ident = [NSString stringWithUTF8String:tag];
+	UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+	[center removePendingNotificationRequestsWithIdentifiers:@[ident]];
+	[center removeDeliveredNotificationsWithIdentifiers:@[ident]];
 }
 */
 import "C"
 
-import "unsafe"
+import (
+	"encoding/json"
+	"unsafe"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
+)
 
 // HasWindow: on macOS the board opens in Mako's own window (WebKit).
 func HasWindow() bool { return true }
@@ -278,11 +347,24 @@ func NotificationsOn(boardURL string) {
 	C.makoNotificationsOn(s)
 }
 
-// Notify shows a notification of Mako.app; false when it has none (not an app, or not allowed).
-func Notify(title, message, url string) bool {
-	t, m, u := C.CString(title), C.CString(message), C.CString(url)
+// Notify shows a notification of Mako.app, with its buttons; false when it has none (not an app, or not allowed).
+func Notify(n notify.Notice) bool {
+	actions, _ := json.Marshal(n.Actions)
+	if n.Actions == nil {
+		actions = []byte("[]")
+	}
+	t, m, u, g, a := C.CString(n.Title), C.CString(n.Message), C.CString(n.URL), C.CString(n.Tag), C.CString(string(actions))
 	defer C.free(unsafe.Pointer(t))
 	defer C.free(unsafe.Pointer(m))
 	defer C.free(unsafe.Pointer(u))
-	return C.makoNotify(t, m, u) == 1
+	defer C.free(unsafe.Pointer(g))
+	defer C.free(unsafe.Pointer(a))
+	return C.makoNotify(t, m, u, g, a) == 1
+}
+
+// Withdraw takes Mako.app's notification with the tag away.
+func Withdraw(tag string) {
+	g := C.CString(tag)
+	defer C.free(unsafe.Pointer(g))
+	C.makoWithdraw(g)
 }

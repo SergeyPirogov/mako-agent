@@ -3,9 +3,12 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
@@ -57,6 +60,8 @@ type Agent struct {
 	// Terminal: the agent runs in Mako's own terminal; Live: its process is there to type into.
 	Terminal bool `json:"terminal,omitempty"`
 	Live     bool `json:"live,omitempty"`
+	// Asked: the request a chat agent waits on, which a notification can answer.
+	Asked *chat.Item `json:"-"`
 }
 
 // Agents: the latest look at every task in Orca.
@@ -123,8 +128,13 @@ func (d *Dispatcher) setAgent(r core.Record, a Agent, now time.Time) {
 	}
 	d.agents[r.ID] = &a
 	d.mu.Unlock()
-	if before != nil && before.State != a.State {
+	// Another request while it still waits is told too: the notification answers that one now.
+	if before != nil && (before.State != a.State || (a.State == "waiting" && askedID(a.Asked) != "" && askedID(a.Asked) != askedID(before.Asked))) {
 		d.tell(r, a)
+	}
+	// Answered (on the board, in Orca, from a notification): the notification that asked goes away.
+	if before != nil && before.State == "waiting" && a.State != "waiting" {
+		notify.Withdraw(waitTag(r.ID))
 	}
 	// A turn that ended may have opened the MR: look for it now, not at the next poll of the trackers.
 	if before != nil && before.State == "working" && a.State != "working" {
@@ -137,13 +147,52 @@ func (d *Dispatcher) tell(r core.Record, a Agent) {
 	switch a.State {
 	case "waiting":
 		d.Log(r.ID, "агент чекає на вас"+orBlank(": ", a.Reason))
-		notify.Inform("✋ "+r.ID+": агент чекає на вас", firstOf(a.Reason, lastLine(a.Screen, ""), r.Task.Title), link)
+		question := ""
+		if a.Asked != nil {
+			question, _, _ = chat.Choices(*a.Asked)
+		}
+		notify.Show(notify.Notice{Title: "✋ " + r.ID + ": агент чекає на вас", Message: firstOf(question, a.Reason, lastLine(a.Screen, ""), r.Task.Title),
+			URL: link, Tag: waitTag(r.ID), Actions: askActions(r.ID, a.Asked)})
 	case "done":
 		d.Log(r.ID, "агент закінчив")
 		notify.Inform("✅ "+r.ID+": агент закінчив", firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
 	case "stopped":
 		d.Log(r.ID, "агент зупинився"+orBlank(": ", a.Reason))
 		notify.Inform("⏹ "+r.ID+": агент зупинився", firstOf(a.Reason, r.Task.Title), link)
+	}
+}
+
+// waitTag names the task's «агент чекає на вас» notification: a new one replaces it, an answer takes it away.
+func waitTag(id string) string { return "wait:" + id }
+
+func askedID(it *chat.Item) string {
+	if it == nil {
+		return ""
+	}
+	return it.ID
+}
+
+// askActions: the buttons that answer a chat agent's request right from the notification: «Дозволити» / «Ні»
+// for a permission, the options of a one-question AskUserQuestion (up to 4; more go to the board).
+func askActions(id string, it *chat.Item) []notify.Action {
+	if it == nil {
+		return nil
+	}
+	q := "id=" + url.QueryEscape(id) + "&req=" + url.QueryEscape(it.ID)
+	if it.Tool == "AskUserQuestion" {
+		_, options, ok := chat.Choices(*it)
+		if !ok || len(options) > 4 {
+			return nil
+		}
+		var out []notify.Action
+		for i, o := range options {
+			out = append(out, notify.Action{Title: o, URL: "/api/choose?" + q + "&option=" + strconv.Itoa(i)})
+		}
+		return out
+	}
+	return []notify.Action{
+		{Title: "Дозволити", URL: "/api/permit?" + q + "&decision=allow"},
+		{Title: "Ні", URL: "/api/permit?" + q + "&decision=deny", Destructive: true},
 	}
 }
 

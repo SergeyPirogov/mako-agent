@@ -116,6 +116,7 @@ echo "$more" > more.json
 	cfg.Executor, cfg.Terminal.Command, cfg.StateDir = "terminal", filepath.Join(bin, "claude"), t.TempDir()
 	d.Cfg = &cfg
 	d.BoardURL = "http://127.0.0.1:1"
+	pushed := pushes(t)
 
 	d.Poll(ctx)
 	d.Take(ctx, "grp/app#5")
@@ -139,6 +140,16 @@ echo "$more" > more.json
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Кнопка оплати не працює") {
 		t.Fatalf("prompt %s", b)
 	}
+	// The notification answers the permission itself: «Дозволити» / «Ні».
+	asked := ""
+	for _, p := range pushed() {
+		if strings.Contains(p, "агент чекає на вас") {
+			asked = p
+		}
+	}
+	if !strings.Contains(asked, "Дозволити → /api/permit?id=grp%2Fapp%235&req=r1&decision=allow") || !strings.Contains(asked, "Ні → /api/permit?id=grp%2Fapp%235&req=r1&decision=deny") {
+		t.Fatalf("waiting push %q", asked)
+	}
 	s.Permit("r1", "allow")
 	for i := 0; i < 300; i++ {
 		if st, _, _ := s.State(); st == "done" {
@@ -147,6 +158,10 @@ echo "$more" > more.json
 		time.Sleep(10 * time.Millisecond)
 	}
 	d.watchTerminals(time.Now())
+	// Answered elsewhere (here, as on the board): the notification goes away.
+	if p := strings.Join(pushed(), "\n"); !strings.Contains(p, "withdraw wait:grp/app#5") {
+		t.Fatalf("not withdrawn: %s", p)
+	}
 	if a := d.Agents()[r.ID]; a.State != "done" || a.Message != "Готово, тести проходять" {
 		t.Fatalf("agent after the turn %+v", a)
 	}

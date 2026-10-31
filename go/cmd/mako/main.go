@@ -96,20 +96,31 @@ func run(homeFlag string, open, noTray bool) error {
 	if tray && desktop.HasWindow() {
 		show = desktop.OpenWindow
 		notify.Native = desktop.Notify // Mako.app's own notifications, once macOS allows them
+		notify.NativeWithdraw = desktop.Withdraw
 	}
 	phones, err := phone.Open(cfg.StateDir)
 	if err != nil {
 		return err
 	}
 	// Everything the Mac is told goes to the paired phones too, with board links made relative to the app.
-	notify.Remote = func(title, message, link string) {
-		link = strings.TrimPrefix(link, d.BoardURL)
+	push := func(m phone.Message) {
+		for _, err := range phones.Push(context.Background(), m) {
+			log.Printf("телефон: %v", err)
+		}
+	}
+	notify.Remote = func(n notify.Notice) {
+		link := strings.TrimPrefix(n.URL, d.BoardURL)
 		if link == "" {
 			link = "/"
 		}
-		for _, err := range phones.Push(context.Background(), phone.Message{Title: title, Body: message, URL: link}) {
-			log.Printf("телефон: %v", err)
+		m := phone.Message{Title: n.Title, Body: n.Message, URL: link, Tag: n.Tag}
+		for _, a := range n.Actions {
+			m.Actions = append(m.Actions, phone.Action{Title: a.Title, URL: a.URL})
 		}
+		push(m)
+	}
+	notify.RemoteWithdraw = func(tag string) {
+		push(phone.Message{Title: "Mako", Body: "На запит уже відповіли", Tag: tag, Close: true})
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

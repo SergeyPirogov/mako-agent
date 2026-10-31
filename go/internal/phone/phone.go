@@ -182,12 +182,21 @@ func (p *Phones) Subscribe(token string, sub *webpush.Subscription) error {
 	return errors.New("пристрій не підключено")
 }
 
-// Message is what a push says; the app shows title and body and opens url on a tap.
+// Message is what a push says; the app shows title and body and opens url on a tap. Its actions are buttons that
+// answer right from the notification (POST to their url); Close takes the notification with Tag away instead.
 type Message struct {
+	Title   string   `json:"title"`
+	Body    string   `json:"body"`
+	URL     string   `json:"url,omitempty"`
+	Tag     string   `json:"tag,omitempty"`
+	Actions []Action `json:"actions,omitempty"`
+	Close   bool     `json:"close,omitempty"`
+}
+
+// Action is a button of a pushed notification.
+type Action struct {
 	Title string `json:"title"`
-	Body  string `json:"body"`
-	URL   string `json:"url,omitempty"`
-	Tag   string `json:"tag,omitempty"`
+	URL   string `json:"url"`
 }
 
 // Push sends a message to every subscribed phone. A subscription the push service no longer knows (404, 410:
