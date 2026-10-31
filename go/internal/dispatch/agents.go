@@ -97,12 +97,18 @@ func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
 		}
 	}
 	d.mu.Lock()
-	for id := range d.agents {
+	working := false
+	for id, a := range d.agents {
 		if !live[id] {
 			delete(d.agents, id)
+		} else if a.State == "working" {
+			working = true
 		}
 	}
 	d.mu.Unlock()
+	if d.KeepAwake != nil {
+		d.KeepAwake(working)
+	}
 }
 
 // setAgent keeps the latest look at a task's agent and tells about a new state.

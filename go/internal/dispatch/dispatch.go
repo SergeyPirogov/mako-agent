@@ -50,6 +50,9 @@ type Dispatcher struct {
 	// Conversation: the agent's whole Claude Code session, for the card.
 	Conversation func(worktree string, limit int) []orca.Turn
 	BoardURL     string
+	// KeepAwake keeps the computer from sleeping while some agent is working (on) and lets it sleep after;
+	// nil: never.
+	KeepAwake func(on bool)
 	// Hosts: code hosts made for repos whose tracker is not one (Jira tasks), by web host.
 	hosts map[string]trackers.CodeHost
 

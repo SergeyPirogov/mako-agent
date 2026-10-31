@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/awake"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/desktop"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
@@ -83,6 +84,7 @@ func run(homeFlag string, open, noTray bool) error {
 	d := dispatch.New(cfg, store, ts)
 	d.Problems = problems
 	d.BoardURL = "http://" + ln.Addr().String()
+	d.KeepAwake = awake.Keep // the Mac does not fall asleep while an agent works
 	// The board opens in Mako's own window on macOS (it needs the menu bar's run loop), else in the browser.
 	tray := !noTray && desktop.Available()
 	show := notify.Open
@@ -122,6 +124,7 @@ func run(homeFlag string, open, noTray bool) error {
 	}
 	d.Sessions.StopAll() // the agents in Mako's terminal and chat end with it
 	d.Chats.StopAll()
+	awake.Keep(false)
 	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdown)
