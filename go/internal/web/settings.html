@@ -462,6 +462,8 @@ function renderNotifications() {
   box.append(check(n, "enabled", "Показувати системні сповіщення", { def: true }));
   box.append(check(n, "autoTake", "Віддавати нові задачі в Orca без питань"));
   box.append(num(n, "snoozeMin", "«Відкласти» без вибору — на, хв", { placeholder: "60" }));
+  box.append(text(n, "morningDigest", "Ранковий підсумок о", { placeholder: "09:00", hint: "Одне сповіщення (і пуш на телефон): що чекає на вас, які MR готові до мерджу, що впало, що змерджено. «-» — не надсилати" }));
+  box.append(num(n, "awayHours", "Підсумок на дошці після відсутності, год", { placeholder: "4", hint: "Дошку не відкривали стільки годин (або Mac спав) — покаже, що сталося за цей час. 0 — не показувати" }));
   box.append(num(n, "inboxPort", "Порт дошки", { placeholder: "7777", hint: "Діє після перезапуску Mako" }));
 }
 

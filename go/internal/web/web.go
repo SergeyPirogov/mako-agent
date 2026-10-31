@@ -72,6 +72,8 @@ type stateReply struct {
 	Stats    core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
 	Update   *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
 	Restart  restartView                `json:"restart"`
+	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
+	Digest *core.Digest `json:"digest,omitempty"`
 }
 
 // restartView: «Перезапустити, коли агенти закінчать хід» is pressed, and the tasks whose agents it waits for.
@@ -123,6 +125,10 @@ func (s *Server) Handler() http.Handler {
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		reply.Hold, reply.LimitPct = s.D.LimitHold(), s.D.Config().LimitPausePct
 		reply.Remote = remote(r)
+		// seen=1: the board is on screen (not a hidden tab), so you are back.
+		if r.URL.Query().Get("seen") == "1" {
+			reply.Digest = s.D.Seen(time.Now())
+		}
 		if s.Update != nil && !reply.Remote {
 			st := s.Update.Status()
 			reply.Update = &st
@@ -140,6 +146,15 @@ func (s *Server) Handler() http.Handler {
 			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name(), Projects: projects[t.ID()]})
 		}
 		writeJSON(w, reply)
+	})
+	// The digest from since (ms) until now: the morning push's link opens it.
+	mux.HandleFunc("GET /api/digest", func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		since := now.Add(-12 * time.Hour)
+		if ms, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64); err == nil && ms > 0 && ms < now.UnixMilli() {
+			since = time.UnixMilli(ms)
+		}
+		writeJSON(w, s.D.Digest(since, now))
 	})
 	mux.HandleFunc("GET /api/changes", func(w http.ResponseWriter, r *http.Request) {
 		cs, err := s.D.Changes(r.Context(), r.URL.Query().Get("id"))

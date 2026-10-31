@@ -73,6 +73,8 @@ let commitLog = null, commitOpen = {};
 // until the agent changes them. The lines being commented ({path, rows, line, edit}) and what is written so far.
 let notes = (() => { try { return JSON.parse(localStorage.getItem("mako-notes")) || {}; } catch { return {}; } })();
 let pick = null, pickText = "", reviewNote = "";
+// What happened while you were away ({since, until, waiting, review, failed, merged}): shown where a card goes.
+let digest = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -166,7 +168,7 @@ async function post(action, id, extra = "") {
 $("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
 $("restart").onclick = () => fetch(`/api/restart?on=${data?.restart?.pending ? 0 : 1}`, { method: "POST" }).then(load);
 $("stats-btn").onclick = () => {
-  selected = null; statsOpen = true; newOpen = false;
+  selected = null; statsOpen = true; newOpen = false; digest = null;
   history.replaceState(null, "", location.pathname);
   try { localStorage.removeItem("mako-selected"); } catch {}
   render();
@@ -175,14 +177,28 @@ $("poll").onclick = async () => { $("poll").classList.add("busy"); await post("p
 
 async function load() {
   try {
-    data = await (await fetch("/api/state")).json();
+    // seen=1: the board is on screen, so Mako knows you are back (and how long you were away).
+    data = await (await fetch(`/api/state${document.visibilityState === "visible" ? "?seen=1" : ""}`)).json();
   } catch {
     $("search").textContent = "Mako не відповідає";
     $("search").className = "search err";
     return;
   }
+  if (data.digest) return openDigest(data.digest);
   await Promise.all([loadCard(), loadWork()]);
   render();
+}
+
+// The digest takes the place of the open card; its links open the tasks.
+function openDigest(d) {
+  digest = d; selected = null; statsOpen = false; newOpen = false;
+  history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+}
+async function loadDigest(since) {
+  const d = await getJSON(`/api/digest?since=${encodeURIComponent(since)}`);
+  if (!d.error) openDigest(d);
 }
 
 // The open card's journal and conversation, fetched side by side; a reply for a card no longer open is dropped.
@@ -335,7 +351,7 @@ function render() {
 }
 
 async function select(id) {
-  selected = id; statsOpen = false; newOpen = false;
+  selected = id; statsOpen = false; newOpen = false; digest = null;
   history.replaceState(null, "", "#" + encodeURIComponent(id));
   try { localStorage.setItem("mako-selected", id); } catch {}
   // The card opens at once from what the board already has; its journal and conversation follow.
@@ -925,7 +941,7 @@ function newTaskTargets() {
 }
 
 $("new-task").onclick = () => {
-  selected = null; statsOpen = false; newOpen = true;
+  selected = null; statsOpen = false; newOpen = true; digest = null;
   history.replaceState(null, "", location.pathname);
   try { localStorage.removeItem("mako-selected"); } catch {}
   render();
@@ -1032,9 +1048,31 @@ function groupsHTML(title, groups, col, name = (n) => n) {
   return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th></tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
 }
 
+// «Поки вас не було»: what waits for you, the MRs to merge, what failed and got merged, with links to the tasks.
+function digestHTML(d) {
+  const at = (ms) => new Date(ms).toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const item = (x) => `<li><a href="#${encodeURIComponent(x.id)}"><b>${esc(x.id)}</b> ${esc(x.title)}</a>`
+    + (x.new ? ` <span class="digest-new">нове</span>` : "")
+    + (x.note ? `<div class="muted">${esc(x.note)}</div>` : "")
+    + (x.mr ? ` <a class="mr" href="${esc(x.mr)}" target="_blank" rel="noopener">MR ↗</a>` : "") + `</li>`;
+  const part = (title, xs) => xs?.length ? `<h3>${title} <span class="muted">${xs.length}</span></h3><ul class="digest-list">${xs.map(item).join("")}</ul>` : "";
+  const body = part("Чекає на вас", d.waiting) + part("MR готові до мерджу", d.review) + part("Не вдалося", d.failed) + part("Змерджено", d.merged);
+  return `<div class="stats digest">
+    <div class="digest-head"><h1>Поки вас не було</h1><button class="ghost" id="digest-close">Закрити</button></div>
+    <p class="stats-note">${at(d.since)} — ${at(d.until)}</p>
+    ${body || `<div class="text" style="color:var(--mute)">Нічого не сталося</div>`}
+  </div>`;
+}
+
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
-  $("work").classList.toggle("detail", !!r || statsOpen || newOpen);
+  $("work").classList.toggle("detail", !!r || statsOpen || newOpen || !!digest);
+  if (!r && digest) {
+    closeTerminal(); shown = ""; $("detail").classList.remove("ws");
+    $("detail").innerHTML = `<button class="ghost back" id="back">← Задачі</button>` + digestHTML(digest);
+    $("back").onclick = $("digest-close").onclick = () => { digest = null; render(); };
+    return;
+  }
   if (!r && newOpen) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     // The form keeps what is typed: the board re-renders every few seconds.
@@ -1712,16 +1750,23 @@ function closeTerminal() {
   tv = null;
 }
 
-selected = decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })();
+// #digest:<ms>: the morning push's link, the digest from that time.
+const digestHash = () => { const h = decodeURIComponent(location.hash.slice(1)); return h.startsWith("digest:") ? h.slice(7) : null; };
+const startDigest = digestHash();
+selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })();
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
 // An open menu closes on a click anywhere else.
 document.addEventListener("click", (e) => {
   for (const m of document.querySelectorAll("details.menu[open]")) if (!m.contains(e.target)) m.open = false;
 });
 window.addEventListener("hashchange", () => {
+  const since = digestHash();
+  if (since) return loadDigest(since);
   const id = decodeURIComponent(location.hash.slice(1));
   if (id && id !== selected) select(id);
 });
+// Back at the board: look at once, so what happened meanwhile shows without waiting for the next poll.
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") load(); });
 // On a phone: the app on the home screen, its service worker, and pushes once the user allows them.
 const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 let phoneReady = false;
@@ -1760,7 +1805,7 @@ function urlKey(b64) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
-load().then(setupPhone);
+load().then(() => { setupPhone(); if (startDigest) loadDigest(startDigest); });
 setInterval(load, 5000);
 </script>
 </body>

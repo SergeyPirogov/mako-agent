@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -233,5 +234,31 @@ func TestUpdate(t *testing.T) {
 	}
 	if s := u.Status(); s.State != "failed" || s.Error == "" || len(started) != 0 {
 		t.Fatalf("status %+v", s)
+	}
+}
+
+func TestDigest(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	store.Update("grp/app#5", func(r *core.Record) {
+		r.Status, r.Task, r.PRURL = core.Done, core.Task{ID: "grp/app#5", Title: "Pay"}, "https://mr/5"
+		r.FinishedAt = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Notifications: config.Notifications{AwayHours: 4}}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+
+	// The board seen for the first time: nothing to compare with, no digest.
+	var st stateReply
+	res, _ := http.Get(srv.URL + "/api/state?seen=1")
+	json.NewDecoder(res.Body).Decode(&st)
+	if st.Digest != nil {
+		t.Fatalf("digest on the first look: %+v", st.Digest)
+	}
+	since := time.Now().Add(-2 * time.Hour).UnixMilli()
+	res, _ = http.Get(srv.URL + "/api/digest?since=" + strconv.FormatInt(since, 10))
+	var dg core.Digest
+	json.NewDecoder(res.Body).Decode(&dg)
+	if dg.Since != since || len(dg.Review) != 1 || !dg.Review[0].New || dg.Review[0].MR != "https://mr/5" {
+		t.Fatalf("digest %+v", dg)
 	}
 }
