@@ -111,6 +111,10 @@ type Terminal struct {
 	View string
 	// AutoFix: the agent is asked by itself to fix its MR's failed CI, conflicts and new review comments.
 	AutoFix bool
+	// PlanFirst: when the agent starts in Claude Code's plan mode, exploring and writing a plan you approve
+	// before it changes anything: "never" (default), "big" (a task labelled plan or with a long description),
+	// "always".
+	PlanFirst string
 }
 
 type Transitions struct {
@@ -262,7 +266,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix}
+			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, PlanFirst: e.PlanFirst}
 			break
 		}
 	}
@@ -575,6 +579,7 @@ type rawExecutor struct {
 	View           string   `json:"view"`
 	Model          string   `json:"model"`
 	AutoFix        bool     `json:"autoFix"`
+	PlanFirst      string   `json:"planFirst"`
 }
 
 type rawTracker struct {

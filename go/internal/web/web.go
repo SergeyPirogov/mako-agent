@@ -323,7 +323,7 @@ func (s *Server) Handler() http.Handler {
 			}
 		case "stop":
 			s.D.StopTerminal(id)
-		case "say", "permit", "answer", "choose", "interrupt", "view", "mode":
+		case "say", "permit", "answer", "choose", "interrupt", "view", "mode", "plan":
 			var err error
 			c := s.D.Chats.Get(id)
 			switch {
@@ -333,6 +333,14 @@ func (s *Server) Handler() http.Handler {
 				// To a closed agent too: the message resumes its conversation.
 				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
 				err = s.D.Say(id, strings.TrimSpace(string(body)))
+			case action == "plan":
+				// The agent's plan: do=approve, or do=revise with your notes as the body.
+				if r.URL.Query().Get("do") == "approve" {
+					err = s.D.ApprovePlan(id, r.URL.Query().Get("req"))
+				} else {
+					body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
+					err = s.D.RevisePlan(id, r.URL.Query().Get("req"), string(body))
+				}
 			case c == nil:
 				err = fmt.Errorf("агент не запущений")
 			case action == "answer":

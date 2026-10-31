@@ -425,6 +425,8 @@ function renderOrca() {
     };
     box.append(tools);
     box.append(text(t, "model", "Модель", { placeholder: "як у Claude Code", hint: "Наприклад, opus або sonnet" }));
+    box.append(select(t, "planFirst", "Починати з плану", [["never", "ніколи"], ["big", "для великих задач"], ["always", "завжди"]],
+      { def: "never", hint: "Агент стартує в режимі plan: досліджує й пише план, нічого не змінюючи. У чаті план — окремою карткою з кнопками «Затвердити й робити» і «Поправити». Велика задача — з міткою plan або «план», чи з описом від 1500 символів" }));
     box.append(check(t, "autoFix", "Автофікс MR", { hint: "Коли агент закінчив хід, Mako сам просить його розвʼязати конфлікти, полагодити впалий CI й виправити нові коментарі рев'ю, як кнопки ✨. Кожну проблему — один раз, до 5 запитів на задачу" }));
   } else {
     const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];

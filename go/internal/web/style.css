@@ -490,6 +490,21 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .chat-quick { max-width: 780px; margin: 0 auto 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .chat-quick .chip { height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--mute); }
 .chat-quick .chip:hover { color: var(--fg); }
+/* The agent's plan */
+.plan-card { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--card)); }
+.plan-h { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.plan-h b { color: var(--accent); flex: none; }
+.plan-body { max-height: 480px; overflow: auto; }
+.plan-fix[hidden] { display: none; }
+.plan-fix textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; resize: vertical; }
+.plan-card.done { padding: 0; gap: 0; border-color: var(--line); background: none; }
+.plan-card.done .plan-h { width: 100%; padding: 8px 12px; border: 0; background: none; text-align: left; font: inherit; cursor: pointer; }
+.plan-card.done .plan-h b { color: var(--ok); font-weight: 600; }
+.plan-card.done.revised .plan-h b { color: var(--warn); }
+.plan-card.done .plan-h .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-card.done .plan-h .tw { margin-left: auto; }
+.plan-card.done .plan-body { padding: 0 12px 10px; border-top: 1px solid var(--line); }
 /* The agent's questions */
 .perm.ask .ask-q { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .ask-text { font-weight: 600; }
