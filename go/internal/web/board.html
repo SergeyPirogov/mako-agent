@@ -36,7 +36,7 @@
       <button class="icon-btn" id="poll" title="Перевірити трекери зараз" aria-label="Перевірити трекери зараз"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
       <button class="icon-btn" id="pause"></button>
     </div>
-    <div class="filter" id="filter"><select id="scope" aria-label="Які задачі показати"></select></div>
+    <div class="filter" id="filter"><select id="scope" aria-label="Які задачі показати"></select><input id="q" type="search" placeholder="Фільтр: назва, номер, проєкт" aria-label="Фільтр задач" autocomplete="off" spellcheck="false"></div>
     <nav id="list" aria-label="Задачі"></nav>
   </div>
   <section id="detail"><div class="empty">Виберіть задачу зліва</div></section>
@@ -52,6 +52,11 @@ const LABEL = { new: "нова", later: "відкладена", doing: "в ро�
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
+// The list's groups folded by a click on their heading (column → folded); «Готово» and «Не виконано» start folded.
+let folded = (() => { try { return { done: true, failed: true, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { done: true, failed: true }; } })();
+// The list's filter, shown once there are more tasks than fit at a glance.
+let query = "";
+const FILTER_FROM = 15;
 let data = null, shown = "", selected = null, statsOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
 // The task's work: its changed files, the files open in tabs over the terminal and their diffs.
 let workOf = null, workStarted = false, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
@@ -83,6 +88,7 @@ const ago = (iso) => {
   return `${Math.round(m / 1440)} дн тому`;
 };
 const ICON = {
+  chevron: `<svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`,
   doc: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>`,
   push: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>`,
   merge: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`,
@@ -236,7 +242,12 @@ function render() {
     (archived ? `<option value="\u0000archive">Архів · ${archived}</option>` : "");
   if ($("scope").dataset.options !== options) { $("scope").innerHTML = options; $("scope").dataset.options = options; }
   $("scope").value = scope;
-  $("filter").hidden = projects.length < 2 && !archived;
+  const many = visible().length > FILTER_FROM;
+  if (!many && !$("q").value) query = "";
+  $("scope").hidden = projects.length < 2 && !archived;
+  $("q").hidden = !many && !query;
+  $("filter").hidden = $("scope").hidden && $("q").hidden;
+  $("q").oninput = () => { query = $("q").value; render(); };
   $("scope").onchange = () => {
     const v = $("scope").value;
     showArchive = v === "\u0000archive";
@@ -244,22 +255,36 @@ function render() {
     render();
   };
 
-  const rows = visible();
+  // The filter matches the title, the number ("#12", "PROJ-12") and the project.
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = visible().filter((r) => {
+    const hay = `${r.task.title} ${r.id} ${r.task.project}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
   let html = "";
   for (const [col, title] of COLUMNS) {
     const rank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
     const items = rows.filter((r) => r.column === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed : col === "doing" ? rank(a) - rank(b) : 0));
     if (!items.length) continue;
-    html += `<div class="group">${title}<span class="n">${items.length}</span></div>`;
-    for (const r of items) {
+    // While filtering, every match shows: a folded group would hide what was asked for.
+    const fold = !words.length && !!folded[col];
+    html += `<section class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
+    for (const r of fold ? [] : items) {
       const st = state(r);
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
         <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code><span class="ago">${ago(r.updatedAt)}</span></span></button>`;
     }
+    html += `</section>`;
   }
-  $("list").innerHTML = html || `<div class="empty">${showArchive ? "Архів порожній" : "Задач немає. Mako перевіряє трекери і покаже тут нові задачі, призначені на вас."}</div>`;
+  $("list").innerHTML = html || `<div class="empty">${words.length ? "Нічого не знайдено" : showArchive ? "Архів порожній" : "Задач немає. Mako перевіряє трекери і покаже тут нові задачі, призначені на вас."}</div>`;
   for (const b of $("list").querySelectorAll(".item")) b.onclick = () => select(b.dataset.id);
+  for (const b of $("list").querySelectorAll(".group")) b.onclick = () => {
+    if (words.length) return;
+    folded[b.dataset.col] = !folded[b.dataset.col];
+    try { localStorage.setItem("mako-folded", JSON.stringify(folded)); } catch {}
+    render();
+  };
   renderDetail();
 }
 
