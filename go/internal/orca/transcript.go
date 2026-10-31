@@ -282,7 +282,7 @@ func readConversation(path string, size int64) []Turn {
 				case b.Type == "text" && strings.TrimSpace(b.Text) != "":
 					turns = append(turns, Turn{Role: "agent", Text: strings.TrimSpace(b.Text), At: e.Timestamp})
 				case b.Type == "tool_use":
-					turns = append(turns, Turn{Role: "tool", Text: toolLine(b.Name, b.Input), At: e.Timestamp})
+					turns = append(turns, Turn{Role: "tool", Text: ToolLine(b.Name, b.Input), At: e.Timestamp})
 				}
 			}
 		}
@@ -290,8 +290,8 @@ func readConversation(path string, size int64) []Turn {
 	return turns
 }
 
-// toolLine: «Read: src/app.ts», «Bash: npm test» — the tool and what it was given, in a line.
-func toolLine(name string, input json.RawMessage) string {
+// ToolLine: «Read: src/app.ts», «Bash: npm test» — the tool and what it was given, in a line.
+func ToolLine(name string, input json.RawMessage) string {
 	var in map[string]any
 	json.Unmarshal(input, &in)
 	for _, key := range []string{"command", "file_path", "path", "pattern", "url", "query", "description", "prompt", "skill"} {

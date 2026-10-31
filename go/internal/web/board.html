@@ -34,12 +34,12 @@
 </div>
 <script src="/theme.js"></script>
 <script>
-const COLUMNS = [["new", "Нові"], ["doing", "В Orca"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
-const LABEL = { new: "нова", later: "відкладена", doing: "в Orca", review: "на рев'ю", done: "готово", failed: "не виконано",
+const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
+const LABEL = { new: "нова", later: "відкладена", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
-  "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
-const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
+  "ag-idle": "агент не працює", "ag-missing": "немає в Orca" };
+const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Агент закінчив хід: далі — ваше слово або MR", idle: "Зараз агент нічого не робить", unknown: "Orca не відповідає" };
 let data = null, selected = null, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [];
 
 const $ = (id) => document.getElementById(id);
@@ -53,11 +53,11 @@ const ago = (iso) => {
   if (m < 1440) return `${Math.round(m / 60)} год тому`;
   return `${Math.round(m / 1440)} дн тому`;
 };
-const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
+const agentOf = (r) => data.agents?.[r.id];
 // In Orca, the agent's own state says more than «в Orca».
 const state = (r) => {
   if (r.column === "new" && r.postponed) return "later";
-  const a = agentOf(r);
+  const a = r.column === "doing" ? agentOf(r) : undefined;
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
@@ -160,7 +160,7 @@ function render() {
   const doing = live.filter((r) => r.column === "doing").length;
   $("wip").className = "wip" + (data.wipLimit && doing >= data.wipLimit ? " full" : "");
   const waiting = live.filter((r) => agentOf(r)?.state === "waiting").length;
-  $("wip").innerHTML = (data.wipLimit ? `В Orca <b>${doing}</b> з ${data.wipLimit}` : `В Orca <b>${doing}</b>`) +
+  $("wip").innerHTML = (data.wipLimit ? `В роботі <b>${doing}</b> з ${data.wipLimit}` : `В роботі <b>${doing}</b>`) +
     (waiting ? ` · <span class="wait">✋ чекає на вас: ${waiting}</span>` : "");
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
   const searches = Object.entries(data.searches);
@@ -234,19 +234,78 @@ function agentBlock(r) {
     ${a.screen?.length ? `<pre class="screen">${a.screen.map(esc).join("\n")}</pre>` : ""}
     ${a.message && !(chatOpen && chat.id === r.id && chat.turns.length) ? `<div class="agent-msg"><div class="agent-msg-h">Останнє повідомлення агента</div>${md(a.message)}</div>` : ""}
     ${a.error ? `<div class="agent-err">${esc(a.error)}</div>` : ""}
+    ${a.own ? ownControls(r, a) : ""}
   </div>`;
 }
 
+// Mako's own agent: what it asks, answered here, and a line to write to it.
+function ownControls(r, a) {
+  const reqs = (a.requests ?? []).map((q) => q.questions?.length
+    ? `<div class="req" data-req="${esc(q.id)}">${q.questions.map((qq, i) => `<div class="req-q"><b>${esc(qq.question)}</b>
+        <div class="req-opts">${qq.options.map((o) => `<button data-answer="${i}" data-label="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>`).join("")}
+        <div class="req-own"><input type="text" placeholder="Або своя відповідь…" data-own-answer><button data-answer-own>Відповісти</button></div></div>`
+    : `<div class="req" data-req="${esc(q.id)}"><div><b>Агент просить дозволу</b>${q.description ? ` <span class="muted">— ${esc(q.description)}</span>` : ""}</div>
+        <code class="req-what">${esc(q.what)}</code>
+        <div class="req-opts"><button class="primary" data-allow>Дозволити</button><button data-allow-always title="Не питати про таке в цій задачі">Дозволяти завжди</button><button class="danger" data-deny>Відхилити</button></div></div>`).join("");
+  const chips = ["Продовжуй", "Запусти тести", "Відкрий MR"].map((c) => `<button class="chip" data-chip="${esc(c)}">${c}</button>`).join("");
+  return `${reqs}
+    <div class="composer">
+      <textarea id="composer" rows="2" placeholder="Написати агенту…">${esc(drafts[r.id] ?? "")}</textarea>
+      <div class="composer-row">${chips}<span class="spacer"></span>
+        ${a.state === "working" ? `<button class="ghost danger" data-interrupt>Зупинити</button>` : ""}
+        <button class="primary" data-send>Надіслати</button></div>
+    </div>`;
+}
+
+const drafts = {};
+async function agentCall(action, id, query = "", body = {}) {
+  const r = await (await fetch(`/api/${action}?id=${encodeURIComponent(id)}${query}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+  if (!r.ok) alert(r.error);
+  await load();
+  return r.ok;
+}
+function wireOwn(r) {
+  const box = $("detail");
+  for (const req of box.querySelectorAll("[data-req]")) {
+    const id = req.dataset.req;
+    req.querySelector("[data-allow]")?.addEventListener("click", () => agentCall("answer", r.id, `&req=${encodeURIComponent(id)}&allow=1`));
+    req.querySelector("[data-allow-always]")?.addEventListener("click", () => agentCall("answer", r.id, `&req=${encodeURIComponent(id)}&allow=1&always=1`));
+    req.querySelector("[data-deny]")?.addEventListener("click", () => agentCall("answer", r.id, `&req=${encodeURIComponent(id)}`));
+    const a = agentOf(r)?.requests?.find((x) => x.id === id);
+    for (const b of req.querySelectorAll("[data-answer]")) {
+      b.addEventListener("click", () => agentCall("answer", r.id, `&req=${encodeURIComponent(id)}&allow=1`, { answers: { [a.questions[+b.dataset.answer].question]: b.dataset.label } }));
+    }
+    req.querySelector("[data-answer-own]")?.addEventListener("click", () => {
+      const text = req.querySelector("[data-own-answer]").value.trim();
+      if (text) agentCall("answer", r.id, `&req=${encodeURIComponent(id)}&allow=1`, { answers: { [a.questions[0].question]: text } });
+    });
+  }
+  const ta = $("composer");
+  if (!ta) return;
+  const send = async (text) => {
+    if (!text.trim()) return;
+    if (await agentCall("send", r.id, "", { text })) { drafts[r.id] = ""; }
+  };
+  ta.oninput = () => (drafts[r.id] = ta.value);
+  ta.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(ta.value); } };
+  box.querySelector("[data-send]").onclick = () => send(ta.value);
+  for (const c of box.querySelectorAll("[data-chip]")) c.onclick = () => send(c.dataset.chip);
+  box.querySelector("[data-interrupt]")?.addEventListener("click", () => agentCall("interrupt", r.id));
+}
+
 function renderDetail() {
+  // The board redraws every few seconds: what is being typed to the agent stays, with the cursor.
+  const ta = $("composer"), typing = ta && document.activeElement === ta, sel = ta ? [ta.selectionStart, ta.selectionEnd] : null;
   const r = data.records.find((x) => x.id === selected);
   $("work").classList.toggle("detail", !!r);
   if (!r) { $("detail").innerHTML = `<div class="empty">Виберіть задачу зліва</div>`; return; }
   const t = r.task, st = state(r);
   const b = (action, label, cls = "", extra = "") => `<button class="${cls}" data-a="${action}" data-x="${extra}">${label}</button>`;
   let actions = "";
-  if (r.column === "new") actions = b("take", "Віддати в Orca", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
+  if (r.column === "new") actions = b("take", data.runner === "orca" ? "Віддати в Orca" : "Взяти в роботу", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
   else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
-  else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + b("cancel", "Більше не стежити", "danger");
+  else if (r.column === "doing") actions = (r.worktree && !agentOf(r)?.own ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "")
+    + b("cancel", agentOf(r)?.own ? "Зупинити й скасувати" : "Більше не стежити", "danger");
   else if (r.column === "failed") actions = b("retry", "Повторити", "primary") + b("archive", "В архів");
   else actions = b("archive", "В архів");
   if (r.archivedAt) actions = b("unarchive", "Повернути з архіву");
@@ -268,7 +327,7 @@ function renderDetail() {
     ${t.labels?.length ? `<div class="labels">${t.labels.map((l) => `<span class="label">${esc(l)}</span>`).join("")}</div>` : ""}
     <div class="actions">${actions}</div>
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
-    ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею в Orca.</div>` : ""}
+    ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею.</div>` : ""}
     ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     ${agentBlock(r)}
     ${r.worktree ? `<details class="chat" id="chat" ${chatOpen ? "open" : ""}><summary>Уся розмова з агентом${chat.id === r.id && chat.turns.length ? ` <span class="muted">· ${chat.turns.filter((t) => t.role !== "tool").length}</span>` : ""}</summary>
@@ -279,6 +338,8 @@ function renderDetail() {
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${linkify(c.body)}</div></div>`).join("")}` : ""}
     ${logs.length ? `<h3>Журнал</h3><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div>` : ""}`;
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
+  wireOwn(r);
+  if (typing && $("composer")) { $("composer").focus(); $("composer").setSelectionRange(...sel); }
   const box = $("chat");
   if (box) {
     const body = $("chat-body");

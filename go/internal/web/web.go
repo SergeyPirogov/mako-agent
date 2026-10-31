@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -47,6 +48,7 @@ type stateReply struct {
 	Paused   bool                       `json:"paused"`
 	Agents   map[string]dispatch.Agent  `json:"agents"`
 	Remote   bool                       `json:"remote"` // the page is open on a phone
+	Runner   string                     `json:"runner"` // who takes tasks: "mako" or "orca"
 }
 
 type recordView struct {
@@ -83,6 +85,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
 		reply.Remote = remote(r)
+		reply.Runner = s.D.Config().Agent.Runner
 		for _, rec := range s.D.Store.All() {
 			reply.Records = append(reply.Records, recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now)})
 		}
@@ -140,6 +143,27 @@ func (s *Server) Handler() http.Handler {
 			s.D.Cancel(id)
 		case "retry":
 			s.D.Retry(ctx, id)
+		case "send", "answer", "interrupt":
+			var body struct {
+				Text    string            `json:"text"`
+				Message string            `json:"message"`
+				Answers map[string]string `json:"answers"`
+			}
+			json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body)
+			q := r.URL.Query()
+			var err error
+			switch action {
+			case "send":
+				err = s.D.SendToAgent(id, body.Text)
+			case "answer":
+				err = s.D.AnswerAgent(id, q.Get("req"), q.Get("allow") == "1", q.Get("always") == "1", body.Message, body.Answers)
+			case "interrupt":
+				err = s.D.InterruptAgent(id)
+			}
+			if err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "focus":
 			if err := s.D.FocusAgent(ctx, id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

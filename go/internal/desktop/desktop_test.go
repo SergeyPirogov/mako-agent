@@ -24,7 +24,7 @@ func TestSnapshot(t *testing.T) {
 	store.Update("a#4", func(r *core.Record) { r.Status, r.PRURL, r.Task = core.Done, "u", core.Task{Title: "На рев'ю"} })
 	d := dispatch.New(&config.Config{WipLimit: 2}, store, nil)
 	v := Snapshot(d, now)
-	if v.NewCount != 1 || v.Title != "1" || !v.Attention || v.Headline != "Mako · в Orca 1 з 2" {
+	if v.NewCount != 1 || v.Title != "1" || !v.Attention || v.Headline != "Mako · в роботі 1 з 2" {
 		t.Fatalf("%+v", v)
 	}
 	if len(v.Items) != 3 || v.Items[0].ID != "a#1" || !strings.HasSuffix(v.Items[0].Label, "… — нова") {

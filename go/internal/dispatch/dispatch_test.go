@@ -153,7 +153,7 @@ func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 	host = host[:strings.Index(host, ":")]
 	git(t, repo, "remote", "add", "origin", "git@"+host+":grp/app.git")
 
-	raw := fmt.Sprintf(`{"wipLimit": 2, "executors": {"orca": {"type": "orca"}},
+	raw := fmt.Sprintf(`{"wipLimit": 2, "executors": {"orca": {"type": "orca"}}, "agent": {"runner": "orca"},
 	  "trackers": [{"type": "gitlab", "baseUrl": %q, "projects": {"grp/app": {"repoPath": %q, "baseBranch": "main"}}}]}`, srv.URL, repo)
 	cfg, err := config.Parse([]byte(raw), map[string]string{"GITLAB_TOKEN": "x"})
 	if err != nil {
@@ -305,4 +305,11 @@ func TestWipLimit(t *testing.T) {
 	if r, _ := d.Store.Get("grp/app#12"); r.Status != core.Queued {
 		t.Fatalf("third task: %s", r.Status)
 	}
+}
+
+func runGit(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }

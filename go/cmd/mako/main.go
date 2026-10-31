@@ -23,6 +23,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
+	"github.com/SergeyPirogov/mako-agent/go/internal/runner"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/web"
@@ -82,6 +83,13 @@ func run(homeFlag string, open, noTray bool) error {
 	}
 	d := dispatch.New(cfg, store, ts)
 	d.Problems = problems
+	// Mako's own agents: Claude Code sessions in the tasks' worktrees, with the current settings at every start.
+	d.Runner = runner.New(func() runner.Options {
+		a := d.Config().Agent
+		return runner.Options{Command: a.Command, Model: a.Model, PermissionMode: a.PermissionMode, AllowedTools: a.AllowedTools}
+	})
+	d.Runner.OnChange = d.AgentChanged
+	d.Runner.Log = d.Log
 	d.BoardURL = "http://" + ln.Addr().String()
 	// The board opens in Mako's own window on macOS (it needs the menu bar's run loop), else in the browser.
 	tray := !noTray && desktop.Available()

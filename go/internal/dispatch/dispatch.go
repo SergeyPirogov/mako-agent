@@ -18,6 +18,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
+	"github.com/SergeyPirogov/mako-agent/go/internal/runner"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
@@ -38,6 +39,7 @@ type Dispatcher struct {
 	Store    *state.Store
 	Trackers []trackers.Tracker
 	Hand     Hand
+	Runner   *runner.Runner // Mako's own agents; nil: none
 	Term     Terminals
 	// LastMessage: a Claude agent's whole last message from its transcript (Orca shows 200 characters).
 	LastMessage func(worktree string) string
@@ -51,6 +53,7 @@ type Dispatcher struct {
 	Problems []string     // why Mako cannot work as set up: no config, a tracker without a token
 	Paused   bool         // «Пауза»: no searching for tasks
 
+	watchMu  sync.Mutex // one look at the agents at a time
 	mu       sync.Mutex // the trackers' projects, searches, logs
 	searches map[string]Search
 	logs     []LogLine
@@ -417,7 +420,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	fail := func(err error) {
 		d.Log(id, "не передано: "+err.Error())
 		d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now() })
-		notify.Inform("❌ "+id+": не передано в Orca", err.Error(), d.BoardURL)
+		notify.Inform("❌ "+id+": агента не запущено", err.Error(), d.BoardURL)
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
@@ -436,8 +439,10 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	attempt := max(r.Attempt, 1)
 	branch := gitx.BranchName(repo.BranchPattern, r.Task, attempt)
+	cfg := d.Config()
+	executor := cfg.Agent.Runner
 	d.Store.Update(id, func(r *core.Record) {
-		r.Repo, r.Executor, r.BranchName, r.StartedAt, r.Attempt = repo.Name, "orca", branch, now(), attempt
+		r.Repo, r.Executor, r.BranchName, r.StartedAt, r.Attempt = repo.Name, executor, branch, now(), attempt
 	})
 
 	if t.Config().AssignOnTake {
@@ -449,7 +454,17 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.move(ctx, t, r.Task, trackers.AtStart)
 
-	res, err := d.Hand(ctx, d.Config().Orca, orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch}, logf)
+	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch}
+	if executor == "mako" {
+		if err := d.startAgent(ctx, r, job); err != nil {
+			d.move(ctx, t, r.Task, trackers.AtFailed)
+			fail(err)
+			return
+		}
+		d.comment(ctx, t, r.Task, cfg.Comments.OnStart, map[string]string{"branch": branch})
+		return
+	}
+	res, err := d.Hand(ctx, cfg.Orca, job, logf)
 	if err != nil {
 		d.move(ctx, t, r.Task, trackers.AtFailed)
 		fail(err)
@@ -460,6 +475,33 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	})
 	d.Log(id, "передано в Orca: "+res.Note)
 	d.comment(ctx, t, r.Task, d.Config().Comments.OnStart, map[string]string{"branch": res.Branch})
+}
+
+// startAgent: Mako's own agent — a worktree for the task and Claude Code in it with the task and the
+// instructions for how to finish it.
+func (d *Dispatcher) startAgent(ctx context.Context, r core.Record, j orca.Job) error {
+	if d.Runner == nil {
+		return fmt.Errorf("агент Mako недоступний")
+	}
+	path := filepath.Join(j.Repo.WorktreesDir, j.Task.Slug)
+	if r.Attempt > 1 {
+		path = fmt.Sprintf("%s-try%d", path, r.Attempt)
+	}
+	if err := gitx.AddWorktree(ctx, j.Repo.Path, path, j.Branch, j.Repo.BaseBranch); err != nil {
+		return err
+	}
+	cfg := d.Config()
+	sid := runner.NewSessionID()
+	prompt := orca.Prompt(j.Task, j.TrackerName) + "\n\n" + orca.Instructions(cfg.Orca.Instructions, cfg.Orca.MRBy, j)
+	if err := d.Runner.Start(r.ID, path, sid, prompt); err != nil {
+		gitx.RemoveWorktree(ctx, j.Repo.Path, path)
+		return err
+	}
+	d.Store.Update(r.ID, func(r *core.Record) {
+		r.Status, r.Worktree, r.Branch, r.SessionID = core.HandedOff, path, j.Branch, sid
+	})
+	d.Log(r.ID, "агент працює в "+path)
+	return nil
 }
 
 var commentVar = regexp.MustCompile(`\{(\w+)\}`)
@@ -597,7 +639,9 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		d.move(ctx, t, r.Task, trackers.AtReview)
 		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
 		d.summarize(ctx, r, repo.BaseBranch, review.URL)
-		orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
+		if r.Executor != "mako" {
+			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
+		}
 		notify.Inform("✅ "+r.ID+": є MR", review.URL, review.URL)
 		if review.State != "open" {
 			d.CheckMerges(ctx)
@@ -673,7 +717,19 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			d.Log(r.ID, "MR змерджено")
 			d.Store.Update(r.ID, func(r *core.Record) { r.ReviewState, r.MergedAt = "merged", now() })
 			d.move(ctx, t, r.Task, trackers.AtMerged)
-			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
+			if r.Executor == "mako" {
+				// Merged: the agent and its worktree are done with (the branch stays in git).
+				if d.Runner != nil {
+					d.Runner.Stop(r.ID)
+				}
+				if r.Worktree != "" {
+					if err := gitx.RemoveWorktree(ctx, repo.Path, r.Worktree); err == nil {
+						d.Log(r.ID, "worktree прибрано: "+r.Worktree)
+					}
+				}
+			} else {
+				orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
+			}
 			notify.Inform("🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
 		case "closed":
 			d.Log(r.ID, "MR закрито без мерджу")
@@ -762,6 +818,9 @@ func (d *Dispatcher) Later(id string, minutes int) {
 
 // Cancel: Mako stops following the task (the work in Orca stays).
 func (d *Dispatcher) Cancel(id string) {
+	if d.Runner != nil {
+		d.Runner.Stop(id)
+	}
 	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Cancelled, "Скасовано", now() })
 }
 

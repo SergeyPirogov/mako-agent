@@ -107,8 +107,8 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       </div>
     </div>
     <div class="pane" data-pane="orca">
-      <h2>Orca</h2>
-      <p class="lead">Як задача передається агенту в Orca і чим він має закінчити.</p>
+      <h2>Агент</h2>
+      <p class="lead">Хто виконує взяті задачі, і чим агент має закінчити.</p>
       <div class="card" id="orca"></div>
     </div>
     <div class="pane" data-pane="comments">
@@ -358,12 +358,41 @@ function orcaExecutor() {
 
 function renderOrca() {
   const o = orcaExecutor();
+  cfg.agent ??= {};
+  const ag = cfg.agent;
   const box = $("orca");
   box.innerHTML = "";
-  const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
-  if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
-  box.append(select(o, "agent", "Агент в Orca", agents, { def: "claude" }));
-  box.append(select(o, "mrBy", "Хто відкриває MR", [["agent", "агент: пушить гілку й відкриває MR"], ["me", "я: агент лише комітить, MR — кнопкою в Orca"]], { def: "agent" }));
+  const runner = select(ag, "runner", "Хто виконує задачі", [["mako", "Mako: Claude Code на цьому Mac, розмова — в Mako (і на телефоні)"], ["orca", "Orca: задача йде в workspace Orca"]], { def: "mako" });
+  runner.querySelector("select").addEventListener("change", () => renderOrca());
+  box.append(runner);
+  const own = (ag.runner ?? "mako") !== "orca";
+  if (own) {
+    box.append(select(ag, "permissionMode", "Що агент робить без питань", [
+      ["acceptEdits", "правки файлів; команди — з вашого дозволу (рекомендовано)"],
+      ["auto", "що безпечно на думку Claude; решта — з дозволу"],
+      ["default", "лише читання; правки й команди — з дозволу"],
+      ["bypassPermissions", "усе без питань"],
+    ], { def: "acceptEdits", hint: "Запити дозволу приходять на дошку й на телефон" }));
+    const tools = document.createElement("div");
+    tools.className = "field";
+    tools.innerHTML = `<label>Команди без питань</label><textarea placeholder="${DEFAULT_TOOLS.join("\n")}"></textarea>
+      <div class="hint">По одній на рядок, у форматі Claude Code: <code>Bash(npm test:*)</code>. Порожньо — git і відкриття MR</div>`;
+    const tta = tools.querySelector("textarea");
+    tta.style.minHeight = "90px";
+    tta.value = (ag.allowedTools ?? []).join("\n");
+    tta.oninput = () => {
+      const list = tta.value.split("\n").map((x) => x.trim()).filter(Boolean);
+      if (list.length) ag.allowedTools = list; else delete ag.allowedTools;
+      changed();
+    };
+    box.append(tools);
+    box.append(text(ag, "model", "Модель", { placeholder: "як у Claude Code", hint: "Наприклад, opus або sonnet" }));
+  } else {
+    const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
+    if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
+    box.append(select(o, "agent", "Агент в Orca", agents, { def: "claude" }));
+  }
+  box.append(select(o, "mrBy", "Хто відкриває MR", [["agent", "агент: пушить гілку й відкриває MR"], ["me", own ? "я: агент лише комітить" : "я: агент лише комітить, MR — кнопкою в Orca"]], { def: "agent" }));
   const instr = document.createElement("div");
   instr.className = "field";
   instr.innerHTML = `<label>Що сказати агенту після опису задачі</label><textarea placeholder="Порожньо — стандартна інструкція: закомітити з нормальними повідомленнями, запушити гілку й відкрити MR з описом"></textarea>
@@ -372,14 +401,21 @@ function renderOrca() {
   ta.value = o.instructions ?? "";
   ta.oninput = () => { if (ta.value.trim()) o.instructions = ta.value; else delete o.instructions; changed(); };
   box.append(instr);
-  box.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
-  box.append(check(o, "summaryComment", "Додавати підсумок роботи агента в коментар до задачі", { hint: "Коли з'являється MR, Mako пише з термінала агента і змін гілки, що зроблено й як перевірено. Підсумок завжди видно на дошці" }));
+  box.append(check(o, "summaryComment", "Додавати підсумок роботи агента в коментар до задачі", { hint: "Коли з'являється MR, Mako пише з розмови з агентом і змін гілки, що зроблено й як перевірено. Підсумок завжди видно на дошці" }));
   const more = document.createElement("details");
   more.innerHTML = "<summary>Додатково</summary>";
-  more.append(select(o, "setup", "Підготовка worktree", [["inherit", "як налаштовано в Orca"], ["run", "запускати"], ["skip", "пропускати"]], { def: "inherit" }));
-  more.append(text(o, "command", "Команда Orca", { placeholder: "автоматично (orca у PATH або в Orca.app)" }));
+  if (own) {
+    more.append(text(ag, "command", "Команда Claude Code", { placeholder: "claude" }));
+  } else {
+    more.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
+    more.append(select(o, "setup", "Підготовка worktree", [["inherit", "як налаштовано в Orca"], ["run", "запускати"], ["skip", "пропускати"]], { def: "inherit" }));
+    more.append(text(o, "command", "Команда Orca", { placeholder: "автоматично (orca у PATH або в Orca.app)" }));
+  }
   box.append(more);
+  renderNav();
 }
+
+const DEFAULT_TOOLS = ["Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(git push:*)", "Bash(glab mr create:*)", "Bash(gh pr create:*)"];
 
 function renderComments() {
   cfg.comments ??= {};
@@ -428,7 +464,7 @@ function renderNav() {
   $("side").innerHTML = `<div class="group">Трекери</div>` +
     ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
-    `<div class="group">Робота</div>` + item("orca", "Orca", { agent: "агент: агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
+    `<div class="group">Робота</div>` + item("orca", "Агент", cfg.agent?.runner === "orca" ? "Orca" : "Claude Code у Mako") +
     item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення") + item("phone", "Телефон", phoneNote);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
@@ -571,6 +607,7 @@ $("save").onclick = async () => {
   }
   if (cfg.notifications && !Object.keys(cfg.notifications).length) delete cfg.notifications;
   if (cfg.comments && !Object.keys(cfg.comments).length) delete cfg.comments;
+  if (cfg.agent && !Object.keys(cfg.agent).length) delete cfg.agent;
   try {
     const r = await (await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config: cfg, env }) })).json();
     if (!r.ok) {

@@ -189,7 +189,8 @@ func DetectBaseBranch(repo string) string {
 
 // OriginURL of a clone, "" when it has none.
 func OriginURL(ctx context.Context, repo string) string {
-	out, _ := Run(ctx, repo, "remote", "get-url", "origin")
+	// As configured: where the code lives, not how git reaches it (url.*.insteadOf).
+	out, _ := Run(ctx, repo, "config", "--get", "remote.origin.url")
 	return out
 }
 
@@ -267,4 +268,34 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, " ")
+}
+
+// AddWorktree makes path a new worktree of repo on a new branch from origin/base (fetched first); when the
+// branch exists already (a retry), the worktree takes it as it is.
+func AddWorktree(ctx context.Context, repo, path, branch, base string) error {
+	defer lock(repo)()
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("папка %s вже існує", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	fctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	if _, err := Run(fctx, repo, "-c", "core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new", "fetch", "origin", base); err != nil {
+		return fmt.Errorf("не вдалось оновити %s з origin: %w", base, err)
+	}
+	if _, err := Run(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		_, err := Run(ctx, repo, "worktree", "add", path, branch)
+		return err
+	}
+	_, err := Run(ctx, repo, "worktree", "add", "--no-track", "-b", branch, path, "origin/"+base)
+	return err
+}
+
+// RemoveWorktree removes a task's worktree and prunes it from the repo (its branch stays).
+func RemoveWorktree(ctx context.Context, repo, path string) error {
+	defer lock(repo)()
+	_, err := Run(ctx, repo, "worktree", "remove", "--force", path)
+	return err
 }

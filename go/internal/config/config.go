@@ -30,9 +30,26 @@ type Config struct {
 	BranchPattern    string
 	Notifications    Notifications
 	Orca             Orca
+	Agent            Agent
 	Comments         Comments
 	Trackers         []*Tracker
 	Env              map[string]string
+}
+
+// Agent: who works on a taken task and how. "mako": Mako runs Claude Code itself in the task's worktree and
+// the developer talks to it from the board (Mac or phone); "orca": the task goes to Orca.
+type Agent struct {
+	Runner         string
+	Command        string // Claude Code, "claude" by default
+	Model          string
+	PermissionMode string // "default", "acceptEdits" (default), "auto", "bypassPermissions"
+	AllowedTools   []string
+}
+
+// DefaultAllowedTools: what the agent does without asking besides editing files — git and opening the MR.
+var DefaultAllowedTools = []string{
+	"Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)",
+	"Bash(git push:*)", "Bash(glab mr create:*)", "Bash(gh pr create:*)",
 }
 
 // Comments Mako leaves in the issue, written as the developer: {branch} {taskId} {title} {url} {mr} are filled
@@ -190,6 +207,13 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			Port:      orInt(raw.Notifications.InboxPort, 7777),
 		},
 		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
+		Agent: Agent{
+			Runner:         orStr(raw.Agent.Runner, "mako"),
+			Command:        raw.Agent.Command,
+			Model:          raw.Agent.Model,
+			PermissionMode: orStr(raw.Agent.PermissionMode, "acceptEdits"),
+			AllowedTools:   raw.Agent.AllowedTools,
+		},
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
@@ -217,6 +241,12 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			return nil, fmt.Errorf("трекер %d: %w", i+1, err)
 		}
 		c.Trackers = append(c.Trackers, t)
+	}
+	if c.Agent.AllowedTools == nil {
+		c.Agent.AllowedTools = DefaultAllowedTools
+	}
+	if c.Agent.Runner != "orca" {
+		c.Agent.Runner = "mako"
 	}
 	return c, nil
 }
@@ -415,7 +445,14 @@ type rawConfig struct {
 	BranchPattern    string                 `json:"branchPattern"`
 	Notifications    rawNotifications       `json:"notifications"`
 	Executors        map[string]rawExecutor `json:"executors"`
-	Comments         struct {
+	Agent            struct {
+		Runner         string   `json:"runner"`
+		Command        string   `json:"command"`
+		Model          string   `json:"model"`
+		PermissionMode string   `json:"permissionMode"`
+		AllowedTools   []string `json:"allowedTools"`
+	} `json:"agent"`
+	Comments struct {
 		OnStart  string `json:"onStart"`
 		OnReview string `json:"onReview"`
 	} `json:"comments"`

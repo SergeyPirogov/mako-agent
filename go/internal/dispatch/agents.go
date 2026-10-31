@@ -10,6 +10,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
+	"github.com/SergeyPirogov/mako-agent/go/internal/runner"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
@@ -54,6 +55,10 @@ type Agent struct {
 	Screen  []string `json:"screen,omitempty"` // a terminal agent's screen
 	Error   string   `json:"error,omitempty"`
 	At      int64    `json:"at"`
+	// Mako's own agent: it can be written to, and what it waits for is answered from the board.
+	Own      bool             `json:"own,omitempty"`
+	Running  bool             `json:"running,omitempty"`
+	Requests []runner.Request `json:"requests,omitempty"`
 }
 
 // Agents: the latest look at every task in Orca.
@@ -70,21 +75,45 @@ func (d *Dispatcher) Agents() map[string]Agent {
 // WatchAgents asks Orca once (`orca worktree ps`) how the agent of every task in Orca is doing. Coming to
 // «waiting», «done» or «stopped» is told once, with a notification.
 func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
+	d.watch(ctx, now, true)
+}
+
+// watch: every task in work; withOrca false looks only at Mako's own agents (on their every change).
+func (d *Dispatcher) watch(ctx context.Context, now time.Time, withOrca bool) {
+	d.watchMu.Lock()
+	defer d.watchMu.Unlock()
 	o := d.Config().Orca
 	var records []core.Record
+	orcaTasks := false
 	for _, r := range d.Store.All() {
-		if r.Status == core.HandedOff && (r.Worktree != "" || branchOf(r) != "") {
-			records = append(records, r)
+		if !(r.Status == core.HandedOff || ownInReview(r)) || (r.Worktree == "" && branchOf(r) == "") {
+			continue
 		}
+		if r.Executor != "mako" {
+			orcaTasks = true
+			if !withOrca {
+				continue
+			}
+		}
+		records = append(records, r)
 	}
 	live := map[string]bool{}
 	if len(records) > 0 {
-		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		ws, err := d.Term.Workspaces(cctx, o)
-		cancel()
+		var ws []orca.Workspace
+		var err error
+		if orcaTasks && withOrca {
+			cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			ws, err = d.Term.Workspaces(cctx, o)
+			cancel()
+		}
 		for _, r := range records {
 			live[r.ID] = true
-			a := d.look(ctx, o, r, ws, err, now)
+			var a Agent
+			if r.Executor == "mako" {
+				a = d.lookOwn(r, now)
+			} else {
+				a = d.look(ctx, o, r, ws, err, now)
+			}
 			d.mu.Lock()
 			before := d.agents[r.ID]
 			if a.Since == 0 {
@@ -101,13 +130,51 @@ func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
 		}
 	}
 	d.mu.Lock()
-	for id := range d.agents {
-		if !live[id] {
+	for id, a := range d.agents {
+		if !live[id] && (withOrca || a.Own) {
 			delete(d.agents, id)
 		}
 	}
 	d.mu.Unlock()
 }
+
+// lookOwn: Mako's own agent, from its session.
+func (d *Dispatcher) lookOwn(r core.Record, now time.Time) Agent {
+	a := Agent{At: now.UnixMilli(), Own: true, Name: "claude"}
+	st, ok := Status{}, false
+	if d.Runner != nil {
+		st, ok = d.Runner.Status(r.ID)
+	}
+	a.Running, a.Requests, a.Since, a.Message = st.Running, st.Requests, st.Since, st.LastText
+	if a.Message == "" && d.LastMessage != nil && r.Worktree != "" {
+		a.Message = d.LastMessage(r.Worktree)
+	}
+	switch {
+	case !ok:
+		// Not run since Mako started: the session waits in Claude Code's history.
+		a.State = "idle"
+		a.Reason = "сесію закрито: напишіть агенту, щоб продовжити"
+	case len(st.Requests) > 0:
+		a.State = "waiting"
+		q := st.Requests[0]
+		if len(q.Questions) > 0 {
+			a.Reason = "питання: " + q.Questions[0].Question
+		} else {
+			a.Reason = "дозвіл на " + q.What
+		}
+		a.Since = q.At
+	case st.Busy:
+		a.State, a.Tool = "working", st.Tool
+	case st.Error != "":
+		a.State, a.Reason = "stopped", st.Error
+	default:
+		a.State = "done"
+	}
+	return a
+}
+
+// Status is the runner's view of an agent (an alias, so the dispatcher's tests can build one).
+type Status = runner.Status
 
 func (d *Dispatcher) tell(r core.Record, a Agent) {
 	link := d.BoardURL + "/#" + r.ID
@@ -331,4 +398,57 @@ func orBlank(prefix, s string) string {
 		return ""
 	}
 	return prefix + s
+}
+
+// ownInReview: Mako's own agent whose MR is in review: it can still be asked to fix what the review found.
+func ownInReview(r core.Record) bool {
+	return r.Executor == "mako" && r.Status == core.Done && r.PRURL != "" && r.ReviewState == ""
+}
+
+// AgentChanged: Mako's own agent started or ended a turn, asked or was answered — tell at once.
+func (d *Dispatcher) AgentChanged(id string) {
+	go d.watch(context.Background(), time.Now(), false)
+}
+
+// SendToAgent gives Mako's own agent a message (resuming its session when it is closed).
+func (d *Dispatcher) SendToAgent(id, text string) error {
+	r, ok := d.Store.Get(id)
+	if !ok || r.Executor != "mako" || d.Runner == nil {
+		return fmt.Errorf("цю задачу веде не Mako")
+	}
+	if r.Status != core.HandedOff && !ownInReview(r) {
+		return fmt.Errorf("задача вже не в роботі")
+	}
+	if err := d.Runner.Send(id, r.Worktree, r.SessionID, text); err != nil {
+		return err
+	}
+	d.Log(id, "ви написали агенту: "+clipText(firstLine(text), 120))
+	d.AgentChanged(id)
+	return nil
+}
+
+// AnswerAgent answers what Mako's own agent asked: a permission or its questions.
+func (d *Dispatcher) AnswerAgent(id, reqID string, allow, always bool, message string, answers map[string]string) error {
+	if d.Runner == nil {
+		return fmt.Errorf("агент не запущений")
+	}
+	if err := d.Runner.Answer(id, reqID, allow, always, message, answers); err != nil {
+		return err
+	}
+	verdict := "дозволено"
+	if !allow {
+		verdict = "відхилено"
+	} else if always {
+		verdict = "дозволено назавжди"
+	}
+	d.Log(id, "запит агента: "+verdict)
+	return nil
+}
+
+// InterruptAgent stops the turn of Mako's own agent; its session stays for the next message.
+func (d *Dispatcher) InterruptAgent(id string) error {
+	if d.Runner == nil {
+		return fmt.Errorf("агент не запущений")
+	}
+	return d.Runner.Interrupt(id)
 }
