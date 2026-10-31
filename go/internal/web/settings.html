@@ -49,6 +49,14 @@ h2 { font-size: 15px; margin: 32px 0 10px; }
 .check { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; }
 .check input { margin-top: 3px; }
 .check .hint { font-size: 12.5px; color: var(--mute); }
+/* «Пауза» of a tracker: a switch in its card head, on at once, no «Зберегти» needed */
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mute); cursor: pointer; user-select: none; }
+.switch input { appearance: none; -webkit-appearance: none; margin: 0; width: 32px; height: 18px; border-radius: 9px; background: var(--faint); position: relative; cursor: pointer; transition: background .15s; flex: none; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.switch input:checked { background: var(--warn); }
+.switch input:checked::after { left: 16px; }
+.switch input:disabled { opacity: .6; }
+.switch:has(input:checked) { color: var(--fg); }
 input[type=text], input[type=number], input[type=password], select, textarea {
   font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; width: 100%; min-width: 0; }
 input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: 0; border-color: var(--accent); }
@@ -230,6 +238,7 @@ function renderTrackers() {
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `<div class="card-head"><b>${NAMES[t.type] ?? esc(t.type)}</b><span class="msg" data-me></span><span class="spacer"></span>
+      <label class="switch" title="Не шукати нових задач у цьому трекері, напр. коли вимкнено VPN. Інші трекери шукаються; задачі, вже взяті в роботу, тривають"><input type="checkbox" data-pause ${t.paused ? "checked" : ""}><span>Пауза</span></label>
       <button data-check>Перевірити підключення</button><button class="ghost danger" data-del>Видалити</button></div>`;
     if (t.type === "gitlab") card.append(text(t, "baseUrl", "Адреса GitLab", { placeholder: "https://gitlab.com" }));
     if (t.type === "jira") card.append(text(t, "baseUrl", "Адреса Jira", { placeholder: jiraBase || "https://acme.atlassian.net" }));
@@ -254,7 +263,6 @@ function renderTrackers() {
       if (!noLabel) card.append(text(t.labels, "trigger", "Мітка для агента", { placeholder: "claude-agent", hint: "Задачі з цією міткою" }));
       card.append(text(t, "assignee", "Лише призначені на", { placeholder: noLabel || t.allProjects ? "мене" : "будь-кого", hint: "Логін або me" }));
     }
-    card.append(check(t, "paused", "Пауза: не шукати нових задач у цьому трекері", { hint: "Напр. коли вимкнено VPN. Інші трекери шукаються; задачі, вже взяті в роботу, тривають" }));
     card.append(check(t, "assignOnTake", "«Взяти в роботу» призначає задачу на мене", { def: true }));
     card.append(check(t, "skipOthersTasks", "Не пропонувати задачі, призначені на інших", { def: true }));
 
@@ -277,6 +285,28 @@ function renderTrackers() {
       more.append(text(t, "apiUrl", "API GitHub Enterprise", { placeholder: "https://api.github.com" }));
       card.append(more);
     }
+    // A saved tracker goes on (or off) pause at once; one not saved yet keeps it till «Зберегти».
+    card.querySelector("[data-pause]").onchange = async (e) => {
+      const on = e.target.checked;
+      if (on) t.paused = true;
+      else delete t.paused;
+      const out = card.querySelector("[data-me]");
+      e.target.disabled = true;
+      try {
+        const r = await (await fetch(`/api/tracker-pause?id=${encodeURIComponent(trackerId(t))}&on=${on ? 1 : 0}`, { method: "POST" })).json();
+        if (r.ok) {
+          out.className = "msg ok";
+          out.textContent = on ? "На паузі" : "Пошук продовжено";
+          renderNav();
+        } else changed();
+      } catch (err) {
+        out.className = "msg bad";
+        out.textContent = "Mako не відповідає: " + err.message;
+        changed();
+      } finally {
+        e.target.disabled = false;
+      }
+    };
     card.querySelector("[data-del]").onclick = () => {
       if (!confirm(`Видалити трекер ${NAMES[t.type]}?`)) return;
       cfg.trackers.splice(i, 1);
