@@ -120,6 +120,8 @@ func run(homeFlag string, open, noTray bool) error {
 		}
 		push(m)
 	}
+	// The kinds turned off in the settings, as they are now: a saved change applies at once.
+	notify.Muted = func(kind string) bool { return d.Config().Notifications.Muted(kind) }
 	notify.RemoteWithdraw = func(tag string) {
 		push(phone.Message{Title: "Mako", Body: "На запит уже відповіли", Tag: tag, Close: true})
 	}

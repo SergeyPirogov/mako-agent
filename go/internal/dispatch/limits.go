@@ -66,10 +66,10 @@ func (d *Dispatcher) checkLimits(now time.Time) *LimitHold {
 			text += fmt.Sprintf(" Агенти в роботі (%d) продовжують, але можуть зупинитися на ліміті.", n)
 		}
 		d.Log("mako", text)
-		notify.Inform("⏳ Черга на паузі: ліміт Claude", text, d.BoardURL)
+		notify.Inform(notify.Limits, "⏳ Черга на паузі: ліміт Claude", text, d.BoardURL)
 	case hold == nil && was:
 		d.Log("mako", "ліміт Claude оновився, черга продовжується")
-		notify.Inform("▶️ Ліміт Claude оновився", "Черга продовжується.", d.BoardURL)
+		notify.Inform(notify.Limits, "▶️ Ліміт Claude оновився", "Черга продовжується.", d.BoardURL)
 	}
 	return hold
 }

@@ -74,7 +74,12 @@ type Notifications struct {
 	MorningMin int
 	// AwayHours: the board not seen this long shows what happened meanwhile.
 	AwayHours int
+	// Off: the kinds of notifications turned off (notify.NewTask, notify.Finished…); the rest are shown.
+	Off map[string]bool
 }
+
+// Muted says the kind of notifications is turned off.
+func (n Notifications) Muted(kind string) bool { return n.Off[kind] }
 
 const DefaultMorningDigest = "09:00"
 
@@ -233,6 +238,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			SnoozeMin: orInt(raw.Notifications.SnoozeMin, 60),
 			Port:      orInt(raw.Notifications.InboxPort, 7777),
 			AwayHours: orInt(raw.Notifications.AwayHours, 4),
+			Off:       map[string]bool{},
 		},
 		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
 		Reviewer: Reviewer{
@@ -281,6 +287,11 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		return nil, fmt.Errorf("ранковий підсумок: %w", err)
 	}
 	c.Notifications.MorningMin = morning
+	for kind, on := range raw.Notifications.Events {
+		if !on {
+			c.Notifications.Off[kind] = true
+		}
+	}
 	for i, rt := range raw.Trackers {
 		t, err := c.tracker(rt)
 		if err != nil {
@@ -522,6 +533,8 @@ type rawNotifications struct {
 	// MorningDigest: "09:00", "-" for none.
 	MorningDigest string `json:"morningDigest"`
 	AwayHours     *int   `json:"awayHours"`
+	// Events: which kinds of notifications to show, {"newTask": false}; a kind not named is shown.
+	Events map[string]bool `json:"events"`
 }
 
 // clock reads "HH:MM" as minutes after midnight; "-" is -1.

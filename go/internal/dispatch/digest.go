@@ -131,5 +131,5 @@ func (d *Dispatcher) morning(now time.Time) {
 	if dg.Count() == 0 {
 		return
 	}
-	notify.Inform("☀️ Підсумок за ніч", dg.Line(), d.BoardURL+"/#digest:"+strconv.FormatInt(since, 10))
+	notify.Inform("", "☀️ Підсумок за ніч", dg.Line(), d.BoardURL+"/#digest:"+strconv.FormatInt(since, 10))
 }

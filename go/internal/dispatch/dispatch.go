@@ -301,7 +301,7 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 			r.Task, r.Status = task, core.Snoozed
 		})
 		d.Log(task.ID, "нова задача: "+task.Title)
-		notify.Inform("🦈 Нова задача", task.ID+": "+task.Title, d.BoardURL)
+		notify.Inform(notify.NewTask, "🦈 Нова задача", task.ID+": "+task.Title, d.BoardURL)
 		if d.Config().Notifications.AutoTake {
 			d.Take(ctx, task.ID)
 		}
@@ -472,7 +472,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	fail := func(err error) {
 		d.Fault(id, "не передано", err)
 		d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now() })
-		notify.Inform("❌ "+id+": не передано "+map[string]string{"orca": "в Orca", terminalExecutor: "агенту"}[executor], err.Error(), d.BoardURL)
+		notify.Inform(notify.Stopped, "❌ "+id+": не передано "+map[string]string{"orca": "в Orca", terminalExecutor: "агенту"}[executor], err.Error(), d.BoardURL)
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
@@ -646,7 +646,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 				d.Store.Update(r.ID, func(r *core.Record) {
 					r.Status, r.Error, r.FinishedAt = core.Cancelled, "Workspace видалено ("+r.Worktree+"), MR не відкрито", now()
 				})
-				notify.Inform("🦈 "+r.ID+": передачу скасовано", "Workspace видалено, MR немає. Задачу можна повторити з дошки.", d.BoardURL)
+				notify.Inform(notify.Stopped, "🦈 "+r.ID+": передачу скасовано", "Workspace видалено, MR немає. Задачу можна повторити з дошки.", d.BoardURL)
 			}
 			continue
 		}
@@ -664,7 +664,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		if !onTerminal(r) {
 			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
 		}
-		notify.Inform("✅ "+r.ID+": є MR", review.URL, review.URL)
+		notify.Inform(notify.Review, "✅ "+r.ID+": є MR", review.URL, review.URL)
 		if review.State != "open" {
 			d.CheckMerges(ctx)
 		}
@@ -743,7 +743,7 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 				orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
 			}
 			d.removeWorktree(ctx, r, repo)
-			notify.Inform("🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
+			notify.Inform(notify.Merged, "🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
 		case "closed":
 			d.Log(r.ID, "MR закрито без мерджу")
 			d.Store.Update(r.ID, func(r *core.Record) {
@@ -786,7 +786,7 @@ func (d *Dispatcher) markGone(r core.Record, st string) {
 		return
 	}
 	d.Store.Update(r.ID, func(r *core.Record) { r.Gone = st })
-	notify.Inform("🦈 "+r.ID+": "+strings.ToLower(what), "Агент ще працює над нею в Orca.", d.BoardURL)
+	notify.Inform(notify.Gone, "🦈 "+r.ID+": "+strings.ToLower(what), "Агент ще працює над нею в Orca.", d.BoardURL)
 }
 
 // AutoArchive takes finished tasks off the board ArchiveAfterDays after they finished (not those in review).
@@ -845,7 +845,7 @@ func (d *Dispatcher) remind(now time.Time) {
 		}
 		d.Store.Update(r.ID, func(r *core.Record) { r.PostponedByYou, r.SnoozedUntil = false, 0 })
 		d.Log(r.ID, "час повернутися до задачі")
-		notify.Inform("⏰ "+r.ID+": час повернутися до задачі", r.Task.Title, d.BoardURL+"/#"+r.ID)
+		notify.Inform(notify.Reminder, "⏰ "+r.ID+": час повернутися до задачі", r.Task.Title, d.BoardURL+"/#"+r.ID)
 	}
 }
 
