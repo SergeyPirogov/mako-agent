@@ -78,6 +78,8 @@ type Options struct {
 	OnState      func()
 	OnLimits     func(Limits)
 	OnSession    func(sessionID string)
+	// OnCost: what a turn cost (USD), so the task can add up its budget.
+	OnCost func(usd float64)
 }
 
 // Session is one agent in a conversation.
@@ -101,6 +103,7 @@ type Session struct {
 	model     string
 	context   int
 	window    int
+	spent     float64                    // claude reports the cost so far of its process: what of it is already counted
 	pending   map[string]json.RawMessage // permission request → the tool's input
 	o         Options
 }
@@ -152,7 +155,7 @@ func (s *Session) run() {
 	cmd.Stderr = &limitWriter{w: &stderr, n: 4000}
 	s.mu.Lock()
 	stopped := s.stopping
-	s.cmd, s.stdin = cmd, stdin
+	s.cmd, s.stdin, s.spent = cmd, stdin, 0
 	s.mu.Unlock()
 	if stopped {
 		s.end()
@@ -367,7 +370,15 @@ func (s *Session) handle(line []byte) {
 				s.window = u.ContextWindow
 			}
 		}
+		// total_cost_usd grows over the turns of one process; a replayed transcript (no process yet) is not new.
+		turn := 0.0
+		if s.cmd != nil && e.Cost > s.spent {
+			turn, s.spent = e.Cost-s.spent, e.Cost
+		}
 		s.mu.Unlock()
+		if turn > 0 && s.o.OnCost != nil {
+			s.o.OnCost(turn)
+		}
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: e.Cost})
 		s.setState("done")
 		s.mu.Lock()
