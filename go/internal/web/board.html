@@ -57,7 +57,7 @@ let workOf = null, changes = null, openFiles = [], fileTab = "", diffs = {}, col
 // The task's MR as the code host has it ({review} or {error}), and what the last MR action said.
 let review = null, mrNote = "", journalOpen = false;
 // The branch's history for the commits' graph, and the commits opened in it (hash → their message and files).
-let history = null, commitOpen = {};
+let commitLog = null, commitOpen = {};
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -261,14 +261,19 @@ const getJSON = (url) => fetch(url).then((r) => r.json()).catch((e) => ({ error:
 async function loadWork() {
   const r = data?.records.find((x) => x.id === selected);
   if (!r?.worktree || workOf !== r.id || (tab !== "orca" && r.executor !== "terminal")) return;
-  const q = `id=${encodeURIComponent(r.id)}`;
-  const [cs, d, rv, hs] = await Promise.all([getJSON(`/api/changes?${q}`), fileTab ? getJSON(`/api/diff?${q}&path=${encodeURIComponent(fileTab)}${diffWhole ? "&whole=1" : ""}`) : null,
-    r.prUrl ? getJSON(`/api/review?${q}`) : null, itab === "commits" ? getJSON(`/api/commits?${q}`) : null]);
-  if (workOf !== r.id) return;
-  changes = cs;
-  review = rv;
-  if (hs && !hs.error) history = hs;
-  if (d) diffs[fileTab] = d.error ? `⚠ ${d.error}` : d.diff || "";
+  const q = `id=${encodeURIComponent(r.id)}`, path = fileTab;
+  // Each part is drawn as it comes: the changes need not wait for the code host's MR.
+  const part = (url, set, empty) => url && getJSON(url).then((v) => {
+    if (workOf !== r.id) return;
+    set(v);
+    if (empty) renderDetail();
+  });
+  await Promise.all([
+    part(`/api/changes?${q}`, (v) => (changes = v), !changes),
+    part(path && `/api/diff?${q}&path=${encodeURIComponent(path)}${diffWhole ? "&whole=1" : ""}`, (v) => (diffs[path] = v.error ? `⚠ ${v.error}` : v.diff || ""), !(path in diffs)),
+    part(r.prUrl && `/api/review?${q}`, (v) => (review = v), !review),
+    part(itab === "commits" && `/api/commits?${q}`, (v) => { if (!v.error) commitLog = v; }, !commitLog),
+  ]);
 }
 
 async function openFile(path) {
@@ -503,9 +508,9 @@ function inspectorTabs(r, term, nFiles, list) {
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
     : !c ? ["", ""] : c.ci === "failed" || c.conflicts ? ["!", "bad"] : c.threads.length ? [String(c.threads.length), "warn"]
     : ["running", "pending", "created"].includes(c.ci) ? ["⟳", "run"] : c.mergeable ? ["✓", "ok"] : ["", ""];
-  const nCommits = history ? `${history.commits.length}${history.more ? "+" : ""}` : String(cs.length);
+  const nCommits = commitLog ? `${commitLog.commits.length}${commitLog.more ? "+" : ""}` : String(cs.length);
   const tabs = [["changes", "Зміни", [String(nFiles), ""]], ["commits", "Коміти", [nCommits, ""]], ["mr", "MR", mrBadge]];
-  const panel = itab === "commits" ? (history ? commitGraph(history.commits) : `<div class="files-empty">Читаю історію…</div>`)
+  const panel = itab === "commits" ? (commitLog ? commitGraph(commitLog.commits) : `<div class="files-empty">Читаю історію…</div>`)
     : itab === "mr" ? mrCard(r, term)
     : `${changes?.base ? `<div class="files-sub">від ${esc(changes.base)}</div>` : ""}${list}`;
   return `<div class="insp-card"><div class="itabs" role="tablist">${tabs.map(([k, label, [badge, cls]]) =>
@@ -701,7 +706,7 @@ function renderDetail() {
   // A new task opened: a terminal task in progress opens on its terminal.
   if (workOf !== r.id) {
     workOf = r.id;
-    changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; history = null; commitOpen = {};
+    changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
   }
@@ -941,10 +946,11 @@ function closeChat() {
   cv = null;
 }
 async function pollChat() {
+  // The first ask goes before the chat is on the page (chatFor runs ahead of the append): it waits for none.
   const v = cv;
-  if (!v || !v.el.isConnected) return;
+  if (!v) return;
   const s = await getJSON(`/api/chat?id=${encodeURIComponent(v.id)}&v=${v.version}`);
-  if (v !== cv || s.same || s.error) return;
+  if (v !== cv || !v.el.isConnected || s.same || s.error) return;
   v.snap = s;
   v.version = s.version;
   renderChat(v);
