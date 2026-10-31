@@ -331,6 +331,13 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "lesson":
+			// «Зберегти» (to the task's branch or the base one) or «Ні» for the lesson Mako offers; the body is the rule.
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+			if err := s.D.SaveLesson(ctx, id, r.URL.Query().Get("to"), string(body)); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "focus":
 			if err := s.D.FocusAgent(ctx, id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

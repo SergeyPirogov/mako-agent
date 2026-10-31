@@ -84,6 +84,7 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	_, base, _ := d.workOf(id)
 	branch := branchOf(r)
 	var text string
+	var c *trackers.ReviewCheck
 	switch kind {
 	case "push":
 		text = fmt.Sprintf("Закоміть зроблене (нормальне повідомлення, як в інструкції) і запуш гілку %s, щоб MR її мав.", branch)
@@ -94,7 +95,8 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	case "conflicts":
 		text = fmt.Sprintf("MR %s конфліктує з %s. Зроби rebase гілки %s на origin/%s, розвʼяжи конфлікти, прожени тести й запуш з --force-with-lease.", r.PRURL, base, branch, base)
 	case "ci", "comments":
-		c, err := d.Review(ctx, id)
+		var err error
+		c, err = d.Review(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -114,6 +116,14 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	}
 	if err := d.sayTo(id, text); err != nil {
 		return err
+	}
+	if kind == "comments" {
+		// The reviewers' words, without Mako's request around them.
+		var said []string
+		for _, t := range c.Threads {
+			said = append(said, strings.TrimSpace(t.Body))
+		}
+		go d.suggestLesson(id, strings.Join(said, "\n\n"))
 	}
 	d.forgetReview(id)
 	d.Log(id, map[string]string{"push": "агента попрошено запушити зміни", "open": "агента попрошено відкрити MR",

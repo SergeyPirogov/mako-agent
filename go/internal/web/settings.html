@@ -294,6 +294,19 @@ function renderTrackers() {
   });
 }
 
+// The rules saved to the repos' CLAUDE.md from your corrections of the agents (newest first), by project.
+let lessons = [];
+function lessonsHTML(t) {
+  const mine = lessons.filter((l) => l.trackerId === (t.id || t.type));
+  if (!mine.length) return "";
+  const by = {};
+  for (const l of mine) (by[l.project] ??= []).push(l);
+  return `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Уроки з рев'ю в CLAUDE.md</h3>
+    <div style="font-size:12.5px;color:var(--mute)">Правила, збережені з ваших поправок агентам. Змінити чи прибрати — у CLAUDE.md репозиторію.</div>` +
+    Object.entries(by).map(([p, ls]) => `<div style="margin-top:8px;font-size:12.5px"><b>${esc(p)}</b><ul style="margin:4px 0 0;padding-left:18px">${ls.map((l) =>
+      `<li style="margin:2px 0">${esc(l.rule)} <span style="color:var(--mute)">· ${esc(l.task)} → <code>${esc(l.branch)}</code>${l.commit ? ` <code>${esc(l.commit)}</code>` : ""} · ${new Date(l.at).toLocaleDateString("uk")}</span></li>`).join("")}</ul></div>`).join("");
+}
+
 function projectsTable(t) {
   t.projects ??= {};
   const wrap = document.createElement("div");
@@ -335,6 +348,7 @@ function projectsTable(t) {
     tr.querySelector("button").onclick = () => { delete t.projects[current]; changed(); renderTrackers(); };
     body.append(tr);
   }
+  wrap.insertAdjacentHTML("beforeend", lessonsHTML(t));
   if (!rows.length) body.innerHTML = `<tr><td colspan="4" style="color:var(--mute);font-size:12.5px;padding:6px 0">${t.allProjects ? "Не обовʼязково: задачі з усіх проєктів підхоплюються самі." : "Немає проєктів."}</td></tr>`;
   wrap.querySelector("[data-addp]").onclick = () => {
     const key = prompt(`${what}, наприклад ${ph}`)?.trim();
@@ -593,7 +607,8 @@ function showProblems(list) {
 }
 
 async function load() {
-  const r = await (await fetch("/api/settings")).json();
+  const [r, ls] = await Promise.all([fetch("/api/settings").then((x) => x.json()), fetch("/api/settings/lessons").then((x) => x.json()).catch(() => [])]);
+  lessons = Array.isArray(ls) ? ls : [];
   cfg = r.config ?? {};
   envSet = r.env;
   jiraBase = r.jiraBaseUrl ?? "";

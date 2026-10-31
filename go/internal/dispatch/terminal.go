@@ -169,6 +169,14 @@ func (d *Dispatcher) Say(id, text string) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
+	if err := d.say(id, text); err != nil {
+		return err
+	}
+	go d.suggestLesson(id, text)
+	return nil
+}
+
+func (d *Dispatcher) say(id, text string) error {
 	if s := d.Chats.Get(id); s != nil && s.Running() {
 		return s.Send(text)
 	}

@@ -78,6 +78,26 @@ type Record struct {
 	Cost           float64       `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
+	// Lesson: a rule for CLAUDE.md Mako drew from your last correction of the agent, until you save it or say no.
+	Lesson *Lesson `json:"lesson,omitempty"`
+}
+
+// Lesson is a rule for the repo's next agents, drawn from what you told one of them.
+type Lesson struct {
+	Rule string `json:"rule"`
+	From string `json:"from"` // what you wrote, clipped
+}
+
+// SavedLesson is a rule that went into a repo's CLAUDE.md, for the project's settings.
+type SavedLesson struct {
+	TrackerID string `json:"trackerId"`
+	Project   string `json:"project"`
+	Repo      string `json:"repo"`
+	Rule      string `json:"rule"`
+	Task      string `json:"task"`
+	Branch    string `json:"branch"` // where it was committed
+	Commit    string `json:"commit"`
+	At        string `json:"at"`
 }
 
 // TrackerState is what happened to the issue's status at the last step, shown on the board.

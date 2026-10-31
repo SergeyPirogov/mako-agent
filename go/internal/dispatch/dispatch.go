@@ -66,12 +66,16 @@ type Dispatcher struct {
 	starting map[string]bool
 	agents   map[string]*Agent
 	reviews  map[string]reviewLook
-	wake     chan struct{}
+	// lessoning: the tasks whose last message Mako is looking into for a lesson.
+	lessoning map[string]bool
+	wake      chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
 	restartPending bool
 	absence        absence // when the board was last seen, the morning digest last sent
+
+	lessonsMu sync.Mutex // lessons.json
 }
 
 type LogLine struct {
@@ -83,7 +87,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	return &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 }

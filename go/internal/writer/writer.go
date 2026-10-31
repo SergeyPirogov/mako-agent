@@ -135,3 +135,43 @@ func orNone(s string) string {
 	}
 	return s
 }
+
+// Lesson: the rule for the repo's next agents in what you told this one, in one short line; "" when the
+// message is no such correction (a request, a question, a «carry on») or CLAUDE.md already says it.
+func Lesson(ctx context.Context, dir, message, claudeMD string) (string, error) {
+	if len(message) > 8000 {
+		message = message[:8000]
+	}
+	if len(claudeMD) > 8000 {
+		claudeMD = claudeMD[:8000]
+	}
+	text, err := Ask(ctx, dir, strings.Join([]string{
+		"A developer wrote the message below to a coding agent working in this repository, in a chat or as review comments.",
+		"Decide whether it corrects how the agent works in a way that should hold for every future task in this repository",
+		"(a convention, a place not to touch, how tests are written or run here, a tool to use or avoid).",
+		"A one-off request about this task only, a question, a «carry on» or praise is not such a correction.",
+		"If it is one and CLAUDE.md below does not say it already, answer with the rule only: one imperative sentence,",
+		"under 200 characters, in the language of the message, specific enough to follow without this conversation.",
+		"Otherwise answer exactly NONE.",
+		"", "Message:", message,
+		"", "CLAUDE.md now:", orNone(claudeMD),
+	}, "\n"))
+	if err != nil {
+		return "", err
+	}
+	rule := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(firstNonEmpty(text)), "-*• "))
+	rule = strings.Trim(rule, "\"«»")
+	if rule == "" || strings.EqualFold(strings.Trim(rule, ". "), "none") || len(rule) > 400 {
+		return "", nil
+	}
+	return rule, nil
+}
+
+func firstNonEmpty(text string) string {
+	for _, l := range strings.Split(text, "\n") {
+		if strings.TrimSpace(l) != "" {
+			return l
+		}
+	}
+	return ""
+}
