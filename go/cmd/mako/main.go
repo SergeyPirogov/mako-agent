@@ -23,11 +23,13 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/desktop"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
+	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 	"github.com/SergeyPirogov/mako-agent/go/internal/update"
 	"github.com/SergeyPirogov/mako-agent/go/internal/web"
 )
@@ -170,7 +172,10 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 		orca.MakoCommand = orca.ShellQuote(exe) // agents take screenshots of UI changes with it
 		if src := update.Locate(source, exe); src != "" {
 			d.Source = src
-			updater = &update.Updater{Source: src, Revision: update.BuiltRevision(), Exe: exe, Args: os.Args[1:], Busy: d.Busy, Quit: quit}
+			updater = &update.Updater{Source: src, Revision: update.BuiltRevision(), Exe: exe, Args: os.Args[1:], Busy: d.Busy, Quit: quit,
+				Report: func(ctx context.Context, title, body string) (string, error) {
+					return reportToMako(ctx, d, src, title, body)
+				}}
 			go updater.Watch(ctx, 30*time.Minute)
 		}
 	}
@@ -276,4 +281,22 @@ func findHome(flagValue string) string {
 		return filepath.Join(user, "Library", "Application Support", "Mako")
 	}
 	return filepath.Join(user, ".config", "Mako")
+}
+
+// reportToMako opens an issue in Mako's own repository (origin of its clone), through the tracker of that host.
+func reportToMako(ctx context.Context, d *dispatch.Dispatcher, src, title, body string) (string, error) {
+	origin := gitx.OriginURL(ctx, src)
+	project := gitx.RemoteProject(origin)
+	for _, t := range d.TrackerList() {
+		c, ok := t.(trackers.Creator)
+		if host := dispatch.TrackerHost(t); !ok || host == "" || !strings.Contains(origin, host) {
+			continue
+		}
+		task, err := c.Create(ctx, trackers.NewIssue{Project: project, Title: title, Description: body, Bug: true})
+		if err != nil {
+			return "", err
+		}
+		return task.URL, nil
+	}
+	return "", fmt.Errorf("немає трекера для %s", origin)
 }

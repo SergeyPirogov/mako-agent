@@ -68,13 +68,12 @@ func TestLocateFindsTheMainCheckout(t *testing.T) {
 	}
 }
 
-func TestFailingTestsChangeNothing(t *testing.T) {
+func TestFailingBuildChangesNothing(t *testing.T) {
 	clone, built := repos(t)
 	exe := filepath.Join(t.TempDir(), "mako")
 	os.WriteFile(exe, []byte("old"), 0o755)
 	u := &Updater{Source: clone, Revision: built, Exe: exe,
-		Test:    func(context.Context, string) error { return errors.New("FAIL") },
-		Build:   func(context.Context, string, string) error { t.Fatal("built after failing tests"); return nil },
+		Build:   func(context.Context, string, string) error { return errors.New("FAIL") },
 		Restart: func(int, []string) error { t.Fatal("restarted"); return nil },
 	}
 	if err := u.Apply(context.Background()); err == nil || !strings.Contains(err.Error(), "FAIL") {
@@ -96,23 +95,22 @@ func TestApplyInstallsAndRestarts(t *testing.T) {
 	clone, built := repos(t)
 	exe := filepath.Join(t.TempDir(), "mako")
 	os.WriteFile(exe, []byte("old"), 0o755)
-	var tested, restarted []string
+	var builds, restarted []string
 	busy, quit := 2, false
 	u := &Updater{Source: clone, Revision: built, Exe: exe, Args: []string{"-open"},
 		Busy: func() int { busy--; return busy },
 		Quit: func() { quit = true },
-		Test: func(_ context.Context, tree string) error {
-			tested = append(tested, git(t, tree, "log", "-1", "--format=%s"))
-			return nil
+		Build: func(_ context.Context, tree, out string) error {
+			builds = append(builds, git(t, tree, "log", "-1", "--format=%s"))
+			return os.WriteFile(out, []byte("new"), 0o755)
 		},
-		Build:   func(_ context.Context, _, out string) error { return os.WriteFile(out, []byte("new"), 0o755) },
 		Restart: func(_ int, command []string) error { restarted = command; return nil },
 	}
 	if err := u.Apply(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(tested) != 1 || tested[0] != "third" {
-		t.Fatalf("tested %v", tested)
+	if len(builds) != 1 || builds[0] != "third" {
+		t.Fatalf("built %v", builds)
 	}
 	if b, _ := os.ReadFile(exe); string(b) != "new" {
 		t.Fatalf("binary = %q", b)
@@ -131,5 +129,37 @@ func TestAppBundle(t *testing.T) {
 	}
 	if got := appBundle("/Users/me/mako/go/mako"); got != "" {
 		t.Fatal(got)
+	}
+}
+
+// A failed update goes to an issue once per commit; the board gets a line and the link.
+func TestFailureReportedOnce(t *testing.T) {
+	clone, built := repos(t)
+	exe := filepath.Join(t.TempDir(), "mako")
+	os.WriteFile(exe, []byte("old"), 0o755)
+	var bodies []string
+	u := &Updater{Source: clone, Revision: built, Exe: exe,
+		Build: func(context.Context, string, string) error {
+			return errors.New("go build: exit status 1\nmain.go:1: oops")
+		},
+		Report: func(_ context.Context, title, body string) (string, error) {
+			bodies = append(bodies, body)
+			return "https://github.com/me/mako/issues/9", nil
+		},
+	}
+	for i := 0; i < 2; i++ {
+		u.Start()
+		for deadline := time.Now().Add(10 * time.Second); u.Status().State != "failed"; time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("state %q", u.Status().State)
+			}
+		}
+	}
+	st := u.Status()
+	if st.Error != "збірка не вдалась: go build: exit status 1" || st.Issue != "https://github.com/me/mako/issues/9" {
+		t.Fatalf("status %+v", st)
+	}
+	if len(bodies) != 1 || !strings.Contains(bodies[0], "main.go:1: oops") {
+		t.Fatalf("reported %q", bodies)
 	}
 }

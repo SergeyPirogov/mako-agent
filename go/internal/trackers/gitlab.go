@@ -85,6 +85,15 @@ func (g *GitLab) Me(ctx context.Context) (string, error) {
 	return u.Username, nil
 }
 
+// UserExists: GitLab knows the username. Its issue search takes an unknown one quietly and finds nothing.
+func (g *GitLab) UserExists(ctx context.Context, login string) (bool, error) {
+	var users []glUser
+	if err := g.do(ctx, "GET", "/users?"+url.Values{"username": {login}}.Encode(), nil, &users); err != nil {
+		return false, err
+	}
+	return len(users) > 0, nil
+}
+
 func (g *GitLab) user(ctx context.Context) (*glUser, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

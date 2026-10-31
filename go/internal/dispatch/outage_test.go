@@ -87,3 +87,20 @@ func TestPollKeepsWhenTrackerWentDown(t *testing.T) {
 		t.Errorf("still down since the first failure: %+v, first %+v", again, first)
 	}
 }
+
+// GitHub answers a search for an unknown assignee with 422: the board names the login, not «помилка 422».
+func TestOutageNamesUnknownAssignee(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(422)
+		w.Write([]byte(`{"message":"Validation Failed","errors":[{"value":"SergeyPirgov","resource":"Issue","field":"assignee","code":"invalid"}]}`))
+	}))
+	defer srv.Close()
+	gh, err := trackers.NewGitHub(&config.Tracker{Type: "github", ID: "github", APIURL: srv.URL, AllProjects: true, Assignee: "SergeyPirgov"}, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = gh.FetchMine(context.Background())
+	if got := outage(gh, err); !strings.Contains(got, "користувача «SergeyPirgov» немає") {
+		t.Errorf("got %q (%v)", got, err)
+	}
+}

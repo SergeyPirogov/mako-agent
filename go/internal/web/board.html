@@ -285,8 +285,9 @@ function visible() {
 // «Оновити Mako»: a button when Mako's own main branch has new commits, «Оновлюю…» while they install.
 function updateHTML(u) {
   if (!u || (!u.count && !u.state)) return "";
-  const busy = ["testing", "building", "restarting", "waiting"].includes(u.state);
-  const failed = u.state === "failed" ? `<div class="update-error"><b>Не вдалося оновити, нічого не змінено.</b><pre>${esc(u.error || "")}</pre></div>` : "";
+  const busy = ["building", "restarting", "waiting"].includes(u.state);
+  // The failure in a line; what went wrong in full is in the issue filed about it.
+  const failed = u.state === "failed" ? `<div class="update-error"><b>Не вдалося оновити, нічого не змінено.</b> <span class="muted">${esc(u.error || "")}</span>${u.issue ? ` <a href="${esc(u.issue)}" target="_blank" rel="noopener">Задача ↗</a>` : ""}</div>` : "";
   const button = busy ? `<span class="muted">Оновлюю…</span>` : u.count ? `<button class="primary" id="update-btn">${u.state === "failed" ? "Спробувати ще раз" : "Оновити"}</button>` : "";
   if (!button && !failed) return "";
   return `<div class="banner update"><div class="update-head"><b>Оновлення Mako</b>${button}</div>${failed}</div>`;

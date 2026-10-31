@@ -30,6 +30,9 @@ func outage(t trackers.Tracker, err error) string {
 	if host != "" {
 		who += " · " + host
 	}
+	if login := t.Config().Assignee; badAssignee(err) && login != "" {
+		return who + fmt.Sprintf(": користувача «%s» немає — виправте «Лише призначені на» в налаштуваннях", login)
+	}
 	return who + ": " + outageReason(err)
 }
 
@@ -80,4 +83,10 @@ func TrackerHost(t trackers.Tracker) string {
 		}
 	}
 	return ""
+}
+
+// badAssignee: the tracker refused the search for its assignee (GitHub: 422 on an unknown login).
+func badAssignee(err error) bool {
+	var he *trackers.HTTPError
+	return errors.As(err, &he) && (he.Status == 422 || he.Status == 400) && strings.Contains(he.Body, `"assignee"`)
 }

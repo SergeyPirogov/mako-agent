@@ -37,6 +37,11 @@ type Tracker interface {
 	IssueState(ctx context.Context, t core.Task) (string, error)
 }
 
+// UserFinder: a tracker that can tell whether a login exists, to check «Лише призначені на» in the settings.
+type UserFinder interface {
+	UserExists(ctx context.Context, login string) (bool, error)
+}
+
 // CodeHost is where merge requests live (GitLab, GitHub), also for tasks from Jira.
 type CodeHost interface {
 	// FindReview: the newest MR/PR from branch in project ("group/app"), nil when there is none.

@@ -239,6 +239,15 @@ func (g *GitHub) IssueState(ctx context.Context, t core.Task) (string, error) {
 	return "open", nil
 }
 
+// UserExists: GitHub knows the login.
+func (g *GitHub) UserExists(ctx context.Context, login string) (bool, error) {
+	err := g.do(ctx, "GET", "/users/"+url.PathEscape(login), nil, nil)
+	if isStatus(err, 404) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // Move: GitHub issues have no statuses beyond open/closed; after a merge the issue is closed.
 func (g *GitHub) Move(ctx context.Context, t core.Task, moment string) (string, error) {
 	if moment != AtMerged {

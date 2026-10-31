@@ -213,7 +213,7 @@ func TestUpdate(t *testing.T) {
 	d := dispatch.New(&config.Config{}, store, nil)
 	started := make(chan bool, 1)
 	u := &update.Updater{Source: t.TempDir(), Exe: filepath.Join(t.TempDir(), "mako"),
-		Test: func(context.Context, string) error { started <- true; return errors.New("no") }}
+		Build: func(context.Context, string, string) error { started <- true; return errors.New("no") }}
 	srv := httptest.NewServer((&Server{D: d, Update: u}).Handler())
 	defer srv.Close()
 
@@ -234,7 +234,7 @@ func TestUpdate(t *testing.T) {
 	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 {
 		t.Fatalf("update: %d", res.StatusCode)
 	}
-	// Not a repository: the update fails before testing, and says so.
+	// Not a repository: the update fails before building, and says so.
 	for i := 0; i < 100 && u.Status().State != "failed"; i++ {
 		time.Sleep(10 * time.Millisecond)
 	}

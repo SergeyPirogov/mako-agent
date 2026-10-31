@@ -6,9 +6,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
@@ -95,6 +97,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			}
 		}
 		cfg, ts, problems := setup.Build(s.Home)
+		problems = append(problems, assigneeProblems(r.Context(), ts)...)
 		s.D.Reload(cfg, ts, problems)
 		writeJSON(w, map[string]any{"ok": true, "problems": problems})
 	})
@@ -167,4 +170,23 @@ func (s *Server) check(ctx context.Context, rawTracker json.RawMessage, env map[
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return tr.Me(ctx)
+}
+
+// assigneeProblems: the trackers whose «Лише призначені на» names a login the tracker does not know; their search
+// would fail, or find nothing, from then on. A tracker out of reach is not checked: its search will tell.
+func assigneeProblems(ctx context.Context, ts []trackers.Tracker) []string {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var out []string
+	for _, t := range ts {
+		uf, ok := t.(trackers.UserFinder)
+		login := t.Config().Assignee
+		if !ok || login == "" || strings.EqualFold(login, "me") {
+			continue
+		}
+		if found, err := uf.UserExists(ctx, login); err == nil && !found {
+			out = append(out, fmt.Sprintf("%s: користувача «%s» немає — виправте «Лише призначені на», інакше нових задач звідти не буде", t.Name(), login))
+		}
+	}
+	return out
 }

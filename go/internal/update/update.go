@@ -1,6 +1,6 @@
 // Package update keeps Mako on the latest commit of its own repository: it sees new commits on origin's main
-// branch and, when asked, tests and builds them and restarts Mako on the new build. Nothing changes when the
-// tests or the build fail.
+// branch and, when asked, builds them and restarts Mako on the new build. Nothing changes when the build fails.
+// The tests are CI's: main is tested on every push, and a flaky test should not hold Mako back.
 package update
 
 import (
@@ -28,11 +28,12 @@ var busyPoll = 3 * time.Second
 type Status struct {
 	Count  int      `json:"count"`            // commits on origin's main branch the running Mako lacks
 	Titles []string `json:"titles,omitempty"` // their subjects, newest first
-	// State: "" (nothing under way), "testing", "building", "waiting" (for agents to finish their turn),
-	// "restarting", "failed".
+	// State: "" (nothing under way), "building", "waiting" (for agents to finish their turn), "restarting",
+	// "failed".
 	State   string `json:"state,omitempty"`
-	Busy    int    `json:"busy,omitempty"` // agents mid-turn, while "waiting"
-	Error   string `json:"error,omitempty"`
+	Busy    int    `json:"busy,omitempty"`    // agents mid-turn, while "waiting"
+	Error   string `json:"error,omitempty"`   // in a line; the whole of it goes to Issue
+	Issue   string `json:"issue,omitempty"`   // the issue the failure was reported in
 	Checked int64  `json:"checked,omitempty"` // ms: the last look at origin
 }
 
@@ -46,16 +47,18 @@ type Updater struct {
 	Busy func() int
 	// Quit ends Mako; the new one starts once this process is gone.
 	Quit func()
-	// Test and Build run in a checkout of the new commit; Build leaves the new Mako (a binary or Mako.app) at out.
-	// nil: `go test ./...` and `go build` or packaging/mac/build-app.sh.
-	Test  func(ctx context.Context, tree string) error
+	// Build runs in a checkout of the new commit and leaves the new Mako (a binary or Mako.app) at out.
+	// nil: `go build` or packaging/mac/build-app.sh.
 	Build func(ctx context.Context, tree, out string) error
+	// Report opens an issue in Mako's own repository about a failed update and returns its link; nil: none.
+	Report func(ctx context.Context, title, body string) (string, error)
 	// Restart starts the new Mako once pid has exited; nil: a detached shell that waits for it.
 	Restart func(pid int, command []string) error
 
-	mu     sync.Mutex
-	status Status
-	busy   bool // an update is under way
+	mu       sync.Mutex
+	status   Status
+	busy     bool              // an update is under way
+	reported map[string]string // the commit a failure was reported for → the issue
 }
 
 // Locate finds the clone Mako was built from: the one the build named, else one around the binary. "" when none.
@@ -174,24 +177,60 @@ func (u *Updater) Start() bool {
 		return false
 	}
 	u.busy = true
-	u.status.Error, u.status.State = "", "testing"
+	u.status.Error, u.status.Issue, u.status.State = "", "", "building"
 	u.mu.Unlock()
 	go func() {
 		err := u.Apply(context.Background())
+		var issue string
+		if err != nil {
+			log.Printf("оновлення: %v", err)
+			issue = u.report(err)
+		}
 		u.mu.Lock()
 		u.busy = false
 		if err != nil {
-			u.status.State, u.status.Error = "failed", err.Error()
-			log.Printf("оновлення: %v", err)
+			line, _, _ := strings.Cut(err.Error(), "\n")
+			u.status.State, u.status.Error, u.status.Issue = "failed", line, issue
 		}
 		u.mu.Unlock()
 	}()
 	return true
 }
 
-// Apply tests and builds origin's main branch in a checkout of its own, brings the clone up to it, puts the new
-// build in place of the running one and restarts Mako once no agent is mid-turn. Failing tests or a failing build
-// change nothing.
+// report files the failure once per commit of origin's main branch; "" when there is no Report or it failed.
+func (u *Updater) report(failure error) string {
+	if u.Report == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rev, _ := gitx.Run(ctx, u.Source, "rev-parse", "--short", "origin/"+u.branch())
+	u.mu.Lock()
+	issue, done := u.reported[rev]
+	u.mu.Unlock()
+	if done {
+		return issue
+	}
+	line, _, _ := strings.Cut(failure.Error(), "\n")
+	title := "Mako не оновився до " + rev + ": " + line
+	body := "Оновлення Mako до `" + rev + "` не вдалось, нічого не змінено.\n\n```\n" + failure.Error() + "\n```\n"
+	issue, err := u.Report(ctx, title, body)
+	if err != nil {
+		log.Printf("оновлення: задачу не заведено: %v", err)
+		return ""
+	}
+	u.mu.Lock()
+	if u.reported == nil {
+		u.reported = map[string]string{}
+	}
+	u.reported[rev] = issue
+	u.mu.Unlock()
+	return issue
+}
+
+// Apply builds origin's main branch in a checkout of its own, brings the clone up to it, puts the new
+// build in place of the running one and restarts Mako once no agent is mid-turn. A failing build changes
+// nothing.
 func (u *Updater) Apply(ctx context.Context) error {
 	branch := u.branch()
 	if _, err := gitx.Run(ctx, u.Source, "fetch", "--quiet", "origin", branch); err != nil {
@@ -208,14 +247,6 @@ func (u *Updater) Apply(ctx context.Context) error {
 	}
 	defer gitx.Run(context.Background(), u.Source, "worktree", "remove", "--force", tree)
 
-	u.set(func(s *Status) { s.State = "testing" })
-	test := u.Test
-	if test == nil {
-		test = goTest
-	}
-	if err := test(ctx, tree); err != nil {
-		return fmt.Errorf("тести не пройшли: %w", err)
-	}
 	u.set(func(s *Status) { s.State = "building" })
 	bundle := appBundle(u.Exe)
 	out := filepath.Join(work, "mako")
@@ -320,10 +351,6 @@ func relaunch(pid int, command []string) error {
 	return cmd.Process.Release()
 }
 
-func goTest(ctx context.Context, tree string) error {
-	return run(ctx, filepath.Join(tree, "go"), "go", "test", "./...")
-}
-
 // goBuild: Mako.app with packaging/mac/build-app.sh when out is a bundle, else the bare binary.
 func goBuild(ctx context.Context, tree, out string) error {
 	dir := filepath.Join(tree, "go")
@@ -344,7 +371,7 @@ func run(ctx context.Context, dir, name string, args ...string) error {
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %s: %v\n%s", name, strings.Join(args, " "), err, tail(out.String(), 15))
+		return fmt.Errorf("%s %s: %v\n%s", name, strings.Join(args, " "), err, tail(out.String(), 40))
 	}
 	return nil
 }
