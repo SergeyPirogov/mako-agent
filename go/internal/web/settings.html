@@ -416,6 +416,7 @@ function renderOrca() {
     if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
     box.append(select(o, "agent", "Агент в Orca", agents, { def: "claude" }));
   }
+  box.append(num(cfg, "limitPausePct", "Пауза черги біля ліміту Claude, %", { placeholder: "85", hint: "Коли ліміт на 5 годин чи тиждень використано на стільки, нові задачі чекають, доки він оновиться. Агенти в роботі не зупиняються. 0 — не зважати" }));
   box.append(select(o, "mrBy", "Хто відкриває MR", [["agent", "агент: пушить гілку й відкриває MR"], ["me", onTerminal() ? "я: агент лише комітить" : "я: агент лише комітить, MR — кнопкою в Orca"]], { def: "agent" }));
   const instr = document.createElement("div");
   instr.className = "field";

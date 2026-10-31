@@ -97,7 +97,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: id, Worktree: worktree, Command: command, Args: args, Env: []string{"MAKO_TASK=" + id}, Setup: setup, Prompt: prompt, Mode: mode, History: history,
 		OnState:  func() { d.watchTerminals(time.Now()) },
-		OnLimits: d.Chats.SetLimits,
+		OnLimits: d.limitsReported,
 		// The task keeps its session: a later resume goes on with exactly this conversation.
 		OnSession: func(sid string) {
 			d.Store.Update(id, func(r *core.Record) { r.SessionID = sid })

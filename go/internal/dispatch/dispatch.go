@@ -67,6 +67,8 @@ type Dispatcher struct {
 	agents   map[string]*Agent
 	reviews  map[string]reviewLook
 	wake     chan struct{}
+	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
+	limitHeld bool
 }
 
 type LogLine struct {
@@ -369,7 +371,8 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 
 // --- taking a task
 
-// Take: «Взяти в роботу». Within the WIP limit it starts now, otherwise it waits in the queue.
+// Take: «Взяти в роботу». Within the WIP limit and below Claude's limits it starts now, otherwise it waits in
+// the queue.
 func (d *Dispatcher) Take(ctx context.Context, id string) {
 	r, ok := d.Store.Get(id)
 	if !ok || (r.Status != core.Asking && r.Status != core.Snoozed && r.Status != core.Failed && r.Status != core.Cancelled) {
@@ -382,6 +385,11 @@ func (d *Dispatcher) Take(ctx context.Context, id string) {
 }
 
 func (d *Dispatcher) schedule(ctx context.Context) {
+	// Near a Claude limit no new agent starts: it would stop in the middle of the task. The queue goes on by
+	// itself once the limit resets (Tick comes back here every poll).
+	if d.checkLimits(time.Now()) != nil {
+		return
+	}
 	d.mu.Lock()
 	active := len(d.starting)
 	for _, r := range d.Store.All() {

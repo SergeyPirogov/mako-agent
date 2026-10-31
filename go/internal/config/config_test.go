@@ -89,3 +89,11 @@ func TestParseTerminal(t *testing.T) {
 		t.Fatalf("executor %q", c.Executor)
 	}
 }
+
+func TestLimitPausePct(t *testing.T) {
+	for raw, want := range map[string]int{`{}`: 85, `{"limitPausePct": 70}`: 70, `{"limitPausePct": 0}`: 0} {
+		if c, err := Parse([]byte(raw), nil); err != nil || c.LimitPausePct != want {
+			t.Fatalf("%s: %v %v", raw, c.LimitPausePct, err)
+		}
+	}
+}

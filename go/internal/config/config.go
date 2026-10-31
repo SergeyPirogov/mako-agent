@@ -20,11 +20,14 @@ const (
 )
 
 type Config struct {
-	Path             string
-	Home             string // the folder of mako.config.json and .env
-	StateDir         string
-	PollIntervalSec  int
-	WipLimit         int
+	Path            string
+	Home            string // the folder of mako.config.json and .env
+	StateDir        string
+	PollIntervalSec int
+	WipLimit        int
+	// LimitPausePct: at this share of a Claude usage limit (5 hours or the week) used, the queue waits for it
+	// to reset; 0: never.
+	LimitPausePct    int
 	ArchiveAfterDays int
 	ProjectsDir      string
 	BranchPattern    string
@@ -201,6 +204,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		StateDir:         Expand(raw.StateDir),
 		PollIntervalSec:  orInt(raw.PollIntervalSec, 60),
 		WipLimit:         orInt(raw.WipLimit, 0),
+		LimitPausePct:    orInt(raw.LimitPausePct, 85),
 		ArchiveAfterDays: orInt(raw.ArchiveAfterDays, 2),
 		ProjectsDir:      Expand(orStr(raw.ProjectsDir, DefaultProjectsDir)),
 		BranchPattern:    orStr(raw.BranchPattern, DefaultBranchPattern),
@@ -448,6 +452,7 @@ type rawConfig struct {
 	StateDir         string                 `json:"stateDir"`
 	PollIntervalSec  *int                   `json:"pollIntervalSec"`
 	WipLimit         *int                   `json:"wipLimit"`
+	LimitPausePct    *int                   `json:"limitPausePct"`
 	ArchiveAfterDays *int                   `json:"archiveAfterDays"`
 	ProjectsDir      string                 `json:"projectsDir"`
 	BranchPattern    string                 `json:"branchPattern"`

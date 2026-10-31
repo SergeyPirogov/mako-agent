@@ -63,12 +63,14 @@ type stateReply struct {
 	Problems []string                   `json:"problems"`
 	Paused   bool                       `json:"paused"`
 	Agents   map[string]dispatch.Agent  `json:"agents"`
-	Executor string                     `json:"executor"`         // who gets new tasks: "orca" or "terminal"
-	Editor   string                     `json:"editor"`           // the code editor a worktree opens in, "" when none
-	Limits   chat.Limits                `json:"limits"`           // Claude's usage limits, as the agents last reported them
-	Remote   bool                       `json:"remote"`           // the page is open on a phone
-	Stats    core.Stats                 `json:"stats"`            // how the taken tasks went, archived ones too
-	Update   *update.Status             `json:"update,omitempty"` // new commits of Mako itself; not on a phone
+	Executor string                     `json:"executor"`            // who gets new tasks: "orca" or "terminal"
+	Editor   string                     `json:"editor"`              // the code editor a worktree opens in, "" when none
+	Limits   chat.Limits                `json:"limits"`              // Claude's usage limits, as the agents last reported them
+	Hold     *dispatch.LimitHold        `json:"limitHold,omitempty"` // the queue waits for a Claude limit to reset
+	LimitPct int                        `json:"limitPausePct"`       // the threshold of the settings, 0: none
+	Remote   bool                       `json:"remote"`              // the page is open on a phone
+	Stats    core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
+	Update   *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
 }
 
 type recordView struct {
@@ -110,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
+		reply.Hold, reply.LimitPct = s.D.LimitHold(), s.D.Config().LimitPausePct
 		reply.Remote = remote(r)
 		if s.Update != nil && !reply.Remote {
 			st := s.Update.Status()
