@@ -22,6 +22,18 @@ body { display: block; }
 .pane.on { display: block; }
 .pane > h2:first-child { margin-top: 0; }
 .where { color: var(--faint); font-size: 12px; margin-top: 24px; overflow-wrap: anywhere; }
+.step { font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--fg); margin: 0 0 10px; }
+.row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+.mode { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.mode p { margin: 4px 0 10px; font-size: 13px; }
+.notice-inline { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--err); border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.qr { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.qr img { width: 220px; height: 220px; image-rendering: pixelated; border-radius: 8px; background: #fff; padding: 8px; }
+.qr ol { margin: 0; padding-left: 18px; max-width: 360px; }
+.qr li { margin: 4px 0; }
+.device { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.device:last-of-type { border-bottom: 0; }
 .add-big { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .add-big button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px; text-align: left; border-radius: 12px; }
 .add-big span { color: var(--mute); font-size: 12.5px; }
@@ -108,6 +120,11 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <h2>Задачі й ліміти</h2>
       <p class="lead">Скільки задач одночасно, як часто шукати, як називати гілки.</p>
       <div class="card" id="limits"></div>
+    </div>
+    <div class="pane" data-pane="phone">
+      <h2>Телефон</h2>
+      <p class="lead">Mako на iPhone: дошка як додаток на екрані «Додому», «Віддати в Orca» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
+      <div id="phone"></div>
     </div>
     <div class="pane" data-pane="notifications">
       <h2>Сповіщення</h2>
@@ -335,15 +352,21 @@ function orcaExecutor() {
   const names = Object.keys(cfg.executors).filter((n) => cfg.executors[n]?.type === "orca");
   const name = names.includes(cfg.defaultExecutor) ? cfg.defaultExecutor : names[0];
   if (name) return cfg.executors[name];
+  const term = onTerminal();
   cfg.executors.orca = { type: "orca" };
-  if (!onTerminal()) cfg.defaultExecutor = "orca";
+  cfg.defaultExecutor = term ? terminalExecutor()[0] : "orca";
   cfg.mode = "dispatch";
   return cfg.executors.orca;
 }
 
 // Mako's own terminal: the agent runs in a terminal on the board. What it is told to finish with stays in the
 // Orca executor, for both.
-const onTerminal = () => cfg.executors?.[cfg.defaultExecutor]?.type === "terminal";
+// As Mako reads it: its own agent unless Orca is the default executor, or the only one there is.
+const onTerminal = () => {
+  const ex = cfg.executors ?? {}, types = Object.values(ex).map((e) => e?.type);
+  if (ex[cfg.defaultExecutor]) return ex[cfg.defaultExecutor].type !== "orca";
+  return !(types.includes("orca") && !types.includes("terminal"));
+};
 function terminalExecutor() {
   cfg.executors ??= {};
   const name = Object.keys(cfg.executors).find((n) => cfg.executors[n]?.type === "terminal");
@@ -374,6 +397,20 @@ function renderOrca() {
     box.append(text(t, "command", "Команда агента", { placeholder: "claude", hint: "Повний шлях, якщо Mako не знаходить claude сам" }));
     box.append(text(t, "setupCommand", "Підготовка нового worktree", { placeholder: "за lockfile: pnpm install, npm ci, yarn, bun", hint: "Виконується в терміналі задачі перед агентом. У проєкту може бути своя — у таблиці проєктів. «-» — нічого" }));
     box.append(select(t, "permissionMode", "Що Claude робить без питань", [["auto", "auto: Claude сам оцінює, що безпечно"], ["acceptEdits", "редагує файли без питань"], ["default", "питає про все"], ["bypassPermissions", "нічого не питає"]], { def: "auto" }));
+    const tools = document.createElement("div");
+    tools.className = "field";
+    tools.innerHTML = `<label>Команди без питань</label><textarea placeholder="Bash(npm test:*)\nBash(git push:*)"></textarea>
+      <div class="hint">По одній на рядок, у форматі Claude Code. Для режиму «питати все» чи «правки без питань»</div>`;
+    const tta = tools.querySelector("textarea");
+    tta.style.minHeight = "72px";
+    tta.value = (t.allowedTools ?? []).join("\n");
+    tta.oninput = () => {
+      const list = tta.value.split("\n").map((x) => x.trim()).filter(Boolean);
+      if (list.length) t.allowedTools = list; else delete t.allowedTools;
+      changed();
+    };
+    box.append(tools);
+    box.append(text(t, "model", "Модель", { placeholder: "як у Claude Code", hint: "Наприклад, opus або sonnet" }));
   } else {
     const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
     if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
@@ -445,7 +482,7 @@ function renderNav() {
     ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
     `<div class="group">Робота</div>` + item("orca", "Агент", (onTerminal() ? "термінал Mako · " : "Orca · ") + { agent: "агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
-    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення");
+    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення") + item("phone", "Телефон", phoneNote);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
   const on = $("side").querySelector(".on");
@@ -460,7 +497,83 @@ function show(id) {
   for (const el of document.querySelectorAll(".pane")) el.classList.toggle("on", el.dataset.pane === kind);
   renderNav();
   renderTrackers();
+  if (id === "phone") renderPhone();
   window.scrollTo(0, 0);
+}
+
+// The phone: Tailscale brings the iPhone to this Mac with HTTPS; a QR code pairs it once.
+let phoneNote = "", phoneError = "";
+const linkifyText = (t) => esc(t).replace(/https?:\/\/[^\s<>"')]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+async function renderPhone(qr) {
+  const box = $("phone");
+  let st;
+  try {
+    st = await (await fetch("/api/phone")).json();
+  } catch {
+    box.innerHTML = `<div class="card bad">Mako не відповідає</div>`;
+    return;
+  }
+  const t = st.tailscale;
+  const ok = (x) => `<span class="ok">✓</span> ${x}`;
+  let step1;
+  if (!t.installed) {
+    step1 = `Встановіть <a href="https://tailscale.com/download/mac" target="_blank" rel="noopener">Tailscale на Mac</a> (безкоштовно) і увійдіть.
+      На iPhone він не потрібен, якщо відкрити Mako з будь-якої мережі. Потім натисніть «Перевірити».
+      <div class="row"><button data-p="refresh">Перевірити</button></div>`;
+  } else if (!t.running) {
+    step1 = `${esc(t.error || "Tailscale не підключено")}. Увійдіть у застосунку Tailscale на Mac.
+      <div class="row"><button data-p="refresh">Перевірити</button></div>`;
+  } else if (!t.serving) {
+    step1 = `${ok(`Tailscale працює: <code>${esc(t.host)}</code>`)}
+      <div class="modes">
+        <div class="mode"><b>З будь-якої мережі</b><p class="muted">На iPhone нічого не треба. Mako буде в інтернеті за адресою <code>https://${esc(t.host)}</code>
+          (Tailscale Funnel), але без ключа телефона з QR-коду нічого не покаже.</p>
+          <button class="primary" data-p="serve" data-public="1">Відкрити з будь-якої мережі</button></div>
+        <div class="mode"><b>Лише пристрої Tailscale</b><p class="muted">З інтернету Mako не видно. На iPhone теж потрібен
+          <a href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">Tailscale</a> з тим самим акаунтом.</p>
+          <button data-p="serve">Відкрити для Tailscale</button></div>
+      </div>`;
+  } else {
+    step1 = `${ok(`Mako доступний на <code>${esc(st.url)}</code> — ${t.public ? "з будь-якої мережі (Funnel)" : "лише для пристроїв вашого Tailscale"}`)}
+      <div class="row">${t.public
+        ? `<button data-p="serve">Лише для Tailscale</button>`
+        : `<button data-p="serve" data-public="1">Відкрити з будь-якої мережі</button>`}
+        <button class="ghost danger" data-p="unserve">Закрити доступ</button></div>`;
+  }
+  if (phoneError) step1 += `<div class="notice-inline">${linkifyText(phoneError)}</div>`;
+  const step2 = !st.url ? `<span class="muted">Спершу крок 1.</span>`
+    : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR-код"><ol>
+        <li>Наведіть камеру iPhone на код і відкрийте посилання. Код діє 10 хвилин і один раз.</li>
+        <li>У Safari: «Поділитися» <b>⎙</b> → «На екран “Додому”».</li>
+        <li>Відкрийте Mako зі значка й натисніть 🔔, щоб отримувати сповіщення.</li></ol></div>`
+    : `<div class="row"><button class="primary" data-p="pairing">Показати QR-код</button></div>`;
+  const devices = st.devices.length
+    ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">підключено ${new Date(d.created).toLocaleDateString("uk")}, востаннє ${new Date(d.lastSeen).toLocaleString("uk")}</span>
+        <div class="muted">${d.push ? "сповіщення увімкнено" : "сповіщення вимкнено: натисніть 🔔 у додатку"}</div></div>
+        <button class="ghost danger" data-p="remove" data-id="${esc(d.id)}">Відключити</button></div>`).join("") +
+      `<div class="row"><button data-p="test">Надіслати тестове сповіщення</button><span class="msg" id="phone-msg"></span></div>`
+    : `<span class="muted">Ще немає.</span>`;
+  box.innerHTML = `<div class="card"><h3 class="step">1. Доступ з телефона</h3>${step1}</div>
+    <div class="card"><h3 class="step">2. Підключити iPhone</h3>${step2}</div>
+    <div class="card"><h3 class="step">Підключені телефони</h3>${devices}</div>`;
+  phoneNote = st.devices.length ? `${st.devices.length} підключено` : t.serving ? "готово до підключення" : "";
+  for (const b of box.querySelectorAll("[data-p]")) {
+    b.onclick = async () => {
+      const action = b.dataset.p;
+      if (action === "refresh") return renderPhone();
+      if (action === "remove" && !confirm("Відключити цей телефон? Щоб повернути, доведеться відсканувати QR-код знову.")) return;
+      b.disabled = true;
+      const query = b.dataset.id ? `?id=${encodeURIComponent(b.dataset.id)}` : b.dataset.public ? "?public=1" : "";
+      if (action === "serve" || action === "unserve") b.textContent = "Зачекайте…";
+      const r = await (await fetch(`/api/phone/${action}${query}`, { method: "POST" })).json();
+      b.disabled = false;
+      phoneError = r.ok ? "" : r.error;
+      if (!r.ok && action !== "serve" && action !== "unserve") return alert(r.error);
+      if (action === "test") return ($("phone-msg").textContent = "Надіслано");
+      renderPhone(action === "pairing" ? r : undefined);
+    };
+  }
+  renderNav();
 }
 
 function render() {

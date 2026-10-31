@@ -115,3 +115,78 @@ func TestHistory(t *testing.T) {
 		t.Fatalf("history %v", got)
 	}
 }
+
+// The agent asks (AskUserQuestion), you answer, its turn ends; left waiting for you, it is closed, asleep.
+const askClaude = `#!/bin/sh
+read init
+read msg
+echo '{"type":"control_request","request_id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Яку гілку?","header":"Гілка","multiSelect":false,"options":[{"label":"main"},{"label":"master"}]}]}}}'
+read answer
+echo "$answer" > answer.json
+echo '{"type":"result","subtype":"success","duration_ms":10}'
+read more
+`
+
+func TestAskAndSleep(t *testing.T) {
+	old := IdleAfter
+	IdleAfter = 200 * time.Millisecond
+	defer func() { IdleAfter = old }()
+	dir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(askClaude), 0o755)
+	s := Start(Options{ID: "a#2", Worktree: dir, Command: bin, Prompt: "Почни"})
+	defer s.Stop()
+	until := func(ok func() bool) {
+		t.Helper()
+		for i := 0; i < 300 && !ok(); i++ {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !ok() {
+			t.Fatalf("not yet: %+v", s.Snapshot())
+		}
+	}
+	until(func() bool { st, _, _ := s.State(); return st == "waiting" })
+	if err := s.Answer("q1", map[string]string{"Яку гілку?": "master"}); err != nil {
+		t.Fatal(err)
+	}
+	until(func() bool { st, _, _ := s.State(); return st == "done" })
+	if b, _ := os.ReadFile(filepath.Join(dir, "answer.json")); !strings.Contains(string(b), `"answers":{"Яку гілку?":"master"}`) || !strings.Contains(string(b), `"questions"`) {
+		t.Fatalf("answer %s", b)
+	}
+	if it := s.Snapshot().Items[1]; it.Status != "answered" || it.Answers["Яку гілку?"] != "master" {
+		t.Fatalf("item %+v", it)
+	}
+	until(func() bool { return !s.Running() })
+	if snap := s.Snapshot(); !snap.Asleep || snap.Live {
+		t.Fatalf("not asleep: %+v", snap)
+	}
+	for _, it := range s.Snapshot().Items {
+		if it.Kind == "error" {
+			t.Fatalf("closing for idleness is no error: %+v", it)
+		}
+	}
+}
+
+// A message that resumes a conversation shows after the history it goes on from.
+func TestResumeWithMessage(t *testing.T) {
+	dir := t.TempDir()
+	history := filepath.Join(dir, "session.jsonl")
+	os.WriteFile(history, []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]}}`+"\n"), 0o644)
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\necho \"$msg\" > "+filepath.Join(dir, "msg.json")+"\nread more\n"), 0o755)
+	s := Start(Options{ID: "a#3", Worktree: dir, Command: bin, History: history, Prompt: "Ще тести"})
+	defer s.Stop()
+	for i := 0; i < 300; i++ {
+		if b, _ := os.ReadFile(filepath.Join(dir, "msg.json")); strings.Contains(string(b), "Ще тести") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	got := []string{}
+	for _, it := range s.Snapshot().Items {
+		got = append(got, it.Kind+":"+it.Text)
+	}
+	if strings.Join(got, " | ") != "text:Готово | user:Ще тести" {
+		t.Fatalf("items %v", got)
+	}
+}

@@ -74,9 +74,9 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 	}
 	v.NewCount = len(news)
 	if cfg.WipLimit > 0 {
-		v.Headline = fmt.Sprintf("Mako · в Orca %d з %d", doing, cfg.WipLimit)
+		v.Headline = fmt.Sprintf("Mako · в роботі %d з %d", doing, cfg.WipLimit)
 	} else {
-		v.Headline = fmt.Sprintf("Mako · в Orca %d", doing)
+		v.Headline = fmt.Sprintf("Mako · в роботі %d", doing)
 	}
 	switch {
 	case len(problems) > 0:
@@ -114,7 +114,7 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 		return agents[active[i].ID].State == "waiting" && agents[active[j].ID].State != "waiting"
 	})
 	for _, r := range append(news, active...) {
-		status := map[string]string{"new": "нова", "doing": "в Orca", "review": "на рев'ю"}[r.Column(now.UnixMilli())]
+		status := map[string]string{"new": "нова", "doing": "в роботі", "review": "на рев'ю"}[r.Column(now.UnixMilli())]
 		mark := ""
 		switch {
 		case r.Status == core.Queued:

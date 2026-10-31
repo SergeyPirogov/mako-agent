@@ -7,15 +7,21 @@ import (
 	"strconv"
 )
 
-// Enabled turns notifications off for tests and when the config says so.
+// Enabled turns the Mac's notifications off for tests and when the config says so.
 var Enabled = true
 
 // Native shows a notification of Mako.app itself (macOS); false when it cannot.
 var Native func(title, message, url string) bool
 
+// Remote also gets every notification: the paired phones' pushes.
+var Remote func(title, message, url string)
+
 // Inform shows a notification; with url, clicking it opens that page where the system allows (terminal-notifier
 // on macOS, the «Відкрити» action of notify-send on Linux).
 func Inform(title, message, url string) {
+	if Remote != nil {
+		go Remote(title, message, url)
+	}
 	if !Enabled {
 		return
 	}

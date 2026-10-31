@@ -56,12 +56,19 @@ func viewOf(t config.Terminal) string {
 
 // runAgent starts Claude for a task in the view it is shown in: a conversation (the prompt as its first message)
 // or a terminal; cont continues the worktree's last conversation instead.
+// cont goes on with the task's conversation: its own Claude Code session when Mako knows it, else the newest
+// in the worktree; a prompt with cont is your message that resumes it.
 func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setup string) error {
 	t := d.Config().Terminal
+	r, _ := d.Store.Get(id)
+	again := []string{"--continue"}
+	if orca.HasSession(worktree, r.SessionID) {
+		again = []string{"--resume", r.SessionID}
+	}
 	if view != "chat" {
 		args := []string{prompt}
 		if cont {
-			args = []string{"--continue"}
+			args = again
 		}
 		return d.runClaude(id, worktree, t, args, setup)
 	}
@@ -71,15 +78,17 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 	}
 	var args []string
 	if cont {
-		args = append(args, "--continue")
-		prompt = ""
+		args = append(args, again...)
+	}
+	if t.Model != "" {
+		args = append(args, "--model", t.Model)
 	}
 	if len(t.AllowedTools) > 0 {
 		args = append(append(args, "--allowedTools"), t.AllowedTools...)
 	}
 	history := ""
 	if cont {
-		history = orca.LatestTranscript(worktree)
+		history = orca.Transcript(worktree, r.SessionID)
 	}
 	mode := t.PermissionMode
 	if old := d.Chats.Get(id); old != nil {
@@ -89,6 +98,10 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		ID: id, Worktree: worktree, Command: command, Args: args, Env: []string{"MAKO_TASK=" + id}, Setup: setup, Prompt: prompt, Mode: mode, History: history,
 		OnState:  func() { d.watchTerminals(time.Now()) },
 		OnLimits: d.Chats.SetLimits,
+		// The task keeps its session: a later resume goes on with exactly this conversation.
+		OnSession: func(sid string) {
+			d.Store.Update(id, func(r *core.Record) { r.SessionID = sid })
+		},
 	}))
 	return nil
 }
@@ -142,7 +155,29 @@ func (d *Dispatcher) SwitchView(id, to string) error {
 
 // ResumeTerminal starts Claude again in the task's worktree, continuing its last conversation: after Mako
 // restarted or the agent was closed. Without a conversation to continue, it starts the task over there.
-func (d *Dispatcher) ResumeTerminal(id string) error {
+func (d *Dispatcher) ResumeTerminal(id string) error { return d.resume(id, "") }
+
+// Say gives the task's agent your message: into its chat, or, when it is not running (closed while idle, or
+// Mako restarted), by resuming its conversation with the message.
+func (d *Dispatcher) Say(id, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	if s := d.Chats.Get(id); s != nil && s.Running() {
+		return s.Send(text)
+	}
+	if d.Live(id) {
+		return d.sayTo(id, text)
+	}
+	if err := d.resume(id, text); err != nil {
+		return err
+	}
+	d.Log(id, "ви написали агенту: "+clipText(firstLine(text), 120))
+	return nil
+}
+
+// resume starts the agent again; message, when there is one, is what it goes on with.
+func (d *Dispatcher) resume(id, message string) error {
 	r, ok := d.Store.Get(id)
 	if !ok || !onTerminal(r) || r.Worktree == "" {
 		return fmt.Errorf("задача не в терміналі Mako")
@@ -153,7 +188,7 @@ func (d *Dispatcher) ResumeTerminal(id string) error {
 	if !exists(r.Worktree) {
 		return fmt.Errorf("worktree %s видалено", r.Worktree)
 	}
-	prompt, cont := "", true
+	prompt, cont := message, true
 	if !orca.HasTranscript(r.Worktree) {
 		// No conversation was kept (the agent never got going, or ran without transcripts): start the task over
 		// in the same worktree.
@@ -227,6 +262,9 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 		if t.PermissionMode != "" && t.PermissionMode != "default" {
 			all = append(all, "--permission-mode", t.PermissionMode)
 		}
+		if t.Model != "" {
+			all = append(all, "--model", t.Model)
+		}
 		if len(t.AllowedTools) > 0 {
 			all = append(append(all, "--allowedTools"), t.AllowedTools...)
 		}
@@ -240,7 +278,7 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 		env = append(env, "MAKO_SETUP="+setup)
 	}
 	s, err := term.Start(term.Options{
-		ID: id, Worktree: worktree, Command: command, Args: all, Token: token, Idle: len(args) == 1 && args[0] == "--continue",
+		ID: id, Worktree: worktree, Command: command, Args: all, Token: token, Idle: len(args) > 0 && (args[0] == "--continue" || args[0] == "--resume"),
 		Env:     env,
 		OnState: func() { d.watchTerminals(time.Now()) },
 	})
@@ -339,12 +377,17 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 	}
 	state, tool, since := s.State()
 	a.Since, a.Live, a.Message = since.UnixMilli(), state != "exited", s.LastText()
-	switch state {
-	case "exited":
+	switch {
+	case s.Snapshot().Asleep:
+		// Closed while it waited for you: still its turn ended, a message resumes it.
+		a.State = "done"
+	case state == "exited":
 		a.State, a.Reason = "stopped", "агент вийшов"
-	case "waiting":
+	case state == "waiting" && strings.HasPrefix(tool, "AskUserQuestion"):
+		a.State, a.Reason = "waiting", "агент питає"
+	case state == "waiting":
 		a.State, a.Reason = "waiting", "дозвіл на "+tool
-	case "done":
+	case state == "done":
 		a.State = "done"
 	default:
 		a.State, a.Tool = "working", tool

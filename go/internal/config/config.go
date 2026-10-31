@@ -75,6 +75,7 @@ type Orca struct {
 // Terminal is Mako's own terminal: the agent runs in a pseudo-terminal the board shows.
 type Terminal struct {
 	Command string // "claude" when empty
+	Model   string // "" — Claude Code's own default
 	// PermissionMode: how much Claude may do without asking: "auto" (default), "acceptEdits", "default",
 	// "bypassPermissions".
 	PermissionMode string
@@ -216,13 +217,18 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
 		},
 	}
-	c.Executor, c.Terminal = "orca", Terminal{PermissionMode: "auto"}
-	if e, ok := raw.Executors[raw.DefaultExecutor]; ok && e.Type == "terminal" {
-		c.Executor = "terminal"
+	// Mako runs the agent itself unless Orca is the default executor, or the only one there is.
+	c.Executor, c.Terminal = "terminal", Terminal{PermissionMode: "auto"}
+	if e, ok := raw.Executors[raw.DefaultExecutor]; ok {
+		if e.Type == "orca" {
+			c.Executor = "orca"
+		}
+	} else if raw.has("orca") && !raw.has("terminal") {
+		c.Executor = "orca"
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View}
+			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View}
 			break
 		}
 	}
@@ -476,6 +482,16 @@ type rawNotifications struct {
 	InboxPort *int  `json:"inboxPort"`
 }
 
+// has: some executor is of type t.
+func (r *rawConfig) has(t string) bool {
+	for _, e := range r.Executors {
+		if e.Type == t {
+			return true
+		}
+	}
+	return false
+}
+
 type rawExecutor struct {
 	Type           string   `json:"type"`
 	Command        string   `json:"command"`
@@ -490,6 +506,7 @@ type rawExecutor struct {
 	AllowedTools   []string `json:"allowedTools"`
 	SetupCommand   string   `json:"setupCommand"`
 	View           string   `json:"view"`
+	Model          string   `json:"model"`
 }
 
 type rawTracker struct {

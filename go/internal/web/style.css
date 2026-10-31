@@ -403,7 +403,17 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .chat-foot { flex: none; padding: 10px 14px 10px; border-top: 1px solid var(--line); }
 .chat-box { max-width: 780px; margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .chat-box:focus-within { border-color: var(--accent); }
-.chat-box[hidden], .chat-resume[hidden] { display: none; }
+.chat-box[hidden], .chat-resume[hidden], .chat-quick[hidden] { display: none; }
+.chat-keys.err { color: var(--err); }
+.chat-quick { max-width: 780px; margin: 0 auto 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.chat-quick .chip { height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--mute); }
+.chat-quick .chip:hover { color: var(--fg); }
+/* The agent's questions */
+.perm.ask .ask-q { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.ask-text { font-weight: 600; }
+.ask-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.ask-opts .opt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); color: var(--fg); }
+.ask-q input { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 .chat-box textarea { flex: 1; min-height: 40px; max-height: 160px; border: 0; outline: none; resize: none; font: inherit; color: var(--fg); background: none; }
 .chat-send { width: 30px; height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px;
   background: var(--primary); color: var(--primary-fg); }
@@ -443,3 +453,20 @@ details.journal .log { margin-top: 8px; }
   section { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } .s.ag-working::before { animation: none; } }
+
+/* the board on a phone, as an app on the home screen: clear of the notch and the home indicator */
+body.phone header { padding-top: env(safe-area-inset-top); height: calc(50px + env(safe-area-inset-top)); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); gap: 8px; }
+body.phone section, body.phone aside { padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+body.phone .wip { font-size: 12px; }
+body.phone header > button { padding: 6px 8px; }
+@media (max-width: 760px) {
+  .actions button { padding: 10px 14px; }
+}
+
+/* A task in Orca: its agent's whole conversation, folded under the agent. */
+details.convo { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+details.convo > summary { padding: 10px 12px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.convo-body { border-top: 1px solid var(--line); padding: 12px 16px; max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.convo-body .msg.me .bubble summary { cursor: pointer; white-space: pre-wrap; overflow-wrap: anywhere; }
+.convo-tools { font: 11.5px/1.5 var(--mono); color: var(--mute); border-left: 2px solid var(--line); padding-left: 10px; overflow: hidden; }
+.convo-tools div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

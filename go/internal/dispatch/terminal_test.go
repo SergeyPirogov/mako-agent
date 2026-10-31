@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,8 @@ func TestTerminalHandOff(t *testing.T) {
 }
 
 func TestChatHandOff(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home) // where Claude Code keeps the transcripts a resume reads
 	d, _, _ := setup(t)
 	ctx := context.Background()
 	var repo string
@@ -97,9 +100,11 @@ func TestChatHandOff(t *testing.T) {
 	// A stand-in for claude -p: it takes the prompt, asks to write a file, ends its turn, then waits.
 	bin := t.TempDir()
 	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
+echo "$@" > args.txt
 read init
 read msg
 echo "$msg" > prompt.json
+echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'
 echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"npm test"}}}'
 read answer
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Готово, тести проходять"}]},"parent_tool_use_id":null}'
@@ -154,5 +159,28 @@ echo "$more" > more.json
 	}
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "more.json")); !strings.Contains(string(b), "Полагодь CI") {
 		t.Fatalf("more %s", b)
+	}
+	// The agent is gone (closed while idle, or Mako restarted): your message resumes its own session.
+	if r, _ = d.Store.Get(r.ID); r.SessionID != "sess-1" {
+		t.Fatalf("session %q", r.SessionID)
+	}
+	projects := filepath.Join(home, ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(r.Worktree, "-"))
+	os.MkdirAll(projects, 0o755)
+	os.WriteFile(filepath.Join(projects, "sess-1.jsonl"), []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"Готово, тести проходять"}]}}`+"\n"), 0o644)
+	os.Remove(filepath.Join(r.Worktree, "prompt.json"))
+	if err := d.Say(r.ID, "Ще раз тести"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 300; i++ {
+		if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); len(b) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Ще раз тести") {
+		t.Fatalf("resumed with %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "args.txt")); !strings.Contains(string(b), "--resume sess-1") {
+		t.Fatalf("args %s", b)
 	}
 }

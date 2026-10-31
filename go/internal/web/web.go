@@ -19,6 +19,8 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
+	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 )
 
 //go:embed board.html
@@ -44,6 +46,8 @@ type Server struct {
 	Home    string // where mako.config.json and .env live
 	// Show opens a page of the board for the user (Mako's window or the browser); a second start asks for it.
 	Show func(url string)
+	// Phones: the paired iPhones; nil turns the phone off.
+	Phones *phone.Phones
 }
 
 type stateReply struct {
@@ -59,6 +63,7 @@ type stateReply struct {
 	Executor string                     `json:"executor"` // who gets new tasks: "orca" or "terminal"
 	Editor   string                     `json:"editor"`   // the code editor a worktree opens in, "" when none
 	Limits   chat.Limits                `json:"limits"`   // Claude's usage limits, as the agents last reported them
+	Remote   bool                       `json:"remote"`   // the page is open on a phone
 }
 
 type recordView struct {
@@ -78,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.settingsRoutes(mux)
 	s.terminalRoutes(mux)
+	s.phoneRoutes(mux)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -99,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
+		reply.Remote = remote(r)
 		for _, rec := range s.D.Store.All() {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
@@ -163,6 +170,17 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]string{"diff": diff})
 	})
+	// A task's whole Claude Code session from its worktree, for a task in Orca (Mako's own agents have /api/chat).
+	mux.HandleFunc("GET /api/conversation", func(w http.ResponseWriter, r *http.Request) {
+		rec, ok := s.D.Store.Get(r.URL.Query().Get("id"))
+		turns := []orca.Turn{}
+		if ok && rec.Worktree != "" && s.D.Conversation != nil {
+			if t := s.D.Conversation(rec.Worktree, 300); t != nil {
+				turns = t
+			}
+		}
+		writeJSON(w, map[string]any{"turns": turns})
+	})
 	mux.HandleFunc("GET /api/log", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.D.Logs(r.URL.Query().Get("id")))
 	})
@@ -208,19 +226,22 @@ func (s *Server) Handler() http.Handler {
 			}
 		case "stop":
 			s.D.StopTerminal(id)
-		case "say", "permit", "interrupt", "view", "mode":
+		case "say", "permit", "answer", "interrupt", "view", "mode":
 			var err error
 			c := s.D.Chats.Get(id)
 			switch {
 			case action == "view":
 				err = s.D.SwitchView(id, r.URL.Query().Get("to"))
+			case action == "say":
+				// To a closed agent too: the message resumes its conversation.
+				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
+				err = s.D.Say(id, strings.TrimSpace(string(body)))
 			case c == nil:
 				err = fmt.Errorf("агент не запущений")
-			case action == "say":
-				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
-				if text := strings.TrimSpace(string(body)); text != "" {
-					err = c.Send(text)
-				}
+			case action == "answer":
+				var answers map[string]string
+				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
+				err = c.Answer(r.URL.Query().Get("req"), answers)
 			case action == "mode":
 				err = c.SetMode(r.URL.Query().Get("to"))
 			case action == "permit":
@@ -266,7 +287,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
-	return mux
+	return s.guard(mux)
 }
 
 // sameOrigin keeps other sites in the browser from pressing the board's buttons.
@@ -276,7 +297,11 @@ func sameOrigin(r *http.Request) bool {
 		return r.Header.Get("Sec-Fetch-Site") == "" || r.Header.Get("Sec-Fetch-Site") == "same-origin"
 	}
 	u, err := url.Parse(origin)
-	return err == nil && strings.EqualFold(u.Host, r.Host)
+	host := r.Host
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+		host = fh // through `tailscale serve`
+	}
+	return err == nil && (strings.EqualFold(u.Host, host) || strings.EqualFold(u.Host, r.Host))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

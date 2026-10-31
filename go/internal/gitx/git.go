@@ -200,7 +200,8 @@ func DetectBaseBranch(repo string) string {
 
 // OriginURL of a clone, "" when it has none.
 func OriginURL(ctx context.Context, repo string) string {
-	out, _ := Run(ctx, repo, "remote", "get-url", "origin")
+	// As configured: where the code lives, not how git reaches it (url.*.insteadOf).
+	out, _ := Run(ctx, repo, "config", "--get", "remote.origin.url")
 	return out
 }
 

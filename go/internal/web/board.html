@@ -2,9 +2,16 @@
 <html lang="uk">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Mako</title>
 <link rel="stylesheet" href="/style.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mako">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#fbfbfa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111214" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/vendor/xterm.css">
 </head>
 <body>
@@ -14,9 +21,11 @@
   <span id="waiting"></span>
   <span class="spacer"></span>
   <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
-  <a class="icon-btn" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
+  <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
+  <a class="icon-btn" id="settings-link" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
   <button class="ghost" id="theme" title="Тема"></button>
 </header>
+<div id="phone-hint"></div>
 <div id="problems"></div>
 <div class="work" id="work">
   <div class="side">
@@ -36,8 +45,8 @@
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
 <script>
-const COLUMNS = [["new", "Нові"], ["doing", "В Orca"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
-const LABEL = { new: "нова", later: "відкладена", doing: "в Orca", review: "на рев'ю", done: "готово", failed: "не виконано",
+const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
+const LABEL = { new: "нова", later: "відкладена", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
@@ -138,7 +147,7 @@ async function load() {
     return;
   }
   if (selected) logs = await (await fetch(`/api/log?id=${encodeURIComponent(selected)}`)).json();
-  await loadWork();
+  await Promise.all([loadWork(), loadConvo()]);
   render();
 }
 
@@ -163,7 +172,7 @@ function visible() {
 
 function render() {
   $("problems").innerHTML = data.problems?.length
-    ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}<a href="/settings">Відкрити налаштування →</a></div>` : "";
+    ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}${data.remote ? "" : `<a href="/settings">Відкрити налаштування →</a>`}</div>` : "";
   $("pause").innerHTML = data.paused ? ICON.play : ICON.pause;
   $("pause").title = $("pause").ariaLabel = data.paused ? "Пошук на паузі: продовжити" : "Пауза: не шукати нових задач";
   $("pause").classList.toggle("on", !!data.paused);
@@ -233,6 +242,7 @@ async function select(id) {
   history.replaceState(null, "", "#" + encodeURIComponent(id));
   try { localStorage.setItem("mako-selected", id); } catch {}
   logs = await (await fetch(`/api/log?id=${encodeURIComponent(id)}`)).json();
+  await loadConvo();
   render();
 }
 
@@ -608,7 +618,35 @@ function agentBlock(r) {
     ${a.screen?.length ? `<pre class="screen">${a.screen.map(esc).join("\n")}</pre>` : ""}
     ${a.message ? `<div class="agent-msg"><div class="agent-msg-h">Останнє повідомлення агента</div>${md(a.message)}</div>` : ""}
     ${a.error ? `<div class="agent-err">${esc(a.error)}</div>` : ""}
-  </div>`;
+  </div>${r.worktree ? `<details class="convo" ${convoOpen ? "open" : ""}><summary>Уся розмова з агентом${convo.id === r.id && convo.turns.length ? ` · ${convo.turns.filter((x) => x.role !== "tool").length}` : ""}</summary>
+    <div class="convo-body">${convo.id === r.id ? convoHTML(convo.turns) : `<div class="muted">Читаю…</div>`}</div></details>` : ""}`;
+}
+
+// A task in Orca: its agent's whole Claude Code session, read from the transcript while it is open.
+let convoScroll = null;
+let convoOpen = (() => { try { return localStorage.getItem("mako-chat") === "1"; } catch { return false; } })(), convo = { id: null, turns: [] };
+async function loadConvo() {
+  const id = selected, r = data?.records.find((x) => x.id === id);
+  if (!convoOpen || !r?.worktree || r.executor === "terminal") return;
+  const c = await getJSON(`/api/conversation?id=${encodeURIComponent(id)}`);
+  if (id === selected && c.turns) convo = { id, turns: c.turns };
+}
+function convoHTML(turns) {
+  if (!turns.length) return `<div class="muted">Розмови не знайдено: агент працює не в Claude Code або ще нічого не написав.</div>`;
+  const out = [];
+  for (let i = 0; i < turns.length; i++) {
+    const t = turns[i];
+    if (t.role === "tool") {
+      const group = [];
+      for (; i < turns.length && turns[i].role === "tool"; i++) group.push(turns[i].text);
+      i--;
+      const shown = group.slice(-4);
+      out.push(`<div class="convo-tools">${group.length > shown.length ? `<div>… ще ${group.length - shown.length}</div>` : ""}${shown.map((x) => `<div>${esc(x)}</div>`).join("")}</div>`);
+    } else if (t.role === "user") {
+      out.push(`<div class="msg me"><div class="bubble">${t.text.length > 500 ? `<details><summary>${esc(t.text.slice(0, 300))}…</summary>${linkify(t.text)}</details>` : linkify(t.text)}</div></div>`);
+    } else out.push(`<div class="msg"><div class="md">${md(t.text)}</div></div>`);
+  }
+  return out.join("");
 }
 
 function renderDetail() {
@@ -720,6 +758,18 @@ function renderDetail() {
     requestAnimationFrame(() => { v.resize(); if (typing) v.term.focus(); });
   }
   for (const j of $("detail").querySelectorAll("details.journal")) j.ontoggle = () => { journalOpen = j.open; };
+  for (const c of $("detail").querySelectorAll("details.convo")) {
+    // Stays at the end while the agent writes, unless the reader scrolled up.
+    const body = c.querySelector(".convo-body");
+    body.scrollTop = convoScroll?.id === r.id && !convoScroll.atEnd ? convoScroll.top : body.scrollHeight;
+    body.onscroll = () => (convoScroll = { id: r.id, top: body.scrollTop, atEnd: body.scrollTop + body.clientHeight >= body.scrollHeight - 30 });
+    c.ontoggle = async () => {
+      if (convoOpen === c.open) return;
+      convoOpen = c.open;
+      try { localStorage.setItem("mako-chat", convoOpen ? "1" : "0"); } catch {}
+      if (convoOpen) { await loadConvo(); renderDetail(); }
+    };
+  }
   for (const btn of $("detail").querySelectorAll("[data-itab]")) btn.onclick = () => {
     itab = btn.dataset.itab;
     try { localStorage.setItem("mako-itab", itab); } catch {}
@@ -807,6 +857,7 @@ function chatFor(id) {
   el.innerHTML = `<div class="chat-list" role="log" aria-live="polite"></div>
     <div class="chat-resume" hidden><button type="button" class="resume-btn on-light" data-chat-resume title="Агент зупинився. Розмова збережена в Claude Code.">${ICON.play}Продовжити розмову</button></div>
     <div class="chat-foot">
+      <div class="chat-quick">${["Продовжуй", "Запусти тести", "Відкрий MR"].map((q) => `<button type="button" class="chip" data-quick="${q}">${q}</button>`).join("")}</div>
       <div class="chat-box"><textarea rows="2" aria-label="Повідомлення агенту"></textarea>
         <button type="button" class="icon chat-stop" title="Перервати поточний крок" aria-label="Перервати поточний крок" hidden>${ICON.stop}</button>
         <button type="button" class="chat-send" title="Надіслати (Enter)" aria-label="Надіслати">${ICON.push}</button></div>
@@ -819,13 +870,19 @@ function chatFor(id) {
         <span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span></div>
     </div>`;
   const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null });
-  const send = async () => {
-    const text = v.input.value.trim();
+  // To a closed agent too: the message resumes the conversation, in a new session the board reads from 0.
+  const say = async (text) => {
     if (!text) return;
-    v.input.value = "";
-    await fetch(`/api/say?id=${encodeURIComponent(id)}`, { method: "POST", body: text });
+    const r = await (await fetch(`/api/say?id=${encodeURIComponent(id)}`, { method: "POST", body: text })).json().catch(() => ({}));
+    const keys = el.querySelector(".chat-keys");
+    keys.classList.toggle("err", r.ok === false);
+    keys.textContent = r.ok === false ? `⚠ ${r.error}` : "Enter — надіслати · Shift+Enter — новий рядок";
+    if (r.ok === false) v.input.value ||= text;
+    if (!v.snap?.live) v.version = -1;
     pollChat();
   };
+  const send = () => { const text = v.input.value.trim(); v.input.value = ""; say(text); };
+  for (const q of el.querySelectorAll("[data-quick]")) q.onclick = () => say(q.dataset.quick);
   v.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   el.querySelector(".chat-send").onclick = send;
   el.querySelector(".chat-mode select").onchange = (e) =>
@@ -835,6 +892,30 @@ function chatFor(id) {
   v.list.onclick = (e) => {
     const t = e.target.closest("[data-toggle]");
     if (t) { if (!v.flip.delete(t.dataset.toggle)) v.flip.add(t.dataset.toggle); renderChat(v); return; }
+    // The agent's questions: an option, or your own words.
+    const ans = e.target.closest("[data-ans]");
+    if (ans) {
+      const box = ans.closest("[data-ask]"), answers = {};
+      for (const q of box.querySelectorAll("[data-q]")) {
+        const own = q.querySelector("input")?.value.trim();
+        const picked = [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label);
+        const a = own || picked.join(", ");
+        if (a) answers[q.dataset.q] = a;
+      }
+      if (ans.dataset.ans === "send" && !Object.keys(answers).length) return;
+      ans.disabled = true;
+      fetch(`/api/answer?id=${encodeURIComponent(id)}&req=${encodeURIComponent(box.dataset.ask)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => pollChat());
+      return;
+    }
+    const opt = e.target.closest(".opt");
+    if (opt) {
+      const q = opt.closest("[data-q]");
+      if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
+      opt.classList.toggle("on");
+      // One question, one choice: that is the answer.
+      if (q.dataset.multi !== "1" && opt.closest("[data-ask]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-ask]").querySelector("[data-ans]").click();
+      return;
+    }
     const p = e.target.closest("[data-permit]");
     if (p) {
       p.disabled = true;
@@ -867,8 +948,9 @@ function renderChat(v) {
     ${s.state === "working" ? `<div class="chat-working"><span class="pulse"></span>${esc(running ? `${running.tool}${toolArg(running.input)}` : "Думає…")}</div>` : ""}</div>`;
   if (atBottom || v.version <= 1) list.scrollTop = list.scrollHeight;
   v.el.querySelector(".chat-stop").hidden = s.state !== "working";
-  v.el.querySelector(".chat-box").hidden = !s.live;
-  v.el.querySelector(".chat-resume").hidden = s.live;
+  // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
+  v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
+  v.el.querySelector(".chat-quick").hidden = s.state === "working" || s.state === "waiting";
   const mode = v.el.querySelector(".chat-mode select");
   if (document.activeElement !== mode) mode.value = s.mode || "default";
   mode.disabled = !s.live;
@@ -881,7 +963,7 @@ function renderChat(v) {
   const lim = data?.limits, pct = (w) => Math.round(w.used * 100);
   v.el.querySelector(".chat-limits").innerHTML = [["5 год", lim?.fiveHour], ["тиждень", lim?.week]].filter(([, w]) => w)
     .map(([label, w]) => `<span class="${pct(w) >= 85 ? "bad" : pct(w) >= 60 ? "warn" : ""}" title="Ліміт Claude: використано ${pct(w)}%">${label} ${pct(w)}%</span>`).join(" · ");
-  v.input.placeholder = s.state === "waiting" ? "Або напишіть агенту інакше…" : s.state === "working" ? "Агент прочитає після поточного кроку…" : "Що далі? Напишіть агенту…";
+  v.input.placeholder = !s.live ? "Напишіть агенту — він продовжить розмову…" : s.state === "waiting" ? "Або напишіть агенту інакше…" : s.state === "working" ? "Агент прочитає після поточного кроку…" : "Що далі? Напишіть агенту…";
 }
 const toolArg = (input) => {
   for (const k of ["command", "file_path", "pattern", "url", "description", "prompt"]) {
@@ -940,6 +1022,7 @@ function chatItem(it, i, v) {
           ${detail ? `<span class="muted">${shown ? "▾" : "▸"}</span>` : ""}</button>${shown ? detail : ""}</div>`;
     }
     case "permission": {
+      if (it.tool === "AskUserQuestion") return askCard(it);
       const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200);
       if (it.status !== "asked") {
         return `<div class="perm-done ${it.status}">${{ allowed: "✓ Дозволено", always: "✓ Дозволено й надалі", denied: "✗ Заборонено" }[it.status] ?? it.status}: ${esc(it.tool)} ${esc(arg)}</div>`;
@@ -961,6 +1044,19 @@ function chatItem(it, i, v) {
       return `<div class="notice">${esc(it.text)}</div>`;
   }
   return "";
+}
+// The agent asks: its questions with their options as buttons, and a line for your own answer.
+function askCard(it) {
+  const qs = it.input?.questions ?? [];
+  if (it.status !== "asked") {
+    const a = it.answers ?? {};
+    return `<div class="perm-done ${it.status}">${it.status === "answered" ? `✓ ${Object.entries(a).map(([q, x]) => `${esc(q)} → <b>${esc(x)}</b>`).join(" · ")}` : `✗ Без відповіді`}</div>`;
+  }
+  return `<div class="perm ask" data-ask="${esc(it.id)}"><div class="perm-h"><b>Агент питає</b></div>
+    ${qs.map((q) => `<div class="ask-q" data-q="${esc(q.question)}" data-multi="${q.multiSelect ? 1 : 0}"><div class="ask-text">${q.header ? `<span class="muted">${esc(q.header)} · </span>` : ""}${esc(q.question)}</div>
+      <div class="ask-opts">${(q.options ?? []).map((o) => `<button type="button" class="opt" data-label="${esc(o.label)}" title="${esc(o.description ?? "")}">${esc(o.label)}</button>`).join("")}</div>
+      <input type="text" placeholder="Або своя відповідь…" aria-label="Своя відповідь"></div>`).join("")}
+    <div class="perm-btns"><button type="button" class="primary" data-ans="send">Відповісти</button></div></div>`;
 }
 const relPath = (p, v) => {
   const wt = data?.records.find((x) => x.id === v.id)?.worktree;
@@ -1103,7 +1199,45 @@ window.addEventListener("hashchange", () => {
   const id = decodeURIComponent(location.hash.slice(1));
   if (id && id !== selected) select(id);
 });
-load();
+// On a phone: the app on the home screen, its service worker, and pushes once the user allows them.
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+let phoneReady = false;
+function setupPhone() {
+  if (phoneReady || !data?.remote) return;
+  phoneReady = true;
+  document.body.classList.add("phone");
+  $("settings-link").hidden = true;
+  if (!standalone) {
+    // iOS gives pushes only to an app added to the home screen.
+    $("phone-hint").innerHTML = `<div class="banner"><div>Додайте Mako на екран «Додому»: «Поділитися» <b>⎙</b> → «На екран “Додому”». Потім відкривайте Mako зі значка: так приходять сповіщення.</div></div>`;
+    return;
+  }
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  navigator.serviceWorker.register("/sw.js").then(async (reg) => {
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && Notification.permission === "granted") return subscribe(sub);
+    $("bell").hidden = false;
+  });
+  $("bell").onclick = async () => {
+    try {
+      if ((await Notification.requestPermission()) !== "granted") return alert("Сповіщення не дозволено. Увімкніть їх: Параметри → Сповіщення → Mako.");
+      const reg = await navigator.serviceWorker.ready;
+      const { key } = await (await fetch("/api/push/key")).json();
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlKey(key) });
+      await subscribe(sub);
+      $("bell").hidden = true;
+    } catch (e) {
+      alert("Не вдалося увімкнути сповіщення: " + e.message);
+    }
+  };
+}
+const subscribe = (sub) => fetch("/api/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub) });
+function urlKey(b64) {
+  const raw = atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+load().then(setupPhone);
 setInterval(load, 5000);
 </script>
 </body>

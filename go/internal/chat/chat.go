@@ -32,6 +32,8 @@ type Item struct {
 	Output string          `json:"output,omitempty"`
 	// Rules Claude suggests for «always allow».
 	Suggestions json.RawMessage `json:"suggestions,omitempty"`
+	// AskUserQuestion: what you chose, question → answer.
+	Answers map[string]string `json:"answers,omitempty"`
 	// The end of a turn.
 	Seconds float64 `json:"seconds,omitempty"`
 	Cost    float64 `json:"cost,omitempty"`
@@ -55,7 +57,8 @@ type Snapshot struct {
 	State   string `json:"state"` // "working", "waiting" (a permission), "done" (its turn ended), "exited"
 	Since   int64  `json:"since"`
 	Live    bool   `json:"live"`
-	Mode    string `json:"mode"` // how much Claude does without asking: "default", "acceptEdits", "auto", "plan", "bypassPermissions"
+	Asleep  bool   `json:"asleep,omitempty"` // closed for being idle: a message wakes it up
+	Mode    string `json:"mode"`             // how much Claude does without asking: "default", "acceptEdits", "auto", "plan", "bypassPermissions"
 	Model   string `json:"model,omitempty"`
 	// The context: what the last request carried, out of the model's window (tokens).
 	Context int    `json:"context,omitempty"`
@@ -91,6 +94,8 @@ type Session struct {
 	since     time.Time
 	exited    bool
 	stopping  bool
+	asleep    bool
+	idle      *time.Timer
 	sessionID string
 	mode      string
 	model     string
@@ -102,13 +107,16 @@ type Session struct {
 
 const maxOutput = 6000
 
+// IdleAfter: an agent that waits for you this long is closed, so it holds no memory; a message resumes it.
+var IdleAfter = 20 * time.Minute
+
 // Start runs the setup and then the agent, in the background: the conversation shows both.
 func Start(o Options) *Session {
 	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode}
 	if s.mode == "" {
 		s.mode = "default"
 	}
-	if o.Prompt != "" {
+	if o.Prompt != "" && o.History == "" {
 		s.items = append(s.items, Item{Kind: "user", Text: o.Prompt})
 	}
 	go s.run()
@@ -118,6 +126,9 @@ func Start(o Options) *Session {
 func (s *Session) run() {
 	if s.o.History != "" {
 		s.replay(s.o.History)
+		if s.o.Prompt != "" {
+			s.add(Item{Kind: "user", Text: s.o.Prompt}) // the message that woke it up
+		}
 	}
 	if s.o.Setup != "" {
 		s.add(Item{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: mustJSON(map[string]string{"command": s.o.Setup}), Status: "running"})
@@ -359,6 +370,12 @@ func (s *Session) handle(line []byte) {
 		s.mu.Unlock()
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: e.Cost})
 		s.setState("done")
+		s.mu.Lock()
+		if s.idle != nil {
+			s.idle.Stop()
+		}
+		s.idle = time.AfterFunc(IdleAfter, s.sleep)
+		s.mu.Unlock()
 	}
 }
 
@@ -503,6 +520,50 @@ func (s *Session) Permit(requestID, decision string) error {
 	return nil
 }
 
+// Answer replies to the agent's questions (AskUserQuestion): question → the option chosen or your own words.
+func (s *Session) Answer(requestID string, answers map[string]string) error {
+	s.mu.Lock()
+	raw, ok := s.pending[requestID]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("на це питання вже відповіли")
+	}
+	if len(answers) == 0 {
+		return fmt.Errorf("немає відповіді")
+	}
+	input := map[string]any{}
+	json.Unmarshal(raw, &input)
+	input["answers"] = answers
+	resp := map[string]any{"behavior": "allow", "updatedInput": input}
+	if err := s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": requestID, "response": resp}}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	delete(s.pending, requestID)
+	for i := range s.items {
+		if s.items[i].Kind == "permission" && s.items[i].ID == requestID {
+			s.items[i].Status, s.items[i].Answers = "answered", answers
+		}
+	}
+	s.version++
+	s.mu.Unlock()
+	s.setState("working")
+	return nil
+}
+
+// sleep closes an agent that has waited for you IdleAfter; its conversation stays, and a message resumes it.
+func (s *Session) sleep() {
+	s.mu.Lock()
+	idle := s.state == "done" && !s.exited && len(s.pending) == 0
+	if idle {
+		s.asleep = true
+	}
+	s.mu.Unlock()
+	if idle {
+		s.Stop()
+	}
+}
+
 // Modes Claude Code knows, as the board offers them.
 var Modes = []string{"default", "acceptEdits", "auto", "plan", "bypassPermissions"}
 
@@ -535,6 +596,9 @@ func (s *Session) Interrupt() error {
 func (s *Session) Stop() {
 	s.mu.Lock()
 	s.stopping = true
+	if s.idle != nil {
+		s.idle.Stop()
+	}
 	cmd, w := s.cmd, s.stdin
 	s.mu.Unlock()
 	if w != nil {
@@ -560,7 +624,7 @@ func (s *Session) Running() bool {
 func (s *Session) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Snapshot{Version: s.version, State: s.state, Since: s.since.UnixMilli(), Live: !s.exited, Mode: s.mode, Model: s.model,
+	return Snapshot{Version: s.version, State: s.state, Since: s.since.UnixMilli(), Live: !s.exited, Asleep: s.exited && s.asleep, Mode: s.mode, Model: s.model,
 		Context: s.context, Window: s.window, Items: append([]Item{}, s.items...)}
 }
 

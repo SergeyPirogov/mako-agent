@@ -72,7 +72,8 @@ type Record struct {
 	Gone           string        `json:"gone,omitempty"` // "closed", "deleted": in the tracker
 	TrackerStatus  *TrackerState `json:"trackerStatus,omitempty"`
 	Error          string        `json:"error,omitempty"`
-	Summary        string        `json:"summary,omitempty"` // what the agent did, written when its MR appeared
+	Summary        string        `json:"summary,omitempty"`   // what the agent did, written when its MR appeared
+	SessionID      string        `json:"sessionId,omitempty"` // Mako's own agent: its Claude Code session
 	Attempt        int           `json:"attempt,omitempty"`
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
