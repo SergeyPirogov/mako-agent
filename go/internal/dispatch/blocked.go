@@ -9,7 +9,9 @@ import (
 // Blocked: why a task in work or in review cannot go on by itself, in words, or "" when nothing holds it.
 // The board shows such tasks under «Заблоковані»: an agent waiting for your answer or permission, an MR whose
 // CI failed or that conflicts with its target. It reads only what Mako already looked at, never the network.
+// When such an MR's own agent has stopped, that is said first: nothing fixes the MR until it is continued.
 func (d *Dispatcher) Blocked(r core.Record) string {
+	stopped := r.Column(0) == "review" && d.agentStopped(r)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	switch r.Column(0) {
@@ -22,14 +24,38 @@ func (d *Dispatcher) Blocked(r core.Record) string {
 		if !ok || l.err != nil || l.check == nil || l.check.State != "open" {
 			return ""
 		}
+		why := ""
 		switch {
 		case l.check.Conflicts:
-			return "конфлікти в MR"
+			why = "конфлікти в MR"
 		case l.check.CI == "failed":
-			return "CI не пройшов"
+			why = "CI не пройшов"
 		}
+		if why != "" && stopped {
+			return "агент зупинився: " + why + ", продовжіть його в чаті"
+		}
+		return why
 	}
 	return ""
+}
+
+// agentStopped: the task's agent in Mako's chat or terminal is not running and no message wakes it by itself
+// (it exited, or Mako restarted without it), so a request to fix the MR reaches nobody. Agents in Orca: false.
+func (d *Dispatcher) agentStopped(r core.Record) bool {
+	if !onTerminal(r) || r.Worktree == "" {
+		return false
+	}
+	if d.Chats != nil {
+		if c := d.Chats.Get(r.ID); c != nil && (c.Running() || c.Snapshot().Asleep) {
+			return false
+		}
+	}
+	if d.Sessions != nil {
+		if s := d.Sessions.Get(r.ID); s != nil && s.Running() {
+			return false
+		}
+	}
+	return true
 }
 
 // CheckBlocked looks at the MRs in review, so a failed CI or a conflict shows on the board without opening
