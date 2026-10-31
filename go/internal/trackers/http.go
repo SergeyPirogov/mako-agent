@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -28,20 +29,25 @@ func (e *HTTPError) Error() string { return e.Msg }
 // into a message that says what to fix.
 func call(ctx context.Context, method, url string, headers map[string]string, body, out any, explain func(status int, body string) string) error {
 	var rd io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
+	contentType := ""
+	switch b := body.(type) {
+	case nil:
+	case *multipartBody:
+		rd, contentType = bytes.NewReader(b.data), b.contentType
+	default:
+		data, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		rd = bytes.NewReader(b)
+		rd, contentType = bytes.NewReader(data), "application/json"
 	}
 	req, err := http.NewRequestWithContext(ctx, method, url, rd)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -70,6 +76,28 @@ func call(ctx context.Context, method, url string, headers map[string]string, bo
 		return nil
 	}
 	return json.Unmarshal(data, out)
+}
+
+// multipartBody is a form with one file, for call: GitLab's uploads.
+type multipartBody struct {
+	data        []byte
+	contentType string
+}
+
+func fileForm(field, name string, data []byte) (*multipartBody, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	f, err := w.CreateFormFile(field, name)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := f.Write(data); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return &multipartBody{data: buf.Bytes(), contentType: w.FormDataContentType()}, nil
 }
 
 // perPage and maxPages bound a list read page by page: up to 1000 issues per query.

@@ -2,6 +2,7 @@ package trackers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"os/exec"
@@ -326,4 +327,61 @@ func (g *GitHub) DescribeReview(ctx context.Context, reviewURL, title, descripti
 		return fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
 	}
 	return g.do(ctx, "PATCH", "/repos/"+m[1]+"/pulls/"+m[2], map[string]any{"title": title, "body": description}, nil)
+}
+
+// --- new issues
+
+func (g *GitHub) Create(ctx context.Context, n NewIssue) (core.Task, error) {
+	me, err := g.Me(ctx)
+	if err != nil {
+		return core.Task{}, err
+	}
+	body := map[string]any{"title": n.Title, "body": n.Description, "assignees": []string{me}, "labels": newLabels(g.cfg, n.Bug)}
+	var is ghIssue
+	if err := g.do(ctx, "POST", "/repos/"+n.Project+"/issues", body, &is); err != nil {
+		return core.Task{}, err
+	}
+	return g.toTask(n.Project, is), nil
+}
+
+// UploadBranch keeps the images pasted into new issues: GitHub's API cannot attach a file to an issue.
+const UploadBranch = "mako-uploads"
+
+// Upload commits the image to UploadBranch (made from the default branch the first time) and links it.
+func (g *GitHub) Upload(ctx context.Context, repo, name string, data []byte) (string, error) {
+	if err := g.uploadBranch(ctx, repo); err != nil {
+		return "", err
+	}
+	path := uploadPath(name)
+	body := map[string]any{"message": "Mako: " + path, "content": base64.StdEncoding.EncodeToString(data), "branch": UploadBranch}
+	if err := g.do(ctx, "PUT", "/repos/"+repo+"/contents/"+path, body, nil); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("![%s](https://%s/%s/blob/%s/%s?raw=true)", name, g.Host(), repo, UploadBranch, path), nil
+}
+
+func (g *GitHub) uploadBranch(ctx context.Context, repo string) error {
+	err := g.do(ctx, "GET", "/repos/"+repo+"/git/ref/heads/"+UploadBranch, nil, nil)
+	if !isStatus(err, 404) {
+		return err
+	}
+	var r struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := g.do(ctx, "GET", "/repos/"+repo, nil, &r); err != nil {
+		return err
+	}
+	var head struct {
+		Object struct {
+			SHA string `json:"sha"`
+		} `json:"object"`
+	}
+	if err := g.do(ctx, "GET", "/repos/"+repo+"/git/ref/heads/"+url.PathEscape(r.DefaultBranch), nil, &head); err != nil {
+		return err
+	}
+	err = g.do(ctx, "POST", "/repos/"+repo+"/git/refs", map[string]any{"ref": "refs/heads/" + UploadBranch, "sha": head.Object.SHA}, nil)
+	if isStatus(err, 422) { // made meanwhile
+		return nil
+	}
+	return err
 }

@@ -59,6 +59,19 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(map[string]any{"data": map[string]any{"project": map[string]any{"workItemTypes": map[string]any{"nodes": []any{
 			map[string]any{"name": "Issue", "widgetDefinitions": []any{map[string]any{}, map[string]any{"allowedStatuses": statuses}}},
 		}}}}})
+	case (p == "/api/v4/projects/grp%2Fapp/issues" || r.URL.RawPath == "/api/v4/projects/grp%2Fapp/issues") && r.Method == "POST":
+		var in map[string]any
+		json.Unmarshal(body, &in)
+		iid := 100 + len(f.issues)
+		labels := []string{}
+		if l, _ := in["labels"].(string); l != "" {
+			labels = strings.Split(l, ",")
+		}
+		is := map[string]any{"id": 1000 + iid, "iid": iid, "state": "opened", "title": in["title"], "description": in["description"],
+			"web_url": fmt.Sprintf("%s/grp/app/-/issues/%d", f.base, iid), "labels": labels, "issue_type": in["issue_type"],
+			"assignees": []any{map[string]any{"id": 7, "username": "serg"}}, "references": map[string]string{"full": fmt.Sprintf("grp/app#%d", iid)}}
+		f.issues[iid] = is
+		reply(is)
 	case p == "/api/v4/projects/grp%2Fapp/issues" || r.URL.RawPath == "/api/v4/projects/grp%2Fapp/issues":
 		list := []any{}
 		for _, is := range f.issues {
