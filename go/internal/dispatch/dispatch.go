@@ -439,26 +439,17 @@ func (d *Dispatcher) Take(ctx context.Context, id string) {
 // Push: «Запустити зараз» on a task waiting in the queue. You decided it goes now: past the WIP limit and
 // Claude's limits.
 func (d *Dispatcher) Push(ctx context.Context, id string) {
-	r, ok := d.Store.Get(id)
-	if !ok || r.Status != core.Queued {
-		return
-	}
 	d.mu.Lock()
-	if d.starting[id] {
+	// Under d.mu, as release reads it: a start that just finished has made it handed-off before letting it go.
+	r, ok := d.Store.Get(id)
+	if !ok || r.Status != core.Queued || d.starting[id] {
 		d.mu.Unlock()
 		return
 	}
 	d.starting[id] = true
 	d.mu.Unlock()
 	d.Log(id, "запущено поза чергою")
-	go func() {
-		defer func() {
-			d.mu.Lock()
-			delete(d.starting, id)
-			d.mu.Unlock()
-		}()
-		d.start(context.WithoutCancel(ctx), id)
-	}()
+	go d.launch(ctx, id)
 }
 
 func (d *Dispatcher) schedule(ctx context.Context) { d.release(ctx, "") }
@@ -496,15 +487,18 @@ func (d *Dispatcher) release(ctx context.Context, id string) {
 	}
 	d.mu.Unlock()
 	for _, id := range start {
-		go func(id string) {
-			defer func() {
-				d.mu.Lock()
-				delete(d.starting, id)
-				d.mu.Unlock()
-			}()
-			d.start(context.WithoutCancel(ctx), id)
-		}(id)
+		go d.launch(ctx, id)
 	}
+}
+
+// launch starts a task already marked in d.starting and lets the mark go once it is handed off (or failed).
+func (d *Dispatcher) launch(ctx context.Context, id string) {
+	defer func() {
+		d.mu.Lock()
+		delete(d.starting, id)
+		d.mu.Unlock()
+	}()
+	d.start(context.WithoutCancel(ctx), id)
 }
 
 // Wait blocks until no hand-off is starting (tests).

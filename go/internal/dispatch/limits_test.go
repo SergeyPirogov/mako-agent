@@ -56,3 +56,22 @@ func TestQueueWaitsForLimit(t *testing.T) {
 		t.Fatalf("after the reset: %s, %d handed", r.Status, len(*jobs))
 	}
 }
+
+// «Запустити зараз» starts a queued task while the limit still holds the queue.
+func TestPushPastLimit(t *testing.T) {
+	d, _, jobs := setup(t)
+	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	ctx := context.Background()
+	d.Poll(ctx)
+	d.Chats.SetLimits(chat.Limits{FiveHour: &chat.Window{Used: 0.9, ResetsAt: time.Now().Add(time.Hour).Unix()}})
+	d.Take(ctx, "grp/app#5")
+	d.Wait()
+	if r, _ := d.Store.Get("grp/app#5"); r.Status != core.Queued {
+		t.Fatalf("near the limit: %s", r.Status)
+	}
+	d.Push(ctx, "grp/app#5")
+	d.Wait()
+	if r, _ := d.Store.Get("grp/app#5"); r.Status != core.HandedOff || len(*jobs) != 1 {
+		t.Fatalf("pushed: %s, %d handed", r.Status, len(*jobs))
+	}
+}

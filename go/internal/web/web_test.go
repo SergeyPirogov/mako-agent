@@ -46,6 +46,19 @@ func TestBoard(t *testing.T) {
 		t.Fatalf("POST: %d", res.StatusCode)
 	}
 
+	// «Запустити зараз» reaches Push: the queued task leaves the queue (here it fails at once: no trackers).
+	store.Update("grp/app#6", func(r *core.Record) { r.Status, r.Task = core.Queued, core.Task{ID: "grp/app#6", Title: "Ship"} })
+	req, _ = http.NewRequest("POST", srv.URL+"/api/push?id=grp/app%236", nil)
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 {
+		t.Fatalf("push: %d", res.StatusCode)
+	}
+	d.Wait()
+	if r, _ := store.Get("grp/app#6"); r.Status == core.Queued {
+		t.Fatal("pushed task still queued")
+	}
+	store.Delete("grp/app#6")
+
 	res, _ = http.Get(srv.URL + "/api/state")
 	var st stateReply
 	json.NewDecoder(res.Body).Decode(&st)
