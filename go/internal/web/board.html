@@ -1053,6 +1053,14 @@ function convoHTML(turns) {
   return out.join("");
 }
 
+// The tracker a task came from, by name: "GitHub"; with its host when two trackers share the name
+// ("GitLab · git.example.com"); "трекера" when the tracker is gone from the settings.
+function trackerName(task) {
+  const all = data?.trackers || [], tr = all.find((x) => x.id === task.trackerId);
+  if (!tr) return "трекера";
+  return tr.host && all.filter((x) => x.name === tr.name).length > 1 ? `${tr.name} · ${tr.host}` : tr.name;
+}
+
 // «+ Задача»: where a task can be written — a tracker that opens issues and its projects.
 function newTaskTargets() {
   return (data?.trackers || []).flatMap((t) => (t.projects || []).map((p) => ({ tracker: t.id, name: t.name, project: p })));
@@ -1284,7 +1292,7 @@ function renderDetail() {
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${reviewerHTML(r)}
     ${r.retryNote ? card(`Спроба ${r.attempt || 2}: що зробити інакше`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
-    ${card("Опис", `<div class="tcard-b text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", "з трекера")}
+    ${card("Опис", `<div class="tcard-b text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", `з ${esc(trackerName(t))}`)}
     ${t.comments?.length ? card(`Коментарі · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="text">${richText(c.body)}</div></div></div>`).join("")) : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
       <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;

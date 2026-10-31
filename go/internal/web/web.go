@@ -96,6 +96,7 @@ type recordView struct {
 type trackerView struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Host string `json:"host,omitempty"` // "git.example.com": tells two trackers of one kind apart
 	// Projects: where «+ Задача» can write a task; nil when the tracker cannot open issues (Jira).
 	Projects []string `json:"projects,omitempty"`
 }
@@ -150,7 +151,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		projects := s.D.NewTaskProjects()
 		for _, t := range s.D.TrackerList() {
-			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name(), Projects: projects[t.ID()]})
+			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name(), Host: dispatch.TrackerHost(t), Projects: projects[t.ID()]})
 		}
 		writeJSON(w, reply)
 	})
