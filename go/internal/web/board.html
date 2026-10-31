@@ -46,6 +46,23 @@
   </div>
   <section id="detail"><div class="empty">Виберіть задачу зліва</div></section>
 </div>
+<!-- «Повторити інакше»: the agent went the wrong way; Mako drops the attempt and starts the task over. -->
+<dialog id="redo" aria-labelledby="redo-h">
+  <form method="dialog" id="redo-form">
+    <h2 id="redo-h">Повторити інакше</h2>
+    <p class="muted">Mako зупинить агента, закриє його MR, прибере worktree і почне задачу знову на новій гілці: з тим самим описом, вашою інструкцією й коротким підсумком минулої спроби.</p>
+    <label for="redo-note">Що зробити інакше</label>
+    <textarea id="redo-note" rows="5" placeholder="Напр.: не чіпай API, виправ на фронтенді; спершу напиши тест, що відтворює баг"></textarea>
+    <label for="redo-model">Модель</label>
+    <input id="redo-model" list="redo-models" placeholder="як у налаштуваннях" autocomplete="off" spellcheck="false">
+    <datalist id="redo-models"><option value="opus"><option value="sonnet"><option value="haiku"></datalist>
+    <div class="redo-a">
+      <button type="submit" class="primary" value="go">Повторити</button>
+      <button type="submit" value="cancel" formnovalidate>Скасувати</button>
+      <span class="muted">⌘/Ctrl+Enter — повторити</span>
+    </div>
+  </form>
+</dialog>
 <script src="/theme.js"></script>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
@@ -114,6 +131,7 @@ const ICON = {
   clock: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   play: `<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14l12-7z" fill="currentColor"/></svg>`,
   fix: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4l-6.1-1.6a.5.5 0 0 1 0-1l6.1-1.6a2 2 0 0 0 1.4-1.4l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/><path d="M20 3v4M22 5h-4"/></svg>`,
+  redo: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>`,
   stop: `<svg viewBox="0 0 24 24" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>`,
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
@@ -865,6 +883,28 @@ async function mrAction(id, action, kind = "") {
   if (action === "ask" && !res.error) tv?.term.focus();
 }
 
+// «Повторити інакше»: the note and the model go to Mako, which drops the attempt and starts the task over.
+function openRedo(r) {
+  const dlg = $("redo"), note = $("redo-note"), model = $("redo-model");
+  dlg.dataset.id = r.id;
+  note.value = "";
+  model.value = r.model || "";
+  dlg.showModal();
+  note.focus();
+}
+$("redo-note").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $("redo-form").requestSubmit($("redo-form").querySelector('[value="go"]')); }
+});
+$("redo").addEventListener("close", async () => {
+  const dlg = $("redo");
+  if (dlg.returnValue !== "go") return;
+  dlg.returnValue = "";
+  const id = dlg.dataset.id, body = JSON.stringify({ note: $("redo-note").value, model: $("redo-model").value });
+  const res = await fetch(`/api/redo?id=${encodeURIComponent(id)}`, { method: "POST", body }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+  toast(res.ok === false ? `⚠ ${res.error}` : "Mako прибирає минулу спробу і почне задачу знову", res.ok === false);
+  await load();
+});
+
 // «Відкласти»: one button, the times in its menu; the task shows how long it is put off and comes back with a
 // notification.
 function laterAt(kind) {
@@ -1093,12 +1133,15 @@ function renderDetail() {
   const term = r.executor === "terminal" && r.worktree;
   // Mako's own agent goes on after its MR too (CI, review comments), until the merge.
   const agentOn = term && !r.archivedAt && r.reviewState !== "merged" && (r.column === "doing" || r.column === "review");
+  // «Повторити інакше»: an icon in the agent's workspace bar, words elsewhere.
+  const redo = term ? `<button class="icon" data-redo title="Повторити інакше" aria-label="Повторити інакше">${ICON.redo}</button>` : `<button data-redo>Повторити інакше</button>`;
   if (r.column === "new") actions = b("take", "Взяти в роботу", "primary") + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
   else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
-  else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("archive", "В архів", "archive");
-  else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("cancel", "Більше не стежити", "unwatch", "danger");
-  else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + ib("cancel", "Більше не стежити", "unwatch", "danger");
-  else if (r.column === "failed") actions = b("retry", "Повторити", "primary") + ib("archive", "В архів", "archive");
+  else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + redo + ib("archive", "В архів", "archive");
+  else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + redo + ib("cancel", "Більше не стежити", "unwatch", "danger");
+  else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + redo + ib("cancel", "Більше не стежити", "unwatch", "danger");
+  else if (r.column === "failed") actions = b("retry", "Повторити", "primary") + redo + ib("archive", "В архів", "archive");
+  else if (r.column === "review") actions = redo + ib("archive", "В архів", "archive");
   else actions = ib("archive", "В архів", "archive");
   if (r.archivedAt) actions = ib("unarchive", "Повернути з архіву", "unarchive");
 
@@ -1115,6 +1158,7 @@ function renderDetail() {
   const task = `
     ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
+    ${r.retryNote ? `<h3>Спроба ${r.attempt || 2}: що зробити інакше</h3><div class="text">${richText(r.retryNote)}</div>${r.model ? `<p class="muted">Модель: <code>${esc(r.model)}</code></p>` : ""}` : ""}
     <h3>Опис</h3>
     <div class="text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${richText(c.body)}</div></div>`).join("")}` : ""}
@@ -1294,6 +1338,7 @@ function renderDetail() {
     if (!(fileTab in diffs)) loadWork().then(renderDetail);
   };
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
+  for (const btn of $("detail").querySelectorAll("[data-redo]")) btn.onclick = () => openRedo(r);
   $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
 }
 

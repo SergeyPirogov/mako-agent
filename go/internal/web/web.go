@@ -278,6 +278,14 @@ func (s *Server) Handler() http.Handler {
 			s.D.Cancel(id)
 		case "retry":
 			s.D.Retry(ctx, id)
+		case "redo":
+			// «Повторити інакше»: {note, model}.
+			var in struct{ Note, Model string }
+			json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in)
+			if err := s.D.Redo(ctx, id, in.Note, in.Model); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "resume":
 			if err := s.D.ResumeTerminal(id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

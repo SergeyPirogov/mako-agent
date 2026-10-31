@@ -50,6 +50,8 @@ type Dispatcher struct {
 	// Conversation: the agent's whole Claude Code session, for the card.
 	Conversation func(worktree string, limit int) []orca.Turn
 	BoardURL     string
+	// RemoveWorkspace takes a task's Orca workspace away (its agent stops); tests replace it.
+	RemoveWorkspace func(ctx context.Context, repoPath, worktree, branch string) error
 	// KeepAwake keeps the computer from sleeping while some agent is working (on) and lets it sleep after;
 	// nil: never.
 	KeepAwake func(on bool)
@@ -81,11 +83,13 @@ type LogLine struct {
 }
 
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
-	return &Dispatcher{
+	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
 		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
+	d.RemoveWorkspace = d.orcaRemove
+	return d
 }
 
 // Config and TrackerList: the current settings (the settings page may replace them at any time).
@@ -388,13 +392,25 @@ func (d *Dispatcher) Take(ctx context.Context, id string) {
 	d.schedule(ctx)
 }
 
-func (d *Dispatcher) schedule(ctx context.Context) {
+func (d *Dispatcher) schedule(ctx context.Context) { d.release(ctx, "") }
+
+// release lets a task the scheduler was told to leave alone go (id; "" for none) and starts what fits in the WIP
+// limit, at once: no moment where neither counts.
+func (d *Dispatcher) release(ctx context.Context, id string) {
 	// Near a Claude limit no new agent starts: it would stop in the middle of the task. The queue goes on by
-	// itself once the limit resets (Tick comes back here every poll).
+	// itself once the limit resets (Tick comes back here every poll); a released task waits in it.
 	if d.checkLimits(time.Now()) != nil {
+		if id != "" {
+			d.mu.Lock()
+			delete(d.starting, id)
+			d.mu.Unlock()
+		}
 		return
 	}
 	d.mu.Lock()
+	if id != "" {
+		delete(d.starting, id)
+	}
 	active := len(d.starting)
 	for _, r := range d.Store.All() {
 		if r.Status == core.HandedOff {
@@ -476,7 +492,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.move(ctx, t, r.Task, trackers.AtStart)
 
-	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch}
+	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch, Model: r.Model, RetryNote: r.RetryNote, LastAttempt: r.LastAttempt}
 	var res *orca.Result
 	if executor == terminalExecutor {
 		res, err = d.handTerminal(ctx, job, logf)

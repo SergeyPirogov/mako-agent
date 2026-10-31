@@ -241,22 +241,7 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		return
 	}
 	o := d.Config().Orca
-	agentText := ""
-	d.mu.Lock()
-	if a := d.agents[r.ID]; a != nil {
-		agentText = a.Message
-	}
-	d.mu.Unlock()
-	if s := d.Chats.Get(r.ID); s != nil && agentText == "" {
-		agentText = s.LastText()
-	}
-	if s := d.Sessions.Get(r.ID); s != nil && agentText == "" {
-		agentText = s.Output(6000)
-	}
-	if !onTerminal(r) {
-		agentText = d.orcaText(ctx, o, r, agentText)
-	}
-	text, err := writer.TaskSummary(ctx, r.Worktree, baseBranch, r.Task, agentText, reviewURL)
+	text, err := writer.TaskSummary(ctx, r.Worktree, baseBranch, r.Task, d.agentWords(ctx, r), reviewURL)
 	if err != nil {
 		d.Log(r.ID, "підсумок не написано: "+err.Error())
 		return
@@ -271,6 +256,26 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 			d.Log(r.ID, "підсумок у задачу не додано: "+err.Error())
 		}
 	}
+}
+
+// agentWords: the agent's last words, from Mako's own view of it, its chat or terminal, or Orca.
+func (d *Dispatcher) agentWords(ctx context.Context, r core.Record) string {
+	text := ""
+	d.mu.Lock()
+	if a := d.agents[r.ID]; a != nil {
+		text = a.Message
+	}
+	d.mu.Unlock()
+	if s := d.Chats.Get(r.ID); s != nil && text == "" {
+		text = s.LastText()
+	}
+	if s := d.Sessions.Get(r.ID); s != nil && text == "" {
+		text = s.Output(6000)
+	}
+	if !onTerminal(r) {
+		text = d.orcaText(ctx, d.Config().Orca, r, text)
+	}
+	return text
 }
 
 // orcaText: the agent's last message as Orca has it, else the end of its terminal; text when there is one already.
