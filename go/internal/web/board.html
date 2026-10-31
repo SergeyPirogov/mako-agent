@@ -353,14 +353,14 @@ function render() {
     if (!items.length) continue;
     // While filtering, every match shows: a folded group would hide what was asked for.
     const fold = !words.length && !!folded[col];
-    html += `<section class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
+    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
     for (const r of fold ? [] : items) {
       const st = state(r);
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
         <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code>${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
     }
-    html += `</section>`;
+    html += `</div>`;
   }
   $("new-task-bar").hidden = !newTaskTargets().length;
   $("list").innerHTML = html || `<div class="empty">${words.length ? "Нічого не знайдено" : showArchive ? "Архів порожній" : "Задач немає. Mako перевіряє трекери і покаже тут нові задачі, призначені на вас."}</div>`;
