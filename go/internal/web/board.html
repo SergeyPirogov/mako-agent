@@ -68,7 +68,7 @@
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
 <script>
-const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
+const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
 const LABEL = { new: "нова", later: "відкладена", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
@@ -344,7 +344,8 @@ function render() {
   let html = "";
   for (const [col, title] of COLUMNS) {
     const rank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
-    const items = rows.filter((r) => r.column === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed : col === "doing" ? rank(a) - rank(b) : 0));
+    // A held-up task keeps its column for its actions, but is listed under «Заблоковані».
+    const items = rows.filter((r) => (r.blocked ? "blocked" : r.column) === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed : col === "doing" ? rank(a) - rank(b) : 0));
     if (!items.length) continue;
     // While filtering, every match shows: a folded group would hide what was asked for.
     const fold = !words.length && !!folded[col];
@@ -353,7 +354,7 @@ function render() {
       const st = state(r);
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code>${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code>${r.blocked ? `<span class="blocked-why" title="${esc(r.blocked)}">${esc(r.blocked)}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }

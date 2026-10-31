@@ -89,6 +89,8 @@ type recordView struct {
 	Postponed bool   `json:"postponed"`
 	Type      string `json:"type"` // "fix" for a bug, "feature" for a task: as the branch is named
 	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
+	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
+	Blocked string `json:"blocked,omitempty"`
 }
 
 type trackerView struct {
@@ -141,6 +143,9 @@ func (s *Server) Handler() http.Handler {
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
+			if rec.ArchivedAt == 0 {
+				v.Blocked = s.D.Blocked(rec)
+			}
 			reply.Records = append(reply.Records, v)
 		}
 		projects := s.D.NewTaskProjects()
