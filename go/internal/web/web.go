@@ -51,6 +51,8 @@ type Server struct {
 	Phones *phone.Phones
 	// Update: Mako's own new commits and their install; nil when Mako is not built from a clone.
 	Update *update.Updater
+	// Release: a newer release of Mako, for one installed from a release (no clone); nil otherwise.
+	Release *update.Releases
 }
 
 type stateReply struct {
@@ -71,6 +73,7 @@ type stateReply struct {
 	Remote   bool                       `json:"remote"`              // the page is open on a phone
 	Stats    core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
 	Update   *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
+	Release  *update.Release            `json:"release,omitempty"`   // a newer release to download; not on a phone
 	Restart  restartView                `json:"restart"`
 	Faults   []dispatch.Fault           `json:"faults"` // Mako's own errors, the newest first
 	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
@@ -138,6 +141,9 @@ func (s *Server) Handler() http.Handler {
 		if s.Update != nil && !reply.Remote {
 			st := s.Update.Status()
 			reply.Update = &st
+		}
+		if s.Release != nil && !reply.Remote {
+			reply.Release = s.Release.Latest()
 		}
 		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
 		all := s.D.Store.All()
@@ -246,6 +252,22 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, map[string]bool{"ok": s.Update.Start()})
+	})
+	// «Сховати» on the new release's banner: until a later release, from the Mac only.
+	mux.HandleFunc("POST /api/release/dismiss", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) || remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if s.Release == nil {
+			writeJSON(w, map[string]bool{"ok": false})
+			return
+		}
+		if err := s.Release.Dismiss(r.URL.Query().Get("version")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	s.createRoutes(mux)
 	// Mako's own errors: «На аналіз» opens an issue with them in Mako's repository, «Очистити» forgets them.

@@ -317,3 +317,44 @@ func TestTrackerPause(t *testing.T) {
 		t.Fatalf("unknown tracker: %v", r)
 	}
 }
+
+func TestRelease(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{}, store, nil)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"tag_name":"v0.4.0","html_url":"https://example.com/r","body":"New"}`))
+	}))
+	defer api.Close()
+	rel := &update.Releases{Current: "0.3.0", API: api.URL, File: filepath.Join(t.TempDir(), "release.json")}
+	rel.Check(context.Background())
+	srv := httptest.NewServer((&Server{D: d, Release: rel}).Handler())
+	defer srv.Close()
+
+	get := func(phone bool) *update.Release {
+		req, _ := http.NewRequest("GET", srv.URL+"/api/state", nil)
+		if phone {
+			req.Header.Set("X-Forwarded-For", "100.64.0.2")
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st stateReply
+		json.NewDecoder(res.Body).Decode(&st)
+		return st.Release
+	}
+	if r := get(false); r == nil || r.Version != "0.4.0" || r.URL != "https://example.com/r" {
+		t.Fatalf("release %+v", r)
+	}
+	if get(true) != nil {
+		t.Fatal("a phone sees the release")
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/api/release/dismiss?version=0.4.0", nil)
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 {
+		t.Fatalf("dismiss: %d", res.StatusCode)
+	}
+	if get(false) != nil {
+		t.Fatal("shown after hiding")
+	}
+}
