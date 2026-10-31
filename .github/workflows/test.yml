@@ -24,7 +24,7 @@ jobs:
 
   # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them.
   go-mac:
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: go
