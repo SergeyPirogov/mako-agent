@@ -624,9 +624,11 @@ async function renderPhone(qr) {
   const step2 = !st.url ? `<span class="muted">Спершу крок 1.</span>`
     : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR-код"><ol>
         <li>Наведіть камеру телефона на код і відкрийте посилання. Код діє 10 хвилин і один раз.</li>
-        <li>iPhone, у Safari: «Поділитися» <b>⎙</b> → «На екран “Додому”». Android, у Chrome: «Встановити» на дошці
-          або <b>⋮</b> → «Додати на головний екран».</li>
-        <li>Відкрийте Mako зі значка й натисніть 🔔, щоб отримувати сповіщення.</li></ol></div>`
+        <li>Коли Mako відкрився на телефоні, додайте його на екран «Додому».
+          iPhone, Safari: «Поділитися» <b>⎙</b> → «На екран “Додому”» → «Додати».
+          iPhone, Chrome: <b>⎙</b> праворуч в адресному рядку (або <b>⋯</b> → «Поділитися») → «На екран “Додому”» → «Додати»;
+          потрібна iOS 16.4+. Android, Chrome: «Встановити» на дошці або <b>⋮</b> → «Додати на головний екран».</li>
+        <li>Відкрийте Mako зі значка й натисніть 🔔, щоб отримувати сповіщення. На iPhone вони приходять лише в Mako зі значка.</li></ol></div>`
     : `<div class="row"><button class="primary" data-p="pairing">Показати QR-код</button></div>`;
   const devices = st.devices.length
     ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">підключено ${new Date(d.created).toLocaleDateString("uk")}, востаннє ${new Date(d.lastSeen).toLocaleString("uk")}</span>
