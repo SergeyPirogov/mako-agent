@@ -190,6 +190,10 @@ func askActions(id string, it *chat.Item) []notify.Action {
 		}
 		return out
 	}
+	if it.Tool == chat.PlanTool {
+		// Notes on the plan need the board.
+		return []notify.Action{{Title: "Затвердити й робити", URL: "/api/plan?" + q + "&do=approve"}}
+	}
 	return []notify.Action{
 		{Title: "Дозволити", URL: "/api/permit?" + q + "&decision=allow"},
 		{Title: "Ні", URL: "/api/permit?" + q + "&decision=deny", Destructive: true},

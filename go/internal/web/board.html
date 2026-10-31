@@ -1654,6 +1654,22 @@ function chatFor(id) {
       if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
       return;
     }
+    // The plan: approve it, or open the field for notes and send them.
+    const pd = e.target.closest("[data-plan-do]");
+    if (pd) {
+      const card = pd.closest("[data-plan]"), fix = card.querySelector(".plan-fix"), notes = fix.querySelector("textarea");
+      if (pd.dataset.planDo === "revise" && fix.hidden) {
+        fix.hidden = false;
+        pd.textContent = "Надіслати правки";
+        notes.focus();
+        return;
+      }
+      if (pd.dataset.planDo === "revise" && !notes.value.trim()) return notes.focus();
+      pd.disabled = true;
+      fetch(`/api/plan?id=${encodeURIComponent(id)}&req=${encodeURIComponent(card.dataset.plan)}&do=${pd.dataset.planDo}`,
+        { method: "POST", body: pd.dataset.planDo === "revise" ? notes.value.trim() : "" }).then(() => pollChat());
+      return;
+    }
     const p = e.target.closest("[data-permit]");
     if (p) {
       p.disabled = true;
@@ -1718,7 +1734,7 @@ const toolArg = (input) => {
 // What matters in a conversation is what the agent says, what it changed and what it asks: the commands and
 // reads between are folded into one line, open on a click.
 const EDITS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
-const quiet = (it) => (it.kind === "tool" && !EDITS.includes(it.tool)) || (it.kind === "permission" && it.status !== "asked");
+const quiet = (it) => (it.kind === "tool" && !EDITS.includes(it.tool)) || (it.kind === "permission" && it.status !== "asked" && it.tool !== "ExitPlanMode");
 const STEP = { Bash: "команди", Read: "читання", Grep: "пошук", Glob: "пошук", LS: "пошук", WebFetch: "веб", WebSearch: "веб",
   Task: "субагенти", Agent: "субагенти", TodoWrite: "план" };
 function chatBlocks(items, v) {
@@ -1766,6 +1782,7 @@ function chatItem(it, i, v) {
     }
     case "permission": {
       if (it.tool === "AskUserQuestion") return askCard(it);
+      if (it.tool === "ExitPlanMode") return planCard(it, v);
       const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200);
       if (it.status !== "asked") {
         return `<div class="perm-done ${it.status}">${{ allowed: "✓ Дозволено", always: "✓ Дозволено й надалі", denied: "✗ Заборонено" }[it.status] ?? it.status}: ${esc(it.tool)} ${esc(arg)}</div>`;
@@ -1789,6 +1806,22 @@ function chatItem(it, i, v) {
       return `<figure class="shot">${pic(it.text, it.output)}<figcaption>Скриншот · ${esc(it.output)}</figcaption></figure>`;
   }
   return "";
+}
+// The agent's plan (plan mode): to approve, after which it works in the usual mode, or to send back with notes.
+function planCard(it, v) {
+  const plan = it.input?.plan ?? "";
+  if (it.status !== "asked") {
+    const key = `plan:${it.id}`, shown = v.flip.has(key);
+    const what = { approved: "✓ План затверджено", allowed: "✓ План затверджено", revised: "↺ План повернуто на правки", denied: "✗ План відхилено" }[it.status] ?? it.status;
+    return `<div class="plan-card done ${esc(it.status)}"><button type="button" class="plan-h" data-toggle="${esc(key)}"><b>${what}</b>
+        ${it.text ? `<span class="muted">${esc(it.text.split("\n")[0].slice(0, 120))}</span>` : ""}<span class="muted tw">${shown ? "▾" : "▸"}</span></button>
+      ${shown ? `<div class="md plan-body">${md(plan)}</div>` : ""}</div>`;
+  }
+  return `<div class="plan-card" data-plan="${esc(it.id)}"><div class="plan-h"><b>План агента</b><span class="muted">· нічого не змінено, чекає на вас</span></div>
+    <div class="md plan-body">${md(plan)}</div>
+    <div class="plan-fix" hidden><textarea rows="3" placeholder="Що поправити в плані…" aria-label="Правки до плану"></textarea></div>
+    <div class="perm-btns"><button type="button" class="primary" data-plan-do="approve">Затвердити й робити</button>
+      <button type="button" data-plan-do="revise">Поправити</button></div></div>`;
 }
 // The agent asks: its questions with their options as buttons, and a line for your own answer.
 function askCard(it) {

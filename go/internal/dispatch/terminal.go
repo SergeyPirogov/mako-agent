@@ -40,7 +40,11 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 		log("підготовка worktree: " + setup)
 	}
 	view := viewOf(cfg.Terminal)
-	d.Store.Update(j.Task.ID, func(r *core.Record) { r.View = view })
+	planning := wantsPlan(cfg.Terminal, j.Task)
+	d.Store.Update(j.Task.ID, func(r *core.Record) { r.View, r.Planning = view, planning })
+	if planning {
+		log("агент починає з плану: нічого не змінює, доки ви його не затвердите")
+	}
 	if err := d.runAgent(j.Task.ID, worktree, view, prompt, false, setup); err != nil {
 		return nil, err
 	}
@@ -70,6 +74,13 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		again = []string{"--resume", r.SessionID}
 	}
 	if view != "chat" {
+		// Claude Code's terminal asks to approve the plan itself; Mako only starts it in plan mode.
+		if r.Planning {
+			if !cont {
+				t.PermissionMode = "plan"
+			}
+			d.Store.Update(id, func(r *core.Record) { r.Planning = false })
+		}
 		args := []string{prompt}
 		if cont {
 			// A message to go on with follows the session it continues; without one the agent waits at its prompt.
@@ -99,6 +110,9 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		history = orca.Transcript(worktree, r.SessionID)
 	}
 	mode := t.PermissionMode
+	if r.Planning {
+		mode = "plan" // until the plan is approved, after Mako restarted too
+	}
 	if old := d.Chats.Get(id); old != nil {
 		mode = old.Snapshot().Mode // a continued conversation keeps the mode you chose
 	}
@@ -405,6 +419,8 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 		a.State = "done"
 	case state == "exited":
 		a.State, a.Reason = "stopped", "агент вийшов"
+	case state == "waiting" && strings.HasPrefix(tool, chat.PlanTool):
+		a.State, a.Reason, a.Asked = "waiting", "план чекає на затвердження", s.Asked()
 	case state == "waiting" && strings.HasPrefix(tool, "AskUserQuestion"):
 		a.State, a.Reason, a.Asked = "waiting", "агент питає", s.Asked()
 	case state == "waiting":

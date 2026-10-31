@@ -82,6 +82,9 @@ type Record struct {
 	Cost        float64 `json:"cost,omitempty"`  // USD Mako's own agent spent on the task, over all attempts
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
+	// Planning: the agent started in plan mode and its plan is not approved yet; it starts in plan mode again
+	// until it is.
+	Planning bool `json:"planning,omitempty"`
 	// Lesson: a rule for CLAUDE.md Mako drew from your last correction of the agent, until you save it or say no.
 	Lesson *Lesson `json:"lesson,omitempty"`
 	// AutoFixed: what of the MR the agent was already asked to fix by itself, per kind ("ci", "conflicts",

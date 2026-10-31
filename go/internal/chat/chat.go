@@ -28,7 +28,7 @@ type Item struct {
 	ID     string          `json:"id,omitempty"`
 	Tool   string          `json:"tool,omitempty"`
 	Input  json.RawMessage `json:"input,omitempty"`
-	Status string          `json:"status,omitempty"` // tool: "running", "ok", "error", "denied"; permission: "asked", "allowed", "always", "denied"
+	Status string          `json:"status,omitempty"` // tool: "running", "ok", "error", "denied"; permission: "asked", "allowed", "always", "denied"; a plan (ExitPlanMode): "approved", "revised" (Text: your notes)
 	Output string          `json:"output,omitempty"`
 	// Rules Claude suggests for «always allow».
 	Suggestions json.RawMessage `json:"suggestions,omitempty"`
@@ -433,7 +433,7 @@ func (s *Session) finishTool(id, output string, failed bool) {
 			it.Output, it.Status = output, "ok"
 			if failed {
 				it.Status = "error"
-				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") {
+				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) {
 					it.Status = "denied"
 				}
 			}
@@ -544,6 +544,45 @@ func (s *Session) Answer(requestID string, answers map[string]string) error {
 	resp := map[string]any{"behavior": "allow", "updatedInput": input}
 	return s.reply(requestID, resp, func(it *Item) { it.Status, it.Answers = "answered", answers })
 }
+
+// PlanTool is how Claude Code in plan mode hands its plan over: a request to leave plan mode with the plan.
+const PlanTool = "ExitPlanMode"
+
+// ApprovePlan accepts the agent's plan (ExitPlanMode) and lets it work in mode, as approving a plan in
+// Claude Code's terminal does.
+func (s *Session) ApprovePlan(requestID, mode string) error {
+	s.mu.Lock()
+	input, ok := s.pending[requestID]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("на цей план уже відповіли")
+	}
+	resp := map[string]any{"behavior": "allow", "updatedInput": input,
+		"updatedPermissions": []map[string]any{{"type": "setMode", "mode": mode, "destination": "session"}}}
+	if err := s.reply(requestID, resp, func(it *Item) { it.Status = "approved" }); err != nil {
+		return err
+	}
+	return s.SetMode(mode)
+}
+
+// RevisePlan sends the plan back with your notes: the agent stays in plan mode and offers a new one.
+func (s *Session) RevisePlan(requestID, notes string) error {
+	notes = strings.TrimSpace(notes)
+	if notes == "" {
+		return fmt.Errorf("напишіть, що поправити в плані")
+	}
+	s.mu.Lock()
+	_, ok := s.pending[requestID]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("на цей план уже відповіли")
+	}
+	resp := map[string]any{"behavior": "deny", "message": planRevision + "\n\n" + notes +
+		"\n\nОнови план з урахуванням цього й подай його знову; нічого не змінюй, доки план не затверджено."}
+	return s.reply(requestID, resp, func(it *Item) { it.Status, it.Text = "revised", notes })
+}
+
+const planRevision = "Розробник просить поправити план:"
 
 // Asked: the request the agent waits on (a permission or AskUserQuestion), nil when there is none.
 func (s *Session) Asked() *Item {

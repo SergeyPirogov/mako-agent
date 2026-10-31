@@ -208,3 +208,85 @@ func TestResumeWithMessage(t *testing.T) {
 		t.Fatalf("items %v", got)
 	}
 }
+
+// A stand-in for claude in plan mode: it offers a plan, gets it back with notes, offers another.
+const planClaude = `#!/bin/sh
+echo "$@" > args.txt
+read init
+read msg
+echo '{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Зробити"}}}'
+read answer
+echo "$answer" > revise.json
+echo '{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Зробити й протестувати"}}}'
+read answer
+echo "$answer" > approve.json
+read mode
+echo "$mode" > mode.json
+echo '{"type":"result","subtype":"success","duration_ms":10,"total_cost_usd":0.01}'
+read more
+`
+
+func TestPlan(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(planClaude), 0o755)
+	s := Start(Options{ID: "a#3", Worktree: dir, Command: bin, Prompt: "Зроби", Mode: "plan"})
+	defer s.Stop()
+	asked := func(id string) {
+		t.Helper()
+		for i := 0; i < 300; i++ {
+			if it := s.Asked(); it != nil && it.ID == id {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("no plan %s: %+v", id, s.Snapshot())
+	}
+	read := func(name string) string {
+		t.Helper()
+		for i := 0; i < 300; i++ {
+			if b, err := os.ReadFile(filepath.Join(dir, name)); err == nil && len(b) > 0 {
+				return string(b)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("no %s", name)
+		return ""
+	}
+	asked("p1")
+	if args := read("args.txt"); !strings.Contains(args, "--permission-mode plan") {
+		t.Fatalf("args %s", args)
+	}
+	if s.RevisePlan("p1", "  ") == nil {
+		t.Fatal("empty notes sent")
+	}
+	if err := s.RevisePlan("p1", "Додай тести"); err != nil {
+		t.Fatal(err)
+	}
+	if b := read("revise.json"); !strings.Contains(b, `"behavior":"deny"`) || !strings.Contains(b, "Додай тести") {
+		t.Fatalf("revise %s", b)
+	}
+	asked("p2")
+	if err := s.ApprovePlan("p2", "acceptEdits"); err != nil {
+		t.Fatal(err)
+	}
+	if b := read("approve.json"); !strings.Contains(b, `"behavior":"allow"`) || !strings.Contains(b, `"setMode"`) || !strings.Contains(b, `"plan":"1. Зробити й протестувати"`) {
+		t.Fatalf("approve %s", b)
+	}
+	if b := read("mode.json"); !strings.Contains(b, `"set_permission_mode"`) || !strings.Contains(b, `"acceptEdits"`) {
+		t.Fatalf("mode %s", b)
+	}
+	if s.ApprovePlan("p2", "acceptEdits") == nil {
+		t.Fatal("approved twice")
+	}
+	snap := s.Snapshot()
+	var got []string
+	for _, it := range snap.Items {
+		if it.Kind == "permission" {
+			got = append(got, it.ID+":"+it.Status+":"+it.Text)
+		}
+	}
+	if strings.Join(got, " ") != "p1:revised:Додай тести p2:approved:" || snap.Mode != "acceptEdits" {
+		t.Fatalf("items %v mode %q", got, snap.Mode)
+	}
+}
