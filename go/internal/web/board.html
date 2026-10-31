@@ -400,7 +400,7 @@ function render() {
   // On a phone the word goes: «2/5» fits next to the limits.
   $("wip").innerHTML = `<span class="w">${where} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> з </span><span class="sl">/</span>${data.wipLimit}` : "");
   $("wip").title = data.wipLimit ? `${where}: ${doing} з ${data.wipLimit}` : `${where}: ${doing}`;
-  $("waiting").innerHTML = waiting ? `<span class="waiting-chip"><span class="dot"></span>чекає на вас: ${waiting}</span>` : "";
+  $("waiting").innerHTML = waiting ? `<span class="waiting-chip" title="Чекає на вас: ${waiting}"><span class="dot"></span><span class="wt">чекає на вас: </span>${waiting}</span>` : "";
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
   $("limits").innerHTML = limitsHTML(data.limits);
   const searches = Object.entries(data.searches);
