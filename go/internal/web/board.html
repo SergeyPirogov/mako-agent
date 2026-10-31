@@ -27,8 +27,10 @@
 <script>
 const COLUMNS = [["new", "Нові"], ["doing", "В Orca"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
 const LABEL = { new: "нова", later: "відкладена", doing: "в Orca", review: "на рев'ю", done: "готово", failed: "не виконано",
-  working: "агент працює", waiting: "чекає на вас", quiet: "агент зупинився", gone: "термінал закрито" };
-const AGENT_NOTE = { waiting: "Агент чекає на вас", quiet: "Агент нічого не пише понад півтори хвилини: закінчив або чекає відповіді", gone: "Термінала агента в Orca вже немає", unknown: "Orca не відповідає" };
+  // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
+  "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
+  "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
+const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
 let data = null, selected = null, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [];
 
 const $ = (id) => document.getElementById(id);
@@ -47,9 +49,9 @@ const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
 const state = (r) => {
   if (r.column === "new" && r.postponed) return "later";
   const a = agentOf(r);
-  return a && LABEL[a.state] ? a.state : r.column;
+  return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
-const ATTENTION = { waiting: 0, quiet: 1 };
+const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
 // A tiny Markdown: headings, bullets, code and links, enough for the summary.
 const md = (text) => text.trim().split(/\n/).map((l) => {
   const h = l.match(/^#{1,4}\s+(.*)/);
@@ -154,11 +156,15 @@ function agentBlock(r) {
   if (!a) return "";
   const since = a.since ? ` · ${ago(new Date(a.since).toISOString()).replace(" тому", "")}` : "";
   const name = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", opencode: "OpenCode", gemini: "Gemini" }[a.name] ?? a.name ?? "";
-  const note = a.state === "waiting" ? `${AGENT_NOTE.waiting}${a.reason ? `: ${esc(a.reason)}` : ""}` : AGENT_NOTE[a.state] ?? "";
+  const note = a.state === "waiting" ? `${AGENT_NOTE.waiting}${a.reason ? `: ${esc(a.reason)}` : ""}`
+    : a.state === "stopped" ? `Агент зупинився${a.reason ? `: ${esc(a.reason)}` : ""}`
+    : a.state === "working" && a.tool ? esc(a.tool) : AGENT_NOTE[a.state] ?? "";
   return `<div class="agent ${a.state}">
-    <div class="agent-head"><span class="s ${a.state}">${LABEL[a.state] ?? "агент"}${since}</span>${name ? `<span class="muted">${esc(name)}</span>` : ""}
+    <div class="agent-head"><span class="s ag-${a.state}">${LABEL["ag-" + a.state] ?? "агент"}${since}</span>${name ? `<span class="muted">${esc(name)}</span>` : ""}
       ${note ? `<span class="agent-note">${note}</span>` : ""}</div>
-    ${a.screen?.length ? `<pre class="screen">${a.screen.map(esc).join("\n")}</pre>` : a.error ? `<div class="muted">${esc(a.error)}</div>` : ""}
+    ${a.screen?.length ? `<pre class="screen">${a.screen.map(esc).join("\n")}</pre>` : ""}
+    ${a.message ? `<div class="agent-msg"><div class="agent-msg-h">Останнє повідомлення агента</div>${md(a.message)}</div>` : ""}
+    ${a.error ? `<div class="agent-err">${esc(a.error)}</div>` : ""}
   </div>`;
 }
 

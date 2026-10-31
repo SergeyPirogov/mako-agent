@@ -122,7 +122,9 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 		case agents[r.ID].State == "waiting":
 			status, mark = "чекає на вас", "● "
 			waiting++
-		case agents[r.ID].State == "quiet":
+		case agents[r.ID].State == "done":
+			status = "агент закінчив"
+		case agents[r.ID].State == "stopped":
 			status = "агент зупинився"
 		}
 		if len(v.Items) < maxItems {

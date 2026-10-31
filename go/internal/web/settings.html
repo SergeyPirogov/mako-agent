@@ -99,6 +99,11 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <p class="lead">Як задача передається агенту в Orca і чим він має закінчити.</p>
       <div class="card" id="orca"></div>
     </div>
+    <div class="pane" data-pane="comments">
+      <h2>Коментарі в задачі</h2>
+      <p class="lead">Що Mako пише в задачу від вашого імені.</p>
+      <div class="card" id="comments"></div>
+    </div>
     <div class="pane" data-pane="limits">
       <h2>Задачі й ліміти</h2>
       <p class="lead">Скільки задач одночасно, як часто шукати, як називати гілки.</p>
@@ -359,6 +364,15 @@ function renderOrca() {
   box.append(more);
 }
 
+function renderComments() {
+  cfg.comments ??= {};
+  const c = cfg.comments;
+  const box = $("comments");
+  box.innerHTML = "";
+  box.append(text(c, "onStart", "Коли задачу взято", { placeholder: "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR.", hint: "Підставляються {branch} {taskId} {title} {url}. «-» — без коментаря" }));
+  box.append(text(c, "onReview", "Коли є MR", { placeholder: "Відкрив MR: {mr}", hint: "{mr} — посилання на MR" }));
+}
+
 function renderLimits() {
   const box = $("limits");
   box.innerHTML = "";
@@ -398,7 +412,7 @@ function renderNav() {
     ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
     `<div class="group">Робота</div>` + item("orca", "Orca", { agent: "агент: агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
-    item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення");
+    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення");
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
   const on = $("side").querySelector(".on");
@@ -419,6 +433,7 @@ function show(id) {
 function render() {
   show(pane || decodeURIComponent(location.hash.slice(1)));
   renderOrca();
+  renderComments();
   renderLimits();
   renderNotifications();
 }
@@ -462,6 +477,7 @@ $("save").onclick = async () => {
     if (t.transitions && !Object.keys(t.transitions).length) delete t.transitions;
   }
   if (cfg.notifications && !Object.keys(cfg.notifications).length) delete cfg.notifications;
+  if (cfg.comments && !Object.keys(cfg.comments).length) delete cfg.comments;
   try {
     const r = await (await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config: cfg, env }) })).json();
     if (!r.ok) {

@@ -30,9 +30,22 @@ type Config struct {
 	BranchPattern    string
 	Notifications    Notifications
 	Orca             Orca
+	Comments         Comments
 	Trackers         []*Tracker
 	Env              map[string]string
 }
+
+// Comments Mako leaves in the issue, written as the developer: {branch} {taskId} {title} {url} {mr} are filled
+// in; "-" leaves no comment.
+type Comments struct {
+	OnStart  string // when the task goes to Orca
+	OnReview string // when its MR appears
+}
+
+const (
+	DefaultCommentOnStart  = "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR."
+	DefaultCommentOnReview = "Відкрив MR: {mr}"
+)
 
 type Notifications struct {
 	Enabled   bool
@@ -177,6 +190,10 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			Port:      orInt(raw.Notifications.InboxPort, 7777),
 		},
 		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
+		Comments: Comments{
+			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
+			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
+		},
 	}
 	// The dispatcher's Orca: the first orca executor, else the defaults.
 	for _, name := range raw.executorOrder() {
@@ -398,8 +415,12 @@ type rawConfig struct {
 	BranchPattern    string                 `json:"branchPattern"`
 	Notifications    rawNotifications       `json:"notifications"`
 	Executors        map[string]rawExecutor `json:"executors"`
-	DefaultExecutor  string                 `json:"defaultExecutor"`
-	Trackers         []rawTracker           `json:"trackers"`
+	Comments         struct {
+		OnStart  string `json:"onStart"`
+		OnReview string `json:"onReview"`
+	} `json:"comments"`
+	DefaultExecutor string       `json:"defaultExecutor"`
+	Trackers        []rawTracker `json:"trackers"`
 }
 
 // executorOrder: the default executor first, so a config with several Orcas uses the chosen one.

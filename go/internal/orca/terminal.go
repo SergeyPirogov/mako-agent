@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -53,13 +55,45 @@ func cli(ctx context.Context, o config.Orca, dir string, out any, args ...string
 	return json.Unmarshal(env.Result, out)
 }
 
-// Terminals of the workspace at worktree.
-func Terminals(ctx context.Context, o config.Orca, worktree string) ([]Terminal, error) {
+// Terminals of the task's workspace: asked by its path; when Orca knows the workspace by another spelling of
+// the path (a symlink like /var → /private/var) or Mako has none, every terminal is listed and those of the
+// workspace picked by path or branch. all is how many terminals Orca has in total, for the card's explanation.
+func Terminals(ctx context.Context, o config.Orca, worktree, branch string) (mine []Terminal, all int, err error) {
 	var res struct {
 		Terminals []Terminal `json:"terminals"`
 	}
-	err := cli(ctx, o, worktree, &res, "terminal", "list", "--worktree", "path:"+worktree)
-	return res.Terminals, err
+	dir := worktree
+	if _, statErr := os.Stat(dir); statErr != nil {
+		dir = ""
+	}
+	if worktree != "" {
+		if err := cli(ctx, o, dir, &res, "terminal", "list", "--worktree", "path:"+worktree); err == nil && len(res.Terminals) > 0 {
+			return res.Terminals, len(res.Terminals), nil
+		}
+	}
+	res.Terminals = nil
+	if err := cli(ctx, o, dir, &res, "terminal", "list"); err != nil {
+		return nil, 0, err
+	}
+	for _, t := range res.Terminals {
+		if (worktree != "" && samePath(t.WorktreePath, worktree)) || (branch != "" && strings.TrimPrefix(t.Branch, "refs/heads/") == branch) {
+			mine = append(mine, t)
+		}
+	}
+	return mine, len(res.Terminals), nil
+}
+
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	clean := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			p = r
+		}
+		return strings.ToLower(filepath.Clean(p))
+	}
+	return clean(a) == clean(b)
 }
 
 // AgentTerminal: the terminal Orca says runs an agent, else the first one (the agent's, for a Mako hand-off).

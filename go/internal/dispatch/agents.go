@@ -13,10 +13,10 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
-// Terminals is how Mako sees the agents' terminals in Orca; tests replace it.
+// Terminals is how Mako sees the agents in Orca; tests replace it.
 type Terminals interface {
-	List(ctx context.Context, o config.Orca, worktree string) ([]orca.Terminal, error)
-	Waiting(ctx context.Context, o config.Orca, worktree, handle string) (*orca.Wait, error)
+	Workspaces(ctx context.Context, o config.Orca) ([]orca.Workspace, error)
+	List(ctx context.Context, o config.Orca, worktree, branch string) (mine []orca.Terminal, all int, err error)
 	Screen(ctx context.Context, o config.Orca, worktree, handle string) ([]string, error)
 	Tail(ctx context.Context, o config.Orca, worktree, handle string, lines int) ([]string, error)
 	Focus(ctx context.Context, o config.Orca, worktree, handle string) error
@@ -24,11 +24,11 @@ type Terminals interface {
 
 type orcaTerminals struct{}
 
-func (orcaTerminals) List(ctx context.Context, o config.Orca, wt string) ([]orca.Terminal, error) {
-	return orca.Terminals(ctx, o, wt)
+func (orcaTerminals) Workspaces(ctx context.Context, o config.Orca) ([]orca.Workspace, error) {
+	return orca.Workspaces(ctx, o)
 }
-func (orcaTerminals) Waiting(ctx context.Context, o config.Orca, wt, h string) (*orca.Wait, error) {
-	return orca.Waiting(ctx, o, wt, h)
+func (orcaTerminals) List(ctx context.Context, o config.Orca, wt, branch string) ([]orca.Terminal, int, error) {
+	return orca.Terminals(ctx, o, wt, branch)
 }
 func (orcaTerminals) Screen(ctx context.Context, o config.Orca, wt, h string) ([]string, error) {
 	return orca.Screen(ctx, o, wt, h)
@@ -40,20 +40,21 @@ func (orcaTerminals) Focus(ctx context.Context, o config.Orca, wt, h string) err
 	return orca.Focus(ctx, o, wt, h)
 }
 
-// Agent is what the agent of a task in Orca is doing, as last seen.
+// Agent is what the agent of a task in Orca is doing, as Orca's sidebar last showed it.
 type Agent struct {
-	State  string   `json:"state"` // "working", "waiting" (for you), "quiet" (stopped talking), "gone", "unknown"
-	Reason string   `json:"reason,omitempty"`
-	Since  int64    `json:"since,omitempty"` // ms: when it came to this state
-	Name   string   `json:"name,omitempty"`  // "claude", "codex", …
-	Screen []string `json:"screen,omitempty"`
-	Error  string   `json:"error,omitempty"`
-	At     int64    `json:"at"`
-	handle string
+	// "working"; "waiting" (for you: a permission or a question); "done" (finished its turn); "stopped"
+	// (interrupted or failed); "idle" (the workspace has no agent running); "missing" (Orca has no such workspace);
+	// "unknown" (Orca did not answer).
+	State   string   `json:"state"`
+	Reason  string   `json:"reason,omitempty"`
+	Since   int64    `json:"since,omitempty"` // ms: when it came to this state
+	Name    string   `json:"name,omitempty"`  // "claude", "codex", …
+	Tool    string   `json:"tool,omitempty"`  // what it is doing now: "Bash: npm test"
+	Message string   `json:"message,omitempty"`
+	Screen  []string `json:"screen,omitempty"` // a terminal agent's screen
+	Error   string   `json:"error,omitempty"`
+	At      int64    `json:"at"`
 }
-
-// QuietAfter: an agent without output this long has stopped: done, or waiting in a way Orca cannot see.
-const QuietAfter = 90 * time.Second
 
 // Agents: the latest look at every task in Orca.
 func (d *Dispatcher) Agents() map[string]Agent {
@@ -66,34 +67,36 @@ func (d *Dispatcher) Agents() map[string]Agent {
 	return out
 }
 
-// WatchAgents looks into the terminal of every task in Orca: its screen, and whether the agent waits for you.
-// Coming to «waiting» or going quiet is told once, with a notification.
+// WatchAgents asks Orca once (`orca worktree ps`) how the agent of every task in Orca is doing. Coming to
+// «waiting», «done» or «stopped» is told once, with a notification.
 func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
 	o := d.Config().Orca
-	live := map[string]bool{}
+	var records []core.Record
 	for _, r := range d.Store.All() {
-		if r.Status != core.HandedOff || r.Worktree == "" {
-			continue
+		if r.Status == core.HandedOff && (r.Worktree != "" || branchOf(r) != "") {
+			records = append(records, r)
 		}
-		live[r.ID] = true
-		a := d.look(ctx, o, r, now)
-		d.mu.Lock()
-		before := d.agents[r.ID]
-		if before != nil && before.State == a.State {
-			a.Since = before.Since
-		} else if a.Since == 0 {
-			a.Since = now.UnixMilli()
-		}
-		d.agents[r.ID] = &a
-		d.mu.Unlock()
-		if before != nil && before.State != a.State {
-			switch a.State {
-			case "waiting":
-				d.Log(r.ID, "агент чекає на вас"+orBlank(": ", a.Reason))
-				notify.Inform("✋ "+r.ID+": агент чекає на вас", lastLine(a.Screen, r.Task.Title), d.BoardURL+"/#"+r.ID)
-			case "quiet":
-				d.Log(r.ID, "агент замовк")
-				notify.Inform("💤 "+r.ID+": агент зупинився", "Подивіться, чи він закінчив або чекає відповіді. "+lastLine(a.Screen, ""), d.BoardURL+"/#"+r.ID)
+	}
+	live := map[string]bool{}
+	if len(records) > 0 {
+		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		ws, err := d.Term.Workspaces(cctx, o)
+		cancel()
+		for _, r := range records {
+			live[r.ID] = true
+			a := d.look(ctx, o, r, ws, err, now)
+			d.mu.Lock()
+			before := d.agents[r.ID]
+			if a.Since == 0 {
+				a.Since = now.UnixMilli()
+				if before != nil && before.State == a.State {
+					a.Since = before.Since
+				}
+			}
+			d.agents[r.ID] = &a
+			d.mu.Unlock()
+			if before != nil && before.State != a.State {
+				d.tell(r, a)
 			}
 		}
 	}
@@ -106,34 +109,81 @@ func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) look(ctx context.Context, o config.Orca, r core.Record, now time.Time) Agent {
+func (d *Dispatcher) tell(r core.Record, a Agent) {
+	link := d.BoardURL + "/#" + r.ID
+	switch a.State {
+	case "waiting":
+		d.Log(r.ID, "агент чекає на вас"+orBlank(": ", a.Reason))
+		notify.Inform("✋ "+r.ID+": агент чекає на вас", firstOf(a.Reason, lastLine(a.Screen, ""), r.Task.Title), link)
+	case "done":
+		d.Log(r.ID, "агент закінчив")
+		notify.Inform("✅ "+r.ID+": агент закінчив", firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
+	case "stopped":
+		d.Log(r.ID, "агент зупинився"+orBlank(": ", a.Reason))
+		notify.Inform("⏹ "+r.ID+": агент зупинився", firstOf(a.Reason, r.Task.Title), link)
+	}
+}
+
+func (d *Dispatcher) look(ctx context.Context, o config.Orca, r core.Record, ws []orca.Workspace, wsErr error, now time.Time) Agent {
 	a := Agent{State: "unknown", At: now.UnixMilli()}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	ts, err := d.Term.List(ctx, o, r.Worktree)
-	if err != nil {
-		a.Error = err.Error()
+	if wsErr != nil {
+		a.Error = wsErr.Error()
 		return a
 	}
-	t := orca.AgentTerminal(ts)
-	if t == nil {
-		a.State = "gone"
+	w := orca.FindWorkspace(ws, r.Worktree, branchOf(r))
+	if w == nil {
+		a.State = "missing"
+		a.Error = fmt.Sprintf("В Orca немає workspace %s (гілка %s): його видалили або перенесли", r.Worktree, branchOf(r))
 		return a
 	}
-	a.Name, a.handle = t.Agent, t.Handle
-	if t.ExitCause != nil {
-		a.State = "gone"
-	} else if w, err := d.Term.Waiting(ctx, o, r.Worktree, t.Handle); err == nil && w != nil {
-		a.State, a.Reason, a.Since = "waiting", waitReason(w), w.Since
-	} else if t.LastOutputAt > 0 && now.Sub(time.UnixMilli(t.LastOutputAt)) > QuietAfter {
-		a.State, a.Since = "quiet", t.LastOutputAt
-	} else {
+	row := w.MainAgent()
+	if row == nil {
+		a.State = "idle"
+		if w.Status == "working" {
+			a.State = "working"
+		}
+		a.Message = strings.TrimSpace(w.Preview)
+		return a
+	}
+	a.Name, a.Message, a.Since = row.AgentType, strings.TrimSpace(row.LastAssistantMessage), row.StateStartedAt
+	if row.ToolName != "" {
+		a.Tool = row.ToolName + orBlank(": ", clipText(firstLine(row.ToolInput), 160))
+	}
+	switch {
+	case w.Status == "permission" || row.State == "blocked" || row.State == "waiting" || row.AgentWait != nil:
+		a.State = "waiting"
+		switch {
+		case row.AgentWait != nil && row.AgentWait.Reason != "" && row.AgentWait.Reason != "permission":
+			a.Reason = waitReason(row.AgentWait)
+		case a.Tool != "":
+			a.Reason = "дозвіл на " + a.Tool
+		case w.Status == "permission" || row.State == "blocked":
+			a.Reason = "просить дозволу"
+		default:
+			a.Reason = "питання"
+		}
+	case row.State == "working":
 		a.State = "working"
+	case row.Interrupted || w.SidebarStatus == "interrupted" || w.SidebarStatus == "failed":
+		a.State = "stopped"
+		a.Reason = map[string]string{"failed": "помилка"}[w.SidebarStatus]
+		if a.Reason == "" {
+			a.Reason = "перервано"
+		}
+	default: // "done"
+		a.State, a.Tool = "done", ""
 	}
-	if screen, err := d.Term.Screen(ctx, o, r.Worktree, t.Handle); err == nil {
-		a.Screen = trimScreen(screen)
-	} else if t.Preview != "" {
-		a.Screen = trimScreen(strings.Split(t.Preview, "\n"))
+	// An agent in a terminal also shows its screen.
+	if row.HasLivePty {
+		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		if ts, _, err := d.Term.List(cctx, o, r.Worktree, branchOf(r)); err == nil {
+			if t := orca.AgentTerminal(ts); t != nil {
+				if screen, err := d.Term.Screen(cctx, o, r.Worktree, t.Handle); err == nil {
+					a.Screen = trimScreen(screen)
+				}
+			}
+		}
 	}
 	return a
 }
@@ -145,15 +195,15 @@ func (d *Dispatcher) FocusAgent(ctx context.Context, id string) error {
 		return fmt.Errorf("задача не в Orca")
 	}
 	o := d.Config().Orca
-	ts, err := d.Term.List(ctx, o, r.Worktree)
+	ts, _, err := d.Term.List(ctx, o, r.Worktree, branchOf(r))
 	if err != nil {
 		return err
 	}
-	t := orca.AgentTerminal(ts)
-	if t == nil {
-		return fmt.Errorf("термінала агента вже немає")
+	if t := orca.AgentTerminal(ts); t != nil {
+		return d.Term.Focus(ctx, o, r.Worktree, t.Handle)
 	}
-	return d.Term.Focus(ctx, o, r.Worktree, t.Handle)
+	// An agent in Orca's chat view has no terminal to switch to: bring Orca forward at least.
+	return orca.Open(ctx, o)
 }
 
 // summarize writes what the agent did, once its MR appeared: from the end of its terminal session and the
@@ -164,7 +214,17 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 	}
 	o := d.Config().Orca
 	agentText := ""
-	if ts, err := d.Term.List(ctx, o, r.Worktree); err == nil {
+	d.mu.Lock()
+	if a := d.agents[r.ID]; a != nil {
+		agentText = a.Message
+	}
+	d.mu.Unlock()
+	if ws, err := d.Term.Workspaces(ctx, o); err == nil && agentText == "" {
+		if w := orca.FindWorkspace(ws, r.Worktree, branchOf(r)); w != nil && w.MainAgent() != nil {
+			agentText = w.MainAgent().LastAssistantMessage
+		}
+	}
+	if ts, _, err := d.Term.List(ctx, o, r.Worktree, branchOf(r)); err == nil && agentText == "" {
 		if t := orca.AgentTerminal(ts); t != nil {
 			if lines, err := d.Term.Tail(ctx, o, r.Worktree, t.Handle, 300); err == nil {
 				agentText = strings.Join(lines, "\n")
@@ -182,10 +242,17 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		return
 	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
-		if err := t.Comment(ctx, r.Task, "🦈 Mako: що зробив агент\n\n"+text); err != nil {
+		if err := t.Comment(ctx, r.Task, "Що зроблено:\n\n"+text); err != nil {
 			d.Log(r.ID, "підсумок у задачу не додано: "+err.Error())
 		}
 	}
+}
+
+func branchOf(r core.Record) string {
+	if r.Branch != "" {
+		return r.Branch
+	}
+	return r.BranchName
 }
 
 var waitReasons = map[string]string{
@@ -217,6 +284,24 @@ func trimScreen(lines []string) []string {
 		out[i] = strings.TrimRight(l, " ")
 	}
 	return out
+}
+
+func firstLine(s string) string {
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimSpace(strings.TrimLeft(l, "#*- ")); l != "" {
+			return l
+		}
+	}
+	return ""
+}
+
+func firstOf(xs ...string) string {
+	for _, x := range xs {
+		if strings.TrimSpace(x) != "" {
+			return x
+		}
+	}
+	return ""
 }
 
 func lastLine(screen []string, fallback string) string {

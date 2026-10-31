@@ -455,12 +455,28 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		r.Status, r.Worktree, r.Branch = core.HandedOff, res.Worktree, res.Branch
 	})
 	d.Log(id, "передано в Orca: "+res.Note)
-	who := "агент відкриє MR"
-	if d.Config().Orca.MRBy == "me" {
-		who = "MR відкриє розробник"
+	d.comment(ctx, t, r.Task, d.Config().Comments.OnStart, map[string]string{"branch": res.Branch})
+}
+
+var commentVar = regexp.MustCompile(`\{(\w+)\}`)
+
+// comment leaves a comment from a template of the settings ("-": none).
+func (d *Dispatcher) comment(ctx context.Context, t trackers.Tracker, task core.Task, template string, values map[string]string) {
+	if strings.TrimSpace(template) == "-" || strings.TrimSpace(template) == "" {
+		return
 	}
-	if err := t.Comment(ctx, r.Task, fmt.Sprintf("🦈 Mako: задачу передано агенту в Orca, гілка `%s`; %s.", res.Branch, who)); err != nil {
-		d.Log(id, "коментар не додано: "+err.Error())
+	all := map[string]string{"taskId": task.ID, "title": task.Title, "url": task.URL}
+	for k, v := range values {
+		all[k] = v
+	}
+	text := commentVar.ReplaceAllStringFunc(template, func(m string) string {
+		if v, ok := all[m[1:len(m)-1]]; ok {
+			return v
+		}
+		return m
+	})
+	if err := t.Comment(ctx, task, text); err != nil {
+		d.Log(task.ID, "коментар не додано: "+err.Error())
 	}
 }
 
@@ -573,9 +589,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		if err := d.describeIfBare(ctx, host, r, repo, review.URL); err != nil {
 			d.Log(r.ID, "опис MR не написано: "+err.Error())
 		}
-		if err := t.Comment(ctx, r.Task, "🦈 Mako: для цієї задачі відкрито MR: "+review.URL); err != nil {
-			d.Log(r.ID, "коментар не додано: "+err.Error())
-		}
+		d.comment(ctx, t, r.Task, d.Config().Comments.OnReview, map[string]string{"branch": branch, "mr": review.URL})
 		d.move(ctx, t, r.Task, trackers.AtReview)
 		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
 		d.summarize(ctx, r, repo.BaseBranch, review.URL)

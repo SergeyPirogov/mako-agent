@@ -201,7 +201,7 @@ func TestTaskLifecycle(t *testing.T) {
 	if len(f.statusSet) != 1 || f.statusSet[0] != "In progress" {
 		t.Fatalf("status at start: %v", f.statusSet)
 	}
-	if len(f.assigned) != 1 || len(f.notes) != 1 || !strings.Contains(f.notes[0], "Orca") {
+	if len(f.assigned) != 1 || len(f.notes) != 1 || f.notes[0] != "Взяв задачу в роботу. Гілка fix/5-knopka-oplaty-ne-pratsyuye. Як буде готово, відкрию MR." {
 		t.Fatalf("assigned %v, notes %v", f.assigned, f.notes)
 	}
 

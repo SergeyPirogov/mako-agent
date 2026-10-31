@@ -103,7 +103,7 @@ esac
 	o := config.Orca{Command: cmd}
 	ctx := context.Background()
 	wt := t.TempDir()
-	ts, err := Terminals(ctx, o, wt)
+	ts, _, err := Terminals(ctx, o, wt, "")
 	if err != nil || len(ts) != 2 {
 		t.Fatalf("%v %+v", err, ts)
 	}
@@ -127,5 +127,29 @@ esac
 	}
 	if err := Focus(ctx, o, wt, "term_2"); err == nil || !strings.Contains(err.Error(), "unknown") {
 		t.Errorf("a failing command should say why: %v", err)
+	}
+}
+
+func TestWorkspaces(t *testing.T) {
+	cmd, calls := fakeOrca(t, `true`)
+	os.WriteFile(cmd, []byte(`#!/bin/sh
+printf '%s\n' "$*" >> `+calls+`
+echo '{"id":"1","ok":true,"result":{"worktrees":[{"worktreeId":"w1","path":"/Users/s/orca/market-autotests-31","branch":"refs/heads/fix/31-rozibraty","status":"working","sidebarStatus":"working","liveTerminalCount":0,"lastOutputAt":null,"preview":"","linkedPR":null,"agents":[{"paneKey":"p1","parentPaneKey":null,"state":"working","agentType":"claude","prompt":"You are working…","taskTitle":null,"displayName":null,"lastAssistantMessage":"Now look at the screenshots.","toolName":"Read","toolInput":"att/a0243a71.jpg","interrupted":false,"agentWait":null,"stateStartedAt":1700000000000,"updatedAt":1700000060000}]}],"totalCount":1,"truncated":false},"_meta":{"runtimeId":"r"}}'
+`), 0o755)
+	ws, err := Workspaces(context.Background(), config.Orca{Command: cmd})
+	if err != nil || len(ws) != 1 {
+		t.Fatalf("%v %+v", err, ws)
+	}
+	w := FindWorkspace(ws, "/nowhere", "fix/31-rozibraty")
+	if w == nil || w.Status != "working" {
+		t.Fatalf("by branch: %+v", w)
+	}
+	a := w.MainAgent()
+	if a == nil || a.AgentType != "claude" || a.ToolName != "Read" || a.LastAssistantMessage != "Now look at the screenshots." || a.AgentWait != nil {
+		t.Fatalf("agent %+v", a)
+	}
+	log, _ := os.ReadFile(calls)
+	if !strings.Contains(string(log), "worktree ps --agent-wait --json") {
+		t.Fatalf("calls %s", log)
 	}
 }
