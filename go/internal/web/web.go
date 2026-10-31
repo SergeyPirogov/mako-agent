@@ -420,6 +420,12 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "notsecret":
+			// «Це не секрет»: the line of a finding of the push guard goes through.
+			if err := s.D.AllowSecret(id, r.URL.Query().Get("key")); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "focus":
 			if err := s.D.FocusAgent(ctx, id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

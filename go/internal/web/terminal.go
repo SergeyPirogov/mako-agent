@@ -34,6 +34,20 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 		sess.Hook(body)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// The push guard: the agent's PreToolUse hook before a Bash command; a push carrying secrets gets «deny».
+	mux.HandleFunc("POST /guard", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if token := s.D.GuardToken(q.Get("id")); token == "" || q.Get("token") != token {
+			http.Error(w, "unknown session", http.StatusForbidden)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if answer := s.D.GuardPush(r.Context(), q.Get("id"), body); answer != nil {
+			writeJSON(w, answer)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 	ws := websocket.Server{
 		// Only the board's own pages: another site in the browser must not type into the agent.
 		Handshake: func(_ *websocket.Config, r *http.Request) error {

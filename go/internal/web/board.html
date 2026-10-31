@@ -1051,6 +1051,15 @@ function lessonHTML(r) {
       <button type="button" class="ghost" data-lesson="no">Ні</button></div></div>`;
 }
 
+// The push Mako stopped: what in the branch's changes looks like a secret, never the whole value. «Це не секрет»
+// lets that line through.
+function secretsHTML(r) {
+  const rows = r.secrets.map((f) => `<li><code>${esc(f.file)}${f.line ? ":" + f.line : ""}</code>${f.commit ? ` <span class="mute">коміт ${esc(f.commit)}</span>` : ""}
+      — ${esc(f.kind)}${f.masked ? ` <code class="mute">${esc(f.masked)}</code>` : ""}
+      <button type="button" class="ghost" data-notsecret="${esc(f.key)}" title="Дозволити цей рядок у цій задачі">Це не секрет</button></li>`).join("");
+  return `<div class="notice warn secrets"><div class="secrets-h">🔐 Пуш зупинено: у змінах схоже на секрети. Агента попрошено їх прибрати</div><ul>${rows}</ul></div>`;
+}
+
 // A short note at the bottom of the window that a click did something; it outlives the re-render of the card.
 let toastTimer = 0;
 function toast(text, bad = false) {
@@ -1589,6 +1598,7 @@ function renderDetail() {
   const notices = `
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
+    ${r.secrets?.length && !r.archivedAt ? secretsHTML(r) : ""}
     ${r.lesson && !r.archivedAt ? lessonHTML(r) : ""}
     ${r.worktreeKept ? `<div class="notice warn kept">Задача завершена, але її worktree не прибрано: ${r.worktreeKept} ${plural(r.worktreeKept, "незакомічена зміна", "незакомічені зміни", "незакомічених змін")}.
       <span class="kept-a"><button type="button" class="danger" data-kept="clean">Прибрати все одно</button><button type="button" class="ghost" data-kept="keepworktree">Залишити</button></span></div>` : ""}
@@ -1642,6 +1652,14 @@ function renderDetail() {
     for (const x of $("detail").querySelectorAll("[data-kept]")) x.disabled = true;
     const res = await fetch(`/api/${btn.dataset.kept}?id=${encodeURIComponent(r.id)}`, { method: "POST" }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
     if (res.ok === false) toast(res.error, true);
+    await load();
+  };
+  for (const btn of $("detail").querySelectorAll("[data-notsecret]")) btn.onclick = async () => {
+    btn.disabled = true;
+    const res = await fetch(`/api/notsecret?id=${encodeURIComponent(r.id)}&key=${encodeURIComponent(btn.dataset.notsecret)}`, { method: "POST" })
+      .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    if (res.ok === false) toast(res.error, true);
+    else toast("Рядок дозволено: наступний пуш його пропустить");
     await load();
   };
   const input = $("note-input");

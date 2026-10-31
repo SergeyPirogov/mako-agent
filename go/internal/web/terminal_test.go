@@ -66,3 +66,21 @@ func TestTerminal(t *testing.T) {
 		t.Fatalf("xterm.js: %d", res.StatusCode)
 	}
 }
+
+// The push guard answers only the agent it gave a token to.
+func TestGuardNeedsToken(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d}).Handler())
+	defer srv.Close()
+	for _, q := range []string{"id=a%231", "id=a%231&token=", "id=a%231&token=bad"} {
+		res, err := http.Post(srv.URL+"/guard?"+q, "application/json", strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"git push"}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != 403 {
+			t.Errorf("%s: %d", q, res.StatusCode)
+		}
+	}
+}

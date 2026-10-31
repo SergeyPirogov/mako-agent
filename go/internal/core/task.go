@@ -1,6 +1,8 @@
 // Package core holds what every part of Mako talks about: a tracker's task and Mako's record of it.
 package core
 
+import "github.com/SergeyPirogov/mako-agent/go/internal/secrets"
+
 // Task is an issue as Mako sees it, whatever tracker it came from. The JSON names match the TypeScript
 // Mako's state.json, so both read the same file.
 type Task struct {
@@ -111,6 +113,10 @@ type Record struct {
 	Retro *Retro `json:"retro,omitempty"`
 	// Estimate: the agent's look at the task before it starts: how clear, how big, how risky, and how to take it.
 	Estimate *Estimate `json:"estimate,omitempty"`
+	// Secrets: what the last push Mako stopped found in the branch's changes; empty once a push passes.
+	// SecretsAllowed: the lines «Це не секрет» let through (secrets.Finding.Key).
+	Secrets        []secrets.Finding `json:"secrets,omitempty"`
+	SecretsAllowed []string          `json:"secretsAllowed,omitempty"`
 }
 
 // BaseConflict: the base branch's commit the task's branch conflicted with, and the files.

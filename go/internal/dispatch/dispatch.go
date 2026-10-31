@@ -78,7 +78,9 @@ type Dispatcher struct {
 	reviewing map[string]bool
 	// rebased: when each task's branch was last looked at against its base branch, and what was said of it.
 	rebased map[string]baseLook
-	wake    chan struct{}
+	// guardTokens: the token each task's agent asks the push guard with (see secrets.go).
+	guardTokens map[string]string
+	wake        chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.

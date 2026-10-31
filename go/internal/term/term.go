@@ -437,24 +437,45 @@ func (m *Manager) Live() int {
 }
 
 // ClaudeSettings writes the settings that add Mako's hooks (Claude Code merges them with the user's own) and
-// returns the file.
-func (m *Manager) ClaudeSettings(name, hookURL string) (string, error) {
+// returns the file. guardURL, when set, checks the agent's pushes for secrets (see GuardSettings).
+func (m *Manager) ClaudeSettings(name, hookURL, guardURL string) (string, error) {
 	post := map[string]any{"type": "command", "command": `curl -s -m 3 -X POST -H "Content-Type: application/json" --data-binary @- "` + hookURL + `"`}
 	hooks := map[string]any{"hooks": []any{post}}
 	withAll := map[string]any{"matcher": "*", "hooks": []any{post}}
+	pre := []any{withAll}
+	if guardURL != "" {
+		pre = append(pre, guardHook(guardURL))
+	}
 	settings := map[string]any{"hooks": map[string]any{
 		"UserPromptSubmit": []any{hooks},
-		"PreToolUse":       []any{withAll},
+		"PreToolUse":       pre,
 		// After a permission is given the tool runs: back from «waiting» to «working».
 		"PostToolUse":  []any{withAll},
 		"Notification": []any{hooks},
 		"Stop":         []any{hooks},
 	}}
+	return m.writeSettings(name+".claude-settings.json", settings)
+}
+
+// GuardSettings writes the settings of an agent in Mako's chat: only the push guard, its state comes another
+// way. Before each Bash command Claude Code asks guardURL; Mako answers «deny» with the reason for a push that
+// would carry secrets and nothing otherwise. Mako not answering does not stop the command.
+func (m *Manager) GuardSettings(name, guardURL string) (string, error) {
+	return m.writeSettings(name+".guard-settings.json", map[string]any{"hooks": map[string]any{"PreToolUse": []any{guardHook(guardURL)}}})
+}
+
+func guardHook(guardURL string) map[string]any {
+	ask := map[string]any{"type": "command", "timeout": 60,
+		"command": `curl -s -m 45 -X POST -H "Content-Type: application/json" --data-binary @- "` + guardURL + `" || true`}
+	return map[string]any{"matcher": "Bash", "hooks": []any{ask}}
+}
+
+func (m *Manager) writeSettings(name string, settings map[string]any) (string, error) {
 	b, _ := json.MarshalIndent(settings, "", "  ")
 	if err := os.MkdirAll(m.Dir, 0o700); err != nil {
 		return "", err
 	}
-	file := filepath.Join(m.Dir, safeName.ReplaceAllString(name, "_")+".claude-settings.json")
+	file := filepath.Join(m.Dir, safeName.ReplaceAllString(name, "_"))
 	return file, os.WriteFile(file, b, 0o600)
 }
 
