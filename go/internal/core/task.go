@@ -74,9 +74,12 @@ type Record struct {
 	Gone           string        `json:"gone,omitempty"` // "closed", "deleted": in the tracker
 	TrackerStatus  *TrackerState `json:"trackerStatus,omitempty"`
 	Error          string        `json:"error,omitempty"`
-	Summary        string        `json:"summary,omitempty"`   // what the agent did, written when its MR appeared
-	SessionID      string        `json:"sessionId,omitempty"` // Mako's own agent: its Claude Code session
-	Attempt        int           `json:"attempt,omitempty"`
+	// WorktreeKept: the uncommitted files that kept the worktree of a finished task from being cleaned up;
+	// the board asks whether to remove it anyway.
+	WorktreeKept int    `json:"worktreeKept,omitempty"`
+	Summary      string `json:"summary,omitempty"`   // what the agent did, written when its MR appeared
+	SessionID    string `json:"sessionId,omitempty"` // Mako's own agent: its Claude Code session
+	Attempt      int    `json:"attempt,omitempty"`
 	// «Повторити інакше»: what to do differently this attempt, what the last one came to, and the model for it.
 	RetryNote   string  `json:"retryNote,omitempty"`
 	LastAttempt string  `json:"lastAttempt,omitempty"`

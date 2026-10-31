@@ -129,6 +129,11 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <p class="lead">Скільки задач одночасно, як часто шукати, як називати гілки.</p>
       <div class="card" id="limits"></div>
     </div>
+    <div class="pane" data-pane="disk">
+      <h2>Місце на диску</h2>
+      <p class="lead">Worktree агентів по проєктах. Після мерджу чи архівування задачі Mako сам прибирає її worktree і локальні гілки (і минулих спроб теж); worktree з незакоміченими змінами лишається, поки ви не скажете на картці задачі.</p>
+      <div id="disk"></div>
+    </div>
     <div class="pane" data-pane="phone">
       <h2>Телефон</h2>
       <p class="lead">Mako на iPhone чи Android: дошка як додаток на екрані «Додому», «Взяти в роботу» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
@@ -563,7 +568,7 @@ function renderNav() {
     ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
     `<div class="group">Робота</div>` + item("orca", "Агент", (onTerminal() ? "термінал Mako · " : "Orca · ") + { agent: "агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
-    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення") + item("phone", "Телефон", phoneNote);
+    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("disk", "Місце на диску", diskNote) + item("notifications", "Сповіщення") + item("phone", "Телефон", phoneNote);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
   const on = $("side").querySelector(".on");
@@ -579,7 +584,47 @@ function show(id) {
   renderNav();
   renderTrackers();
   if (id === "phone") renderPhone();
+  if (id === "disk") renderDisk();
   window.scrollTo(0, 0);
+}
+
+// The agents' worktrees: how much each project's take, and «Прибрати змерджені».
+let diskNote = "";
+const size = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} ГБ` : b >= 1 << 20 ? `${Math.round(b / (1 << 20))} МБ` : `${Math.round(b / 1024)} КБ`;
+async function renderDisk(msg = "") {
+  const box = $("disk");
+  if (!box.innerHTML) box.innerHTML = `<div class="card muted">Рахую…</div>`;
+  let list;
+  try {
+    list = await (await fetch("/api/settings/worktrees")).json();
+  } catch {
+    box.innerHTML = `<div class="card bad">Mako не відповідає</div>`;
+    return;
+  }
+  const total = list.reduce((n, u) => n + u.bytes, 0), cleanable = list.reduce((n, u) => n + u.cleanable, 0);
+  const freed = list.reduce((n, u) => n + u.cleanableBytes, 0);
+  diskNote = total ? size(total) : "";
+  const projects = list.length ? list.map((u) => `<div class="card"><div class="card-head"><b>${esc(u.repo)}</b><span class="muted">${u.worktrees.length} worktree · ${size(u.bytes)}</span></div>
+      ${u.worktrees.map((w) => `<div class="device"><div><code>${esc(w.branch || w.path.split("/").pop())}</code>
+        <div class="muted">${w.task ? esc(w.task) + (w.cleanable ? " · змерджена чи в архіві" : "") : "не задача Mako"}</div></div><span class="muted">${size(w.bytes)}</span></div>`).join("")}</div>`).join("")
+    : `<div class="card muted">Worktree агентів немає.</div>`;
+  box.innerHTML = `<div class="card"><div class="row" style="margin-top:0"><b>Усього: ${size(total)}</b><span class="spacer"></span>
+      <button class="primary" id="disk-clean" ${cleanable ? "" : "disabled"}>Прибрати змерджені${cleanable ? ` (${cleanable}, ${size(freed)})` : ""}</button></div>
+      ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}</div>${projects}`;
+  $("disk-clean").onclick = async () => {
+    $("disk-clean").disabled = true;
+    $("disk-clean").textContent = "Прибираю…";
+    let r;
+    try {
+      r = await (await fetch("/api/settings/worktrees/clean", { method: "POST" })).json();
+    } catch {
+      r = { ok: false };
+    }
+    const c = r.cleanup;
+    renderDisk(!r.ok ? "Mako не відповідає" : `Прибрано worktree: ${c.worktrees}, гілок: ${c.branches}` +
+      (c.keptTasks?.length ? `. Лишились через незакомічені зміни: ${c.keptTasks.join(", ")}` : ""));
+  };
+  renderNav();
 }
 
 // The phone: Tailscale brings the iPhone or Android phone to this Mac with HTTPS; a QR code pairs it once.

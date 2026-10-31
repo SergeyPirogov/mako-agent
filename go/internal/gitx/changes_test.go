@@ -140,3 +140,38 @@ func TestFileDiffWhole(t *testing.T) {
 		t.Fatalf("whole file %q", d)
 	}
 }
+
+func TestWorktreesAndSize(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "app")
+	os.MkdirAll(repo, 0o755)
+	g := func(d string, args ...string) {
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Dir = d
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	g(repo, "init", "-q", "-b", "main")
+	g(repo, "commit", "-q", "--allow-empty", "-m", "init")
+	wt := filepath.Join(dir, "wt")
+	g(repo, "worktree", "add", "-q", "-b", "fix/2", wt)
+	ctx := context.Background()
+	ws, err := Worktrees(ctx, repo)
+	if err != nil || len(ws) != 1 || ws[0].Branch != "fix/2" || filepath.Base(ws[0].Path) != "wt" {
+		t.Fatalf("worktrees: %+v %v", ws, err)
+	}
+	if n, _ := Dirty(ctx, wt); n != 0 {
+		t.Fatalf("dirty: %d", n)
+	}
+	os.WriteFile(filepath.Join(wt, "x.txt"), make([]byte, 1000), 0o644)
+	if n, _ := Dirty(ctx, wt); n != 1 {
+		t.Fatalf("dirty: %d", n)
+	}
+	if n := DirSize(wt); n < 1000 {
+		t.Fatalf("size: %d", n)
+	}
+	if !HasBranch(ctx, repo, "fix/2") || HasBranch(ctx, repo, "fix/3") {
+		t.Fatal("HasBranch")
+	}
+}

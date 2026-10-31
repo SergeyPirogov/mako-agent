@@ -440,6 +440,14 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "clean":
+			// The worktree Mako kept for its uncommitted work: remove it anyway.
+			if _, err := s.D.CleanTask(ctx, id, true); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "keepworktree":
+			s.D.KeepWorktree(id)
 		case "archive":
 			s.D.Archive(id, true)
 		case "unarchive":

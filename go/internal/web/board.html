@@ -1578,6 +1578,8 @@ function renderDetail() {
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
     ${r.lesson && !r.archivedAt ? lessonHTML(r) : ""}
+    ${r.worktreeKept ? `<div class="notice warn kept">Задача завершена, але її worktree не прибрано: ${r.worktreeKept} ${plural(r.worktreeKept, "незакомічена зміна", "незакомічені зміни", "незакомічених змін")}.
+      <span class="kept-a"><button type="button" class="danger" data-kept="clean">Прибрати все одно</button><button type="button" class="ghost" data-kept="keepworktree">Залишити</button></span></div>` : ""}
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею ${term ? "в терміналі" : "в Orca"}.</div>` : ""}`;
   // In the workspace the tabs, the task's id and the buttons share one thin bar: the rest is the terminal's.
   const html = ws ? `
@@ -1621,6 +1623,13 @@ function renderDetail() {
       .then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
     if (res.ok === false) toast(res.error, true);
     else { lessonEdit = null; if (to !== "no") toast(`Урок записано в CLAUDE.md (${to === "base" ? "основна гілка" : "гілка задачі"})`); }
+    await load();
+  };
+  for (const btn of $("detail").querySelectorAll("[data-kept]")) btn.onclick = async () => {
+    if (btn.dataset.kept === "clean" && !confirm("Видалити worktree разом з незакоміченими змінами? Їх не повернути.")) return;
+    for (const x of $("detail").querySelectorAll("[data-kept]")) x.disabled = true;
+    const res = await fetch(`/api/${btn.dataset.kept}?id=${encodeURIComponent(r.id)}`, { method: "POST" }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+    if (res.ok === false) toast(res.error, true);
     await load();
   };
   const input = $("note-input");
