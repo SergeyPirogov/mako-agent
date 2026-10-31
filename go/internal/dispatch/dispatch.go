@@ -436,6 +436,31 @@ func (d *Dispatcher) Take(ctx context.Context, id string) {
 	d.schedule(ctx)
 }
 
+// Push: «Запустити зараз» on a task waiting in the queue. You decided it goes now: past the WIP limit and
+// Claude's limits.
+func (d *Dispatcher) Push(ctx context.Context, id string) {
+	r, ok := d.Store.Get(id)
+	if !ok || r.Status != core.Queued {
+		return
+	}
+	d.mu.Lock()
+	if d.starting[id] {
+		d.mu.Unlock()
+		return
+	}
+	d.starting[id] = true
+	d.mu.Unlock()
+	d.Log(id, "запущено поза чергою")
+	go func() {
+		defer func() {
+			d.mu.Lock()
+			delete(d.starting, id)
+			d.mu.Unlock()
+		}()
+		d.start(context.WithoutCancel(ctx), id)
+	}()
+}
+
 func (d *Dispatcher) schedule(ctx context.Context) { d.release(ctx, "") }
 
 // release lets a task the scheduler was told to leave alone go (id; "" for none) and starts what fits in the WIP

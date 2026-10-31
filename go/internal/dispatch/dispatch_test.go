@@ -333,6 +333,18 @@ func TestWipLimit(t *testing.T) {
 	if r, _ := d.Store.Get("grp/app#12"); r.Status != core.Queued {
 		t.Fatalf("third task: %s", r.Status)
 	}
+	// «Запустити зараз»: the queued one goes past the limit.
+	d.Push(ctx, "grp/app#12")
+	d.Wait()
+	if r, _ := d.Store.Get("grp/app#12"); r.Status != core.HandedOff || len(*jobs) != 3 {
+		t.Fatalf("pushed task: %s, handed %d", r.Status, len(*jobs))
+	}
+	// Only a queued task is pushed.
+	d.Push(ctx, "grp/app#12")
+	d.Wait()
+	if len(*jobs) != 3 {
+		t.Fatalf("pushed twice: handed %d", len(*jobs))
+	}
 }
 
 // A task put off comes back at its time with a notification; «Повернути» brings it back at once.

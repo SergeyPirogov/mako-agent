@@ -347,6 +347,8 @@ func (s *Server) Handler() http.Handler {
 		switch action {
 		case "take":
 			s.D.Take(ctx, id)
+		case "push":
+			s.D.Push(ctx, id)
 		case "later":
 			min, _ := strconv.Atoi(r.URL.Query().Get("min"))
 			s.D.Later(id, min)
