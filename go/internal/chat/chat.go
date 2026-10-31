@@ -487,12 +487,10 @@ func (s *Session) Send(text string) error {
 	if !s.Running() {
 		return fmt.Errorf("агент не запущений")
 	}
-	if err := s.write(userMessage(text)); err != nil {
-		return err
-	}
+	// Working before Claude reads it: a turn it ends at once must not be set back to working.
 	s.add(Item{Kind: "user", Text: text})
 	s.setState("working")
-	return nil
+	return s.write(userMessage(text))
 }
 
 // Say is Send for the board's ✨ requests.
@@ -521,20 +519,9 @@ func (s *Session) Permit(requestID, decision string) error {
 	case "deny":
 		resp = map[string]any{"behavior": "deny", "message": "Розробник не дозволив це зробити."}
 	}
-	if err := s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": requestID, "response": resp}}); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	delete(s.pending, requestID)
-	for i := range s.items {
-		if s.items[i].Kind == "permission" && s.items[i].ID == requestID {
-			s.items[i].Status = map[string]string{"allow": "allowed", "always": "always", "deny": "denied"}[decision]
-		}
-	}
-	s.version++
-	s.mu.Unlock()
-	s.setState("working")
-	return nil
+	return s.reply(requestID, resp, func(it *Item) {
+		it.Status = map[string]string{"allow": "allowed", "always": "always", "deny": "denied"}[decision]
+	})
 }
 
 // Answer replies to the agent's questions (AskUserQuestion): question → the option chosen or your own words.
@@ -552,19 +539,39 @@ func (s *Session) Answer(requestID string, answers map[string]string) error {
 	json.Unmarshal(raw, &input)
 	input["answers"] = answers
 	resp := map[string]any{"behavior": "allow", "updatedInput": input}
-	if err := s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": requestID, "response": resp}}); err != nil {
-		return err
-	}
+	return s.reply(requestID, resp, func(it *Item) { it.Status, it.Answers = "answered", answers })
+}
+
+// reply sends Claude the answer to a request. The request is marked answered and the session working before
+// Claude reads the answer: a turn it then ends at once would otherwise be set back to working. If the answer
+// cannot be sent, the request is asked again.
+func (s *Session) reply(requestID string, resp map[string]any, mark func(*Item)) error {
 	s.mu.Lock()
+	raw := s.pending[requestID]
 	delete(s.pending, requestID)
+	var before []Item
 	for i := range s.items {
 		if s.items[i].Kind == "permission" && s.items[i].ID == requestID {
-			s.items[i].Status, s.items[i].Answers = "answered", answers
+			before = append(before, s.items[i])
+			mark(&s.items[i])
 		}
 	}
 	s.version++
 	s.mu.Unlock()
 	s.setState("working")
+	if err := s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": requestID, "response": resp}}); err != nil {
+		s.mu.Lock()
+		s.pending[requestID] = raw
+		for i, k := 0, 0; i < len(s.items) && k < len(before); i++ {
+			if s.items[i].Kind == "permission" && s.items[i].ID == requestID {
+				s.items[i], k = before[k], k+1
+			}
+		}
+		s.version++
+		s.mu.Unlock()
+		s.setState("waiting")
+		return err
+	}
 	return nil
 }
 
