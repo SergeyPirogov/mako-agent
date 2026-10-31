@@ -675,7 +675,7 @@ function renderDetail() {
   const term = r.executor === "terminal" && r.worktree;
   // Mako's own agent goes on after its MR too (CI, review comments), until the merge.
   const agentOn = term && !r.archivedAt && r.reviewState !== "merged" && (r.column === "doing" || r.column === "review");
-  if (r.column === "new") actions = b("take", data.executor === "terminal" ? "Віддати агенту" : "Віддати в Orca", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
+  if (r.column === "new") actions = b("take", "Взяти в роботу", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
   else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
   else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("archive", "В архів", "archive");
   else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("cancel", "Більше не стежити", "unwatch", "danger");

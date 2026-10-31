@@ -34,7 +34,7 @@ type Attachment struct {
 
 // Status of a task in Mako.
 //
-//	asking, snoozed – new: waiting for «Віддати в Orca» (snoozed with a time ahead: postponed)
+//	asking, snoozed – new: waiting for «Взяти в роботу» (snoozed with a time ahead: postponed)
 //	handed-off      – in Orca, waiting for its MR
 //	done            – the MR is open (in review) or merged
 //	failed, cancelled

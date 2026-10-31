@@ -123,7 +123,7 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
     </div>
     <div class="pane" data-pane="phone">
       <h2>Телефон</h2>
-      <p class="lead">Mako на iPhone: дошка як додаток на екрані «Додому», «Віддати в Orca» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
+      <p class="lead">Mako на iPhone: дошка як додаток на екрані «Додому», «Взяти в роботу» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
       <div id="phone"></div>
     </div>
     <div class="pane" data-pane="notifications">
@@ -254,7 +254,7 @@ function renderTrackers() {
       if (!noLabel) card.append(text(t.labels, "trigger", "Мітка для агента", { placeholder: "claude-agent", hint: "Задачі з цією міткою" }));
       card.append(text(t, "assignee", "Лише призначені на", { placeholder: noLabel || t.allProjects ? "мене" : "будь-кого", hint: "Логін або me" }));
     }
-    card.append(check(t, "assignOnTake", "«Віддати в Orca» призначає задачу на мене", { def: true }));
+    card.append(check(t, "assignOnTake", "«Взяти в роботу» призначає задачу на мене", { def: true }));
     card.append(check(t, "skipOthersTasks", "Не пропонувати задачі, призначені на інших", { def: true }));
 
     const statuses = document.createElement("details");

@@ -120,6 +120,10 @@ func (d *Dispatcher) setAgent(r core.Record, a Agent, now time.Time) {
 	if before != nil && before.State != a.State {
 		d.tell(r, a)
 	}
+	// A turn that ended may have opened the MR: look for it now, not at the next poll of the trackers.
+	if before != nil && before.State == "working" && a.State != "working" {
+		d.Wake()
+	}
 }
 
 func (d *Dispatcher) tell(r core.Record, a Agent) {

@@ -173,3 +173,33 @@ func TestSummaryWhenMRAppears(t *testing.T) {
 	}
 	_ = core.Done
 }
+
+// The end of an agent's turn wakes the loop: the MR it may have opened shows up at once, not a poll later.
+func TestTurnEndWakesLoop(t *testing.T) {
+	d, _, _ := setup(t)
+	r := core.Record{Task: core.Task{ID: "grp/app#5"}}
+	r.ID = r.Task.ID
+	woken := func() bool {
+		select {
+		case <-d.wake:
+			return true
+		default:
+			return false
+		}
+	}
+	now := time.Now()
+	woken()
+	d.setAgent(r, Agent{State: "working"}, now)
+	d.setAgent(r, Agent{State: "working"}, now.Add(10*time.Second))
+	if woken() {
+		t.Fatal("woken while the agent works")
+	}
+	d.setAgent(r, Agent{State: "done"}, now.Add(20*time.Second))
+	if !woken() {
+		t.Fatal("not woken when the turn ended")
+	}
+	d.setAgent(r, Agent{State: "done"}, now.Add(30*time.Second))
+	if woken() {
+		t.Fatal("woken again with nothing new")
+	}
+}

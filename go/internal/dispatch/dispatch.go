@@ -248,7 +248,7 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 			d.ensureProject(t, task.Project)
 			d.seen(ctx, t, task)
 		}
-		// A task waiting for «Віддати в Orca» that left the search: closed or deleted ones stay on the board
+		// A task waiting for «Взяти в роботу» that left the search: closed or deleted ones stay on the board
 		// as such; the rest (reassigned, label removed) are forgotten.
 		for _, r := range d.Store.All() {
 			if r.Task.TrackerID != t.ID() || seen[r.ID] || (r.Status != core.Asking && r.Status != core.Snoozed) {
@@ -290,7 +290,7 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 }
 
 // ensureProject: with «Мої задачі з усіх проєктів», a task from a project not in the config gets one: your
-// existing clone if there is one, else ~/mako/projects/<name>, cloned on «Віддати в Orca».
+// existing clone if there is one, else ~/mako/projects/<name>, cloned on «Взяти в роботу».
 func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 	tc := t.Config()
 	d.mu.Lock()
@@ -365,7 +365,7 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 
 // --- taking a task
 
-// Take: «Віддати в Orca». Within the WIP limit it starts now, otherwise it waits in the queue.
+// Take: «Взяти в роботу». Within the WIP limit it starts now, otherwise it waits in the queue.
 func (d *Dispatcher) Take(ctx context.Context, id string) {
 	r, ok := d.Store.Get(id)
 	if !ok || (r.Status != core.Asking && r.Status != core.Snoozed && r.Status != core.Failed && r.Status != core.Cancelled) {
