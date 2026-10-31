@@ -80,6 +80,29 @@ const DefaultHandoffForMe = "## Finish with commits, not a merge request\n" +
 	"4. Reply with a ready merge request: a title (what it does, in a sentence) and a Markdown description with\n" +
 	"   \"## What changed\", \"## How it was checked\", \"## Worth a look\", ending with \"{closingRef}\"."
 
+// DefaultHandoffChecked: with checks in the repo's settings, the agent commits and Mako runs them and opens the
+// MR itself once they pass.
+const DefaultHandoffChecked = "## Finish with commits: Mako checks them and opens the merge request\n" +
+	"1. Implement the task and check it (tests, linters) as described above.\n" +
+	"2. Commit on the branch {branch}. Each message: a first line under 72 characters that says what the change does,\n" +
+	"   in the imperative (\"Fix pagination size in the stubs admin\"), starting with \"{taskId}: \"; then a blank line and\n" +
+	"   1-5 bullets on what changed and why. No \"fix\", \"wip\" or \"update\" on their own: Mako writes the merge request\n" +
+	"   from these messages.\n" +
+	"3. Do not push and do not open a merge request. When your turn ends with everything committed, Mako runs the\n" +
+	"   project's checks in this worktree:\n" +
+	"{checks}\n" +
+	"   If they pass, Mako pushes the branch and opens the merge request into {baseBranch}. If one fails, you get the\n" +
+	"   last lines of its output here: fix the cause, commit, and end your turn again.\n" +
+	"4. Reply with a short summary: what changed and how you checked it."
+
+// checksNote: what a custom end of the prompt gets when Mako checks the branch and opens the MR.
+const checksNote = "## Mako opens the merge request\n" +
+	"Do not push and do not open a merge request yourself, whatever is said above: commit on the branch {branch}.\n" +
+	"When your turn ends with everything committed, Mako runs the project's checks in this worktree:\n" +
+	"{checks}\n" +
+	"If they pass, Mako pushes the branch and opens the merge request into {baseBranch}. If one fails, you get the\n" +
+	"last lines of its output here: fix the cause, commit, and end your turn again."
+
 // FullPrompt: the task, what to do differently when it is a new attempt, screenshots for UI changes and how to
 // finish.
 func FullPrompt(j Job, o config.Orca) string {
@@ -157,12 +180,25 @@ func Instructions(custom, mrBy string, j Job) string {
 		"branch": j.Branch, "baseBranch": j.Repo.BaseBranch, "taskId": j.Task.ID,
 		"title": j.Task.Title, "url": j.Task.URL, "closingRef": closing,
 	}
-	text := strings.TrimSpace(custom)
-	if text == "" {
-		text = DefaultHandoff
-		if mrBy == "me" {
-			text = DefaultHandoffForMe
+	checked := len(j.Checks) > 0 && mrBy != "me"
+	if checked {
+		lines := make([]string, len(j.Checks))
+		for i, c := range j.Checks {
+			lines[i] = "   - `" + c + "`"
 		}
+		values["checks"] = strings.Join(lines, "\n")
+	}
+	text := strings.TrimSpace(custom)
+	switch {
+	case text != "" && checked:
+		text += "\n\n" + checksNote
+	case text != "":
+	case checked:
+		text = DefaultHandoffChecked
+	case mrBy == "me":
+		text = DefaultHandoffForMe
+	default:
+		text = DefaultHandoff
 	}
 	return placeholder.ReplaceAllStringFunc(text, func(m string) string {
 		if v, ok := values[m[1:len(m)-1]]; ok {

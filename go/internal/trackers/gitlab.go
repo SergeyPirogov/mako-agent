@@ -507,6 +507,15 @@ func (g *GitLab) DescribeReview(ctx context.Context, reviewURL, title, descripti
 	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2], map[string]any{"title": title, "description": description}, nil)
 }
 
+func (g *GitLab) OpenReview(ctx context.Context, projectPath, branch, base, title, description string) (*Review, error) {
+	var mr glMR
+	body := map[string]any{"source_branch": branch, "target_branch": base, "title": title, "description": description, "remove_source_branch": true}
+	if err := g.do(ctx, "POST", project(projectPath)+"/merge_requests", body, &mr); err != nil {
+		return nil, err
+	}
+	return &Review{URL: mr.WebURL, Number: mr.IID, State: mrState(mr.State)}, nil
+}
+
 func orEmpty(s []string) []string {
 	if s == nil {
 		return []string{}

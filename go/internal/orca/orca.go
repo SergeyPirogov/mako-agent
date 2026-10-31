@@ -28,6 +28,9 @@ type Job struct {
 	Model       string
 	RetryNote   string
 	LastAttempt string
+	// Checks: the repo's checks Mako runs before it opens the MR itself (Mako's own agent only); none: the agent
+	// opens it.
+	Checks []string
 }
 
 // Result: where Orca put the work. Branch may differ from Job.Branch: Orca suffixes a taken name.

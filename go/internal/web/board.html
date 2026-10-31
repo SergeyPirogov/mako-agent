@@ -160,6 +160,7 @@ const cardStatus = (r) => {
   if (r.error) return ["не вдалося", "err"];
   // «агент чекає на вас: агент питає»: the head in the narrow row, the whole of it in the tooltip.
   if (r.blocked) return [r.blocked.split(": ")[0], "warn", r.blocked];
+  if (r.checks?.attention && r.status === "handed-off") return ["потребує уваги", "warn", `Перевірка перед MR не пройшла: ${checksLine(r.checks)}`];
   if (r.reviewState === "closed") return ["MR закрито", "err"];
   if (r.reviewState === "merged") return ["змерджено", ""];
   if (r.status === "queued") return ["у черзі", ""];
@@ -469,7 +470,7 @@ function render() {
       const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Оцінка наперед: ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, опис ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Оцінка наперед: ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, опис ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}${checksBadge(r)}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }
@@ -976,6 +977,34 @@ function mrCard(r, term) {
       <span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span>
       <span class="spacer"></span>${open}${update}${close}${merge}</div>
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
+}
+
+// The checks Mako runs before it opens the MR itself: «Перевірка: ✓ тести, ✗ лінт».
+const checkMark = (c) => (c.ok ? "✓" : c.timedOut ? "⏱" : "✗");
+const checksLine = (k) => (k.results ?? []).map((c) => `${checkMark(c)} ${c.name}`).join(", ");
+const checksTitle = (k) => (k.results ?? []).map((c) => `${checkMark(c)} ${c.command}${c.seconds ? ` · ${c.seconds} с` : ""}${c.timedOut ? " · таймаут" : ""}`).join("\n");
+// On the list: only while they matter, before the MR.
+function checksBadge(r) {
+  const k = r.checks;
+  if (!k || r.prUrl || r.status !== "handed-off") return "";
+  if (k.state === "running") return `<span class="checks" title="Mako проганяє перевірку перед MR">перевірка…</span>`;
+  if (k.state === "failed") return `<span class="checks bad" title="${esc(checksTitle(k))}">✗ перевірка</span>`;
+  return "";
+}
+function checksChip(r, chip) {
+  const k = r.checks;
+  if (!k) return "";
+  const text = k.state === "running" ? "іде…" : checksLine(k);
+  return chip(`<span class="k">Перевірка</span><span class="v">${esc(text)}</span>`, k.state === "failed" ? "st bad" : k.state === "passed" ? "ok" : "",
+    checksTitle(k) || "Перевірка перед MR");
+}
+// What failed, as the agent got it: the last lines of each failed command.
+function checksHTML(r, card) {
+  const k = r.checks;
+  if (!k || k.state !== "failed" || r.prUrl) return "";
+  const body = k.results.filter((c) => !c.ok).map((c) => `<div class="tcard-b"><code>${esc(c.command)}</code> ${c.timedOut ? `не вклалась у час (${c.seconds} с)` : "впала"}
+    ${c.tail ? `<pre class="code">${esc(c.tail)}</pre>` : ""}</div>`).join("");
+  return card("Перевірка перед MR не пройшла", body, "", `спроба ${k.fails} · <code>${esc(k.commit.slice(0, 8))}</code>`);
 }
 
 // The reviewer agent's rounds over the branch: the last one as a line of the MR card, all of them in the task.
@@ -1568,6 +1597,7 @@ function renderDetail() {
   const branch = r.branch || r.branchName;
   if (branch) chips.push(chip(`${ICON.pr}<code>${esc(branch)}</code>${copy(branch, "назву гілки")}`, "", "Гілка"));
   if (r.worktree) chips.push(chip(`${ICON.folder}<code>${esc(shortPath(r.worktree))}</code>${copy(r.worktree, "шлях до worktree")}`, "wt", r.worktree));
+  if (r.checks) chips.push(checksChip(r, chip));
   if (r.prUrl) {
     const rs = r.reviewState === "merged" ? ["змерджено", "merged"] : r.reviewState === "closed" ? ["закрито", "closed"] : ["відкрито", ""];
     chips.push(`<a class="tchip mr ${rs[1]}" href="${esc(r.prUrl)}" target="_blank" rel="noopener" title="${esc(r.prUrl)}"><span class="dot"></span>${esc(mrName(r.prUrl))} · ${rs[0]} ↗</a>`);
@@ -1578,6 +1608,7 @@ function renderDetail() {
   const task = `
     ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
     ${estimateHTML(r, card)}
+    ${checksHTML(r, card)}
     ${assessmentHTML(r, card)}
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${retroHTML(r, card)}
@@ -1634,6 +1665,8 @@ function renderDetail() {
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
     ${r.secrets?.length && !r.archivedAt ? secretsHTML(r) : ""}
+    ${r.checks?.attention && r.status === "handed-off" ? `<div class="notice warn">Перевірка перед MR не пройшла ${r.checks.fails} раз поспіль (${esc(checksLine(r.checks))}): MR не відкрито, агента більше не просять виправити. Подивіться, що впало, і продовжте з агентом — після нового коміту Mako перевірить ще раз.</div>` : ""}
+    ${r.checks?.error && !r.prUrl && r.status === "handed-off" ? `<div class="notice">Перевірка пройшла, але MR не відкрито: ${linkify(r.checks.error)}. Mako спробує ще раз.</div>` : ""}
     ${r.lesson && !r.archivedAt ? lessonHTML(r) : ""}
     ${r.worktreeKept ? `<div class="notice warn kept">Задача завершена, але її worktree не прибрано: ${r.worktreeKept} ${plural(r.worktreeKept, "незакомічена зміна", "незакомічені зміни", "незакомічених змін")}.
       <span class="kept-a"><button type="button" class="danger" data-kept="clean">Прибрати все одно</button><button type="button" class="ghost" data-kept="keepworktree">Залишити</button></span></div>` : ""}

@@ -117,12 +117,40 @@ type Record struct {
 	// SecretsAllowed: the lines «Це не секрет» let through (secrets.Finding.Key).
 	Secrets        []secrets.Finding `json:"secrets,omitempty"`
 	SecretsAllowed []string          `json:"secretsAllowed,omitempty"`
+	// Checks: the repo's checks (tests, lint, build) Mako ran in the worktree before opening the MR, the last run.
+	Checks *Checks `json:"checks,omitempty"`
 }
 
 // BaseConflict: the base branch's commit the task's branch conflicted with, and the files.
 type BaseConflict struct {
 	Base  string   `json:"base"`
 	Files []string `json:"files"`
+}
+
+// Checks is the last run of a repo's checks over the agent's branch, before Mako opens its MR.
+type Checks struct {
+	At     string `json:"at"`
+	Commit string `json:"commit"` // the HEAD they ran over
+	// State: "running", "passed" or "failed".
+	State   string        `json:"state"`
+	Results []CheckResult `json:"results,omitempty"`
+	// Fails: the runs that failed one after another; at the settings' limit the agent is not asked again and
+	// the task needs you (Attention).
+	Fails     int  `json:"fails,omitempty"`
+	Attention bool `json:"attention,omitempty"`
+	// Error: why the MR was not opened after the checks passed (the push or the code host failed).
+	Error string `json:"error,omitempty"`
+}
+
+// CheckResult is one command of the checks.
+type CheckResult struct {
+	Name     string `json:"name"` // "тести", "лінт", "збірка", or the command
+	Command  string `json:"command"`
+	OK       bool   `json:"ok"`
+	TimedOut bool   `json:"timedOut,omitempty"`
+	Seconds  int    `json:"seconds,omitempty"`
+	// Tail: the last lines of what a failed command printed.
+	Tail string `json:"tail,omitempty"`
 }
 
 // Estimate is the agent's rating of a new task, from its text and the repository's layout, before anyone

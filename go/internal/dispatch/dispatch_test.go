@@ -120,6 +120,16 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(list)
 			return
 		}
+		if r.Method == "POST" {
+			var in map[string]any
+			json.Unmarshal(body, &in)
+			iid := len(f.mrs) + 1
+			mr := map[string]any{"iid": iid, "state": "opened", "source_branch": in["source_branch"], "target_branch": in["target_branch"],
+				"title": in["title"], "description": in["description"], "web_url": fmt.Sprintf("%s/grp/app/-/merge_requests/%d", f.base, iid)}
+			f.mrs = append(f.mrs, mr)
+			reply(mr)
+			return
+		}
 		mr := f.mrs[0]
 		if r.Method == "PUT" {
 			var ch map[string]any
