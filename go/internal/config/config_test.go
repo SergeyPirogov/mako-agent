@@ -131,6 +131,11 @@ func TestParseReviewer(t *testing.T) {
 	if c, _ := Parse([]byte(`{"agentReview":{"maxRounds":0}}`), nil); c.Reviewer.MaxRounds != 1 {
 		t.Fatalf("0 rounds: %+v", c.Reviewer)
 	}
+	for in, want := range map[string]string{"": ReviewAlways, "medium": ReviewMedium, "high": ReviewHigh, "low": ReviewAlways} {
+		if c, _ := Parse([]byte(`{"agentReview":{"when":"`+in+`"}}`), nil); c.Reviewer.When != want {
+			t.Errorf("when %q: %q, want %q", in, c.Reviewer.When, want)
+		}
+	}
 }
 
 func TestParseNotificationEvents(t *testing.T) {
