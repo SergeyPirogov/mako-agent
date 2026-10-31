@@ -421,11 +421,18 @@ func (g *GitLab) graphql(ctx context.Context, query string, vars map[string]any,
 var mrURL = regexp.MustCompile(`^https?://[^/]+/(.+?)/-/merge_requests/(\d+)`)
 
 type glMR struct {
-	IID         int    `json:"iid"`
-	State       string `json:"state"`
-	WebURL      string `json:"web_url"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	IID          int    `json:"iid"`
+	State        string `json:"state"`
+	WebURL       string `json:"web_url"`
+	Title        string `json:"title"`
+	Description  string `json:"description"`
+	HasConflicts bool   `json:"has_conflicts"`
+	MergeStatus  string `json:"detailed_merge_status"`
+	HeadPipeline *struct {
+		ID     int64  `json:"id"`
+		Status string `json:"status"`
+		WebURL string `json:"web_url"`
+	} `json:"head_pipeline"`
 }
 
 func mrState(s string) string {

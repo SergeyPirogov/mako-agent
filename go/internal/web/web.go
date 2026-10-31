@@ -3,7 +3,9 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 )
 
 //go:embed board.html
@@ -23,6 +26,14 @@ var style []byte
 
 //go:embed theme.js
 var themeJS []byte
+
+// Mako's window keeps a cache across restarts: the pages ask for style.css and theme.js by their content, so a
+// new Mako never shows old styles.
+func init() {
+	sum := func(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:4]) }
+	r := strings.NewReplacer(`href="/style.css"`, `href="/style.css?v=`+sum(style)+`"`, `src="/theme.js"`, `src="/theme.js?v=`+sum(themeJS)+`"`)
+	board, settingsPage = []byte(r.Replace(string(board))), []byte(r.Replace(string(settingsPage)))
+}
 
 type Server struct {
 	D       *dispatch.Dispatcher
@@ -42,12 +53,15 @@ type stateReply struct {
 	Problems []string                   `json:"problems"`
 	Paused   bool                       `json:"paused"`
 	Agents   map[string]dispatch.Agent  `json:"agents"`
+	Executor string                     `json:"executor"` // who gets new tasks: "orca" or "terminal"
 }
 
 type recordView struct {
 	core.Record
 	Column    string `json:"column"`
 	Postponed bool   `json:"postponed"`
+	Type      string `json:"type"` // "fix" for a bug, "feature" for a task: as the branch is named
+	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
 }
 
 type trackerView struct {
@@ -58,6 +72,7 @@ type trackerView struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	s.settingsRoutes(mux)
+	s.terminalRoutes(mux)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -65,10 +80,12 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /style.css", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache") // Mako's window keeps its cache: a new Mako must not show old styles
 		w.Write(style)
 	})
 	mux.HandleFunc("GET /theme.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Write(themeJS)
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
@@ -76,13 +93,42 @@ func (s *Server) Handler() http.Handler {
 		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
+		reply.Executor = s.D.Config().Executor
 		for _, rec := range s.D.Store.All() {
-			reply.Records = append(reply.Records, recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now)})
+			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
+			if sess := s.D.Sessions.Get(rec.ID); sess != nil {
+				v.Live = sess.Running()
+			}
+			reply.Records = append(reply.Records, v)
 		}
 		for _, t := range s.D.TrackerList() {
 			reply.Trackers = append(reply.Trackers, trackerView{ID: t.ID(), Name: t.Name()})
 		}
 		writeJSON(w, reply)
+	})
+	mux.HandleFunc("GET /api/changes", func(w http.ResponseWriter, r *http.Request) {
+		cs, err := s.D.Changes(r.Context(), r.URL.Query().Get("id"))
+		if err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, cs)
+	})
+	mux.HandleFunc("GET /api/review", func(w http.ResponseWriter, r *http.Request) {
+		c, err := s.D.Review(r.Context(), r.URL.Query().Get("id"))
+		if err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"review": c})
+	})
+	mux.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
+		diff, err := s.D.FileDiff(r.Context(), r.URL.Query().Get("id"), r.URL.Query().Get("path"))
+		if err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]string{"diff": diff})
 	})
 	mux.HandleFunc("GET /api/log", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.D.Logs(r.URL.Query().Get("id")))
@@ -122,6 +168,24 @@ func (s *Server) Handler() http.Handler {
 			s.D.Cancel(id)
 		case "retry":
 			s.D.Retry(ctx, id)
+		case "resume":
+			if err := s.D.ResumeTerminal(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "stop":
+			s.D.StopTerminal(id)
+		case "ask", "merge":
+			var err error
+			if action == "ask" {
+				err = s.D.AskAgent(ctx, id, r.URL.Query().Get("kind"))
+			} else {
+				err = s.D.MergeReview(ctx, id)
+			}
+			if err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "focus":
 			if err := s.D.FocusAgent(ctx, id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

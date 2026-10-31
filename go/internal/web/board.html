@@ -5,25 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mako</title>
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/vendor/xterm.css">
 </head>
 <body>
 <header>
   <span class="logo">🦈 Mako</span>
   <span class="wip" id="wip"></span>
-  <span class="search" id="search"></span>
+  <span id="waiting"></span>
   <span class="spacer"></span>
-  <button class="ghost" id="poll" title="Перевірити трекери зараз">Оновити</button>
-  <button class="ghost" id="pause" title="Пауза: не шукати нових задач"></button>
-  <a class="ghost-link" href="/settings">Налаштування</a>
+  <a class="icon-btn" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
   <button class="ghost" id="theme" title="Тема"></button>
 </header>
 <div id="problems"></div>
-<div class="chips" id="chips"></div>
 <div class="work" id="work">
-  <aside id="list"></aside>
+  <div class="side">
+    <!-- The search for tasks: when it last looked, look now, pause -->
+    <div class="side-bar">
+      <span class="search" id="search"></span>
+      <button class="icon-btn" id="poll" title="Перевірити трекери зараз" aria-label="Перевірити трекери зараз"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      <button class="icon-btn" id="pause"></button>
+    </div>
+    <div class="chips" id="chips"></div>
+    <nav id="list" aria-label="Задачі"></nav>
+  </div>
   <section id="detail"><div class="empty">Виберіть задачу зліва</div></section>
 </div>
 <script src="/theme.js"></script>
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/addon-web-links.js"></script>
 <script>
 const COLUMNS = [["new", "Нові"], ["doing", "В Orca"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
 const LABEL = { new: "нова", later: "відкладена", doing: "в Orca", review: "на рев'ю", done: "готово", failed: "не виконано",
@@ -31,7 +41,11 @@ const LABEL = { new: "нова", later: "відкладена", doing: "в Orca"
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
-let data = null, selected = null, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [];
+let data = null, shown = "", selected = null, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
+// The task's work: its changed files, the files open in tabs over the terminal and their diffs.
+let workOf = null, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
+// The task's MR as the code host has it ({review} or {error}), and what the last MR action said.
+let review = null, mrNote = "";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -44,6 +58,14 @@ const ago = (iso) => {
   if (m < 1440) return `${Math.round(m / 60)} год тому`;
   return `${Math.round(m / 1440)} дн тому`;
 };
+const ICON = {
+  pause: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>`,
+  play: `<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14l12-7z" fill="currentColor"/></svg>`,
+  fix: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4l-6.1-1.6a.5.5 0 0 1 0-1l6.1-1.6a2 2 0 0 0 1.4-1.4l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/><path d="M20 3v4M22 5h-4"/></svg>`,
+  stop: `<svg viewBox="0 0 24 24" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>`,
+  unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
+};
+const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "Баг" : "Задача"}</span>`;
 const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
 // In Orca, the agent's own state says more than «в Orca».
 const state = (r) => {
@@ -92,7 +114,7 @@ async function post(action, id, extra = "") {
   await load();
 }
 $("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
-$("poll").onclick = async () => { $("poll").textContent = "Перевіряю…"; await post("poll"); setTimeout(() => ($("poll").textContent = "Оновити"), 1500); };
+$("poll").onclick = async () => { $("poll").classList.add("busy"); await post("poll"); setTimeout(() => $("poll").classList.remove("busy"), 1500); };
 
 async function load() {
   try {
@@ -103,6 +125,7 @@ async function load() {
     return;
   }
   if (selected) logs = await (await fetch(`/api/log?id=${encodeURIComponent(selected)}`)).json();
+  await loadWork();
   render();
 }
 
@@ -113,14 +136,19 @@ function visible() {
 function render() {
   $("problems").innerHTML = data.problems?.length
     ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}<a href="/settings">Відкрити налаштування →</a></div>` : "";
-  $("pause").textContent = data.paused ? "Продовжити" : "Пауза";
-  $("pause").title = data.paused ? "Пошук нових задач на паузі" : "Пауза: не шукати нових задач";
+  $("pause").innerHTML = data.paused ? ICON.play : ICON.pause;
+  $("pause").title = $("pause").ariaLabel = data.paused ? "Пошук на паузі: продовжити" : "Пауза: не шукати нових задач";
+  $("pause").classList.toggle("on", !!data.paused);
   const live = data.records.filter((r) => !r.archivedAt);
   const doing = live.filter((r) => r.column === "doing").length;
   $("wip").className = "wip" + (data.wipLimit && doing >= data.wipLimit ? " full" : "");
   const waiting = live.filter((r) => agentOf(r)?.state === "waiting").length;
-  $("wip").innerHTML = (data.wipLimit ? `В Orca <b>${doing}</b> з ${data.wipLimit}` : `В Orca <b>${doing}</b>`) +
-    (waiting ? ` · <span class="wait">✋ чекає на вас: ${waiting}</span>` : "");
+  // New tasks go to Orca or to Mako's own terminal.
+  const where = data.executor === "terminal" ? "В роботі" : "В Orca";
+  COLUMNS[1][1] = where;
+  LABEL.doing = where.toLowerCase();
+  $("wip").innerHTML = data.wipLimit ? `${where} <b>${doing}</b> з ${data.wipLimit}` : `${where} <b>${doing}</b>`;
+  $("waiting").innerHTML = waiting ? `<span class="waiting-chip"><span class="dot"></span>чекає на вас: ${waiting}</span>` : "";
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
   const searches = Object.entries(data.searches);
   const failed = searches.filter(([, s]) => s.error);
@@ -159,9 +187,9 @@ function render() {
     html += `<div class="group">${title}<span class="n">${items.length}</span></div>`;
     for (const r of items) {
       const st = state(r);
-      html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}">
+      html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${st}">${LABEL[st]}</span><code>${esc(r.id)}</code><span>${ago(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code><span class="ago">${ago(r.updatedAt)}</span></span></button>`;
     }
   }
   $("list").innerHTML = html || `<div class="empty">${showArchive ? "Архів порожній" : "Задач немає. Mako перевіряє трекери і покаже тут нові задачі, призначені на вас."}</div>`;
@@ -172,8 +200,148 @@ function render() {
 async function select(id) {
   selected = id;
   history.replaceState(null, "", "#" + encodeURIComponent(id));
+  try { localStorage.setItem("mako-selected", id); } catch {}
   logs = await (await fetch(`/api/log?id=${encodeURIComponent(id)}`)).json();
   render();
+}
+
+const getJSON = (url) => fetch(url).then((r) => r.json()).catch((e) => ({ error: e.message }));
+
+// The changed files (and the open file's diff) of the selected task, while its work tab is open.
+async function loadWork() {
+  const r = data?.records.find((x) => x.id === selected);
+  if (!r?.worktree || tab !== "orca" || workOf !== r.id) return;
+  const q = `id=${encodeURIComponent(r.id)}`;
+  const [cs, d, rv] = await Promise.all([getJSON(`/api/changes?${q}`), fileTab ? getJSON(`/api/diff?${q}&path=${encodeURIComponent(fileTab)}`) : null,
+    r.prUrl ? getJSON(`/api/review?${q}`) : null]);
+  if (workOf !== r.id) return;
+  changes = cs;
+  review = rv;
+  if (d) diffs[fileTab] = d.error ? `⚠ ${d.error}` : d.diff || "Змін немає";
+}
+
+async function openFile(path) {
+  if (!openFiles.includes(path)) openFiles.push(path);
+  fileTab = path;
+  if (!(path in diffs)) await loadWork();
+  renderDetail();
+}
+
+function closeFile(path) {
+  const i = openFiles.indexOf(path);
+  openFiles.splice(i, 1);
+  delete diffs[path];
+  if (fileTab === path) fileTab = openFiles[Math.max(0, i - 1)] ?? "";
+  renderDetail();
+  if (!fileTab) tv?.term.focus();
+}
+
+const DIFF_META = /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode)/;
+const diffHTML = (text) => `<pre class="diff">${text.split("\n").map((l) => {
+  const cls = DIFF_META.test(l) ? "dm" : l.startsWith("@@") ? "dh" : l.startsWith("+") ? "da" : l.startsWith("-") ? "dd" : "";
+  return `<span class="${cls}">${esc(l) || " "}</span>`;
+}).join("")}</pre>`;
+
+// The changed files as a tree of folders; a folder with only one folder inside shares its row («src/app»).
+function fileTree(files) {
+  const root = { dirs: {}, files: [] };
+  for (const f of files) {
+    let n = root;
+    for (const d of f.path.split("/").slice(0, -1)) n = n.dirs[d] ??= { dirs: {}, files: [] };
+    n.files.push(f);
+  }
+  return root;
+}
+function treeHTML(node, depth, prefix, ST) {
+  let out = "";
+  for (const name of Object.keys(node.dirs).sort()) {
+    let label = name, path = prefix + name, child = node.dirs[name];
+    while (!child.files.length && Object.keys(child.dirs).length === 1) {
+      const [only] = Object.keys(child.dirs);
+      label += "/" + only; path += "/" + only; child = child.dirs[only];
+    }
+    const shut = collapsed.has(path);
+    out += `<button class="dir" data-dir="${esc(path)}" style="--d:${depth}" title="${esc(path)}"><span class="tw">${shut ? "▸" : "▾"}</span><span class="fname">${esc(label)}</span></button>`;
+    if (!shut) out += treeHTML(child, depth + 1, path + "/", ST);
+  }
+  for (const f of node.files.sort((a, b) => a.path.localeCompare(b.path))) {
+    out += `<button class="file ${f.path === fileTab ? "on" : ""}" data-file="${esc(f.path)}" style="--d:${depth}" title="${esc(f.path)} · ${ST[f.status] ?? f.status}">
+      <span class="st st-${f.status === "?" ? "N" : esc(f.status)}">${f.status === "?" ? "+" : esc(f.status)}</span>
+      <span class="fname">${esc(f.path.split("/").pop())}</span>
+      <span class="num">${f.additions ? `<span class="add">+${f.additions}</span>` : ""}${f.deletions ? ` <span class="del">−${f.deletions}</span>` : ""}</span></button>`;
+  }
+  return out;
+}
+
+// Next to the agent: what its branch changed. A file opens as a tab over the terminal.
+function workArea(r, term) {
+  const files = changes?.files ?? [];
+  const ST = { A: "додано", M: "змінено", D: "видалено", R: "перейменовано", "?": "новий, не закомічено" };
+  const list = changes?.error ? `<div class="files-empty">${esc(changes.error)}</div>`
+    : !changes ? `<div class="files-empty">Читаю зміни…</div>`
+    : files.length ? treeHTML(fileTree(files), 0, "", ST)
+    : `<div class="files-empty">Агент ще нічого не змінив</div>`;
+  const commits = changes?.commits?.length ? `<div class="files-h">Коміти<span class="n">${changes.commits.length}</span></div>` +
+    changes.commits.map((c) => `<div class="commit" title="${esc(c.hash)} ${esc(c.subject)}">${esc(c.subject)}</div>`).join("") : "";
+  const main = (term ? `<div id="term-slot" class="${fileTab ? "away" : ""}"></div>` : "") +
+    (fileTab ? diffHTML(diffs[fileTab] ?? "Читаю…") : term ? "" : `<div class="files-empty pick">Виберіть файл праворуч, щоб побачити його зміни</div>`);
+  return `<div class="split"><div class="split-main">${main}</div><div class="inspector">${mrCard(r, term)}
+    <aside class="files"><div class="files-h">Змінені файли<span class="n">${files.length}</span>${changes?.base ? `<span class="muted">від ${esc(changes.base)}</span>` : ""}</div>${list}${commits}</aside></div></div>`;
+}
+
+// The MR: its CI, review threads and conflicts, each with what fixes it; then «Оновити MR» and «Змерджити».
+const MR_ICON = {
+  bad: `<svg class="mi bad" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>`,
+  ok: `<svg class="mi ok" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>`,
+  run: `<svg class="mi run" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  idle: `<svg class="mi idle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>`,
+  talk: `<svg class="mi talk" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>`,
+};
+const CI = { failed: ["bad", "CI впав"], running: ["run", "CI іде"], pending: ["run", "CI чекає"], created: ["run", "CI чекає"],
+  preparing: ["run", "CI чекає"], waiting_for_resource: ["run", "CI чекає"], scheduled: ["run", "CI заплановано"], success: ["ok", "CI пройшов"],
+  canceled: ["idle", "CI скасовано"], skipped: ["idle", "CI пропущено"], manual: ["idle", "CI чекає ручного запуску"] };
+const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
+function mrCard(r, term) {
+  const live = term && r.live, c = review?.review;
+  const num = r.prUrl?.match(/\/(?:merge_requests|pull)\/(\d+)/)?.[1];
+  const state = c?.state ?? (r.reviewState || (r.prUrl ? "open" : ""));
+  const fix = (kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
+  const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
+    ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${esc(text)}">${esc(text)}</a>` : `<span title="${esc(text)}">${esc(text)}</span>`}${btn}</div>`;
+  let rows = "";
+  if (!r.prUrl) rows = `<div class="muted mr-none">Ще немає: агент відкриє MR, коли закінчить</div>`;
+  else if (review?.error) rows = `<div class="mr-none mr-err">${esc(review.error)}</div>`;
+  else if (!c) rows = `<div class="muted mr-none">Перевіряю MR…</div>`;
+  else if (c.state === "open") {
+    if (c.ci) {
+      const [icon, text] = CI[c.ci] ?? ["run", `CI: ${c.ci}`];
+      rows += row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl,
+        c.ci === "failed" && c.failed.length ? fix("ci", "Агент полагодить CI у терміналі") : "");
+    }
+    if (c.threads.length) {
+      const n = c.threads.length;
+      rows += row("talk", `${n} ${plural(n, "коментар", "коментарі", "коментарів")} рев'ю`, c.threads[0].url, fix("comments", "Агент виправить коментарі у терміналі"));
+    }
+    rows += c.conflicts ? row("bad", "Конфлікти з основною гілкою", "", fix("conflicts", "Агент розвʼяже конфлікти у терміналі")) : row("ok", "Без конфліктів");
+  }
+  const update = live && r.prUrl && state === "open" ? `<button type="button" data-ask="push" title="Агент закомітить і запушить зроблене">Оновити MR</button>` : "";
+  const open = live && !r.prUrl ? `<button type="button" class="primary" data-ask="open" title="Агент закомітить, запушить і відкриє MR">Відкрити MR</button>` : "";
+  const merge = c?.state === "open" ? `<button type="button" class="${c.mergeable ? "primary" : ""}" data-merge ${c.mergeable ? "" : "disabled"}
+      title="${esc(c.mergeable ? "Змерджити MR в основну гілку" : `Ще не можна: ${c.blocked || "GitLab не дозволяє"}`)}">Змерджити</button>` : "";
+  const buttons = update || open || merge ? `<div class="mr-actions">${update}${open}${merge}</div>` : "";
+  return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
+      ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "відкрити"}</a>` : ""}
+      <span class="spacer"></span><span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span></div>
+    ${rows}${buttons}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
+}
+
+// The card's buttons: a request to the agent, or the merge.
+async function mrAction(id, action, kind = "") {
+  const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
+  mrNote = res.ok === false || res.error ? `⚠ ${res.error}` : action === "merge" ? "MR змерджено" : "Передано агенту в терміналі";
+  await loadWork();
+  renderDetail();
+  if (action === "ask" && !res.error) tv?.term.focus();
 }
 
 function agentBlock(r) {
@@ -196,13 +364,17 @@ function agentBlock(r) {
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
   $("work").classList.toggle("detail", !!r);
-  if (!r) { $("detail").innerHTML = `<div class="empty">Виберіть задачу зліва</div>`; return; }
+  if (!r) { closeTerminal(); shown = ""; $("detail").innerHTML = `<div class="empty">Виберіть задачу зліва</div>`; return; }
   const t = r.task, st = state(r);
   const b = (action, label, cls = "", extra = "") => `<button class="${cls}" data-a="${action}" data-x="${extra}">${label}</button>`;
+  // Icon buttons leave the room to the work; the name is in the tooltip.
+  const ib = (action, label, icon, cls = "") => `<button class="icon ${cls}" data-a="${action}" title="${label}" aria-label="${label}">${ICON[icon]}</button>`;
   let actions = "";
-  if (r.column === "new") actions = b("take", "Віддати в Orca", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
+  const term = r.executor === "terminal" && r.worktree;
+  if (r.column === "new") actions = b("take", data.executor === "terminal" ? "Віддати агенту" : "Віддати в Orca", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
   else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
-  else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + b("cancel", "Більше не стежити", "danger");
+  else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : b("resume", "Продовжити в терміналі", "primary")) + ib("cancel", "Більше не стежити", "unwatch", "danger");
+  else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + ib("cancel", "Більше не стежити", "unwatch", "danger");
   else if (r.column === "failed") actions = b("retry", "Повторити", "primary") + b("archive", "В архів");
   else actions = b("archive", "В архів");
   if (r.archivedAt) actions = b("unarchive", "Повернути з архіву");
@@ -217,26 +389,209 @@ function renderDetail() {
   if (r.prUrl) facts.push(["MR", `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${esc(r.prUrl)}</a>${r.reviewState === "merged" ? " · змерджено" : r.reviewState === "closed" ? " · закрито" : ""}`]);
   if (r.postponed) facts.push(["Відкладено до", new Date(r.snoozedUntil).toLocaleString("uk")]);
 
-  $("detail").innerHTML = `
-    <button class="ghost back" id="back">← Задачі</button>
-    <div class="d-id"><span class="s ${st}">${LABEL[st]}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span>${esc(t.project)}</span></div>
-    <h1>${esc(t.title)}</h1>
-    ${t.labels?.length ? `<div class="labels">${t.labels.map((l) => `<span class="label">${esc(l)}</span>`).join("")}</div>` : ""}
-    <div class="actions">${actions}</div>
-    ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
-    ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею в Orca.</div>` : ""}
+  // The task itself first; what the agent does in Orca and Mako's log in their own tab.
+  const task = `
     ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
-    ${agentBlock(r)}
     ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
     <h3>Опис</h3>
     <div class="text">${t.description?.trim() ? linkify(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${linkify(c.body)}</div></div>`).join("")}` : ""}
     ${logs.length ? `<h3>Журнал</h3><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div>` : ""}`;
+  // A new task opened: a terminal task in progress opens on its terminal.
+  if (workOf !== r.id) {
+    workOf = r.id;
+    changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = "";
+    tab = term && r.column === "doing" ? "orca" : "task";
+    if (tab === "orca") loadWork().then(renderDetail);
+  }
+  const orca = (r.worktree ? workArea(r, term) : "") + (term ? "" : agentBlock(r));
+  if (!orca.trim()) tab = "task";
+  const waiting = agentOf(r)?.state === "waiting";
+  // One bar: the task, the agent's terminal (or Orca), and the files opened from the changes.
+  const bar = orca.trim() ? `<div class="tabs">
+      <button class="tab ${tab === "task" ? "on" : ""}" data-tab="task">Задача</button>
+      <button class="tab ${tab === "orca" && !fileTab ? "on" : ""}" data-tab="orca">${term ? "Термінал" : "Orca"}${waiting ? ` <span class="wait">· чекає на вас</span>` : ""}</button>
+      ${openFiles.map((p) => `<button class="tab ${tab === "orca" && p === fileTab ? "on" : ""}" data-ftab="${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())}<span class="x" data-close="${esc(p)}" title="Закрити">×</span></button>`).join("")}
+    </div>` : "";
+  const body = bar && tab === "orca" ? orca : task;
+  // The terminal is a workspace: the header and the tabs on top, the terminal and the files fill the rest.
+  const ws = tab === "orca" && !!term;
+  $("detail").classList.toggle("ws", ws);
+  if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
+
+  const notices = `
+    ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
+    ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею ${term ? "в терміналі" : "в Orca"}.</div>` : ""}`;
+  // In the workspace the tabs, the task's id and the buttons share one thin bar: the rest is the terminal's.
+  const html = ws ? `
+    <button class="ghost back" id="back">← Задачі</button>
+    <div class="ws-bar">${bar}
+      <div class="actions">${actions}</div>
+    </div>${notices}${body}` : `
+    <button class="ghost back" id="back">← Задачі</button>
+    <div class="d-head">
+      <div class="d-main">
+        <div class="d-id">${kind(r)}<span class="s ${st}">${LABEL[st]}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span>${esc(t.project)}</span></div>
+        ${tab === "task" ? `<h1>${esc(t.title)}</h1>` : ""}
+      </div>
+      <div class="actions">${actions}</div>
+    </div>
+    ${t.labels?.length && !ws ? `<div class="labels">${t.labels.map((l) => `<span class="label">${esc(l)}</span>`).join("")}</div>` : ""}
+    ${notices}
+    ${bar}${body}`;
+  if (!term) closeTerminal();
+  // The board reloads every 5 s: the same page is left as it is, so the terminal keeps its focus and selection.
+  if (html === shown) return;
+  const typing = tv?.el.contains(document.activeElement);
+  $("detail").innerHTML = shown = html;
+  if (term && $("term-slot")) {
+    const v = terminalFor(r.id);
+    $("term-slot").append(v.el);
+    if (r.live && v.gone) connect(v);
+    requestAnimationFrame(() => { v.resize(); if (typing) v.term.focus(); });
+  }
+  for (const btn of $("detail").querySelectorAll("[data-tab]")) btn.onclick = () => {
+    tab = btn.dataset.tab;
+    if (tab === "orca") fileTab = "";
+    renderDetail();
+    if (tab === "orca") { tv?.term.focus(); loadWork().then(renderDetail); }
+  };
+  for (const btn of $("detail").querySelectorAll("[data-file]")) btn.onclick = () => openFile(btn.dataset.file);
+  for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; mrAction(r.id, "ask", btn.dataset.ask); };
+  for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = () => {
+    if (confirm("Змерджити MR? Гілку задачі буде видалено, задача отримає фінальний статус.")) { btn.disabled = true; mrAction(r.id, "merge"); }
+  };
+  for (const btn of $("detail").querySelectorAll("[data-dir]")) btn.onclick = () => {
+    const d = btn.dataset.dir;
+    if (!collapsed.delete(d)) collapsed.add(d);
+    renderDetail();
+  };
+  for (const btn of $("detail").querySelectorAll("[data-ftab]")) btn.onclick = (e) => {
+    if (e.target.dataset.close) return closeFile(e.target.dataset.close);
+    tab = "orca";
+    fileTab = btn.dataset.ftab;
+    renderDetail();
+    if (!(fileTab in diffs)) loadWork().then(renderDetail);
+  };
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
-  $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); render(); };
+  $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
 }
 
-selected = decodeURIComponent(location.hash.slice(1)) || null;
+// The task from the link, else the one open last time.
+// Mako's own terminal: one xterm for the open task, kept while the board re-renders around it.
+let tv = null;
+function terminalFor(id) {
+  if (tv?.id === id) return tv;
+  closeTerminal();
+  // The terminal, and over its bottom the agent's question with its answers as buttons.
+  const wrap = document.createElement("div");
+  wrap.className = "term-wrap";
+  const el = document.createElement("div");
+  el.className = "term";
+  const ask = document.createElement("div");
+  ask.className = "ask";
+  ask.hidden = true;
+  wrap.append(el, ask);
+  const open = (e, uri) => { e?.preventDefault?.(); if (/^https?:\/\//i.test(uri)) window.open(uri, "_blank", "noopener"); };
+  const term = new Terminal({
+    cursorBlink: true, scrollback: 20000, allowProposedApi: true, fontSize: 12.5,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    linkHandler: { activate: open, allowNonHttpProtocols: false },
+    theme: { background: "#14161b", foreground: "#e6e6e6", cursor: "#4c8dff", selectionBackground: "#3a4d7a" },
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.loadAddon(new WebLinksAddon.WebLinksAddon(open));
+  term.open(el);
+  const v = (tv = { id, el: wrap, term, ws: null, gone: false, closed: false, asked: "", answered: { key: "", at: 0 } });
+  v.send = (m) => v.ws?.readyState === WebSocket.OPEN && v.ws.send(JSON.stringify(m));
+  v.resize = () => {
+    if (!el.isConnected || !el.offsetWidth) return;
+    fit.fit();
+    v.send({ t: "r", cols: term.cols, rows: term.rows });
+  };
+  term.onData((d) => v.send({ t: "i", d }));
+  new ResizeObserver(() => v.resize()).observe(el);
+  ask.onclick = (e) => {
+    const b = e.target.closest("button[data-key]");
+    if (!b) return;
+    v.send({ t: "i", d: b.dataset.key });
+    v.answered = { key: v.asked, at: Date.now() };
+    ask.hidden = true;
+    term.focus();
+  };
+  v.timer = setInterval(() => showChoice(v, ask), 1000);
+  connect(v);
+  return v;
+}
+
+// The agent's question: a numbered menu near the bottom of the screen («❯ 1. Yes / 2. … / 3. No») and the line
+// above it that ends with «?».
+function screenLines(term) {
+  const b = term.buffer.active, lines = [];
+  for (let y = b.baseY; y < b.baseY + term.rows; y++) {
+    const line = b.getLine(y);
+    const text = line?.translateToString(true) ?? "";
+    if (line?.isWrapped && lines.length) lines[lines.length - 1] += text;
+    else lines.push(text);
+  }
+  while (lines.length && !lines.at(-1).trim()) lines.pop();
+  return lines;
+}
+function parseChoice(lines) {
+  const opt = /^[\s│|]*(❯|>)?\s*(\d{1,2})[.)]\s+(.+?)\s*[│|]?\s*$/;
+  let end = -1;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 14); i--) if (opt.test(lines[i])) { end = i; break; }
+  if (end < 0) return null;
+  let start = end;
+  for (let i = end - 1; i >= Math.max(0, end - 12); i--) {
+    if (opt.test(lines[i])) start = i;
+    else if (!/^\s{4,}\S/.test(lines[i])) break;
+  }
+  const options = lines.slice(start, end + 1).map((l) => l.match(opt)).filter(Boolean).map((m) => ({ key: m[2], label: m[3].trim() }));
+  if (options.length < 2 || options[0].key !== "1") return null;
+  for (let i = start - 1; i >= Math.max(0, start - 6); i--) {
+    const q = lines[i].replace(/^[\s│|]+|[\s│|]+$/g, "");
+    if (/\?\s*$/.test(q)) return { question: q, options };
+  }
+  return null;
+}
+function showChoice(v, ask) {
+  if (v.closed || !v.el.isConnected) return;
+  const c = v.gone ? null : parseChoice(screenLines(v.term));
+  const key = c ? c.question + c.options.map((o) => o.label).join("|") : "";
+  // Just answered: the menu stays on the screen a moment longer than the answer takes.
+  if (key && key === v.answered.key && Date.now() - v.answered.at < 10000) return;
+  if (key === v.asked && ask.hidden === !key) return;
+  v.asked = key;
+  ask.hidden = !key;
+  if (!c) return;
+  ask.innerHTML = `<span class="ask-q"><b>Агент питає:</b> ${esc(c.question)}</span>` + c.options.map((o, i) =>
+    `<button type="button" class="${i === 0 ? "primary" : ""}" data-key="${esc(o.key)}" title="Те саме, що натиснути ${esc(o.key)} у терміналі">${esc(o.key)}. ${esc(o.label)}</button>`).join("");
+}
+function connect(v) {
+  v.gone = false;
+  v.ws?.close();
+  const ws = (v.ws = new WebSocket(`ws://${location.host}/ws/term?id=${encodeURIComponent(v.id)}`));
+  ws.onopen = () => v.resize();
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.t === "init") { v.term.reset(); v.term.write(m.d); v.gone = m.gone; }
+    else if (m.t === "o") v.term.write(m.d);
+    else if (m.t === "x") { v.gone = true; load(); }
+  };
+  ws.onclose = () => { if (ws === v.ws && !v.closed && !v.gone) setTimeout(() => ws === v.ws && !v.closed && connect(v), 2000); };
+}
+function closeTerminal() {
+  if (!tv) return;
+  tv.closed = true;
+  clearInterval(tv.timer);
+  tv.ws?.close();
+  tv.term.dispose();
+  tv = null;
+}
+
+selected = decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })();
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
 window.addEventListener("hashchange", () => {
   const id = decodeURIComponent(location.hash.slice(1));

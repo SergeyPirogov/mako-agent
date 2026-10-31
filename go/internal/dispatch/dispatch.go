@@ -19,6 +19,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
+	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
@@ -39,6 +40,8 @@ type Dispatcher struct {
 	Trackers []trackers.Tracker
 	Hand     Hand
 	Term     Terminals
+	// Sessions: the agents in Mako's own terminal.
+	Sessions *term.Manager
 	// LastMessage: a Claude agent's whole last message from its transcript (Orca shows 200 characters).
 	LastMessage func(worktree string) string
 	BoardURL    string
@@ -54,6 +57,7 @@ type Dispatcher struct {
 	logs     []LogLine
 	starting map[string]bool
 	agents   map[string]*Agent
+	reviews  map[string]reviewLook
 	wake     chan struct{}
 }
 
@@ -66,8 +70,8 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	return &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{},
-		wake: make(chan struct{}, 1),
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{},
+		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")),
 	}
 }
 
@@ -412,10 +416,14 @@ func (d *Dispatcher) Wait() {
 
 func (d *Dispatcher) start(ctx context.Context, id string) {
 	r, _ := d.Store.Get(id)
+	executor := "orca"
+	if d.Config().Executor == terminalExecutor {
+		executor = terminalExecutor
+	}
 	fail := func(err error) {
 		d.Log(id, "не передано: "+err.Error())
 		d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now() })
-		notify.Inform("❌ "+id+": не передано в Orca", err.Error(), d.BoardURL)
+		notify.Inform("❌ "+id+": не передано "+map[string]string{"orca": "в Orca", terminalExecutor: "агенту"}[executor], err.Error(), d.BoardURL)
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
@@ -435,7 +443,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	attempt := max(r.Attempt, 1)
 	branch := gitx.BranchName(repo.BranchPattern, r.Task, attempt)
 	d.Store.Update(id, func(r *core.Record) {
-		r.Repo, r.Executor, r.BranchName, r.StartedAt, r.Attempt = repo.Name, "orca", branch, now(), attempt
+		r.Repo, r.Executor, r.BranchName, r.StartedAt, r.Attempt = repo.Name, executor, branch, now(), attempt
 	})
 
 	if t.Config().AssignOnTake {
@@ -447,7 +455,13 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.move(ctx, t, r.Task, trackers.AtStart)
 
-	res, err := d.Hand(ctx, d.Config().Orca, orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch}, logf)
+	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch}
+	var res *orca.Result
+	if executor == terminalExecutor {
+		res, err = d.handTerminal(ctx, job, logf)
+	} else {
+		res, err = d.Hand(ctx, d.Config().Orca, job, logf)
+	}
 	if err != nil {
 		d.move(ctx, t, r.Task, trackers.AtFailed)
 		fail(err)
@@ -456,7 +470,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.Worktree, r.Branch = core.HandedOff, res.Worktree, res.Branch
 	})
-	d.Log(id, "передано в Orca: "+res.Note)
+	d.Log(id, map[string]string{"orca": "передано в Orca: ", terminalExecutor: "агент працює в терміналі: "}[executor]+res.Note)
 	d.comment(ctx, t, r.Task, d.Config().Comments.OnStart, map[string]string{"branch": res.Branch})
 }
 
@@ -595,7 +609,9 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		d.move(ctx, t, r.Task, trackers.AtReview)
 		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
 		d.summarize(ctx, r, repo.BaseBranch, review.URL)
-		orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
+		if !onTerminal(r) {
+			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
+		}
 		notify.Inform("✅ "+r.ID+": є MR", review.URL, review.URL)
 		if review.State != "open" {
 			d.CheckMerges(ctx)
@@ -671,7 +687,9 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			d.Log(r.ID, "MR змерджено")
 			d.Store.Update(r.ID, func(r *core.Record) { r.ReviewState, r.MergedAt = "merged", now() })
 			d.move(ctx, t, r.Task, trackers.AtMerged)
-			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
+			if !onTerminal(r) {
+				orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
+			}
 			notify.Inform("🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
 		case "closed":
 			d.Log(r.ID, "MR закрито без мерджу")
@@ -758,8 +776,10 @@ func (d *Dispatcher) Later(id string, minutes int) {
 	})
 }
 
-// Cancel: Mako stops following the task (the work in Orca stays).
+// Cancel: Mako stops following the task (the work in Orca stays). An agent in Mako's terminal is stopped; its
+// worktree stays.
 func (d *Dispatcher) Cancel(id string) {
+	d.StopTerminal(id)
 	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Cancelled, "Скасовано", now() })
 }
 

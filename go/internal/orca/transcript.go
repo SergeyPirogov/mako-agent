@@ -64,6 +64,19 @@ var (
 	cache   = map[string]transcriptCache{}
 )
 
+// HasTranscript: Claude Code kept a session started in worktree, so `claude --continue` there has one to go on.
+func HasTranscript(worktree string) bool {
+	for _, dir := range claudeProjectDirs(worktree) {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".jsonl") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // LastMessage: the agent's last message in its newest Claude Code session in worktree, "" when there is none.
 func LastMessage(worktree string) string {
 	var newest string

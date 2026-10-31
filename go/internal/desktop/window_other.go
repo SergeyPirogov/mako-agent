@@ -6,3 +6,9 @@ package desktop
 func HasWindow() bool { return false }
 
 func OpenWindow(url string) {}
+
+func OnReopen(url string) {}
+
+func NotificationsOn(boardURL string) {}
+
+func Notify(title, message, url string) bool { return false }

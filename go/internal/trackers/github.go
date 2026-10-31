@@ -258,6 +258,12 @@ type ghPull struct {
 	MergedAt *string `json:"merged_at"`
 	Title    string  `json:"title"`
 	Body     string  `json:"body"`
+	// Mergeable: nil while GitHub is still working it out.
+	Mergeable      *bool  `json:"mergeable"`
+	MergeableState string `json:"mergeable_state"`
+	Head           struct {
+		SHA string `json:"sha"`
+	} `json:"head"`
 }
 
 func (p ghPull) state() string {

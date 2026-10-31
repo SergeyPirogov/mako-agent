@@ -10,6 +10,9 @@ import (
 // Enabled turns notifications off for tests and when the config says so.
 var Enabled = true
 
+// Native shows a notification of Mako.app itself (macOS); false when it cannot.
+var Native func(title, message, url string) bool
+
 // Inform shows a notification; with url, clicking it opens that page where the system allows (terminal-notifier
 // on macOS, the «Відкрити» action of notify-send on Linux).
 func Inform(title, message, url string) {
@@ -18,6 +21,9 @@ func Inform(title, message, url string) {
 	}
 	switch runtime.GOOS {
 	case "darwin":
+		if Native != nil && Native(title, message, url) {
+			return
+		}
 		if tn, err := exec.LookPath("terminal-notifier"); err == nil {
 			args := []string{"-title", "Mako", "-subtitle", title, "-message", message, "-sound", "default"}
 			if url != "" {

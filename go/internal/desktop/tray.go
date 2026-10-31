@@ -46,6 +46,10 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 	}
 	systray.SetIcon(normal)
 	systray.SetTooltip("Mako")
+	if HasWindow() {
+		OnReopen(app.BoardURL)
+		NotificationsOn(app.BoardURL)
+	}
 
 	headline := systray.AddMenuItem("Mako", "")
 	headline.Disable()

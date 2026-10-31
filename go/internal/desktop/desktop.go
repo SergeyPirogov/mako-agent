@@ -212,6 +212,12 @@ func ShowFolder(path string) {
 	exec.Command("xdg-open", path).Start()
 }
 
+// OpenedAsApp: started from Finder, Launchpad, the Dock or `open`, not from a terminal or at login. Launch Services
+// names the process after the app's bundle id; launchd names a launch agent's after its label (dev.mako.agent).
+func OpenedAsApp() bool {
+	return runtime.GOOS == "darwin" && strings.HasPrefix(os.Getenv("XPC_SERVICE_NAME"), "application.dev.mako.desktop.")
+}
+
 // FixPath: an app started from Finder gets a minimal PATH; take the login shell's, so git, orca, claude and gh
 // are found.
 func FixPath() {

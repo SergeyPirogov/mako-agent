@@ -60,6 +60,10 @@ func call(ctx context.Context, method, url string, headers map[string]string, bo
 		}
 		return &HTTPError{Status: res.StatusCode, Body: text, Msg: msg}
 	}
+	if text, ok := out.(*string); ok { // a plain-text answer: a job's log
+		*text = string(data)
+		return nil
+	}
 	if out == nil || len(bytes.TrimSpace(data)) == 0 {
 		return nil
 	}

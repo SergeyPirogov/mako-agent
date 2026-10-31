@@ -73,3 +73,19 @@ func TestSaveEnv(t *testing.T) {
 		t.Fatalf("%q", data)
 	}
 }
+
+func TestParseTerminal(t *testing.T) {
+	c, err := Parse([]byte(`{"defaultExecutor":"t","executors":{
+		"o":{"type":"orca","mrBy":"me"},
+		"t":{"type":"terminal","command":"~/bin/claude","allowedTools":["Bash(git:*)"]}}}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Executor != "terminal" || c.Terminal.Command != "~/bin/claude" || c.Terminal.PermissionMode != "auto" ||
+		len(c.Terminal.AllowedTools) != 1 || c.Orca.MRBy != "me" {
+		t.Fatalf("%+v %+v", c.Terminal, c.Orca)
+	}
+	if c, _ := Parse([]byte(`{"executors":{"o":{"type":"orca"}}}`), nil); c.Executor != "orca" {
+		t.Fatalf("executor %q", c.Executor)
+	}
+}

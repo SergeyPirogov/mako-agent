@@ -54,6 +54,9 @@ type Agent struct {
 	Screen  []string `json:"screen,omitempty"` // a terminal agent's screen
 	Error   string   `json:"error,omitempty"`
 	At      int64    `json:"at"`
+	// Terminal: the agent runs in Mako's own terminal; Live: its process is there to type into.
+	Terminal bool `json:"terminal,omitempty"`
+	Live     bool `json:"live,omitempty"`
 }
 
 // Agents: the latest look at every task in Orca.
@@ -72,32 +75,25 @@ func (d *Dispatcher) Agents() map[string]Agent {
 func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
 	o := d.Config().Orca
 	var records []core.Record
+	live := map[string]bool{}
 	for _, r := range d.Store.All() {
-		if r.Status == core.HandedOff && (r.Worktree != "" || branchOf(r) != "") {
+		if r.Status != core.HandedOff {
+			continue
+		}
+		if onTerminal(r) {
+			live[r.ID] = true
+			d.setAgent(r, d.lookTerminal(r, now), now)
+		} else if r.Worktree != "" || branchOf(r) != "" {
 			records = append(records, r)
 		}
 	}
-	live := map[string]bool{}
 	if len(records) > 0 {
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		ws, err := d.Term.Workspaces(cctx, o)
 		cancel()
 		for _, r := range records {
 			live[r.ID] = true
-			a := d.look(ctx, o, r, ws, err, now)
-			d.mu.Lock()
-			before := d.agents[r.ID]
-			if a.Since == 0 {
-				a.Since = now.UnixMilli()
-				if before != nil && before.State == a.State {
-					a.Since = before.Since
-				}
-			}
-			d.agents[r.ID] = &a
-			d.mu.Unlock()
-			if before != nil && before.State != a.State {
-				d.tell(r, a)
-			}
+			d.setAgent(r, d.look(ctx, o, r, ws, err, now), now)
 		}
 	}
 	d.mu.Lock()
@@ -107,6 +103,23 @@ func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
 		}
 	}
 	d.mu.Unlock()
+}
+
+// setAgent keeps the latest look at a task's agent and tells about a new state.
+func (d *Dispatcher) setAgent(r core.Record, a Agent, now time.Time) {
+	d.mu.Lock()
+	before := d.agents[r.ID]
+	if a.Since == 0 {
+		a.Since = now.UnixMilli()
+		if before != nil && before.State == a.State {
+			a.Since = before.Since
+		}
+	}
+	d.agents[r.ID] = &a
+	d.mu.Unlock()
+	if before != nil && before.State != a.State {
+		d.tell(r, a)
+	}
 }
 
 func (d *Dispatcher) tell(r core.Record, a Agent) {
@@ -196,7 +209,7 @@ func (d *Dispatcher) look(ctx context.Context, o config.Orca, r core.Record, ws 
 // FocusAgent brings the task's terminal forward in Orca.
 func (d *Dispatcher) FocusAgent(ctx context.Context, id string) error {
 	r, ok := d.Store.Get(id)
-	if !ok || r.Worktree == "" {
+	if !ok || r.Worktree == "" || onTerminal(r) {
 		return fmt.Errorf("задача не в Orca")
 	}
 	o := d.Config().Orca
@@ -224,17 +237,11 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		agentText = a.Message
 	}
 	d.mu.Unlock()
-	if ws, err := d.Term.Workspaces(ctx, o); err == nil && agentText == "" {
-		if w := orca.FindWorkspace(ws, r.Worktree, branchOf(r)); w != nil && w.MainAgent() != nil {
-			agentText = w.MainAgent().LastAssistantMessage
-		}
+	if s := d.Sessions.Get(r.ID); s != nil && agentText == "" {
+		agentText = s.Output(6000)
 	}
-	if ts, _, err := d.Term.List(ctx, o, r.Worktree, branchOf(r)); err == nil && agentText == "" {
-		if t := orca.AgentTerminal(ts); t != nil {
-			if lines, err := d.Term.Tail(ctx, o, r.Worktree, t.Handle, 300); err == nil {
-				agentText = strings.Join(lines, "\n")
-			}
-		}
+	if !onTerminal(r) {
+		agentText = d.orcaText(ctx, o, r, agentText)
 	}
 	text, err := writer.TaskSummary(ctx, r.Worktree, baseBranch, r.Task, agentText, reviewURL)
 	if err != nil {
@@ -251,6 +258,26 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 			d.Log(r.ID, "підсумок у задачу не додано: "+err.Error())
 		}
 	}
+}
+
+// orcaText: the agent's last message as Orca has it, else the end of its terminal; text when there is one already.
+func (d *Dispatcher) orcaText(ctx context.Context, o config.Orca, r core.Record, text string) string {
+	if text != "" {
+		return text
+	}
+	if ws, err := d.Term.Workspaces(ctx, o); err == nil {
+		if w := orca.FindWorkspace(ws, r.Worktree, branchOf(r)); w != nil && w.MainAgent() != nil && w.MainAgent().LastAssistantMessage != "" {
+			return w.MainAgent().LastAssistantMessage
+		}
+	}
+	if ts, _, err := d.Term.List(ctx, o, r.Worktree, branchOf(r)); err == nil {
+		if t := orca.AgentTerminal(ts); t != nil {
+			if lines, err := d.Term.Tail(ctx, o, r.Worktree, t.Handle, 300); err == nil {
+				return strings.Join(lines, "\n")
+			}
+		}
+	}
+	return ""
 }
 
 func branchOf(r core.Record) string {

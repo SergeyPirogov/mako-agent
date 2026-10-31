@@ -95,8 +95,8 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       </div>
     </div>
     <div class="pane" data-pane="orca">
-      <h2>Orca</h2>
-      <p class="lead">Як задача передається агенту в Orca і чим він має закінчити.</p>
+      <h2>Агент</h2>
+      <p class="lead">Хто виконує задачі: агент в Orca чи в терміналі Mako, і чим він має закінчити.</p>
       <div class="card" id="orca"></div>
     </div>
     <div class="pane" data-pane="comments">
@@ -334,19 +334,47 @@ function orcaExecutor() {
   const name = names.includes(cfg.defaultExecutor) ? cfg.defaultExecutor : names[0];
   if (name) return cfg.executors[name];
   cfg.executors.orca = { type: "orca" };
-  cfg.defaultExecutor = "orca";
+  if (!onTerminal()) cfg.defaultExecutor = "orca";
   cfg.mode = "dispatch";
   return cfg.executors.orca;
+}
+
+// Mako's own terminal: the agent runs in a terminal on the board. What it is told to finish with stays in the
+// Orca executor, for both.
+const onTerminal = () => cfg.executors?.[cfg.defaultExecutor]?.type === "terminal";
+function terminalExecutor() {
+  cfg.executors ??= {};
+  const name = Object.keys(cfg.executors).find((n) => cfg.executors[n]?.type === "terminal");
+  if (name) return [name, cfg.executors[name]];
+  cfg.executors.terminal = { type: "terminal" };
+  return ["terminal", cfg.executors.terminal];
 }
 
 function renderOrca() {
   const o = orcaExecutor();
   const box = $("orca");
   box.innerHTML = "";
-  const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
-  if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
-  box.append(select(o, "agent", "Агент в Orca", agents, { def: "claude" }));
-  box.append(select(o, "mrBy", "Хто відкриває MR", [["agent", "агент: пушить гілку й відкриває MR"], ["me", "я: агент лише комітить, MR — кнопкою в Orca"]], { def: "agent" }));
+  const who = { kind: onTerminal() ? "terminal" : "orca" };
+  const pick = select(who, "kind", "Хто виконує задачі", [["orca", "агент в Orca"], ["terminal", "Claude Code у терміналі Mako"]],
+    { hint: "Термінал Mako: Mako сам створює worktree і запускає Claude, а ви бачите його й відповідаєте йому на дошці, у вкладці «Термінал»" });
+  pick.querySelector("select").onchange = (e) => {
+    if (e.target.value === "terminal") cfg.defaultExecutor = terminalExecutor()[0];
+    else cfg.defaultExecutor = Object.keys(cfg.executors).find((n) => cfg.executors[n] === o);
+    changed();
+    renderOrca();
+    renderNav();
+  };
+  box.append(pick);
+  if (onTerminal()) {
+    const t = terminalExecutor()[1];
+    box.append(text(t, "command", "Команда агента", { placeholder: "claude", hint: "Повний шлях, якщо Mako не знаходить claude сам" }));
+    box.append(select(t, "permissionMode", "Що Claude робить без питань", [["auto", "auto: Claude сам оцінює, що безпечно"], ["acceptEdits", "редагує файли без питань"], ["default", "питає про все"], ["bypassPermissions", "нічого не питає"]], { def: "auto" }));
+  } else {
+    const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
+    if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
+    box.append(select(o, "agent", "Агент в Orca", agents, { def: "claude" }));
+  }
+  box.append(select(o, "mrBy", "Хто відкриває MR", [["agent", "агент: пушить гілку й відкриває MR"], ["me", onTerminal() ? "я: агент лише комітить" : "я: агент лише комітить, MR — кнопкою в Orca"]], { def: "agent" }));
   const instr = document.createElement("div");
   instr.className = "field";
   instr.innerHTML = `<label>Що сказати агенту після опису задачі</label><textarea placeholder="Порожньо — стандартна інструкція: закомітити з нормальними повідомленнями, запушити гілку й відкрити MR з описом"></textarea>
@@ -355,13 +383,13 @@ function renderOrca() {
   ta.value = o.instructions ?? "";
   ta.oninput = () => { if (ta.value.trim()) o.instructions = ta.value; else delete o.instructions; changed(); };
   box.append(instr);
-  box.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
+  if (!onTerminal()) box.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
   box.append(check(o, "summaryComment", "Додавати підсумок роботи агента в коментар до задачі", { hint: "Коли з'являється MR, Mako пише з термінала агента і змін гілки, що зроблено й як перевірено. Підсумок завжди видно на дошці" }));
   const more = document.createElement("details");
   more.innerHTML = "<summary>Додатково</summary>";
   more.append(select(o, "setup", "Підготовка worktree", [["inherit", "як налаштовано в Orca"], ["run", "запускати"], ["skip", "пропускати"]], { def: "inherit" }));
   more.append(text(o, "command", "Команда Orca", { placeholder: "автоматично (orca у PATH або в Orca.app)" }));
-  box.append(more);
+  if (!onTerminal()) box.append(more);
 }
 
 function renderComments() {
@@ -411,7 +439,7 @@ function renderNav() {
   $("side").innerHTML = `<div class="group">Трекери</div>` +
     ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
-    `<div class="group">Робота</div>` + item("orca", "Orca", { agent: "агент: агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
+    `<div class="group">Робота</div>` + item("orca", "Агент", (onTerminal() ? "термінал Mako · " : "Orca · ") + { agent: "агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
     item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("notifications", "Сповіщення");
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.

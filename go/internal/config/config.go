@@ -33,6 +33,11 @@ type Config struct {
 	Comments         Comments
 	Trackers         []*Tracker
 	Env              map[string]string
+
+	// Executor: who gets the tasks, "orca" or "terminal" (Mako's own terminal). The end of the prompt (Orca's
+	// Instructions, MRBy, SummaryComment) is the same for both.
+	Executor string
+	Terminal Terminal
 }
 
 // Comments Mako leaves in the issue, written as the developer: {branch} {taskId} {title} {url} {mr} are filled
@@ -65,6 +70,15 @@ type Orca struct {
 	// SummaryComment: when the MR appears, the summary of the agent's work also goes to the issue as a comment.
 	SummaryComment bool
 	ExtraArgs      []string
+}
+
+// Terminal is Mako's own terminal: the agent runs in a pseudo-terminal the board shows.
+type Terminal struct {
+	Command string // "claude" when empty
+	// PermissionMode: how much Claude may do without asking: "auto" (default), "acceptEdits", "default",
+	// "bypassPermissions".
+	PermissionMode string
+	AllowedTools   []string // used without asking: "Bash(git:*)", "WebFetch"
 }
 
 type Transitions struct {
@@ -194,6 +208,16 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
 		},
+	}
+	c.Executor, c.Terminal = "orca", Terminal{PermissionMode: "auto"}
+	if e, ok := raw.Executors[raw.DefaultExecutor]; ok && e.Type == "terminal" {
+		c.Executor = "terminal"
+	}
+	for _, name := range raw.executorOrder() {
+		if e := raw.Executors[name]; e.Type == "terminal" {
+			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools}
+			break
+		}
 	}
 	// The dispatcher's Orca: the first orca executor, else the defaults.
 	for _, name := range raw.executorOrder() {
@@ -454,6 +478,8 @@ type rawExecutor struct {
 	MRBy           string   `json:"mrBy"`
 	SummaryComment bool     `json:"summaryComment"`
 	ExtraArgs      []string `json:"extraArgs"`
+	PermissionMode string   `json:"permissionMode"`
+	AllowedTools   []string `json:"allowedTools"`
 }
 
 type rawTracker struct {

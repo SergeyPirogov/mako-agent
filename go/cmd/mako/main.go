@@ -86,14 +86,15 @@ func run(homeFlag string, open, noTray bool) error {
 	show := notify.Open
 	if tray && desktop.HasWindow() {
 		show = desktop.OpenWindow
+		notify.Native = desktop.Notify // Mako.app's own notifications, once macOS allows them
 	}
 	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show}).Handler()}
 	go srv.Serve(ln)
 	log.Printf("Mako %s: %s, дошка %s", version, home, d.BoardURL)
 	if len(cfg.Trackers) == 0 {
 		show(d.BoardURL + "/settings") // first start: straight to the settings
-	} else if open {
-		show(d.BoardURL)
+	} else if open || (tray && desktop.HasWindow() && desktop.OpenedAsApp()) {
+		show(d.BoardURL) // opened as an app: show the board, as the menu bar icon may be hidden
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -103,6 +104,7 @@ func run(homeFlag string, open, noTray bool) error {
 	} else {
 		desktop.Run(ctx, desktop.App{D: d, BoardURL: d.BoardURL, Home: home, Open: show, OpenBrowser: notify.Open, Start: d.Run})
 	}
+	d.Sessions.StopAll() // the agents in Mako's terminal end with it
 	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdown)

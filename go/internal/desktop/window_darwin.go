@@ -4,10 +4,11 @@ package desktop
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit
+#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework UserNotifications
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <UserNotifications/UserNotifications.h>
 #include <stdlib.h>
 
 static NSWindow *makoWindow;
@@ -67,11 +68,12 @@ static NSString *makoHost;
 		done(r == NSAlertFirstButtonReturn ? field.stringValue : nil);
 	}];
 }
-// With the window closed Mako goes back to the menu bar only: no Dock icon.
-- (void)windowWillClose:(NSNotification *)n {
-	makoView = nil;
-	makoWindow = nil;
+// Closing only hides the window, so the open task, its tab and the scroll are there when it comes back; Mako goes
+// back to the menu bar only: no Dock icon.
+- (BOOL)windowShouldClose:(NSWindow *)w {
+	[w orderOut:nil];
 	[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+	return NO;
 }
 @end
 
@@ -124,6 +126,15 @@ static void makoMainMenu(void) {
 	NSApp.mainMenu = bar;
 }
 
+// The board without a task (the menu, opening Mako again) keeps the page as it is; a task or another page goes there.
+static BOOL makoGoesElsewhere(NSURL *now, NSURL *to) {
+	if (now == nil || to.fragment.length > 0) {
+		return ![now.absoluteString isEqualToString:to.absoluteString];
+	}
+	NSString *a = now.path.length ? now.path : @"/", *b = to.path.length ? to.path : @"/";
+	return ![a isEqualToString:b] || ![now.host isEqualToString:to.host] || ![now.port isEqual:to.port];
+}
+
 static void makoOpenWindow(const char *url) {
 	NSString *address = [NSString stringWithUTF8String:url];
 	dispatch_async(dispatch_get_main_queue(), ^{
@@ -151,7 +162,7 @@ static void makoOpenWindow(const char *url) {
 			makoView.allowsBackForwardNavigationGestures = YES;
 			makoWindow.contentView = makoView;
 			[makoView loadRequest:[NSURLRequest requestWithURL:u]];
-		} else if (![makoView.URL.absoluteString isEqualToString:address]) {
+		} else if (makoGoesElsewhere(makoView.URL, u)) {
 			[makoView loadRequest:[NSURLRequest requestWithURL:u]];
 		}
 		// While the window is open Mako is a normal app: in the Dock and in ⌘Tab.
@@ -159,6 +170,82 @@ static void makoOpenWindow(const char *url) {
 		[makoWindow makeKeyAndOrderFront:nil];
 		[NSApp activateIgnoringOtherApps:YES];
 	});
+}
+
+// Opening Mako again (Finder, Launchpad, the Dock, `open`) sends the running app a reopen event: show the board.
+@interface MakoReopen : NSObject
+@property (copy) NSString *url;
+@end
+
+@implementation MakoReopen
+- (void)reopen:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescriptor *)reply {
+	makoOpenWindow(self.url.UTF8String);
+}
+@end
+
+static MakoReopen *makoReopen;
+
+static void makoOnReopen(const char *url) {
+	NSString *address = [NSString stringWithUTF8String:url];
+	dispatch_async(dispatch_get_main_queue(), ^{
+		makoReopen = [MakoReopen new];
+		makoReopen.url = address;
+		[[NSAppleEventManager sharedAppleEventManager] setEventHandler:makoReopen
+			andSelector:@selector(reopen:withReplyEvent:) forEventClass:kCoreEventClass andEventID:kAEReopenApplication];
+	});
+}
+
+// Notifications from Mako.app itself: osascript's are Script Editor's, and a click opens Script Editor. A click
+// on Mako's opens the task in Mako's window (or the MR in the browser).
+@interface MakoNotices : NSObject <UNUserNotificationCenterDelegate>
+@end
+
+static MakoNotices *makoNotices;
+static NSURL *makoBoard;
+static BOOL makoAllowed;
+
+@implementation MakoNotices
+- (void)userNotificationCenter:(UNUserNotificationCenter *)c willPresentNotification:(UNNotification *)n withCompletionHandler:(void (^)(UNNotificationPresentationOptions))done {
+	done(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList | UNNotificationPresentationOptionSound);
+}
+- (void)userNotificationCenter:(UNUserNotificationCenter *)c didReceiveNotificationResponse:(UNNotificationResponse *)r withCompletionHandler:(void (^)(void))done {
+	NSURL *u = [NSURL URLWithString:r.notification.request.content.userInfo[@"url"] ?: @""];
+	if (u.host == nil || ([u.host isEqualToString:makoBoard.host] && [u.port isEqual:makoBoard.port])) {
+		makoOpenWindow((u.host ? u : makoBoard).absoluteString.UTF8String);
+	} else {
+		[[NSWorkspace sharedWorkspace] openURL:u];
+	}
+	done();
+}
+@end
+
+// Only an app (a bundle) has notifications of its own: `go run` keeps osascript's.
+static void makoNotificationsOn(const char *board) {
+	if ([NSBundle mainBundle].bundleIdentifier == nil) {
+		return;
+	}
+	makoBoard = [NSURL URLWithString:[NSString stringWithUTF8String:board]];
+	dispatch_async(dispatch_get_main_queue(), ^{
+		makoNotices = [MakoNotices new];
+		UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+		center.delegate = makoNotices;
+		[center requestAuthorizationWithOptions:UNAuthorizationOptionAlert | UNAuthorizationOptionSound
+			completionHandler:^(BOOL granted, NSError *e) { makoAllowed = granted; }];
+	});
+}
+
+static int makoNotify(const char *title, const char *body, const char *url) {
+	if (!makoAllowed) {
+		return 0;
+	}
+	UNMutableNotificationContent *c = [UNMutableNotificationContent new];
+	c.title = [NSString stringWithUTF8String:title];
+	c.body = [NSString stringWithUTF8String:body];
+	c.sound = [UNNotificationSound defaultSound];
+	c.userInfo = @{@"url": [NSString stringWithUTF8String:url]};
+	UNNotificationRequest *req = [UNNotificationRequest requestWithIdentifier:[NSUUID UUID].UUIDString content:c trigger:nil];
+	[[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:req withCompletionHandler:nil];
+	return 1;
 }
 */
 import "C"
@@ -173,4 +260,29 @@ func OpenWindow(url string) {
 	s := C.CString(url)
 	defer C.free(unsafe.Pointer(s))
 	C.makoOpenWindow(s)
+}
+
+// OnReopen shows url in the window when Mako is opened again while it runs. Call it once the menu bar is up:
+// AppKit installs its own reopen handler while launching.
+func OnReopen(url string) {
+	s := C.CString(url)
+	defer C.free(unsafe.Pointer(s))
+	C.makoOnReopen(s)
+}
+
+// NotificationsOn lets Mako.app show its own notifications, clicked to the board at boardURL. macOS asks the user
+// once. Call it once the menu bar is up.
+func NotificationsOn(boardURL string) {
+	s := C.CString(boardURL)
+	defer C.free(unsafe.Pointer(s))
+	C.makoNotificationsOn(s)
+}
+
+// Notify shows a notification of Mako.app; false when it has none (not an app, or not allowed).
+func Notify(title, message, url string) bool {
+	t, m, u := C.CString(title), C.CString(message), C.CString(url)
+	defer C.free(unsafe.Pointer(t))
+	defer C.free(unsafe.Pointer(m))
+	defer C.free(unsafe.Pointer(u))
+	return C.makoNotify(t, m, u) == 1
 }
