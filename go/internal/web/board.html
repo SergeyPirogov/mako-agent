@@ -1591,7 +1591,7 @@ function chatFor(id) {
     // The agent's questions: an option, or your own words.
     const ans = e.target.closest("[data-ans]");
     if (ans) {
-      const box = ans.closest("[data-ask]"), answers = {};
+      const box = ans.closest("[data-question]"), answers = {};
       for (const q of box.querySelectorAll("[data-q]")) {
         const own = q.querySelector("input")?.value.trim();
         const picked = [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label);
@@ -1600,7 +1600,7 @@ function chatFor(id) {
       }
       if (ans.dataset.ans === "send" && !Object.keys(answers).length) return;
       ans.disabled = true;
-      fetch(`/api/answer?id=${encodeURIComponent(id)}&req=${encodeURIComponent(box.dataset.ask)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => pollChat());
+      fetch(`/api/answer?id=${encodeURIComponent(id)}&req=${encodeURIComponent(box.dataset.question)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => pollChat());
       return;
     }
     const opt = e.target.closest(".opt");
@@ -1609,7 +1609,7 @@ function chatFor(id) {
       if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
       opt.classList.toggle("on");
       // One question, one choice: that is the answer.
-      if (q.dataset.multi !== "1" && opt.closest("[data-ask]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-ask]").querySelector("[data-ans]").click();
+      if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
       return;
     }
     const p = e.target.closest("[data-permit]");
@@ -1755,7 +1755,7 @@ function askCard(it) {
     const a = it.answers ?? {};
     return `<div class="perm-done ${it.status}">${it.status === "answered" ? `✓ ${Object.entries(a).map(([q, x]) => `${esc(q)} → <b>${esc(x)}</b>`).join(" · ")}` : `✗ Без відповіді`}</div>`;
   }
-  return `<div class="perm ask" data-ask="${esc(it.id)}"><div class="perm-h"><b>Агент питає</b></div>
+  return `<div class="perm ask" data-question="${esc(it.id)}"><div class="perm-h"><b>Агент питає</b></div>
     ${qs.map((q) => `<div class="ask-q" data-q="${esc(q.question)}" data-multi="${q.multiSelect ? 1 : 0}"><div class="ask-text">${q.header ? `<span class="muted">${esc(q.header)} · </span>` : ""}${esc(q.question)}</div>
       <div class="ask-opts">${(q.options ?? []).map((o) => `<button type="button" class="opt" data-label="${esc(o.label)}" title="${esc(o.description ?? "")}">${esc(o.label)}</button>`).join("")}</div>
       <input type="text" placeholder="Або своя відповідь…" aria-label="Своя відповідь"></div>`).join("")}
