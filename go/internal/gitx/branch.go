@@ -42,11 +42,14 @@ func Branch(ctx context.Context, worktree, baseBranch string) (*BranchState, err
 		fetched[worktree] = time.Now()
 	}
 	fetchedMu.Unlock()
+	// The fetch runs aside: the board shows the branch from the refs it has now, the next ask sees the fresh ones.
 	if stale {
-		fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		Run(fctx, worktree, "fetch", "-q", "origin", baseBranch)
-		Run(fctx, worktree, "fetch", "-q", "origin", name)
-		cancel()
+		go func() {
+			fctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			Run(fctx, worktree, "fetch", "-q", "origin", baseBranch)
+			Run(fctx, worktree, "fetch", "-q", "origin", name)
+		}()
 	}
 	base := "origin/" + baseBranch
 	if _, err := Run(ctx, worktree, "rev-parse", "--verify", "-q", base); err != nil {
