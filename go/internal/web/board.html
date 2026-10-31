@@ -29,6 +29,7 @@
 <div id="phone-hint"></div>
 <div id="problems"></div>
 <div id="update"></div>
+<div id="limit-hold"></div>
 <div class="work" id="work">
   <div class="side">
     <!-- The search for tasks: when it last looked, look now, pause -->
@@ -189,18 +190,28 @@ async function loadCard() {
 }
 
 // Claude's usage limits, the account's: how much of each window is used, when it resets in the tooltip.
+const resetTime = (sec) => {
+  const d = new Date(sec * 1000), today = new Date().toDateString() === d.toDateString();
+  return today ? `о ${d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}`
+    : d.toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+};
 function limitsHTML(l) {
-  const when = (sec) => {
-    const d = new Date(sec * 1000), today = new Date().toDateString() === d.toDateString();
-    return today ? `о ${d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}`
-      : d.toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
-  };
+  const bad = data.limitPausePct || 85;
   const meter = (label, w, what) => {
     if (!w) return "";
-    const pct = Math.round(w.used * 100), cls = pct >= 85 ? "bad" : pct >= 60 ? "warn" : "";
-    return `<span class="limit ${cls}" title="${what}: використано ${pct}%, оновиться ${when(w.resetsAt)}">${label}<span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b></span>`;
+    const pct = Math.round(w.used * 100), cls = pct >= bad ? "bad" : pct >= 60 ? "warn" : "";
+    return `<span class="limit ${cls}" title="${what}: використано ${pct}%, оновиться ${resetTime(w.resetsAt)}">${label}<span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b></span>`;
   };
   return meter("5 год", l?.fiveHour, "Ліміт Claude на 5 годин") + meter("Тиждень", l?.week, "Ліміт Claude на тиждень");
+}
+
+// Past the threshold the queue waits for the limit to reset; agents already working go on.
+function limitHoldHTML(h) {
+  if (!h) return "";
+  const queued = data.records.filter((r) => !r.archivedAt && r.status === "queued").length;
+  const working = data.records.filter((r) => !r.archivedAt && r.status === "handed-off").length;
+  return `<div class="banner"><div><b>Ліміт Claude (${esc(h.window)}) використано на ${h.used}%</b> (поріг ${h.pct}%): нові задачі не стартують${queued ? ` (у черзі ${queued})` : ""}. Ліміт оновиться ${resetTime(h.resetsAt)}, і черга продовжиться сама.</div>`
+    + (working ? `<div>Агенти в роботі (${working}) продовжують, але можуть зупинитися, коли ліміт закінчиться.</div>` : "") + `</div>`;
 }
 
 function visible() {
@@ -224,6 +235,7 @@ function updateHTML(u) {
 
 function render() {
   $("update").innerHTML = updateHTML(data.update);
+  $("limit-hold").innerHTML = limitHoldHTML(data.limitHold);
   const ub = $("update-btn");
   if (ub) ub.onclick = async () => { ub.disabled = true; await fetch("/api/update", { method: "POST" }); await load(); };
   $("problems").innerHTML = data.problems?.length

@@ -1,6 +1,7 @@
 {
   "pollIntervalSec": 60,
   "wipLimit": 2,
+  "limitPausePct": 85,
   "maxConcurrent": 2,
   "taskTimeoutMin": 45,
   "handoffCheckMin": 5,
