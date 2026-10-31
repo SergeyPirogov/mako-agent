@@ -146,9 +146,16 @@ async function load() {
     $("search").className = "search err";
     return;
   }
-  if (selected) logs = await (await fetch(`/api/log?id=${encodeURIComponent(selected)}`)).json();
-  await Promise.all([loadWork(), loadConvo()]);
+  await Promise.all([loadCard(), loadWork()]);
   render();
+}
+
+// The open card's journal and conversation, fetched side by side; a reply for a card no longer open is dropped.
+async function loadCard() {
+  const id = selected;
+  if (!id) return;
+  const [l] = await Promise.all([getJSON(`/api/log?id=${encodeURIComponent(id)}`), loadConvo()]);
+  if (id === selected && Array.isArray(l)) logs = l;
 }
 
 // Claude's usage limits, the account's: how much of each window is used, when it resets in the tooltip.
@@ -241,9 +248,11 @@ async function select(id) {
   selected = id;
   history.replaceState(null, "", "#" + encodeURIComponent(id));
   try { localStorage.setItem("mako-selected", id); } catch {}
-  logs = await (await fetch(`/api/log?id=${encodeURIComponent(id)}`)).json();
-  await loadConvo();
+  // The card opens at once from what the board already has; its journal and conversation follow.
+  logs = [];
   render();
+  await loadCard();
+  if (id === selected) render();
 }
 
 const getJSON = (url) => fetch(url).then((r) => r.json()).catch((e) => ({ error: e.message }));
