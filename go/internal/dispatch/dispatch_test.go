@@ -410,3 +410,26 @@ func TestRedo(t *testing.T) {
 		t.Fatal("a new task was redone")
 	}
 }
+
+// A tracker on pause is not searched, and its last failed search no longer says it is down.
+func TestPausedTrackerNotSearched(t *testing.T) {
+	d, _, _ := setup(t)
+	ctx := context.Background()
+	tr := d.TrackerList()[0]
+	d.mu.Lock()
+	d.searches[tr.ID()] = Search{Error: "dial tcp: lookup git.example.com", Down: "GitLab: немає з'єднання"}
+	d.mu.Unlock()
+	tr.Config().Paused = true
+	d.Poll(ctx)
+	if _, ok := d.Store.Get("grp/app#5"); ok {
+		t.Fatal("a paused tracker was searched")
+	}
+	if _, ok := d.Searches()[tr.ID()]; ok {
+		t.Fatalf("a paused tracker still shows its search: %+v", d.Searches())
+	}
+	tr.Config().Paused = false
+	d.Poll(ctx)
+	if _, ok := d.Store.Get("grp/app#5"); !ok {
+		t.Fatal("the tracker taken off pause was not searched")
+	}
+}

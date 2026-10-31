@@ -268,3 +268,52 @@ func TestDigest(t *testing.T) {
 		t.Fatalf("digest %+v", dg)
 	}
 }
+
+// «Пауза» of one tracker from the board writes "paused" to its entry only and reloads Mako.
+func TestTrackerPause(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, ".env"), []byte("GITHUB_TOKEN=a\nGITLAB_TOKEN=b\n"), 0o600)
+	os.WriteFile(filepath.Join(home, "mako.config.json"), []byte(`{"wipLimit":2,"trackers":[
+	  {"type":"github","allProjects":true},{"type":"gitlab","id":"work","baseUrl":"https://git.example.com","allProjects":true}]}`), 0o644)
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	pause := func(id, on string) map[string]any {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/tracker-pause?id="+id+"&on="+on, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return out
+	}
+	paused := func() map[string]bool {
+		out := map[string]bool{}
+		for _, tr := range d.TrackerList() {
+			out[tr.ID()] = tr.Config().Paused
+		}
+		return out
+	}
+	if r := pause("work", "1"); r["ok"] != true {
+		t.Fatalf("pause: %v", r)
+	}
+	if p := paused(); !p["work"] || p["github"] || len(p) != 2 {
+		t.Fatalf("after pause: %v", p)
+	}
+	data, _ := os.ReadFile(filepath.Join(home, "mako.config.json"))
+	if strings.Count(string(data), `"paused"`) != 1 || !strings.Contains(string(data), `"wipLimit": 2`) {
+		t.Fatalf("config:\n%s", data)
+	}
+	if r := pause("work", "0"); r["ok"] != true || paused()["work"] {
+		t.Fatalf("resume: %v %v", r, paused())
+	}
+	if data, _ := os.ReadFile(filepath.Join(home, "mako.config.json")); strings.Contains(string(data), `"paused"`) {
+		t.Fatalf("paused left after resume:\n%s", data)
+	}
+	if r := pause("nope", "1"); r["ok"] != false {
+		t.Fatalf("unknown tracker: %v", r)
+	}
+}

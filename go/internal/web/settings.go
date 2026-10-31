@@ -73,33 +73,24 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		var pretty bytes.Buffer
-		if err := json.Indent(&pretty, in.Config, "", "  "); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		pretty.WriteByte('\n')
-		if err := os.MkdirAll(s.Home, 0o755); err != nil {
+		problems, err := s.saveConfig(r.Context(), in.Config, in.Env)
+		if err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		path := filepath.Join(s.Home, "mako.config.json")
-		if err := os.WriteFile(path+".tmp", pretty.Bytes(), 0o644); err == nil {
-			err = os.Rename(path+".tmp", path)
-		} else {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-			return
-		}
-		if len(in.Env) > 0 {
-			if err := config.SaveEnv(s.Home, in.Env); err != nil {
-				writeJSON(w, map[string]any{"ok": false, "error": ".env: " + err.Error()})
-				return
-			}
-		}
-		cfg, ts, problems := setup.Build(s.Home)
-		problems = append(problems, assigneeProblems(r.Context(), ts)...)
-		s.D.Reload(cfg, ts, problems)
 		writeJSON(w, map[string]any{"ok": true, "problems": problems})
+	})
+	// «Пауза» of one tracker from the board: its search stops (or goes on), the other trackers keep theirs.
+	mux.HandleFunc("POST /api/tracker-pause", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if err := s.pauseTracker(r.Context(), r.URL.Query().Get("id"), r.URL.Query().Get("on") == "1"); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	// Check a tracker as it is in the form: who the token belongs to.
 	mux.HandleFunc("POST /api/settings/check", func(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +125,82 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		s.D.SetPaused(r.URL.Query().Get("on") == "1")
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+}
+
+// saveConfig writes mako.config.json (and the .env keys typed in) and makes Mako work by them; the problems are
+// what the new settings leave to fix.
+func (s *Server) saveConfig(ctx context.Context, data json.RawMessage, envChanges map[string]string) ([]string, error) {
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, data, "", "  "); err != nil {
+		return nil, err
+	}
+	pretty.WriteByte('\n')
+	if err := os.MkdirAll(s.Home, 0o755); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(s.Home, "mako.config.json")
+	if err := os.WriteFile(path+".tmp", pretty.Bytes(), 0o644); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(path+".tmp", path); err != nil {
+		return nil, err
+	}
+	if len(envChanges) > 0 {
+		if err := config.SaveEnv(s.Home, envChanges); err != nil {
+			return nil, fmt.Errorf(".env: %w", err)
+		}
+	}
+	cfg, ts, problems := setup.Build(s.Home)
+	problems = append(problems, assigneeProblems(ctx, ts)...)
+	s.D.Reload(cfg, ts, problems)
+	return problems, nil
+}
+
+// pauseTracker sets "paused" of the tracker id (its "id", else its "type", as config.Tracker.ID) in
+// mako.config.json, leaving the rest of the file as it is.
+func (s *Server) pauseTracker(ctx context.Context, id string, on bool) error {
+	data, err := os.ReadFile(filepath.Join(s.Home, "mako.config.json"))
+	if err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("mako.config.json: %w", err)
+	}
+	var ts []map[string]json.RawMessage
+	if err := json.Unmarshal(raw["trackers"], &ts); err != nil {
+		return fmt.Errorf("mako.config.json: trackers: %w", err)
+	}
+	found := false
+	for _, t := range ts {
+		var tid, typ string
+		_ = json.Unmarshal(t["id"], &tid)
+		_ = json.Unmarshal(t["type"], &typ)
+		if strings.TrimSpace(tid) == "" {
+			tid = typ
+		}
+		if strings.TrimSpace(tid) != id {
+			continue
+		}
+		found = true
+		if on {
+			t["paused"] = json.RawMessage("true")
+		} else {
+			delete(t, "paused")
+		}
+	}
+	if !found {
+		return fmt.Errorf("трекера %q немає в налаштуваннях", id)
+	}
+	if raw["trackers"], err = json.Marshal(ts); err != nil {
+		return err
+	}
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	_, err = s.saveConfig(ctx, out, nil)
+	return err
 }
 
 // envWith: .env as it is, with the values typed in the form on top.

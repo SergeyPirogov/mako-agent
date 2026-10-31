@@ -55,6 +55,8 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .banner { padding: 10px 16px; background: color-mix(in srgb, var(--warn) 12%, var(--card)); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
 .banner a { font-weight: 600; }
 .banner.down { background: color-mix(in srgb, var(--err) 10%, var(--card)); gap: 6px; }
+[data-pause-tracker], [data-resume-tracker] { margin-left: 8px; padding: 2px 8px; font-size: 12px; }
+.banner.paused { background: var(--card); }
 .banner.down details { display: inline; margin-left: 8px; font-size: 12px; }
 .banner.down summary { display: inline; cursor: pointer; color: var(--mute); }
 .banner.down code { display: block; margin-top: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }

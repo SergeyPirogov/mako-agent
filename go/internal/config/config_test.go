@@ -168,3 +168,13 @@ func TestAutoWip(t *testing.T) {
 		t.Fatalf("wipAuto: %+v %v", cfg, err)
 	}
 }
+
+func TestParseTrackerPaused(t *testing.T) {
+	c, err := Parse([]byte(`{"trackers":[{"type":"github","allProjects":true,"paused":true},{"type":"gitlab","allProjects":true}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Trackers[0].Paused || c.Trackers[1].Paused {
+		t.Fatalf("paused: %v %v", c.Trackers[0].Paused, c.Trackers[1].Paused)
+	}
+}
