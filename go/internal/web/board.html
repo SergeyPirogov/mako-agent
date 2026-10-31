@@ -81,6 +81,8 @@ let folded = (() => { try { return { done: true, failed: true, ...JSON.parse(loc
 let query = "";
 const FILTER_FROM = 15;
 let data = null, shown = "", selected = null, statsOpen = false, newOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
+// The last changes seen per task: a task opened again shows them at once, while the fresh ones load.
+const changesOf = new Map();
 // The task's work: its changed files, the files open in tabs over the terminal and their diffs.
 let workOf = null, workStarted = false, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
 // The task's MR as the code host has it ({review} or {error}), and what the last MR action said.
@@ -464,7 +466,7 @@ async function loadWork() {
     if (empty) renderDetail();
   });
   await Promise.all([
-    part(`/api/changes?${q}`, (v) => (changes = v), !changes),
+    part(`/api/changes?${q}`, (v) => { changes = v; if (!v.error) changesOf.set(r.id, v); }, !changes),
     part(path && `/api/diff?${q}&path=${encodeURIComponent(path)}${diffWhole ? "&whole=1" : ""}`, (v) => {
       diffs[path] = v.error ? `⚠ ${v.error}` : v.diff || "";
       if (!v.error) dropChangedNotes(r.id, path, diffs[path]);
@@ -847,18 +849,23 @@ const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-b
 const commits = (n) => `${n} ${plural(n, "коміт", "коміти", "комітів")}`;
 
 // The branch: against its base and its remote, uncommitted work; copy its name, open it in Finder or the editor.
+// Until git answers it holds its place, the name from the task, so the panel does not jump when the state comes.
 function branchCard(r, term) {
-  const b = changes?.branch;
+  const b = changes ? changes.branch : { name: r.branch || r.branchName || "", loading: true };
   if (!b) return "";
   const live = term && r.live;
-  let rows = b.behind ? row("idle", `Позаду ${b.base} на ${commits(b.behind)}`, "", fixBtn(live, "rebase", `Агент оновить гілку з ${b.base}`))
-    : row("ok", `Актуальна з ${b.base}`);
-  if (b.unpushed) rows += row("run", `${commits(b.unpushed)} не запушено`, "", fixBtn(live, "push", "Агент запушить гілку"));
-  else if (b.pushed) rows += row("ok", "Усе запушено");
-  if (b.dirty) rows += row("idle", `${b.dirty} ${plural(b.dirty, "файл", "файли", "файлів")} не закомічено`);
+  let rows = "";
+  if (b.loading) rows = `<div class="mr-row"><span style="color:var(--mute)">Перевіряю гілку…</span></div><div class="mr-row"></div>`;
+  else {
+    rows = b.behind ? row("idle", `Позаду ${b.base} на ${commits(b.behind)}`, "", fixBtn(live, "rebase", `Агент оновить гілку з ${b.base}`))
+      : row("ok", `Актуальна з ${b.base}`);
+    if (b.unpushed) rows += row("run", `${commits(b.unpushed)} не запушено`, "", fixBtn(live, "push", "Агент запушить гілку"));
+    else if (b.pushed) rows += row("ok", "Усе запушено");
+    if (b.dirty) rows += row("idle", `${b.dirty} ${plural(b.dirty, "файл", "файли", "файлів")} не закомічено`);
+  }
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">Гілка</span>
       <code class="branch-name" title="${esc(b.name)}">${esc(b.name)}</code>
-      <button type="button" class="icon" data-copy="${esc(b.name)}" title="Скопіювати назву гілки" aria-label="Скопіювати назву гілки">${ICON.copy}</button>
+      ${b.name ? `<button type="button" class="icon" data-copy="${esc(b.name)}" title="Скопіювати назву гілки" aria-label="Скопіювати назву гілки">${ICON.copy}</button>` : ""}
       <button type="button" class="icon" data-open="finder" title="Показати у Finder" aria-label="Показати у Finder">${ICON.folder}</button>
       ${data.editor ? `<button type="button" class="icon" data-open="editor" title="Відкрити в ${esc(data.editor)}" aria-label="Відкрити в ${esc(data.editor)}">${ICON.code}</button>` : ""}
     </div>${rows}</div>`;
@@ -1383,7 +1390,7 @@ function renderDetail() {
   if (workOf !== r.id) {
     workOf = r.id;
     itab = "changes"; itabPicked = false;
-    changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
+    changes = changesOf.get(r.id) ?? null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     pick = null; pickText = ""; reviewNote = "";
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
