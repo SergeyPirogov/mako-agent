@@ -487,6 +487,8 @@ async function loadWork() {
 
 async function openFile(path) {
   if (!openFiles.includes(path)) openFiles.push(path);
+  // A file opens as its own tab over the terminal, also when the task's tab was the one open.
+  tab = "orca";
   fileTab = path;
   if (!(path in diffs)) await loadWork();
   renderDetail();
