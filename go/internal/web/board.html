@@ -420,8 +420,8 @@ function render() {
     for (const r of fold ? [] : items) {
       const st = state(r);
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.task.title)}">
-        <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}${trackerMark(r.task)}<code>${esc(r.id)}</code>${r.blocked ? `<span class="blocked-why" title="${esc(r.blocked)}">${esc(r.blocked)}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
+        <span class="t">${trackerMark(r.task)}${esc(r.task.title)}</span>
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code>${r.blocked ? `<span class="blocked-why" title="${esc(r.blocked)}">${esc(r.blocked)}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }
@@ -1134,7 +1134,7 @@ function trackerIcon(task) {
   const svg = trackerSvg(task);
   return svg ? `<a class="tracker-logo" href="${esc(task.url)}" target="_blank" rel="noopener" title="Відкрити в ${esc(trackerName(task))}" aria-label="Відкрити в ${esc(trackerName(task))}">${svg}</a>` : "";
 }
-// The same logo in a sidebar row: the row is a button already, so it is a mark, not a link.
+// The same logo before a sidebar row's title: the row is a button already, so it is a mark, not a link.
 function trackerMark(task) {
   const svg = trackerSvg(task);
   return svg ? `<span class="tracker-mark" title="${esc(trackerName(task))}">${svg}</span>` : "";
