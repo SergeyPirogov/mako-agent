@@ -1065,8 +1065,11 @@ function toast(text, bad = false) {
 // The card's buttons: a request to the agent, or the merge.
 async function mrAction(id, action, kind = "") {
   const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
-  mrNote = res.ok === false || res.error ? `⚠ ${res.error}` : { merge: "MR змерджено", close: "MR закрито без злиття" }[action] ?? "Передано агенту";
-  if (action === "ask") toast(res.ok === false || res.error ? mrNote : "✨ Передано агенту", res.ok === false || !!res.error);
+  const note = res.ok === false || res.error ? `⚠ ${res.error}` : { merge: "MR змерджено", close: "MR закрито без злиття" }[action] ?? "Передано агенту";
+  if (action === "ask") toast(res.ok === false || res.error ? note : "✨ Передано агенту", res.ok === false || !!res.error);
+  // The answer may come once another task is open (a merged task leaves the list): the note is this task's only.
+  if (workOf !== id) return;
+  mrNote = note;
   await loadWork();
   renderDetail();
   if (action === "ask" && !res.error) tv?.term.focus();
