@@ -144,7 +144,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let navTimer;
 const renderNavSoon = () => { clearTimeout(navTimer); navTimer = setTimeout(renderNav, 300); };
-let cfg = {}, env = {}, envSet = {}, jiraBase = "", dirty = false;
+let cfg = {}, env = {}, envSet = {}, jiraBase = "", autoWip = 1, dirty = false;
 const TOKENS = { gitlab: [["GITLAB_TOKEN", "Токен", "Personal access token зі scope api: GitLab → Preferences → Access tokens"]],
   github: [["GITHUB_TOKEN", "Токен", "Fine-grained token з доступом до Issues і Pull requests. Порожньо — береться з gh auth login"]],
   jira: [["JIRA_EMAIL", "Email в Atlassian", ""], ["JIRA_API_TOKEN", "API-токен", "id.atlassian.com → Security → API tokens"]] };
@@ -470,7 +470,9 @@ function renderComments() {
 function renderLimits() {
   const box = $("limits");
   box.innerHTML = "";
-  box.append(num(cfg, "wipLimit", "Задач в Orca одночасно (WIP)", { placeholder: "без ліміту", hint: "Решта чекає в черзі" }));
+  box.append(check(cfg, "wipAuto", "Рахувати WIP автоматично", { hint: `За ядрами й памʼяттю цього Mac: ${autoWip} одночасно (по 2 ядра й 4 ГБ на агента)` }));
+  box.lastChild.querySelector("input").addEventListener("change", renderLimits);
+  if (!cfg.wipAuto) box.append(num(cfg, "wipLimit", "Задач в Orca одночасно (WIP)", { placeholder: "без ліміту", hint: "Решта чекає в черзі" }));
   box.append(num(cfg, "pollIntervalSec", "Шукати задачі кожні, с", { placeholder: "60" }));
   box.append(num(cfg, "archiveAfterDays", "Архівувати завершені через, днів", { placeholder: "2", hint: "0 — не архівувати" }));
   box.append(text(cfg, "branchPattern", "Назва гілки задачі", { placeholder: "{type}/{id}-{title}", hint: "{type} — feature або fix, {id}, {title}, {slug}" }));
@@ -641,6 +643,7 @@ async function load() {
   cfg = r.config ?? {};
   envSet = r.env;
   jiraBase = r.jiraBaseUrl ?? "";
+  autoWip = r.autoWip ?? 1;
   env = {};
   $("where").innerHTML = `Налаштування зберігаються в <code>${esc(r.home)}/mako.config.json</code> і <code>.env</code>`;
   showProblems(r.problems);

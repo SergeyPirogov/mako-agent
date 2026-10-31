@@ -25,6 +25,8 @@ type Config struct {
 	StateDir        string
 	PollIntervalSec int
 	WipLimit        int
+	// WipAuto: WipLimit is AutoWip, worked out from this Mac's cores and memory, not the number in the config.
+	WipAuto bool
 	// LimitPausePct: at this share of a Claude usage limit (5 hours or the week) used, the queue waits for it
 	// to reset; 0: never.
 	LimitPausePct    int
@@ -227,6 +229,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		StateDir:         Expand(raw.StateDir),
 		PollIntervalSec:  orInt(raw.PollIntervalSec, 60),
 		WipLimit:         orInt(raw.WipLimit, 0),
+		WipAuto:          raw.WipAuto,
 		LimitPausePct:    orInt(raw.LimitPausePct, 85),
 		ArchiveAfterDays: orInt(raw.ArchiveAfterDays, 2),
 		ProjectsDir:      Expand(orStr(raw.ProjectsDir, DefaultProjectsDir)),
@@ -250,6 +253,9 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
 		},
+	}
+	if c.WipAuto {
+		c.WipLimit = AutoWip()
 	}
 	// Mako runs the agent itself unless Orca is the default executor, or the only one there is.
 	c.Executor, c.Terminal = "terminal", Terminal{PermissionMode: "auto"}
@@ -492,6 +498,7 @@ type rawConfig struct {
 	StateDir         string                 `json:"stateDir"`
 	PollIntervalSec  *int                   `json:"pollIntervalSec"`
 	WipLimit         *int                   `json:"wipLimit"`
+	WipAuto          bool                   `json:"wipAuto"`
 	LimitPausePct    *int                   `json:"limitPausePct"`
 	ArchiveAfterDays *int                   `json:"archiveAfterDays"`
 	ProjectsDir      string                 `json:"projectsDir"`

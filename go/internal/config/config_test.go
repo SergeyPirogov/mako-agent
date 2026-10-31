@@ -146,3 +146,25 @@ func TestParseNotificationEvents(t *testing.T) {
 		t.Fatalf("off %+v", cfg.Notifications.Off)
 	}
 }
+
+func TestAutoWip(t *testing.T) {
+	const gb = 1 << 30
+	for _, c := range []struct {
+		cores int
+		mem   uint64
+		want  int
+	}{
+		{10, 16 * gb, 4}, // memory bounds it
+		{8, 64 * gb, 4},  // cores do
+		{12, 0, 6},       // memory unknown: cores alone
+		{1, 2 * gb, 1},   // never below one
+	} {
+		if got := autoWip(c.cores, c.mem); got != c.want {
+			t.Errorf("autoWip(%d, %d GB) = %d, want %d", c.cores, c.mem/gb, got, c.want)
+		}
+	}
+	cfg, err := Parse([]byte(`{"wipLimit": 99, "wipAuto": true}`), nil)
+	if err != nil || !cfg.WipAuto || cfg.WipLimit != AutoWip() {
+		t.Fatalf("wipAuto: %+v %v", cfg, err)
+	}
+}
