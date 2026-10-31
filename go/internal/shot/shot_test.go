@@ -1,6 +1,8 @@
 package shot
 
 import (
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,5 +59,33 @@ func TestModule(t *testing.T) {
 	write(t, filepath.Join(repo, "go", "cmd", "mako", "main.go"), "package main")
 	if got := Module(repo); got != filepath.Join(repo, "go") {
 		t.Fatalf("module %q", got)
+	}
+}
+
+// A phone's screenshot is taken in Chrome's narrowest window and cut to the phone's width.
+func TestCrop(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, image.NewRGBA(image.Rect(0, 0, 500, 900))); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if err := crop(path, 430, 932); err != nil {
+		t.Fatal(err)
+	}
+	f, err = os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() != 430 || b.Dy() != 900 {
+		t.Fatalf("cropped to %v, want 430×900", b)
 	}
 }
