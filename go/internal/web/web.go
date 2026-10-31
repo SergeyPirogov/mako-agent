@@ -64,6 +64,7 @@ type stateReply struct {
 	Editor   string                     `json:"editor"`   // the code editor a worktree opens in, "" when none
 	Limits   chat.Limits                `json:"limits"`   // Claude's usage limits, as the agents last reported them
 	Remote   bool                       `json:"remote"`   // the page is open on a phone
+	Stats    core.Stats                 `json:"stats"`    // how the taken tasks went, archived ones too
 }
 
 type recordView struct {
@@ -106,7 +107,9 @@ func (s *Server) Handler() http.Handler {
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		reply.Remote = remote(r)
-		for _, rec := range s.D.Store.All() {
+		all := s.D.Store.All()
+		reply.Stats = core.Summarize(all)
+		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
 			reply.Records = append(reply.Records, v)

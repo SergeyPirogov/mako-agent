@@ -21,6 +21,7 @@
   <span id="waiting"></span>
   <span class="spacer"></span>
   <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
+  <button class="icon-btn" id="stats-btn" title="Статистика" aria-label="Статистика"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
   <a class="icon-btn" id="settings-link" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
   <button class="ghost" id="theme" title="Тема"></button>
@@ -51,9 +52,9 @@ const LABEL = { new: "нова", later: "відкладена", doing: "в ро�
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
-let data = null, shown = "", selected = null, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
+let data = null, shown = "", selected = null, statsOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
 // The task's work: its changed files, the files open in tabs over the terminal and their diffs.
-let workOf = null, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
+let workOf = null, workStarted = false, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
 // The task's MR as the code host has it ({review} or {error}), and what the last MR action said.
 let review = null, mrNote = "", journalOpen = false;
 // The branch's history for the commits' graph, and the commits opened in it (hash → their message and files).
@@ -62,6 +63,17 @@ let commitLog = null, commitOpen = {};
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<>"')]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+// A task's text from the tracker: links, and its images, HTML (<img src="…">) or Markdown (![alt](url)), shown as images.
+const IMG = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)[^>]*>|!\[([^\]]*)\]\((https?:\/\/[^\s)]+)(?:\s+"[^"]*")?\)/gi;
+const richText = (s) => {
+  let out = "", at = 0;
+  for (const m of s.matchAll(IMG)) {
+    const src = m[1] ?? m[3], alt = m[2] ?? m[0].match(/\balt\s*=\s*["']([^"']*)/i)?.[1] ?? "";
+    out += linkify(s.slice(at, m.index)) + `<a href="${esc(src)}" target="_blank" rel="noopener"><img class="pic" src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></a>`;
+    at = m.index + m[0].length;
+  }
+  return out + linkify(s.slice(at));
+};
 const ago = (iso) => {
   if (!iso) return "";
   const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
@@ -137,6 +149,12 @@ async function post(action, id, extra = "") {
   await load();
 }
 $("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
+$("stats-btn").onclick = () => {
+  selected = null; statsOpen = true;
+  history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+};
 $("poll").onclick = async () => { $("poll").classList.add("busy"); await post("poll"); setTimeout(() => $("poll").classList.remove("busy"), 1500); };
 
 async function load() {
@@ -246,7 +264,7 @@ function render() {
 }
 
 async function select(id) {
-  selected = id;
+  selected = id; statsOpen = false;
   history.replaceState(null, "", "#" + encodeURIComponent(id));
   try { localStorage.setItem("mako-selected", id); } catch {}
   // The card opens at once from what the board already has; its journal and conversation follow.
@@ -606,14 +624,35 @@ function mrCard(r, term) {
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "відкрити"}</a>` : ""}
       <span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span>
-      <span class="spacer"></span>${open}${update}${merge}${close}</div>
+      <span class="spacer"></span>${open}${update}${close}${merge}</div>
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
+}
+
+// A short note at the bottom of the window that a click did something; it outlives the re-render of the card.
+let toastTimer = 0;
+function toast(text, bad = false) {
+  let el = $("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    document.body.append(el);
+  }
+  el.textContent = text;
+  el.classList.toggle("bad", bad);
+  el.classList.remove("show");
+  void el.offsetWidth;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
 }
 
 // The card's buttons: a request to the agent, or the merge.
 async function mrAction(id, action, kind = "") {
   const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
   mrNote = res.ok === false || res.error ? `⚠ ${res.error}` : { merge: "MR змерджено", close: "MR закрито без злиття" }[action] ?? "Передано агенту";
+  if (action === "ask") toast(res.ok === false || res.error ? mrNote : "✨ Передано агенту", res.ok === false || !!res.error);
   await loadWork();
   renderDetail();
   if (action === "ask" && !res.error) tv?.term.focus();
@@ -689,10 +728,39 @@ function convoHTML(turns) {
   return out.join("");
 }
 
+// How the taken tasks went: shown where a task's card goes while none is open.
+function statsHTML(s) {
+  if (!s?.taken) return `<div class="empty">Виберіть задачу зліва. Статистика з'явиться, коли агент візьме першу задачу.</div>`;
+  const pct = (n) => s.taken ? Math.round((n / s.taken) * 100) : 0;
+  const dur = (sec) => {
+    const m = Math.round(sec / 60);
+    return m < 60 ? `${m} хв` : m < 1440 ? `${Math.floor(m / 60)} год ${m % 60} хв` : `${Math.floor(m / 1440)} д ${Math.floor((m % 1440) / 60)} год`;
+  };
+  const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+  return `<div class="stats">
+    <h1>Статистика</h1>
+    <div class="stat-row">
+      ${tile("Взято задач", s.taken, s.running ? `${s.running} ще в роботі` : "")}
+      ${tile("Успішно", s.succeeded, `${pct(s.succeeded)}% · змерджено ${s.merged}`)}
+      ${tile("Не успішно", s.failed, `${pct(s.failed)}%`)}
+      ${tile("Середній час до MR", s.avgSeconds ? dur(s.avgSeconds) : "—")}
+      ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу · ${s.priced} ${plural(s.priced, "задача", "задачі", "задач")}` : "лише агент у Mako")}
+    </div>
+    <h3>Причини невдач</h3>
+    ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
+    <p class="stats-note">Час — від передачі агенту до відкриття MR. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє.</p>
+  </div>`;
+}
+
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
-  $("work").classList.toggle("detail", !!r);
-  if (!r) { closeTerminal(); shown = ""; $("detail").innerHTML = `<div class="empty">Виберіть задачу зліва</div>`; return; }
+  $("work").classList.toggle("detail", !!r || statsOpen);
+  if (!r) {
+    closeTerminal(); shown = ""; $("detail").classList.remove("ws");
+    $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Задачі</button>` : "") + statsHTML(data.stats);
+    if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
+    return;
+  }
   const t = r.task, st = state(r);
   const b = (action, label, cls = "", extra = "") => `<button class="${cls}" data-a="${action}" data-x="${extra}">${label}</button>`;
   // Icon buttons leave the room to the work; the name is in the tooltip.
@@ -724,10 +792,11 @@ function renderDetail() {
     ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
     <h3>Опис</h3>
-    <div class="text">${t.description?.trim() ? linkify(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
-    ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${linkify(c.body)}</div></div>`).join("")}` : ""}
+    <div class="text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
+    ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${richText(c.body)}</div></div>`).join("")}` : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
       <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
+  const started = r.column === "doing" && !!r.worktree;
   // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
     workOf = r.id;
@@ -735,7 +804,12 @@ function renderDetail() {
     changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
+  } else if (started && !workStarted) {
+    // Taken while open: once the agent has started, show its work instead of the task.
+    tab = "orca"; fileTab = "";
+    loadWork().then(renderDetail);
   }
+  workStarted = started;
   // A task of Mako's own agent is one workspace: the tabs only change the centre, the right panel stays.
   const taskPane = term ? `<div class="task-pane">
       <div class="d-id">${kind(r)}<span class="s ${st}">${LABEL[st]}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span>${esc(t.project)}</span></div>
@@ -790,6 +864,7 @@ function renderDetail() {
     closeTerminal();
     const c = chatFor(r.id);
     $("term-slot").append(c.el);
+    restoreChatScroll(c);
     if (typing) c.input.focus();
   } else if (term && $("term-slot")) {
     closeChat();
@@ -862,7 +937,7 @@ function renderDetail() {
     try { localStorage.setItem("mako-diff", diffMode); } catch {}
     renderDetail();
   };
-  for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; mrAction(r.id, "ask", btn.dataset.ask); };
+  for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; btn.classList.add("busy"); mrAction(r.id, "ask", btn.dataset.ask); };
   for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = () => {
     if (confirm("Змерджити MR? Гілку задачі буде видалено, задача отримає фінальний статус.")) { btn.disabled = true; mrAction(r.id, "merge"); }
   };
@@ -882,7 +957,7 @@ function renderDetail() {
     if (!(fileTab in diffs)) loadWork().then(renderDetail);
   };
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
-  $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
+  $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
 }
 
 // The task from the link, else the one open last time.
@@ -909,7 +984,13 @@ function chatFor(id) {
         <span class="chat-model"></span><span class="chat-ctx"></span><span class="chat-limits"></span>
         <span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span></div>
     </div>`;
-  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null });
+  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null, top: 0, atEnd: true });
+  // Where the reader is: the board re-attaches the chat when it redraws the page, and that drops the list's scroll.
+  v.list.onscroll = () => {
+    if (!v.list.isConnected) return;
+    v.top = v.list.scrollTop;
+    v.atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
+  };
   // To a closed agent too: the message resumes the conversation, in a new session the board reads from 0.
   const say = async (text) => {
     if (!text) return;
@@ -981,13 +1062,17 @@ async function pollChat() {
   v.version = s.version;
   renderChat(v);
 }
+function restoreChatScroll(v) {
+  v.list.scrollTop = v.atEnd ? v.list.scrollHeight : v.top;
+}
 function renderChat(v) {
   const s = v.snap, list = v.list;
-  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
   const running = [...s.items].reverse().find((it) => it.kind === "tool" && it.status === "running");
   list.innerHTML = `<div class="chat-col">${chatBlocks(s.items, v) || `<div class="files-empty">${s.live ? "Агент чекає: напишіть йому, що робити." : "Розмова зʼявиться тут, щойно агент почне."}</div>`}
     ${s.state === "working" ? `<div class="chat-working"><span class="pulse"></span>${esc(running ? `${running.tool}${toolArg(running.input)}` : "Думає…")}</div>` : ""}</div>`;
-  if (atBottom || v.version <= 1) list.scrollTop = list.scrollHeight;
+  // Stays at the end while the agent writes, unless the reader scrolled up: then right where they were.
+  if (v.version <= 1) v.atEnd = true;
+  restoreChatScroll(v);
   v.el.querySelector(".chat-stop").hidden = s.state !== "working";
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;

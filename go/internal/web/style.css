@@ -126,6 +126,13 @@ pre.code { font: 12px/1.45 var(--mono); background: var(--bg); border: 1px solid
 .s.failed { color: var(--err); }
 section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .empty { color: var(--mute); padding: 48px 16px; text-align: center; }
+.stats { max-width: 860px; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0 4px; }
+.stat { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.stat span, .stat small { color: var(--mute); font-size: 12px; }
+.stat b { font-size: 22px; font-variant-numeric: tabular-nums; }
+.stats .facts dt { font-variant-numeric: tabular-nums; text-align: right; }
+.stats-note { color: var(--mute); font-size: 12px; margin-top: 16px; }
 #theme { display: inline-flex; padding: 7px 9px; }
 .d-id .s { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 .d-id { font: 12.5px var(--mono); color: var(--mute); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -138,6 +145,7 @@ h1 { font-size: 20px; margin: 6px 0 12px; line-height: 1.3; }
 .notice.warn { border-color: var(--warn); }
 h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); margin: 24px 0 8px; }
 .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.text img.pic { display: block; max-width: 100%; height: auto; margin: 6px 0; border: 1px solid var(--line); border-radius: 8px; }
 .comment { border-left: 2px solid var(--line); padding: 2px 0 2px 12px; margin: 10px 0; }
 .comment b { font-size: 12.5px; }
 .log { font: 12px/1.5 var(--mono); color: var(--mute); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -184,6 +192,18 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .fix-btn { width: 26px; height: 26px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0;
   border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, var(--card)); color: var(--accent); }
 .fix-btn:hover { background: color-mix(in srgb, var(--accent) 18%, var(--card)); }
+/* A pressed ✨ twinkles until the agent has the request; then a toast says so. */
+.fix-btn:active, .mr-h .icon[data-ask]:active { transform: scale(.88); }
+.fix-btn.busy, .mr-h .icon[data-ask].busy { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); animation: glow 1s ease-out infinite; }
+.fix-btn.busy svg, .mr-h .icon[data-ask].busy svg { animation: twinkle .9s ease-in-out infinite; }
+@keyframes twinkle { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.25) rotate(18deg); } }
+@keyframes glow { to { box-shadow: 0 0 0 7px transparent; } }
+#toast { position: fixed; left: 50%; bottom: 24px; z-index: 100; transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+  padding: 8px 14px; border-radius: 9px; font-size: 13px; color: var(--fg); background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 6px 24px rgb(0 0 0 / .18);
+  transition: opacity .2s, transform .2s; }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.bad { border-color: color-mix(in srgb, var(--err) 50%, var(--line)); color: var(--err); }
 .stages { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 6px 22px; }
 .stage { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .stage-name { width: 100%; font-size: 11px; color: var(--faint); }
@@ -452,7 +472,8 @@ details.journal .log { margin-top: 8px; }
   .back { display: inline-block; margin-bottom: 8px; }
   section { padding: 16px; }
 }
-@media (prefers-reduced-motion: reduce) { button { transition: none; } .s.ag-working::before { animation: none; } }
+@media (prefers-reduced-motion: reduce) { button { transition: none; } .s.ag-working::before { animation: none; }
+  .fix-btn.busy, .fix-btn.busy svg, .mr-h .icon[data-ask].busy, .mr-h .icon[data-ask].busy svg { animation: none; } #toast { transition: none; } }
 
 /* the board on a phone, as an app on the home screen: clear of the notch and the home indicator */
 body.phone header { padding-top: env(safe-area-inset-top); height: calc(50px + env(safe-area-inset-top)); padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); gap: 8px; }

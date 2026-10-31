@@ -102,6 +102,9 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		OnSession: func(sid string) {
 			d.Store.Update(id, func(r *core.Record) { r.SessionID = sid })
 		},
+		OnCost: func(usd float64) {
+			d.Store.Update(id, func(r *core.Record) { r.Cost += usd })
+		},
 	}))
 	return nil
 }
@@ -492,13 +495,13 @@ func (d *Dispatcher) workOf(id string) (worktree, baseBranch string, err error) 
 	return r.Worktree, gitx.DetectBaseBranch(r.Worktree), nil
 }
 
-// History: the last commits of the task's branch, for the commits' graph.
+// History: the last 10 commits of the task's branch, for the commits' graph.
 func (d *Dispatcher) History(ctx context.Context, id string) (*gitx.History, error) {
 	wt, base, err := d.workOf(id)
 	if err != nil {
 		return nil, err
 	}
-	return gitx.Log(ctx, wt, base, 50)
+	return gitx.Log(ctx, wt, base, 10)
 }
 
 // CommitInfo: one commit of the task's worktree, its message and files.
