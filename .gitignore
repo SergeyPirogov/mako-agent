@@ -1,6 +1,4 @@
-node_modules/
 dist/
 .env
 mako.config.json
 .mako/
-release/
