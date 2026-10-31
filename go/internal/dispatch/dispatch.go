@@ -69,6 +69,8 @@ type Dispatcher struct {
 	wake     chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
+	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
+	restartPending bool
 }
 
 type LogLine struct {

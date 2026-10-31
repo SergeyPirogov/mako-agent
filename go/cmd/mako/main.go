@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -114,6 +115,14 @@ func run(homeFlag string, open, noTray bool) error {
 	defer stop()
 	ctx, quit := context.WithCancel(ctx)
 	defer quit()
+	// «Перезапустити, коли агенти закінчать хід»: once none works, Mako quits as usual and starts again.
+	var restart atomic.Bool
+	go func() {
+		if d.WaitRestart(ctx, 2*time.Second) {
+			restart.Store(true)
+			quit()
+		}
+	}()
 	// Mako built from a clone of its repository updates itself from it.
 	var updater *update.Updater
 	if exe, err := os.Executable(); err == nil {
@@ -142,7 +151,29 @@ func run(homeFlag string, open, noTray bool) error {
 	awake.Keep(false)
 	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdown)
+	err = srv.Shutdown(shutdown)
+	if !restart.Load() {
+		return err
+	}
+	// The agents get to save their conversations before the new Mako resumes them.
+	for end := time.Now().Add(4 * time.Second); time.Now().Before(end) && d.Sessions.Live()+d.Chats.Live() > 0; {
+		time.Sleep(100 * time.Millisecond)
+	}
+	return relaunch()
+}
+
+// relaunch replaces Mako with the binary at its path, which may be a new build: the same pid, arguments and
+// environment.
+func relaunch() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("перезапуск: %w", err)
+	}
+	if p, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = p
+	}
+	log.Printf("перезапуск: %s", exe)
+	return fmt.Errorf("перезапуск: %w", syscall.Exec(exe, os.Args, os.Environ()))
 }
 
 func running(base string) bool {

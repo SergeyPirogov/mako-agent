@@ -84,6 +84,7 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 	pause := systray.AddMenuItemCheckbox("Пауза: не шукати нових задач", "", false)
 	login := systray.AddMenuItemCheckbox("Запускати при вході в систему", "", StartsAtLogin())
 	folder := systray.AddMenuItem("Показати папку даних", "")
+	restart := systray.AddMenuItemCheckbox("Перезапустити, коли агенти закінчать хід", "", false)
 	systray.AddSeparator()
 	exit := systray.AddMenuItem("Вийти з Mako", "")
 
@@ -109,6 +110,11 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 			}
 		}
 		mu.Unlock()
+		if app.D.RestartPending() {
+			restart.Check()
+		} else {
+			restart.Uncheck()
+		}
 		if v.Paused {
 			pause.Check()
 		} else {
@@ -157,6 +163,9 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 						login.Uncheck()
 					}
 				}
+			case <-restart.ClickedCh:
+				app.D.RequestRestart(!restart.Checked())
+				refresh()
 			case <-folder.ClickedCh:
 				ShowFolder(app.Home)
 			case <-exit.ClickedCh:
