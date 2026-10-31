@@ -28,6 +28,7 @@ type settingsReply struct {
 	JiraBase string          `json:"jiraBaseUrl"`
 	Home     string          `json:"home"`
 	Problems []string        `json:"problems"`
+	AutoWip  int             `json:"autoWip"` // the WIP limit «автоматично» gives on this Mac
 }
 
 type settingsSave struct {
@@ -47,7 +48,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		if err != nil || !json.Valid(raw) {
 			raw = []byte("{}")
 		}
-		reply := settingsReply{Config: raw, Env: map[string]bool{}, JiraBase: cfg.Env["JIRA_BASE_URL"], Home: s.Home}
+		reply := settingsReply{Config: raw, Env: map[string]bool{}, JiraBase: cfg.Env["JIRA_BASE_URL"], Home: s.Home, AutoWip: config.AutoWip()}
 		for _, k := range secretKeys {
 			reply.Env[k] = cfg.Get(k) != ""
 		}
