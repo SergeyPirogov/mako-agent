@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -294,9 +295,10 @@ func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText,
 		"- complexity: how hard the task was: 1 a trivial edit, 5 a large or tricky change across many places;",
 		"- completeness: how much of what the task asks the changes actually do: 5 all of it, 1 almost nothing;",
 		"- risk: how likely the change is to break something or need rework in review: 1 safe, 5 very risky.",
+		"Also the size the task came to: \"small\" (a few lines in one place), \"medium\" (several files of one part), or \"big\" (many parts, new subsystems, migrations).",
 		"Base the scores on the task's text and the actual changes, not on what the agent says about itself.",
 		"Answer with JSON only, no code fences, in this shape, each \"why\" one short sentence in Ukrainian:",
-		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"missing":"..."}`,
+		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"size":"small","missing":"..."}`,
 		"\"missing\": in Ukrainian, at most 3 short points on what the description should have said (\"\" when nothing).",
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
 		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
@@ -322,12 +324,17 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 	}
 	var in struct {
 		Clarity, Complexity, Completeness, Risk score
+		Size                                    string
 		Missing                                 json.RawMessage
 	}
 	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
 		return core.Assessment{}, fmt.Errorf("оцінка не в JSON: %v", err)
 	}
 	a := core.Assessment{State: "done", Missing: pointsText(in.Missing)}
+	// The size came later than the scores: one it does not know is left out, not a failed assessment.
+	if size := strings.ToLower(strings.TrimSpace(in.Size)); slices.Contains(core.Sizes, size) {
+		a.Size = size
+	}
 	for _, s := range []struct {
 		in  score
 		out *core.Score

@@ -19,6 +19,8 @@ type Task struct {
 	NativeID    string       `json:"nativeId,omitempty"`   // GitLab's global issue id
 	Assignees   []string     `json:"assignees,omitempty"`
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// Author: who wrote the issue in the tracker ("" unknown).
+	Author string `json:"author,omitempty"`
 }
 
 type Comment struct {
@@ -91,6 +93,8 @@ type Record struct {
 	// "comments"), so the same problem is asked about once; AutoFixes counts those requests.
 	AutoFixed map[string]string `json:"autoFixed,omitempty"`
 	AutoFixes int               `json:"autoFixes,omitempty"`
+	// ReviewFixes: how many times the agent was asked to fix the MR's review comments, by you or by itself.
+	ReviewFixes int `json:"reviewFixes,omitempty"`
 	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.
 	AgentReviews []AgentReview `json:"agentReviews,omitempty"`
 	// Assessment: how the agent rates the finished task: its description, how hard it was, how much of it is
@@ -99,7 +103,38 @@ type Record struct {
 	// Retro: the look back at the task once its MR is merged: what went well, what did not, what to do
 	// differently next time.
 	Retro *Retro `json:"retro,omitempty"`
+	// Estimate: the agent's look at the task before it starts: how clear, how big, how risky, and how to take it.
+	Estimate *Estimate `json:"estimate,omitempty"`
 }
+
+// Estimate is the agent's rating of a new task, from its text and the repository's layout, before anyone
+// takes it.
+type Estimate struct {
+	At string `json:"at"`
+	// State: "running", "done" or "failed".
+	State string `json:"state"`
+	// For: the key of the title and description it was made for; another key means the task changed since.
+	For string `json:"for,omitempty"`
+	// Clarity: how well the task is described (5: all that is needed is in it).
+	Clarity Score `json:"clarity"`
+	// Questions: what to ask in the tracker before the agent starts, Markdown points ("" none).
+	Questions string `json:"questions,omitempty"`
+	// Size: "small", "medium" or "big".
+	Size string `json:"size,omitempty"`
+	// Parts: which parts of the code it will likely touch.
+	Parts string `json:"parts,omitempty"`
+	// Risk: how likely it is to break something (5: the riskiest), with what it touches.
+	Risk Score `json:"risk"`
+	// Plan, Split, Model: start with a plan, split into several tasks, the model to give it ("" any).
+	Plan   bool   `json:"plan,omitempty"`
+	Split  bool   `json:"split,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Advice string `json:"advice,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// Sizes a task can be, the smallest first: what the estimate expects and what the finished task came to.
+var Sizes = []string{"small", "medium", "big"}
 
 // Retro is the agent's retrospective of a merged task, each part a few Markdown bullets in Ukrainian.
 type Retro struct {
@@ -125,6 +160,8 @@ type Assessment struct {
 	Completeness Score `json:"completeness"`
 	// Risk: how likely the change is to break something (5: the riskiest).
 	Risk Score `json:"risk"`
+	// Size: what the task came to, "small", "medium" or "big" ("" not rated: an older assessment).
+	Size string `json:"size,omitempty"`
 	// Missing: what the description should have said, for whoever writes the next one.
 	Missing string `json:"missing,omitempty"`
 	Error   string `json:"error,omitempty"`

@@ -81,6 +81,7 @@ let folded = (() => { try { return { done: true, failed: true, ...JSON.parse(loc
 // The list's filter, shown once there are more tasks than fit at a glance.
 let query = "";
 const FILTER_FROM = 15;
+let statsDays = localStorage.getItem("mako-stats-days") || "";
 let data = null, shown = "", selected = null, statsOpen = false, newOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
 // The last changes seen per task: a task opened again shows them at once, while the fresh ones load.
 const changesOf = new Map();
@@ -226,7 +227,11 @@ $("poll").onclick = async () => { $("poll").classList.add("busy"); await post("p
 async function load() {
   try {
     // seen=1: the board is on screen, so Mako knows you are back (and how long you were away).
-    data = await (await fetch(`/api/state${document.visibilityState === "visible" ? "?seen=1" : ""}`)).json();
+    // days: the period «Статистика» counts over.
+    const q = new URLSearchParams();
+    if (document.visibilityState === "visible") q.set("seen", "1");
+    if (statsDays) q.set("days", statsDays);
+    data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`)).json();
   } catch {
     $("search").textContent = "Mako не відповідає";
     $("search").className = "search err";
@@ -1313,6 +1318,10 @@ async function uploadImage(area, t, file, busy, fail) {
 
 // How the taken tasks went: shown where a task's card goes while none is open.
 function statsHTML(s) {
+  const period = `<select id="stats-days" aria-label="Період статистики">${[["", "За весь час"], ["7", "7 днів"], ["30", "30 днів"], ["90", "90 днів"]]
+    .map(([v, l]) => `<option value="${v}"${v === statsDays ? " selected" : ""}>${l}</option>`).join("")}</select>`;
+  const head = `<div class="stats-head"><h1>Статистика</h1>${period}</div>`;
+  if (!s?.taken && statsDays) return `<div class="stats">${head}<div class="text" style="color:var(--mute)">За цей період агент не брав задач</div></div>`;
   if (!s?.taken) return `<div class="empty">Виберіть задачу зліва. Статистика з'явиться, коли агент візьме першу задачу.</div>`;
   const pct = (n) => s.taken ? Math.round((n / s.taken) * 100) : 0;
   const dur = (sec) => {
@@ -1321,7 +1330,7 @@ function statsHTML(s) {
   };
   const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
   return `<div class="stats">
-    <h1>Статистика</h1>
+    ${head}
     <div class="stat-row">
       ${tile("Взято задач", s.taken, s.running ? `${s.running} ще в роботі` : "")}
       ${tile("Успішно", s.succeeded, `${pct(s.succeeded)}% · змерджено ${s.merged}${s.succeeded > s.merged ? ` · на рев'ю ${s.succeeded - s.merged}` : ""}`)}
@@ -1339,6 +1348,9 @@ function statsHTML(s) {
       ${tile("Виконано задачі", `${s.completeness.toFixed(1)}/5`, "наскільки повно")}
       ${tile("Ризик змін", `${s.risk.toFixed(1)}/5`, "в середньому")}
     </div>` : ""}
+    ${forecastHTML(s.forecast)}
+    ${bySizeHTML(s.bySize, dur)}
+    ${clarityHTML(s)}
     ${groupsHTML("За проєктами", s.projects, "Проєкт")}
     ${groupsHTML("За агентами", s.executors, "Агент", (n) => n === "terminal" ? "Агент у Mako" : n === "—" ? "—" : `Orca · ${n}`)}
     <h3>Причини невдач</h3>
@@ -1392,6 +1404,43 @@ function groupsHTML(title, groups, col, name = (n) => n) {
   return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th>${rated ? `<th title="Як добре описано задачі, за оцінкою агента">Опис</th>` : ""}</tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
 }
 
+const SIZE_NAMES = { small: "мала", medium: "середня", big: "велика" };
+
+// The size the estimate expected before the start against the one the finished task came to.
+function forecastHTML(f) {
+  if (!f?.compared) return "";
+  const sizes = Object.keys(SIZE_NAMES);
+  const row = (cells, i) => `<tr><td>${SIZE_NAMES[sizes[i]]}</td>${cells.map((n, j) => `<td class="${i === j ? "hit" : ""}">${n || "—"}</td>`).join("")}</tr>`;
+  return `<h3>Прогноз vs факт розміру <span class="muted">· ${f.compared} ${plural(f.compared, "задача", "задачі", "задач")} · влучань ${Math.round((f.hits / f.compared) * 100)}%</span></h3>
+    <div class="table"><table class="forecast"><thead><tr><th>Очікувалось ↓ · вийшла →</th>${sizes.map((x) => `<th>${SIZE_NAMES[x]}</th>`).join("")}</tr></thead>
+    <tbody>${f.matrix.map(row).join("")}</tbody></table></div>`;
+}
+
+// How the tasks of each expected size went: merged with no rework, and what the agent spent on them.
+function bySizeHTML(groups, dur) {
+  if (!groups?.some((g) => g.taken)) return "";
+  const row = (g) => `<tr><td>${SIZE_NAMES[g.size] || esc(g.size)}</td><td>${g.taken}</td>`
+    + `<td>${g.ended ? `${Math.round((g.clean / g.ended) * 100)}% <span class="muted">· ${g.clean} з ${g.ended}</span>` : "—"}</td>`
+    + `<td>${g.timed ? dur(g.seconds) : "—"}</td><td>${g.priced ? `$${g.cost.toFixed(2)}` : "—"}</td></tr>`;
+  return `<h3>За очікуваним розміром</h3><div class="table"><table><thead><tr><th>Розмір</th><th>Взято</th>`
+    + `<th title="Змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось">Без переробок</th>`
+    + `<th title="Від передачі агенту до MR">Час агента</th><th title="Лише агент у Mako">Витрати</th></tr></thead><tbody>${groups.filter((g) => g.taken).map(row).join("")}</tbody></table></div>`;
+}
+
+// Where the agents most often did not understand the task: clarity 1–2 in the final assessment.
+function clarityHTML(s) {
+  const table = (groups, col) => {
+    const rated = (groups || []).filter((g) => g.assessed)
+      .sort((a, b) => b.unclear / b.assessed - a.unclear / a.assessed || b.assessed - a.assessed);
+    if (!rated.length) return "";
+    const row = (g) => `<tr><td>${esc(g.name)}</td><td>${g.assessed}</td><td>${g.clarity.toFixed(1)}/5</td>`
+      + `<td>${g.unclear ? `${g.unclear} <span class="muted">· ${Math.round((g.unclear / g.assessed) * 100)}%</span>` : "—"}</td></tr>`;
+    return `<div class="table"><table><thead><tr><th>${col}</th><th>Оцінено</th><th>Опис</th><th title="Ясність опису 1–2 з 5">Не зрозуміли</th></tr></thead><tbody>${rated.map(row).join("")}</tbody></table></div>`;
+  };
+  const body = table(s.projects, "Проєкт") + table(s.authors, "Автор");
+  return body ? `<h3>Якість опису</h3>${body}` : "";
+}
+
 // «Поки вас не було»: what waits for you, the MRs to merge, what failed and got merged, with links to the tasks.
 function digestHTML(d) {
   const at = (ms) => new Date(ms).toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
@@ -1425,8 +1474,15 @@ function renderDetail() {
   }
   if (!r) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
+    // The period's list is open: the next refresh would close it.
+    if (document.activeElement?.id === "stats-days") return;
     $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Задачі</button>` : "") + statsHTML(data.stats) + faultsHTML(data.faults);
     if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
+    if ($("stats-days")) $("stats-days").onchange = (e) => {
+      statsDays = e.target.value;
+      try { localStorage.setItem("mako-stats-days", statsDays); } catch {}
+      load();
+    };
     bindFaults();
     return;
   }

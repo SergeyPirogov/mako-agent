@@ -85,6 +85,9 @@ type jiraIssue struct {
 		Assignee *struct {
 			AccountID string `json:"accountId"`
 		} `json:"assignee"`
+		Reporter *struct {
+			DisplayName string `json:"displayName"`
+		} `json:"reporter"`
 		Comment struct {
 			Comments []struct {
 				Body   json.RawMessage `json:"body"`
@@ -105,7 +108,7 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 	var res struct {
 		Issues []jiraIssue `json:"issues"`
 	}
-	body := map[string]any{"jql": jql, "maxResults": max, "fields": []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee"}}
+	body := map[string]any{"jql": jql, "maxResults": max, "fields": []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}}
 	if err := j.do(ctx, "POST", "/rest/api/3/search/jql", body, &res); err != nil {
 		return nil, err
 	}
@@ -130,6 +133,9 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 		}
 		if is.Fields.Assignee != nil {
 			t.Assignees = []string{is.Fields.Assignee.AccountID}
+		}
+		if is.Fields.Reporter != nil {
+			t.Author = is.Fields.Reporter.DisplayName
 		}
 		tasks = append(tasks, t)
 	}

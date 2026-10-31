@@ -147,7 +147,12 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
 		all := s.D.Store.All()
-		reply.Stats = core.Summarize(all, time.Now())
+		// days: the board's period for the statistics, the last N days (none: all the time).
+		var since time.Time
+		if n, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && n > 0 {
+			since = time.Now().AddDate(0, 0, -n)
+		}
+		reply.Stats = core.Summarize(all, time.Now(), since)
 		reply.Faults = s.D.Faults()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}

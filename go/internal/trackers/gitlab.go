@@ -38,6 +38,7 @@ type glIssue struct {
 	Labels      []string `json:"labels"`
 	IssueType   string   `json:"issue_type"`
 	Assignees   []glUser `json:"assignees"`
+	Author      glUser   `json:"author"`
 	NotesCount  int      `json:"user_notes_count"`
 	References  struct {
 		Full string `json:"full"`
@@ -226,6 +227,7 @@ func (g *GitLab) toTask(projectPath string, is glIssue) core.Task {
 		ClosingRef:  fmt.Sprintf("Closes %s#%d", projectPath, is.IID),
 		NativeID:    strconv.Itoa(is.ID),
 		Assignees:   assignees,
+		Author:      is.Author.Username,
 	}
 }
 
