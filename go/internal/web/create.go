@@ -41,6 +41,26 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, map[string]any{"ok": true, "id": id})
 	})
+	// «Чому немає задачі?»: a link to an issue, and what of the search keeps it off the board.
+	mux.HandleFunc("POST /api/why", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var in struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "не вдалося прочитати посилання: " + err.Error()})
+			return
+		}
+		why, err := s.D.WhyNot(r.Context(), in.URL)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "why": why})
+	})
 	mux.HandleFunc("POST /api/upload", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
