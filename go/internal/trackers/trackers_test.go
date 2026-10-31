@@ -3,9 +3,11 @@ package trackers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -131,5 +133,38 @@ func TestADF(t *testing.T) {
 	want := "## Why\n\nsee https://x\n@Ann\n\n```\ngo test\n```\n\n"
 	if got := adfToText(raw); got != want {
 		t.Errorf("got %q", got)
+	}
+}
+
+// FetchMine reads every page of the list, not only the first perPage issues.
+func TestFetchMinePages(t *testing.T) {
+	const total = perPage + 50
+	var pages []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/user" {
+			w.Write([]byte(`{"login":"serg"}`))
+			return
+		}
+		if r.URL.Path != "/issues" {
+			w.WriteHeader(404)
+			return
+		}
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		size, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+		pages = append(pages, r.URL.Query().Get("page"))
+		items := []string{}
+		for n := (page-1)*size + 1; n <= min(page*size, total); n++ {
+			items = append(items, fmt.Sprintf(`{"number":%d,"state":"open","title":"T%d","repository":{"full_name":"acme/web"}}`, n, n))
+		}
+		w.Write([]byte("[" + strings.Join(items, ",") + "]"))
+	}))
+	defer srv.Close()
+	g, _ := NewGitHub(&config.Tracker{ID: "github", APIURL: srv.URL, AllProjects: true, TriggerOff: true}, "tok")
+	tasks, err := g.FetchMine(context.Background())
+	if err != nil || len(tasks) != total || tasks[total-1].ID != fmt.Sprintf("acme/web#%d", total) {
+		t.Fatalf("%v: %d tasks", err, len(tasks))
+	}
+	if strings.Join(pages, ",") != "1,2" {
+		t.Errorf("pages %v", pages)
 	}
 }

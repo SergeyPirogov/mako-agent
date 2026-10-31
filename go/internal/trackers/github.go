@@ -132,12 +132,12 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 		tasks = append(tasks, t)
 	}
 	if g.cfg.AllProjects {
-		q := url.Values{"filter": {"assigned"}, "state": {"open"}, "per_page": {"50"}}
+		q := url.Values{"filter": {"assigned"}, "state": {"open"}}
 		if g.cfg.Trigger != "" {
 			q.Set("labels", g.cfg.Trigger)
 		}
-		var issues []ghIssue
-		if err := g.do(ctx, "GET", "/issues?"+q.Encode(), nil, &issues); err != nil {
+		issues, err := allPages(q, func(query string, out *[]ghIssue) error { return g.do(ctx, "GET", "/issues?"+query, nil, out) })
+		if err != nil {
 			return nil, err
 		}
 		for _, is := range issues {
@@ -158,15 +158,17 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 		assignee = me
 	}
 	for repo := range g.cfg.Projects {
-		q := url.Values{"state": {"open"}, "per_page": {"50"}}
+		q := url.Values{"state": {"open"}}
 		if g.cfg.Trigger != "" {
 			q.Set("labels", g.cfg.Trigger)
 		}
 		if assignee != "" {
 			q.Set("assignee", assignee)
 		}
-		var issues []ghIssue
-		if err := g.do(ctx, "GET", "/repos/"+repo+"/issues?"+q.Encode(), nil, &issues); err != nil {
+		issues, err := allPages(q, func(query string, out *[]ghIssue) error {
+			return g.do(ctx, "GET", "/repos/"+repo+"/issues?"+query, nil, out)
+		})
+		if err != nil {
 			return nil, err
 		}
 		for _, is := range issues {
