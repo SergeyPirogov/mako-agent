@@ -122,6 +122,8 @@ const ago = (iso) => {
   if (m < 1440) return `${Math.round(m / 60)} год тому`;
   return `${Math.round(m / 1440)} дн тому`;
 };
+// The list's narrow row: «4 хв» for «4 хв тому», the whole of it in the tooltip.
+const agoShort = (iso) => ago(iso).replace(/ тому$/, "");
 const ICON = {
   chevron: `<svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`,
   doc: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>`,
@@ -154,7 +156,8 @@ const state = (r) => {
 const cardStatus = (r) => {
   if (r.status === "cancelled") return ["скасовано", ""];
   if (r.error) return ["не вдалося", "err"];
-  if (r.blocked) return [r.blocked, "warn"];
+  // «агент чекає на вас: агент питає»: the head in the narrow row, the whole of it in the tooltip.
+  if (r.blocked) return [r.blocked.split(": ")[0], "warn", r.blocked];
   if (r.reviewState === "closed") return ["MR закрито", "err"];
   if (r.reviewState === "merged") return ["змерджено", ""];
   if (r.status === "queued") return ["у черзі", ""];
@@ -450,11 +453,12 @@ function render() {
     html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
     for (const r of fold ? [] : items) {
       const st = state(r);
-      // The card shows the task's status; its number is in the tooltip and the task's panel.
+      // The card shows the task's status; its number is in the tooltip and the task's panel. A plain task needs no
+      // «Задача» badge in the narrow list (a bug keeps «Баг»): the room goes to the status.
       const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${kind(r)}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }
