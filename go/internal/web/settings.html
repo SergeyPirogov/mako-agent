@@ -123,7 +123,7 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
     </div>
     <div class="pane" data-pane="phone">
       <h2>Телефон</h2>
-      <p class="lead">Mako на iPhone: дошка як додаток на екрані «Додому», «Взяти в роботу» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
+      <p class="lead">Mako на iPhone чи Android: дошка як додаток на екрані «Додому», «Взяти в роботу» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
       <div id="phone"></div>
     </div>
     <div class="pane" data-pane="notifications">
@@ -527,7 +527,7 @@ function show(id) {
   window.scrollTo(0, 0);
 }
 
-// The phone: Tailscale brings the iPhone to this Mac with HTTPS; a QR code pairs it once.
+// The phone: Tailscale brings the iPhone or Android phone to this Mac with HTTPS; a QR code pairs it once.
 let phoneNote = "", phoneError = "";
 const linkifyText = (t) => esc(t).replace(/https?:\/\/[^\s<>"')]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 async function renderPhone(qr) {
@@ -544,7 +544,7 @@ async function renderPhone(qr) {
   let step1;
   if (!t.installed) {
     step1 = `Встановіть <a href="https://tailscale.com/download/mac" target="_blank" rel="noopener">Tailscale на Mac</a> (безкоштовно) і увійдіть.
-      На iPhone він не потрібен, якщо відкрити Mako з будь-якої мережі. Потім натисніть «Перевірити».
+      На телефоні він не потрібен, якщо відкрити Mako з будь-якої мережі. Потім натисніть «Перевірити».
       <div class="row"><button data-p="refresh">Перевірити</button></div>`;
   } else if (!t.running) {
     step1 = `${esc(t.error || "Tailscale не підключено")}. Увійдіть у застосунку Tailscale на Mac.
@@ -552,11 +552,12 @@ async function renderPhone(qr) {
   } else if (!t.serving) {
     step1 = `${ok(`Tailscale працює: <code>${esc(t.host)}</code>`)}
       <div class="modes">
-        <div class="mode"><b>З будь-якої мережі</b><p class="muted">На iPhone нічого не треба. Mako буде в інтернеті за адресою <code>https://${esc(t.host)}</code>
+        <div class="mode"><b>З будь-якої мережі</b><p class="muted">На телефоні нічого не треба. Mako буде в інтернеті за адресою <code>https://${esc(t.host)}</code>
           (Tailscale Funnel), але без ключа телефона з QR-коду нічого не покаже.</p>
           <button class="primary" data-p="serve" data-public="1">Відкрити з будь-якої мережі</button></div>
-        <div class="mode"><b>Лише пристрої Tailscale</b><p class="muted">З інтернету Mako не видно. На iPhone теж потрібен
-          <a href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">Tailscale</a> з тим самим акаунтом.</p>
+        <div class="mode"><b>Лише пристрої Tailscale</b><p class="muted">З інтернету Mako не видно. На телефоні теж потрібен Tailscale
+          (<a href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">iPhone</a>,
+          <a href="https://play.google.com/store/apps/details?id=com.tailscale.ipn" target="_blank" rel="noopener">Android</a>) з тим самим акаунтом.</p>
           <button data-p="serve">Відкрити для Tailscale</button></div>
       </div>`;
   } else {
@@ -569,8 +570,9 @@ async function renderPhone(qr) {
   if (phoneError) step1 += `<div class="notice-inline">${linkifyText(phoneError)}</div>`;
   const step2 = !st.url ? `<span class="muted">Спершу крок 1.</span>`
     : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR-код"><ol>
-        <li>Наведіть камеру iPhone на код і відкрийте посилання. Код діє 10 хвилин і один раз.</li>
-        <li>У Safari: «Поділитися» <b>⎙</b> → «На екран “Додому”».</li>
+        <li>Наведіть камеру телефона на код і відкрийте посилання. Код діє 10 хвилин і один раз.</li>
+        <li>iPhone, у Safari: «Поділитися» <b>⎙</b> → «На екран “Додому”». Android, у Chrome: «Встановити» на дошці
+          або <b>⋮</b> → «Додати на головний екран».</li>
         <li>Відкрийте Mako зі значка й натисніть 🔔, щоб отримувати сповіщення.</li></ol></div>`
     : `<div class="row"><button class="primary" data-p="pairing">Показати QR-код</button></div>`;
   const devices = st.devices.length
@@ -580,7 +582,7 @@ async function renderPhone(qr) {
       `<div class="row"><button data-p="test">Надіслати тестове сповіщення</button><span class="msg" id="phone-msg"></span></div>`
     : `<span class="muted">Ще немає.</span>`;
   box.innerHTML = `<div class="card"><h3 class="step">1. Доступ з телефона</h3>${step1}</div>
-    <div class="card"><h3 class="step">2. Підключити iPhone</h3>${step2}</div>
+    <div class="card"><h3 class="step">2. Підключити телефон</h3>${step2}</div>
     <div class="card"><h3 class="step">Підключені телефони</h3>${devices}</div>`;
   phoneNote = st.devices.length ? `${st.devices.length} підключено` : t.serving ? "готово до підключення" : "";
   for (const b of box.querySelectorAll("[data-p]")) {

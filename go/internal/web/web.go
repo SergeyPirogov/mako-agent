@@ -47,7 +47,7 @@ type Server struct {
 	Home    string // where mako.config.json and .env live
 	// Show opens a page of the board for the user (Mako's window or the browser); a second start asks for it.
 	Show func(url string)
-	// Phones: the paired iPhones; nil turns the phone off.
+	// Phones: the paired phones (iPhone, Android); nil turns the phone off.
 	Phones *phone.Phones
 	// Update: Mako's own new commits and their install; nil when Mako is not built from a clone.
 	Update *update.Updater

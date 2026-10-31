@@ -21,7 +21,7 @@ self.addEventListener("push", (e) => {
     tag: m.tag || undefined,
     renotify: !!m.tag,
     icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    badge: "/icons/badge-96.png", // Android draws it as a white mask in the status bar
     actions: actions.slice(0, max).map((a, i) => ({ action: String(i), title: a.title })),
     data: { url: m.url || "/", actions },
   }));
