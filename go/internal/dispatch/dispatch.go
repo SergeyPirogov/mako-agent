@@ -33,6 +33,10 @@ type Search struct {
 	At    time.Time `json:"at"`
 	Found int       `json:"found"`
 	Error string    `json:"error,omitempty"`
+	// Down: the failure in words, with the tracker and its host (outage); Since: when the searches began to
+	// fail, kept while they go on failing.
+	Down  string    `json:"down,omitempty"`
+	Since time.Time `json:"since,omitzero"`
 }
 
 type Dispatcher struct {
@@ -253,10 +257,13 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 		tasks, err := t.FetchMine(ctx)
 		s := Search{At: time.Now(), Found: len(tasks)}
 		if err != nil {
-			s.Error = err.Error()
+			s.Error, s.Down, s.Since = err.Error(), outage(t, err), s.At
 			d.Fault(t.ID(), "пошук не вдався", err)
 		}
 		d.mu.Lock()
+		if prev, ok := d.searches[t.ID()]; ok && err != nil && prev.Error != "" {
+			s.Since = prev.Since
+		}
 		d.searches[t.ID()] = s
 		d.mu.Unlock()
 		if err != nil {

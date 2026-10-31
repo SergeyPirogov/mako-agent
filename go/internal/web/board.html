@@ -30,6 +30,7 @@
 </header>
 <div id="phone-hint"></div>
 <div id="problems"></div>
+<div id="trackers-down"></div>
 <div id="update"></div>
 <div id="limit-hold"></div>
 <div class="work" id="work">
@@ -257,6 +258,18 @@ function limitsHTML(l) {
 }
 
 // Past the threshold the queue waits for the limit to reset; agents already working go on.
+// Trackers Mako cannot search now (no internet, the VPN dropped, the service is down): which one, why in
+// words, since when; the raw error under «Деталі».
+function downHTML(failed) {
+  if (!failed.length) return "";
+  const since = (iso) => iso ? ` з ${new Date(iso).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}` : "";
+  return `<div class="banner down" role="alert">${failed.map(([id, s]) =>
+    `<div><b>⚠ ${esc(s.down || id)}</b><span class="muted">${since(s.since)}</span>
+      <details><summary>Деталі</summary><code>${esc(s.error)}</code></details></div>`).join("")}
+    <div class="muted">Нові задачі з ${failed.length > 1 ? "цих трекерів" : "цього трекера"} не з'являться, доки він недоступний; Mako перевіряє знову сам.
+      <button class="ghost" id="poll-again">Перевірити зараз</button></div></div>`;
+}
+
 function limitHoldHTML(h) {
   if (!h) return "";
   const queued = data.records.filter((r) => !r.archivedAt && r.status === "queued").length;
@@ -313,9 +326,16 @@ function render() {
   $("limits").innerHTML = limitsHTML(data.limits);
   const searches = Object.entries(data.searches);
   const failed = searches.filter(([, s]) => s.error);
+  // Replaced only when it changes, so an open «Деталі» stays open between refreshes.
+  const down = data.paused ? "" : downHTML(failed);
+  if ($("trackers-down").dataset.html !== down) {
+    $("trackers-down").innerHTML = $("trackers-down").dataset.html = down;
+    const pt = $("poll-again");
+    if (pt) pt.onclick = () => $("poll").click();
+  }
   $("search").className = "search" + (failed.length ? " err" : "");
   $("search").textContent = failed.length
-    ? failed.map(([id, s]) => `${id}: ${s.error}`).join(" · ")
+    ? `Недоступно: ${failed.map(([id]) => id).join(", ")}`
     : data.paused ? "Пошук задач на паузі"
     : searches.length ? `Перевірено ${ago(searches.map(([, s]) => s.at).sort().pop())}` : "Перша перевірка трекерів…";
   $("search").title = $("search").textContent;
