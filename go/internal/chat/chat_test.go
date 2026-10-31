@@ -1,12 +1,24 @@
 package chat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// eventually waits for ok to hold. The fake agents are shell scripts, slow to start when go test ./...
+// runs every package at once, so the deadline is generous: it costs nothing when ok comes true early.
+func eventually(t *testing.T, ok func() bool, why func() string) {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); !ok(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal(why())
+		}
+	}
+}
 
 // A stand-in for claude: the same JSON lines, one turn with a permission, then it waits for more.
 const fakeClaude = `#!/bin/sh
@@ -37,13 +49,7 @@ func TestChat(t *testing.T) {
 	defer s.Stop()
 	wait := func(state string) {
 		t.Helper()
-		for i := 0; i < 300; i++ {
-			if st, _, _ := s.State(); st == state {
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		t.Fatalf("no %s: %+v", state, s.Snapshot())
+		eventually(t, func() bool { st, _, _ := s.State(); return st == state }, func() string { return fmt.Sprintf("no %s: %+v", state, s.Snapshot()) })
 	}
 	wait("waiting")
 	if _, tool, _ := s.State(); tool != "Write: a.txt" {
@@ -79,9 +85,7 @@ func TestChat(t *testing.T) {
 	if err := s.Send("Далі"); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 300 && s.Running(); i++ {
-		time.Sleep(10 * time.Millisecond)
-	}
+	eventually(t, func() bool { return !s.Running() }, func() string { return "still running" })
 	if b, _ := os.ReadFile(filepath.Join(dir, "more.json")); !strings.Contains(string(b), "Далі") {
 		t.Fatalf("more %s", b)
 	}
@@ -105,12 +109,7 @@ func TestHistory(t *testing.T) {
 	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread more\n"), 0o755)
 	s := Start(Options{ID: "a#1", Worktree: dir, Command: bin, History: history})
 	defer s.Stop()
-	for i := 0; i < 300; i++ {
-		if st, _, _ := s.State(); st == "done" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	eventually(t, func() bool { st, _, _ := s.State(); return st == "done" }, func() string { return fmt.Sprintf("not done: %+v", s.Snapshot()) })
 	got := []string{}
 	for _, it := range s.Snapshot().Items {
 		got = append(got, it.Kind+":"+it.Status+":"+it.Text+it.Output)
@@ -142,12 +141,7 @@ func TestAskAndSleep(t *testing.T) {
 	defer s.Stop()
 	until := func(ok func() bool) {
 		t.Helper()
-		for i := 0; i < 300 && !ok(); i++ {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if !ok() {
-			t.Fatalf("not yet: %+v", s.Snapshot())
-		}
+		eventually(t, ok, func() string { return fmt.Sprintf("not yet: %+v", s.Snapshot()) })
 	}
 	until(func() bool { st, _, _ := s.State(); return st == "waiting" })
 	it := s.Asked()
@@ -194,12 +188,10 @@ func TestResumeWithMessage(t *testing.T) {
 	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\necho \"$msg\" > "+filepath.Join(dir, "msg.json")+"\nread more\n"), 0o755)
 	s := Start(Options{ID: "a#3", Worktree: dir, Command: bin, History: history, Prompt: "Ще тести"})
 	defer s.Stop()
-	for i := 0; i < 300; i++ {
-		if b, _ := os.ReadFile(filepath.Join(dir, "msg.json")); strings.Contains(string(b), "Ще тести") {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	eventually(t, func() bool {
+		b, _ := os.ReadFile(filepath.Join(dir, "msg.json"))
+		return strings.Contains(string(b), "Ще тести")
+	}, func() string { return "no message sent" })
 	got := []string{}
 	for _, it := range s.Snapshot().Items {
 		got = append(got, it.Kind+":"+it.Text)
@@ -234,24 +226,13 @@ func TestPlan(t *testing.T) {
 	defer s.Stop()
 	asked := func(id string) {
 		t.Helper()
-		for i := 0; i < 300; i++ {
-			if it := s.Asked(); it != nil && it.ID == id {
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		t.Fatalf("no plan %s: %+v", id, s.Snapshot())
+		eventually(t, func() bool { it := s.Asked(); return it != nil && it.ID == id }, func() string { return fmt.Sprintf("no plan %s: %+v", id, s.Snapshot()) })
 	}
 	read := func(name string) string {
 		t.Helper()
-		for i := 0; i < 300; i++ {
-			if b, err := os.ReadFile(filepath.Join(dir, name)); err == nil && len(b) > 0 {
-				return string(b)
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		t.Fatalf("no %s", name)
-		return ""
+		var b []byte
+		eventually(t, func() bool { b, _ = os.ReadFile(filepath.Join(dir, name)); return len(b) > 0 }, func() string { return "no " + name })
+		return string(b)
 	}
 	asked("p1")
 	if args := read("args.txt"); !strings.Contains(args, "--permission-mode plan") {
