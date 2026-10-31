@@ -443,6 +443,14 @@ function renderOrca() {
   box.append(instr);
   if (!onTerminal()) box.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
   box.append(check(o, "summaryComment", "Додавати підсумок роботи агента в коментар до задачі", { hint: "Коли з'являється MR, Mako пише з термінала агента і змін гілки, що зроблено й як перевірено. Підсумок завжди видно на дошці" }));
+  // The reviewer agent: only Mako's own agents can be written to, so only with Claude Code in Mako.
+  if (onTerminal()) {
+    cfg.agentReview ??= {};
+    const ar = cfg.agentReview;
+    box.append(check(ar, "enabled", "Рецензент-агент перед MR", { hint: "Коли агент відкрив MR чи закінчив хід із готовою гілкою, другий агент з чистим контекстом читає задачу й diff і пише зауваження (код не змінює). Їх отримує агент у чаті й виправляє. Рев'ю і зауваження видно на дошці" }));
+    box.append(num(ar, "maxRounds", "Раундів рев'ю агентом, максимум", { placeholder: "1", hint: "Після виправлень рецензент дивиться знову, поки є раунди і є зауваження" }));
+    box.append(text(ar, "model", "Модель рецензента", { placeholder: "як в агента", hint: "Наприклад, opus" }));
+  }
   const more = document.createElement("details");
   more.innerHTML = "<summary>Додатково</summary>";
   more.append(select(o, "setup", "Підготовка worktree", [["inherit", "як налаштовано в Orca"], ["run", "запускати"], ["skip", "пропускати"]], { def: "inherit" }));

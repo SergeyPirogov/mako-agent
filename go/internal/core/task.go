@@ -88,6 +88,18 @@ type Record struct {
 	// "comments"), so the same problem is asked about once; AutoFixes counts those requests.
 	AutoFixed map[string]string `json:"autoFixed,omitempty"`
 	AutoFixes int               `json:"autoFixes,omitempty"`
+	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.
+	AgentReviews []AgentReview `json:"agentReviews,omitempty"`
+}
+
+// AgentReview is one look of the reviewer agent at the task's branch.
+type AgentReview struct {
+	At     string `json:"at"`
+	Commit string `json:"commit"` // the branch's HEAD it read
+	// State: "running"; "notes" (its remarks went to the agent); "clean" (nothing to fix); "failed".
+	State string `json:"state"`
+	Notes string `json:"notes,omitempty"` // Markdown
+	Error string `json:"error,omitempty"`
 }
 
 // Lesson is a rule for the repo's next agents, drawn from what you told one of them.

@@ -426,6 +426,10 @@ func (d *Dispatcher) watchTerminals(now time.Time) {
 		if r.Status == core.HandedOff && onTerminal(r) {
 			d.setAgent(r, d.lookTerminal(r, now), now)
 		}
+		// A turn that ended with the branch ready (or the fixes of the reviewer's remarks) is for the reviewer.
+		if d.reviewWanted(r) && d.agentIdle(r.ID) {
+			go d.maybeReview(r.ID)
+		}
 	}
 }
 

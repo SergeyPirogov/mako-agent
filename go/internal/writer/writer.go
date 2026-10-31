@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -200,4 +201,77 @@ func firstNonEmpty(text string) string {
 		}
 	}
 	return ""
+}
+
+// Reviewed is what AgentReview answers when the branch has nothing worth fixing.
+const Reviewed = "LGTM"
+
+// ReviewerTools: what the reviewer may use; it reads, it never writes.
+var ReviewerTools = []string{"Read", "Grep", "Glob", "Bash(ls:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)"}
+
+// AgentReview: a second agent, with a context of its own, reads the task and the branch's changes (and the
+// repo's files as it needs them) and writes its remarks for the agent who did the work; "" when there are
+// none. It runs with read-only tools and keeps no session, so the worktree's conversation stays the agent's.
+func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, model string) (string, error) {
+	commits, stat, diff := BranchWork(ctx, worktree, baseBranch)
+	if strings.TrimSpace(diff) == "" {
+		return "", errors.New("немає змін")
+	}
+	description := t.Description
+	if len(description) > 8000 {
+		description = description[:8000]
+	}
+	prompt := strings.Join([]string{
+		"You review a merge request before a human reviewer sees it. Another agent wrote the code for the task below; you did not.",
+		"Read the task and the diff, and open the repository's files (you are in its worktree) when you need more context.",
+		fmt.Sprintf("The base branch is origin/%s. Do not change any file: you only write remarks.", baseBranch),
+		"Look for what a careful reviewer would point out first: bugs, parts of the task not done, broken edge cases,",
+		"missing or wrong tests, leftovers (debug output, commented-out code, unrelated changes), security problems,",
+		"and what goes against the repository's conventions (CLAUDE.md, the code around it). Skip style nitpicks and matters of taste.",
+		"Answer in Ukrainian with a Markdown list only, one remark per item, each naming the file (and line) and what to change.",
+		"If there is nothing worth fixing, answer exactly " + Reviewed + ".",
+		"", "Task: " + t.ID + " — " + t.Title, orNone(description),
+		"", "Commits:", orNone(commits), stat, clip(diff),
+	}, "\n")
+	path, err := exec.LookPath(Claude)
+	if err != nil {
+		return "", errors.New("Claude Code не знайдено")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	args := []string{"-p", "--output-format", "text", "--no-session-persistence", "--permission-mode", "default",
+		"--disallowedTools", "Edit", "Write", "NotebookEdit", "--allowedTools"}
+	args = append(args, ReviewerTools...)
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir = worktree
+	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Env = append(os.Environ(), "MAKO_REVIEWER=1")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", errors.New("рецензент не відповів за 15 хв")
+	}
+	if err != nil {
+		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
+	}
+	return ReviewNotes(string(out))
+}
+
+// ReviewNotes: the reviewer's remarks from its answer, "" when it found nothing to fix.
+func ReviewNotes(answer string) (string, error) {
+	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer), ""))
+	if text == "" {
+		return "", errors.New("рецензент не дав відповіді")
+	}
+	if strings.EqualFold(strings.Trim(text, " .!*`\"«»"), Reviewed) {
+		return "", nil
+	}
+	if len(text) > 12000 {
+		text = text[:12000] + "\n…"
+	}
+	return text, nil
 }

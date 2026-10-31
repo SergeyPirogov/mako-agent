@@ -70,6 +70,8 @@ type Dispatcher struct {
 	reviews  map[string]reviewLook
 	// lessoning: the tasks whose last message Mako is looking into for a lesson.
 	lessoning map[string]bool
+	// reviewing: the tasks whose branch the reviewer agent reads now.
+	reviewing map[string]bool
 	wake      chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
@@ -94,7 +96,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove
@@ -656,6 +658,9 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		d.move(ctx, t, r.Task, trackers.AtReview)
 		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
 		d.summarize(ctx, r, repo.BaseBranch, review.URL)
+		if rec, _ := d.Store.Get(r.ID); d.reviewWanted(rec) {
+			go d.maybeReview(r.ID)
+		}
 		if !onTerminal(r) {
 			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
 		}
@@ -861,6 +866,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
 		rec.AutoFixed, rec.AutoFixes = nil, 0
+		rec.AgentReviews = nil
 	})
 	d.Take(ctx, id)
 }

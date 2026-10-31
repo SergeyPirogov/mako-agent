@@ -119,3 +119,16 @@ func TestParseDigest(t *testing.T) {
 		}
 	}
 }
+
+func TestParseReviewer(t *testing.T) {
+	if c, _ := Parse([]byte(`{}`), nil); c.Reviewer.Enabled || c.Reviewer.MaxRounds != 1 {
+		t.Fatalf("default %+v", c.Reviewer)
+	}
+	c, _ := Parse([]byte(`{"agentReview":{"enabled":true,"maxRounds":3,"model":" opus "}}`), nil)
+	if !c.Reviewer.Enabled || c.Reviewer.MaxRounds != 3 || c.Reviewer.Model != "opus" {
+		t.Fatalf("reviewer %+v", c.Reviewer)
+	}
+	if c, _ := Parse([]byte(`{"agentReview":{"maxRounds":0}}`), nil); c.Reviewer.MaxRounds != 1 {
+		t.Fatalf("0 rounds: %+v", c.Reviewer)
+	}
+}

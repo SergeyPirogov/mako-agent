@@ -33,6 +33,13 @@ func (d *Dispatcher) AutoFix(ctx context.Context, now time.Time) {
 		if r.Worktree == "" || !exists(r.Worktree) {
 			continue
 		}
+		// The reviewer agent reads the branch now: its remarks go first.
+		d.mu.Lock()
+		reviewing := d.reviewing[r.ID]
+		d.mu.Unlock()
+		if reviewing {
+			continue
+		}
 		// Working, or waiting for your answer: not now. Done or closed: its turn is over.
 		if st := d.lookTerminal(r, now).State; st != "done" && st != "stopped" {
 			continue

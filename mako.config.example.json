@@ -16,6 +16,10 @@
     "timeoutSec": 600,
     "inboxPort": 7777
   },
+  "agentReview": {
+    "enabled": false,
+    "maxRounds": 1
+  },
   "executors": {
     "terminal": {
       "type": "terminal",

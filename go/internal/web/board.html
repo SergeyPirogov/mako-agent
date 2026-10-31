@@ -358,7 +358,7 @@ function render() {
       const st = state(r);
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code><span class="ago">${ago(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}" title="${esc(r.error && r.status !== "cancelled" ? r.error : LABEL[st])}"></span>${kind(r)}<code>${esc(r.id)}</code>${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}<span class="ago">${ago(r.updatedAt)}</span></span></button>`;
     }
     html += `</section>`;
   }
@@ -844,6 +844,7 @@ function mrCard(r, term) {
     }
     rows += c.conflicts ? row("bad", "Конфлікти з основною гілкою", "", fix("conflicts", "Агент розвʼяже конфлікти у терміналі")) : row("ok", "Без конфліктів");
   }
+  rows += reviewerRow(r);
   // The MR's own actions sit in its header, as icons: open it, update it, merge it.
   const icon = (attr, label, name, cls = "", disabled = false) =>
     `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
@@ -857,6 +858,25 @@ function mrCard(r, term) {
       <span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span>
       <span class="spacer"></span>${open}${update}${close}${merge}</div>
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
+}
+
+// The reviewer agent's rounds over the branch: the last one as a line of the MR card, all of them in the task.
+const REVIEW_STATE = { running: ["run", "Рецензент-агент переглядає гілку…"], notes: ["talk", "Зауваження рецензента-агента передано агенту"],
+  clean: ["ok", "Рев'ю агентом пройдено"], failed: ["bad", "Рев'ю агентом не вдалось"] };
+function reviewerRow(r) {
+  const last = r.agentReviews?.at(-1);
+  if (!last) return "";
+  const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
+  const n = r.agentReviews.filter((a) => a.state === "notes" || a.state === "clean").length;
+  return row(icon, n > 1 ? `${text} · раунд ${n}` : text, "");
+}
+function reviewerHTML(r) {
+  if (!r.agentReviews?.length) return "";
+  return `<h3>Рев'ю агентом</h3>` + r.agentReviews.map((a, i) => {
+    const [, text] = REVIEW_STATE[a.state] ?? ["", a.state];
+    return `<div class="agent-review ${esc(a.state)}"><div class="muted">Раунд ${i + 1} · ${new Date(a.at).toLocaleString("uk")} · <code>${esc(a.commit.slice(0, 8))}</code> · ${esc(text)}</div>
+      ${a.notes ? `<div class="summary">${md(a.notes)}</div>` : ""}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
+  }).join("");
 }
 
 // The rule Mako drew from your correction of the agent: saved, it goes into the repo's CLAUDE.md for the next agents.
@@ -1212,6 +1232,7 @@ function renderDetail() {
   const task = `
     ${facts.length ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : ""}
     ${r.summary && r.column !== "doing" ? `<h3>Підсумок</h3><div class="summary">${md(r.summary)}</div>` : ""}
+    ${reviewerHTML(r)}
     ${r.retryNote ? `<h3>Спроба ${r.attempt || 2}: що зробити інакше</h3><div class="text">${richText(r.retryNote)}</div>${r.model ? `<p class="muted">Модель: <code>${esc(r.model)}</code></p>` : ""}` : ""}
     <h3>Опис</h3>
     <div class="text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
