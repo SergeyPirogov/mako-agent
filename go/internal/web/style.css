@@ -336,6 +336,7 @@ section.ws .insp-card { max-height: none; }
 .ibadge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--hover); color: var(--mute); }
 .ibadge.bad { background: var(--err); color: #fff; } .ibadge.warn { background: var(--warn); color: #fff; } .ibadge.run { background: var(--accent); color: #fff; }
+.ibadge.run { padding: 0; } .ibadge .spin { animation: spin .9s linear infinite; }
 .ibadge.ok { background: var(--ok); color: #fff; } .ibadge.merged { background: var(--purple); color: #fff; }
 .insp-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0 8px; }
 .insp-panel .mr-card { border: 0; border-radius: 0; background: none; padding: 4px 10px 4px 12px; }
