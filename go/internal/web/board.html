@@ -1974,7 +1974,7 @@ function chatFor(id) {
           <select aria-label="Що Claude робить без питань">
             <option value="auto">auto</option><option value="default">питати все</option><option value="acceptEdits">правки без питань</option>
             <option value="plan">план</option><option value="bypassPermissions">без питань</option></select></label>
-        <span class="chat-model"></span><span class="chat-ctx"></span><span class="chat-limits"></span>
+        <span class="chat-model"></span><span class="chat-ctx"></span>
         <span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span></div>
     </div>`;
   const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null, top: 0, atEnd: true, auto: -1 });
@@ -2102,10 +2102,6 @@ function renderChat(v) {
   const ctx = v.el.querySelector(".chat-ctx");
   ctx.textContent = s.context ? `контекст ${s.window ? Math.round((100 * s.context) / s.window) + "% · " : ""}${k(s.context)}${s.window ? " з " + k(s.window) : ""}` : "";
   ctx.className = "chat-ctx" + (s.window && s.context / s.window > 0.8 ? " full" : "");
-  // The account's limits next to the context: what is left before Claude stops.
-  const lim = data?.limits, pct = (w) => Math.round(w.used * 100);
-  v.el.querySelector(".chat-limits").innerHTML = [["5 год", lim?.fiveHour], ["тиждень", lim?.week]].filter(([, w]) => w)
-    .map(([label, w]) => `<span class="${pct(w) >= 85 ? "bad" : pct(w) >= 60 ? "warn" : ""}" title="Ліміт Claude: використано ${pct(w)}%">${label} ${pct(w)}%</span>`).join(" · ");
   v.input.placeholder = !s.live ? "Напишіть агенту — він продовжить розмову…" : s.state === "waiting" ? "Або напишіть агенту інакше…" : s.state === "working" ? "Агент прочитає після поточного кроку…" : "Що далі? Напишіть агенту…";
 }
 const toolArg = (input) => {
