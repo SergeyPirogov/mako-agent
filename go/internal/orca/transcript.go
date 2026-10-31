@@ -64,6 +64,21 @@ var (
 	cache   = map[string]transcriptCache{}
 )
 
+// LatestTranscript: the newest Claude Code session started in worktree, "" when there is none.
+func LatestTranscript(worktree string) string {
+	var newest string
+	var at time.Time
+	for _, dir := range claudeProjectDirs(worktree) {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if info, err := e.Info(); err == nil && strings.HasSuffix(e.Name(), ".jsonl") && info.ModTime().After(at) {
+				newest, at = filepath.Join(dir, e.Name()), info.ModTime()
+			}
+		}
+	}
+	return newest
+}
+
 // HasTranscript: Claude Code kept a session started in worktree, so `claude --continue` there has one to go on.
 func HasTranscript(worktree string) bool {
 	for _, dir := range claudeProjectDirs(worktree) {

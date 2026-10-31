@@ -79,6 +79,11 @@ type Terminal struct {
 	// "bypassPermissions".
 	PermissionMode string
 	AllowedTools   []string // used without asking: "Bash(git:*)", "WebFetch"
+	// SetupCommand prepares every new worktree unless its repo has its own setup; "" guesses from the
+	// lockfile, "-" runs nothing.
+	SetupCommand string
+	// View: how the agent is shown, "chat" (default) or "terminal".
+	View string
 }
 
 type Transitions struct {
@@ -115,6 +120,8 @@ type Repo struct {
 	BaseBranch    string // "" until known: the remote's default
 	BranchPattern string
 	WorktreesDir  string
+	// Setup: what prepares a new worktree of Mako's terminal ("pnpm install"); "-": nothing.
+	Setup string
 }
 
 // ErrMissing: there is no mako.config.json yet (first start).
@@ -215,7 +222,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools}
+			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View}
 			break
 		}
 	}
@@ -306,6 +313,7 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 				clone = DefaultCloneURL(t, key)
 			}
 			project.Repos[name] = c.NewRepo(name, r.RepoPath, orStr(r.CloneURL, clone), r.BaseBranch, r.BranchPattern)
+			project.Repos[name].Setup = r.Setup
 		}
 		t.Projects[key] = project
 	}
@@ -480,6 +488,8 @@ type rawExecutor struct {
 	ExtraArgs      []string `json:"extraArgs"`
 	PermissionMode string   `json:"permissionMode"`
 	AllowedTools   []string `json:"allowedTools"`
+	SetupCommand   string   `json:"setupCommand"`
+	View           string   `json:"view"`
 }
 
 type rawTracker struct {
@@ -506,5 +516,6 @@ type rawRepo struct {
 	RepoPath      string `json:"repoPath"`
 	CloneURL      string `json:"cloneUrl"`
 	BaseBranch    string `json:"baseBranch"`
+	Setup         string `json:"setup"`
 	BranchPattern string `json:"branchPattern"`
 }

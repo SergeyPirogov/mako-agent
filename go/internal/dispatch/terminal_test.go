@@ -26,6 +26,8 @@ func TestTerminalHandOff(t *testing.T) {
 	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+argsFile+"\nexec sleep 30\n"), 0o755)
 	cfg := *d.Config()
 	cfg.Executor, cfg.Terminal.Command, cfg.StateDir = "terminal", filepath.Join(bin, "claude"), t.TempDir()
+	cfg.Terminal.SetupCommand = "echo ready > prepared.txt"
+	cfg.Terminal.View = "terminal"
 	d.Cfg = &cfg
 	d.Sessions = term.NewManager(t.TempDir())
 	d.BoardURL = "http://127.0.0.1:1"
@@ -47,7 +49,7 @@ func TestTerminalHandOff(t *testing.T) {
 	}
 	defer d.StopTerminal(r.ID)
 	var args string
-	for i := 0; i < 100 && args == ""; i++ {
+	for i := 0; i < 200 && !strings.HasSuffix(args, "auto\n"); i++ { // the stand-in may still be writing it
 		b, _ := os.ReadFile(argsFile)
 		args = string(b)
 		time.Sleep(20 * time.Millisecond)
@@ -55,6 +57,10 @@ func TestTerminalHandOff(t *testing.T) {
 	if !strings.HasPrefix(args, "--settings\n") || !strings.Contains(args, "Кнопка оплати не працює") ||
 		!strings.HasSuffix(args, "--permission-mode\nauto\n") {
 		t.Fatalf("args %q", args)
+	}
+	// The setup ran in the worktree before the agent.
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prepared.txt")); string(b) != "ready\n" {
+		t.Fatalf("setup: %q", b)
 	}
 	if len(f.notes) != 1 {
 		t.Fatalf("start comment: %v", f.notes)
@@ -77,5 +83,76 @@ func TestTerminalHandOff(t *testing.T) {
 	}
 	if s.Running() || !exists(r.Worktree) {
 		t.Fatalf("running %v, worktree %v", s.Running(), exists(r.Worktree))
+	}
+}
+
+func TestChatHandOff(t *testing.T) {
+	d, _, _ := setup(t)
+	ctx := context.Background()
+	var repo string
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		repo = r.Path
+	}
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+	// A stand-in for claude -p: it takes the prompt, asks to write a file, ends its turn, then waits.
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
+read init
+read msg
+echo "$msg" > prompt.json
+echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"npm test"}}}'
+read answer
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Готово, тести проходять"}]},"parent_tool_use_id":null}'
+echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.01}'
+read more
+echo "$more" > more.json
+`), 0o755)
+	cfg := *d.Config()
+	cfg.Executor, cfg.Terminal.Command, cfg.StateDir = "terminal", filepath.Join(bin, "claude"), t.TempDir()
+	d.Cfg = &cfg
+	d.BoardURL = "http://127.0.0.1:1"
+
+	d.Poll(ctx)
+	d.Take(ctx, "grp/app#5")
+	d.Wait()
+	r, _ := d.Store.Get("grp/app#5")
+	if r.Status != core.HandedOff || r.View != "chat" {
+		t.Fatalf("status %s view %q error %q", r.Status, r.View, r.Error)
+	}
+	defer d.StopTerminal(r.ID)
+	s := d.Chats.Get(r.ID)
+	for i := 0; i < 300; i++ {
+		if st, _, _ := s.State(); st == "waiting" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	d.watchTerminals(time.Now())
+	if a := d.Agents()[r.ID]; a.State != "waiting" || a.Reason != "дозвіл на Bash: npm test" || !a.Live {
+		t.Fatalf("agent %+v", a)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Кнопка оплати не працює") {
+		t.Fatalf("prompt %s", b)
+	}
+	s.Permit("r1", "allow")
+	for i := 0; i < 300; i++ {
+		if st, _, _ := s.State(); st == "done" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	d.watchTerminals(time.Now())
+	if a := d.Agents()[r.ID]; a.State != "done" || a.Message != "Готово, тести проходять" {
+		t.Fatalf("agent after the turn %+v", a)
+	}
+	// The MR card's requests reach the agent as a message.
+	if err := d.sayTo(r.ID, "Полагодь CI"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 300 && s.Running(); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "more.json")); !strings.Contains(string(b), "Полагодь CI") {
+		t.Fatalf("more %s", b)
 	}
 }

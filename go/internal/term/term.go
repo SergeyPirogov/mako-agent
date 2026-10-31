@@ -64,6 +64,8 @@ type Options struct {
 	Env          []string
 	Token        string
 	OnState      func() // the agent's state changed
+	// Idle: the agent starts without a request (it continues a conversation) and waits at its prompt.
+	Idle bool
 }
 
 // Start runs the command in a new pseudo-terminal.
@@ -75,8 +77,12 @@ func Start(o Options) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	state := "working"
+	if o.Idle {
+		state = "done"
+	}
 	s := &Session{ID: o.ID, Worktree: o.Worktree, Token: o.Token, cmd: cmd, pty: f, subs: map[chan Event]struct{}{},
-		state: "working", since: time.Now(), onState: o.OnState}
+		state: state, since: time.Now(), onState: o.OnState}
 	go s.read()
 	return s, nil
 }
@@ -120,6 +126,9 @@ var sessionMarks = map[string]bool{
 	"CLAUDE_CODE_EXECPATH": true, "CLAUDE_CODE_SESSION_ID": true, "CLAUDE_CODE_SESSION_ATTENDED": true,
 	"CLAUDE_CODE_CHILD_SESSION": true, "CLAUDE_CODE_MESSAGING_SOCKET": true, "CLAUDE_CODE_MESSAGING_TOKEN": true,
 }
+
+// CleanEnv drops the marks of the Claude Code session Mako may run in, so its agents are sessions of their own.
+func CleanEnv(env []string) []string { return cleanEnv(env) }
 
 func cleanEnv(env []string) []string {
 	out := env[:0:0]

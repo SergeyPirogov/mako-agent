@@ -104,7 +104,8 @@ func run(homeFlag string, open, noTray bool) error {
 	} else {
 		desktop.Run(ctx, desktop.App{D: d, BoardURL: d.BoardURL, Home: home, Open: show, OpenBrowser: notify.Open, Start: d.Run})
 	}
-	d.Sessions.StopAll() // the agents in Mako's terminal end with it
+	d.Sessions.StopAll() // the agents in Mako's terminal and chat end with it
+	d.Chats.StopAll()
 	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdown)

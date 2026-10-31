@@ -15,6 +15,7 @@ type ReviewCheck struct {
 	State     string   `json:"state"` // "open", "merged", "closed"
 	CI        string   `json:"ci"`    // "", "running", "success", "failed", "canceled", "manual"
 	CIURL     string   `json:"ciUrl,omitempty"`
+	Jobs      []Job    `json:"jobs"`    // the pipeline's jobs in their stages' order
 	Failed    []Job    `json:"failed"`  // the jobs that failed and may not
 	Threads   []Thread `json:"threads"` // review threads nobody resolved yet
 	Conflicts bool     `json:"conflicts"`
@@ -23,9 +24,13 @@ type ReviewCheck struct {
 }
 
 type Job struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Stage string `json:"stage,omitempty"`
+	// "success", "failed", "running", "pending", "canceled", "skipped", "manual"
+	Status       string `json:"status"`
+	AllowFailure bool   `json:"allowFailure,omitempty"`
 }
 
 type Thread struct {
@@ -42,6 +47,8 @@ type ReviewDesk interface {
 	// JobLog: the end of a failed job's log, last lines.
 	JobLog(ctx context.Context, url string, job Job, lines int) (string, error)
 	Merge(ctx context.Context, url string) error
+	// Close closes the MR without merging it.
+	Close(ctx context.Context, url string) error
 }
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\r`)
@@ -69,22 +76,26 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 	if err != nil {
 		return nil, err
 	}
-	c := &ReviewCheck{State: mrState(mr.State), Failed: []Job{}, Threads: []Thread{}}
+	c := &ReviewCheck{State: mrState(mr.State), Jobs: []Job{}, Failed: []Job{}, Threads: []Thread{}}
 	if p := mr.HeadPipeline; p != nil {
 		c.CI, c.CIURL = p.Status, p.WebURL
-		if p.Status == "failed" {
-			var jobs []struct {
-				ID           int64  `json:"id"`
-				Name         string `json:"name"`
-				WebURL       string `json:"web_url"`
-				AllowFailure bool   `json:"allow_failure"`
-			}
-			m := mrURL.FindStringSubmatch(reviewURL)
-			if err := g.do(ctx, "GET", fmt.Sprintf("%s/pipelines/%d/jobs?scope[]=failed&per_page=50", project(m[1]), p.ID), nil, &jobs); err == nil {
-				for _, j := range jobs {
-					if !j.AllowFailure {
-						c.Failed = append(c.Failed, Job{ID: j.ID, Name: j.Name, URL: j.WebURL})
-					}
+		var jobs []struct {
+			ID           int64  `json:"id"`
+			Name         string `json:"name"`
+			Stage        string `json:"stage"`
+			Status       string `json:"status"`
+			WebURL       string `json:"web_url"`
+			AllowFailure bool   `json:"allow_failure"`
+		}
+		m := mrURL.FindStringSubmatch(reviewURL)
+		if err := g.do(ctx, "GET", fmt.Sprintf("%s/pipelines/%d/jobs?per_page=100", project(m[1]), p.ID), nil, &jobs); err == nil {
+			// GitLab lists the newest first: in run order, the stages come in the pipeline's order.
+			for i := len(jobs) - 1; i >= 0; i-- {
+				j := jobs[i]
+				job := Job{ID: j.ID, Name: j.Name, URL: j.WebURL, Stage: j.Stage, Status: j.Status, AllowFailure: j.AllowFailure}
+				c.Jobs = append(c.Jobs, job)
+				if j.Status == "failed" && !j.AllowFailure {
+					c.Failed = append(c.Failed, job)
 				}
 			}
 		}
@@ -149,6 +160,14 @@ func (g *GitLab) Merge(ctx context.Context, reviewURL string) error {
 	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2]+"/merge", map[string]any{"should_remove_source_branch": true}, nil)
 }
 
+func (g *GitLab) Close(ctx context.Context, reviewURL string) error {
+	m := mrURL.FindStringSubmatch(reviewURL)
+	if m == nil {
+		return fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+	}
+	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2], map[string]any{"state_event": "close"}, nil)
+}
+
 // --- GitHub
 
 var ghBlocked = map[string]string{
@@ -163,7 +182,7 @@ func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 	}
 	m := prURL.FindStringSubmatch(reviewURL)
 	repo, num := m[1], m[2]
-	c := &ReviewCheck{State: p.state(), Failed: []Job{}, Threads: []Thread{}}
+	c := &ReviewCheck{State: p.state(), Jobs: []Job{}, Failed: []Job{}, Threads: []Thread{}}
 	var runs struct {
 		CheckRuns []struct {
 			ID         int64  `json:"id"`
@@ -177,12 +196,18 @@ func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 		c.CI, c.CIURL = "success", reviewURL+"/checks"
 		running := false
 		for _, r := range runs.CheckRuns {
+			job := Job{ID: r.ID, Name: r.Name, URL: r.HTMLURL, Status: "success"}
 			switch {
 			case r.Status != "completed":
 				running = true
+				job.Status = map[bool]string{true: "running", false: "pending"}[r.Status == "in_progress"]
 			case r.Conclusion == "failure" || r.Conclusion == "timed_out" || r.Conclusion == "cancelled" || r.Conclusion == "action_required":
-				c.Failed = append(c.Failed, Job{ID: r.ID, Name: r.Name, URL: r.HTMLURL})
+				job.Status = "failed"
+				c.Failed = append(c.Failed, job)
+			case r.Conclusion == "skipped" || r.Conclusion == "neutral":
+				job.Status = "skipped"
 			}
+			c.Jobs = append(c.Jobs, job)
 		}
 		if len(c.Failed) > 0 {
 			c.CI = "failed"
@@ -264,4 +289,12 @@ func (g *GitHub) Merge(ctx context.Context, reviewURL string) error {
 		return fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
 	}
 	return g.do(ctx, "PUT", "/repos/"+m[1]+"/pulls/"+m[2]+"/merge", map[string]any{}, nil)
+}
+
+func (g *GitHub) Close(ctx context.Context, reviewURL string) error {
+	m := prURL.FindStringSubmatch(reviewURL)
+	if m == nil {
+		return fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+	}
+	return g.do(ctx, "PATCH", "/repos/"+m[1]+"/pulls/"+m[2], map[string]any{"state": "closed"}, nil)
 }

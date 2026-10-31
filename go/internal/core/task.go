@@ -74,6 +74,8 @@ type Record struct {
 	Error          string        `json:"error,omitempty"`
 	Summary        string        `json:"summary,omitempty"` // what the agent did, written when its MR appeared
 	Attempt        int           `json:"attempt,omitempty"`
+	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
+	View string `json:"view,omitempty"`
 }
 
 // TrackerState is what happened to the issue's status at the last step, shown on the board.

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
@@ -42,6 +43,8 @@ type Dispatcher struct {
 	Term     Terminals
 	// Sessions: the agents in Mako's own terminal.
 	Sessions *term.Manager
+	// Chats: the agents in Mako's chat, and the account's usage limits they report.
+	Chats *chat.Manager
 	// LastMessage: a Claude agent's whole last message from its transcript (Orca shows 200 characters).
 	LastMessage func(worktree string) string
 	BoardURL    string
@@ -71,7 +74,7 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 	return &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage,
 		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{},
-		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")),
+		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 }
 
@@ -690,6 +693,7 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			if !onTerminal(r) {
 				orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
 			}
+			d.removeWorktree(ctx, r, repo)
 			notify.Inform("🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
 		case "closed":
 			d.Log(r.ID, "MR закрито без мерджу")

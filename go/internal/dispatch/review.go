@@ -78,9 +78,8 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	if !ok {
 		return fmt.Errorf("немає такої задачі")
 	}
-	s := d.Sessions.Get(id)
-	if s == nil || !s.Running() {
-		return fmt.Errorf("агент у терміналі не запущений: спершу «Продовжити в терміналі»")
+	if !d.Live(id) {
+		return fmt.Errorf("агент не запущений: спершу «Продовжити»")
 	}
 	_, base, _ := d.workOf(id)
 	branch := branchOf(r)
@@ -90,6 +89,8 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 		text = fmt.Sprintf("Закоміть зроблене (нормальне повідомлення, як в інструкції) і запуш гілку %s, щоб MR її мав.", branch)
 	case "open":
 		text = fmt.Sprintf("Закоміть зроблене, запуш гілку %s і відкрий MR у %s, як описано в інструкції до задачі.", branch, base)
+	case "rebase":
+		text = fmt.Sprintf("Онови гілку %s з %s: git fetch origin %s, rebase на origin/%s, розвʼяжи конфлікти, якщо будуть, прожени тести. Якщо гілка вже запушена, запуш з --force-with-lease.", branch, base, base, base)
 	case "conflicts":
 		text = fmt.Sprintf("MR %s конфліктує з %s. Зроби rebase гілки %s на origin/%s, розвʼяжи конфлікти, прожени тести й запуш з --force-with-lease.", r.PRURL, base, branch, base)
 	case "ci", "comments":
@@ -111,10 +112,12 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	default:
 		return fmt.Errorf("невідомий запит %q", kind)
 	}
-	s.Say(text)
+	if err := d.sayTo(id, text); err != nil {
+		return err
+	}
 	d.forgetReview(id)
 	d.Log(id, map[string]string{"push": "агента попрошено запушити зміни", "open": "агента попрошено відкрити MR",
-		"conflicts": "агента попрошено розвʼязати конфлікти", "ci": "агента попрошено полагодити CI", "comments": "агента попрошено виправити коментарі"}[kind])
+		"conflicts": "агента попрошено розвʼязати конфлікти", "rebase": "агента попрошено оновити гілку з основної", "ci": "агента попрошено полагодити CI", "comments": "агента попрошено виправити коментарі"}[kind])
 	return nil
 }
 
@@ -168,6 +171,25 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	}
 	d.forgetReview(id)
 	d.Log(id, "MR змерджено з дошки")
+	d.Wake()
+	return nil
+}
+
+// CloseReview closes the task's MR without merging; the next round sees it closed and the task fails.
+func (d *Dispatcher) CloseReview(ctx context.Context, id string) error {
+	r, ok := d.Store.Get(id)
+	if !ok || r.PRURL == "" {
+		return fmt.Errorf("MR немає")
+	}
+	desk, err := d.desk(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := desk.Close(ctx, r.PRURL); err != nil {
+		return err
+	}
+	d.forgetReview(id)
+	d.Log(id, "MR закрито з дошки без мерджу")
 	d.Wake()
 	return nil
 }

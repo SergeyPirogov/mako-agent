@@ -12,7 +12,7 @@ import (
 )
 
 func TestGitLabReview(t *testing.T) {
-	merged := false
+	merged, closed := false, false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		send := func(v any) { json.NewEncoder(w).Encode(v) }
 		switch p := r.URL.EscapedPath(); {
@@ -20,7 +20,9 @@ func TestGitLabReview(t *testing.T) {
 			send(map[string]any{"iid": 9, "state": "opened", "web_url": "u", "has_conflicts": false, "detailed_merge_status": "ci_must_pass",
 				"head_pipeline": map[string]any{"id": 77, "status": "failed", "web_url": "pipe"}})
 		case p == "/api/v4/projects/grp%2Fapp/pipelines/77/jobs":
-			send([]map[string]any{{"id": 5, "name": "e2e", "web_url": "job5"}, {"id": 6, "name": "lint", "allow_failure": true}})
+			send([]map[string]any{{"id": 6, "name": "lint", "stage": "test", "status": "failed", "allow_failure": true},
+				{"id": 5, "name": "e2e", "stage": "test", "status": "failed", "web_url": "job5"},
+				{"id": 4, "name": "build", "stage": "build", "status": "success"}})
 		case p == "/api/v4/projects/grp%2Fapp/merge_requests/9/discussions":
 			send([]map[string]any{
 				{"notes": []map[string]any{{"id": 1, "body": "Rename it", "resolvable": true, "resolved": false, "author": map[string]any{"username": "ann"},
@@ -30,6 +32,11 @@ func TestGitLabReview(t *testing.T) {
 			})
 		case p == "/api/v4/projects/grp%2Fapp/jobs/5/trace":
 			w.Write([]byte("line 1\n\x1b[31mFAIL\x1b[0m checkout\n"))
+		case p == "/api/v4/projects/grp%2Fapp/merge_requests/9" && r.Method == "PUT":
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			closed = body["state_event"] == "close"
+			send(map[string]any{})
 		case p == "/api/v4/projects/grp%2Fapp/merge_requests/9/merge" && r.Method == "PUT":
 			merged = true
 			send(map[string]any{})
@@ -49,6 +56,9 @@ func TestGitLabReview(t *testing.T) {
 	if c.State != "open" || c.CI != "failed" || len(c.Failed) != 1 || c.Failed[0].Name != "e2e" || c.Mergeable || c.Blocked != "спершу має пройти CI" {
 		t.Fatalf("check %+v", c)
 	}
+	if len(c.Jobs) != 3 || c.Jobs[0].Name != "build" || c.Jobs[2].Stage != "test" || !c.Jobs[2].AllowFailure {
+		t.Fatalf("jobs %+v", c.Jobs)
+	}
 	if len(c.Threads) != 1 || c.Threads[0].Path != "a.go" || c.Threads[0].Author != "ann" || !strings.HasSuffix(c.Threads[0].URL, "#note_1") {
 		t.Fatalf("threads %+v", c.Threads)
 	}
@@ -57,5 +67,8 @@ func TestGitLabReview(t *testing.T) {
 	}
 	if err := g.Merge(ctx, url); err != nil || !merged {
 		t.Fatal("not merged", err)
+	}
+	if err := g.Close(ctx, url); err != nil || !closed {
+		t.Fatal("not closed", err)
 	}
 }

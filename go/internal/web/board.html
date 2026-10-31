@@ -13,6 +13,7 @@
   <span class="wip" id="wip"></span>
   <span id="waiting"></span>
   <span class="spacer"></span>
+  <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
   <a class="icon-btn" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
   <button class="ghost" id="theme" title="Тема"></button>
 </header>
@@ -25,7 +26,7 @@
       <button class="icon-btn" id="poll" title="Перевірити трекери зараз" aria-label="Перевірити трекери зараз"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
       <button class="icon-btn" id="pause"></button>
     </div>
-    <div class="chips" id="chips"></div>
+    <div class="filter" id="filter"><select id="scope" aria-label="Які задачі показати"></select></div>
     <nav id="list" aria-label="Задачі"></nav>
   </div>
   <section id="detail"><div class="empty">Виберіть задачу зліва</div></section>
@@ -45,7 +46,9 @@ let data = null, shown = "", selected = null, project = localStorage.getItem("ma
 // The task's work: its changed files, the files open in tabs over the terminal and their diffs.
 let workOf = null, changes = null, openFiles = [], fileTab = "", diffs = {}, collapsed = new Set();
 // The task's MR as the code host has it ({review} or {error}), and what the last MR action said.
-let review = null, mrNote = "";
+let review = null, mrNote = "", journalOpen = false;
+// The branch's history for the commits' graph, and the commits opened in it (hash → their message and files).
+let history = null, commitOpen = {};
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -59,6 +62,16 @@ const ago = (iso) => {
   return `${Math.round(m / 1440)} дн тому`;
 };
 const ICON = {
+  doc: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>`,
+  push: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>`,
+  merge: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`,
+  closeMR: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><circle cx="18" cy="18" r="3"/><path d="M18 11.5V15M21 3l-6 6M15 3l6 6"/></svg>`,
+  pr: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3l-3 3 3 3"/></svg>`,
+  archive: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>`,
+  unarchive: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M12 18v-6M9 15l3-3 3 3"/></svg>`,
+  copy: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>`,
+  folder: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
+  code: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>`,
   pause: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"/></svg>`,
   play: `<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14l12-7z" fill="currentColor"/></svg>`,
   fix: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4l-6.1-1.6a.5.5 0 0 1 0-1l6.1-1.6a2 2 0 0 0 1.4-1.4l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/><path d="M20 3v4M22 5h-4"/></svg>`,
@@ -129,6 +142,21 @@ async function load() {
   render();
 }
 
+// Claude's usage limits, the account's: how much of each window is used, when it resets in the tooltip.
+function limitsHTML(l) {
+  const when = (sec) => {
+    const d = new Date(sec * 1000), today = new Date().toDateString() === d.toDateString();
+    return today ? `о ${d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}`
+      : d.toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  };
+  const meter = (label, w, what) => {
+    if (!w) return "";
+    const pct = Math.round(w.used * 100), cls = pct >= 85 ? "bad" : pct >= 60 ? "warn" : "";
+    return `<span class="limit ${cls}" title="${what}: використано ${pct}%, оновиться ${when(w.resetsAt)}">${label}<span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b></span>`;
+  };
+  return meter("5 год", l?.fiveHour, "Ліміт Claude на 5 годин") + meter("Тиждень", l?.week, "Ліміт Claude на тиждень");
+}
+
 function visible() {
   return data.records.filter((r) => (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
 }
@@ -150,6 +178,7 @@ function render() {
   $("wip").innerHTML = data.wipLimit ? `${where} <b>${doing}</b> з ${data.wipLimit}` : `${where} <b>${doing}</b>`;
   $("waiting").innerHTML = waiting ? `<span class="waiting-chip"><span class="dot"></span>чекає на вас: ${waiting}</span>` : "";
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
+  $("limits").innerHTML = limitsHTML(data.limits);
   const searches = Object.entries(data.searches);
   const failed = searches.filter(([, s]) => s.error);
   $("search").className = "search" + (failed.length ? " err" : "");
@@ -159,24 +188,26 @@ function render() {
     : searches.length ? `Перевірено ${ago(searches.map(([, s]) => s.at).sort().pop())}` : "Перша перевірка трекерів…";
   $("search").title = $("search").textContent;
 
-  // projects as chips, with how many tasks are on the board
+  // the projects, with how many tasks are on the board
   const counts = {};
   for (const r of live) counts[r.task.project] = (counts[r.task.project] || 0) + 1;
   const projects = Object.keys(counts).sort();
   if (project && !counts[project]) project = "";
   const archived = data.records.filter((r) => r.archivedAt).length;
-  $("chips").innerHTML =
-    `<button class="chip ${!project && !showArchive ? "on" : ""}" data-p="">Усі<span class="n">${live.length}</span></button>` +
-    projects.map((p) => `<button class="chip ${project === p && !showArchive ? "on" : ""}" data-p="${esc(p)}">${esc(p)}<span class="n">${counts[p]}</span></button>`).join("") +
-    (archived ? `<span class="spacer"></span><button class="chip ${showArchive ? "on" : ""}" data-archive>Архів<span class="n">${archived}</span></button>` : "");
-  $("chips").style.display = projects.length > 1 || archived ? "" : "none";
-  for (const b of $("chips").querySelectorAll("button")) {
-    b.onclick = () => {
-      if (b.hasAttribute("data-archive")) showArchive = !showArchive;
-      else { showArchive = false; project = b.dataset.p; try { localStorage.setItem("mako-project", project); } catch {} }
-      render();
-    };
-  }
+  // One line for what the list shows: all tasks, a project's, or the archive.
+  const scope = showArchive ? "\u0000archive" : project;
+  const options = `<option value="">Усі задачі · ${live.length}</option>` +
+    projects.map((p) => `<option value="${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())} · ${counts[p]}</option>`).join("") +
+    (archived ? `<option value="\u0000archive">Архів · ${archived}</option>` : "");
+  if ($("scope").dataset.options !== options) { $("scope").innerHTML = options; $("scope").dataset.options = options; }
+  $("scope").value = scope;
+  $("filter").hidden = projects.length < 2 && !archived;
+  $("scope").onchange = () => {
+    const v = $("scope").value;
+    showArchive = v === "\u0000archive";
+    if (!showArchive) { project = v; try { localStorage.setItem("mako-project", project); } catch {} }
+    render();
+  };
 
   const rows = visible();
   let html = "";
@@ -210,13 +241,14 @@ const getJSON = (url) => fetch(url).then((r) => r.json()).catch((e) => ({ error:
 // The changed files (and the open file's diff) of the selected task, while its work tab is open.
 async function loadWork() {
   const r = data?.records.find((x) => x.id === selected);
-  if (!r?.worktree || tab !== "orca" || workOf !== r.id) return;
+  if (!r?.worktree || workOf !== r.id || (tab !== "orca" && r.executor !== "terminal")) return;
   const q = `id=${encodeURIComponent(r.id)}`;
-  const [cs, d, rv] = await Promise.all([getJSON(`/api/changes?${q}`), fileTab ? getJSON(`/api/diff?${q}&path=${encodeURIComponent(fileTab)}`) : null,
-    r.prUrl ? getJSON(`/api/review?${q}`) : null]);
+  const [cs, d, rv, hs] = await Promise.all([getJSON(`/api/changes?${q}`), fileTab ? getJSON(`/api/diff?${q}&path=${encodeURIComponent(fileTab)}`) : null,
+    r.prUrl ? getJSON(`/api/review?${q}`) : null, itab === "commits" ? getJSON(`/api/commits?${q}`) : null]);
   if (workOf !== r.id) return;
   changes = cs;
   review = rv;
+  if (hs && !hs.error) history = hs;
   if (d) diffs[fileTab] = d.error ? `⚠ ${d.error}` : d.diff || "Змін немає";
 }
 
@@ -274,7 +306,7 @@ function treeHTML(node, depth, prefix, ST) {
 }
 
 // Next to the agent: what its branch changed. A file opens as a tab over the terminal.
-function workArea(r, term) {
+function workArea(r, term, taskPane = "") {
   const files = changes?.files ?? [];
   const ST = { A: "додано", M: "змінено", D: "видалено", R: "перейменовано", "?": "новий, не закомічено" };
   const list = changes?.error ? `<div class="files-empty">${esc(changes.error)}</div>`
@@ -283,10 +315,90 @@ function workArea(r, term) {
     : `<div class="files-empty">Агент ще нічого не змінив</div>`;
   const commits = changes?.commits?.length ? `<div class="files-h">Коміти<span class="n">${changes.commits.length}</span></div>` +
     changes.commits.map((c) => `<div class="commit" title="${esc(c.hash)} ${esc(c.subject)}">${esc(c.subject)}</div>`).join("") : "";
-  const main = (term ? `<div id="term-slot" class="${fileTab ? "away" : ""}"></div>` : "") +
-    (fileTab ? diffHTML(diffs[fileTab] ?? "Читаю…") : term ? "" : `<div class="files-empty pick">Виберіть файл праворуч, щоб побачити його зміни</div>`);
-  return `<div class="split"><div class="split-main">${main}</div><div class="inspector">${mrCard(r, term)}
-    <aside class="files"><div class="files-h">Змінені файли<span class="n">${files.length}</span>${changes?.base ? `<span class="muted">від ${esc(changes.base)}</span>` : ""}</div>${list}${commits}</aside></div></div>`;
+  // An agent that is not running: say so over its terminal, with the way to start it again.
+  const idle = term && !r.live ? `<div class="term-idle"><div>Агент зупинився</div>
+      <button type="button" class="resume-btn" data-a="resume">${ICON.play}Продовжити розмову</button></div>` : "";
+  const onTask = tab === "task" && taskPane;
+  const chatView = r.view === "chat";
+  const main = (term ? `<div id="term-slot" class="${fileTab || onTask ? "away" : ""}">${chatView ? "" : idle}</div>` : "") +
+    (onTask ? taskPane : fileTab ? diffHTML(diffs[fileTab] ?? "Читаю…") : term ? "" : `<div class="files-empty pick">Виберіть файл праворуч, щоб побачити його зміни</div>`);
+  return `<div class="split"><div class="split-main">${main}</div><div class="inspector">${branchCard(r, term)}${inspectorTabs(r, term, files.length, list)}</div></div>`;
+}
+
+// The commits as Orca draws them: a lane per line of history, a dot per commit, merges curving into it.
+const LANE_COLORS = ["#4c8dff", "#e5a23b", "#d6457a", "#c4906b", "#3fb39b", "#9b7be8", "#7aa83c"];
+function graphRows(commits) {
+  const lanes = [], rows = [];
+  for (const c of commits) {
+    let col = lanes.indexOf(c.hash);
+    const fresh = col < 0;
+    if (fresh) { col = lanes.indexOf(null); if (col < 0) col = lanes.length; lanes[col] = c.hash; }
+    const before = lanes.slice();
+    const joins = before.map((h, i) => (h === c.hash && i !== col ? i : -1)).filter((i) => i >= 0);
+    for (const i of joins) lanes[i] = null;
+    lanes[col] = c.parents[0] ?? null;
+    const forks = [];
+    for (const p of c.parents.slice(1)) {
+      let i = lanes.indexOf(p);
+      if (i < 0) { i = lanes.indexOf(null); if (i < 0) i = lanes.length; lanes[i] = p; }
+      forks.push(i);
+    }
+    while (lanes.length && lanes[lanes.length - 1] === null) lanes.pop();
+    rows.push({ col, fresh, before, after: lanes.slice(), joins, forks });
+  }
+  return rows;
+}
+function commitGraph(commits) {
+  if (!commits.length) return `<div class="files-empty">Комітів ще немає</div>`;
+  const rows = graphRows(commits), H = 28, W = 14, R = 6;
+  const width = Math.max(...rows.map((r) => Math.max(r.before.length, r.after.length, r.col + 1))) * W + 6;
+  const x = (i) => R + i * W, color = (i) => LANE_COLORS[i % LANE_COLORS.length];
+  const line = (x1, y1, x2, y2, c) => x1 === x2 ? `<path d="M${x1} ${y1}V${y2}" stroke="${c}"/>`
+    : `<path d="M${x1} ${y1}C${x1} ${(y1 + y2) / 2} ${x2} ${(y1 + y2) / 2} ${x2} ${y2}" stroke="${c}"/>`;
+  return `<div class="cg">${commits.map((c, n) => {
+    const r = rows[n];
+    let svg = "";
+    r.before.forEach((h, i) => {
+      if (h === null || i === r.col || r.joins.includes(i)) return;
+      svg += line(x(i), 0, x(i), H, color(i));
+    });
+    if (!r.fresh) svg += line(x(r.col), 0, x(r.col), H / 2, color(r.col));
+    for (const i of r.joins) svg += line(x(i), 0, x(r.col), H / 2, color(i));
+    if (r.after[r.col] != null) svg += line(x(r.col), H / 2, x(r.col), H, color(r.col));
+    for (const i of r.forks) svg += line(x(r.col), H / 2, x(i), H, color(i));
+    svg += c.parents.length > 1
+      ? `<circle cx="${x(r.col)}" cy="${H / 2}" r="4.5" fill="var(--card)" stroke="${color(r.col)}" stroke-width="2.2"/>`
+      : `<circle cx="${x(r.col)}" cy="${H / 2}" r="3.5" fill="${color(r.col)}"/>`;
+    const refs = (c.refs ?? []).map((ref) => {
+      const head = ref.startsWith("HEAD -> "), name = ref.replace(/^HEAD -> /, "").replace(/^tag: /, "");
+      return `<span class="cg-ref ${head ? "head" : ref.startsWith("origin/") ? "remote" : ref.startsWith("tag: ") ? "tag" : ""}" title="${esc(ref)}">${esc(name)}</span>`;
+    });
+    const open = commitOpen[c.hash];
+    const when = new Date(c.at * 1000).toLocaleString("uk", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return `<div class="cg-row ${c.mine ? "mine" : ""}" title="${esc(c.hash.slice(0, 8))} · ${esc(c.author)} · ${esc(when)}">
+        <svg class="cg-lanes" width="${width}" height="${H}" fill="none" stroke-width="1.6" aria-hidden="true">${svg}</svg>
+        <button type="button" class="cg-toggle" data-commit="${esc(c.hash)}" aria-label="${open ? "Згорнути" : "Розгорнути"} коміт">${open ? "▾" : "›"}</button>
+        <span class="cg-subj">${esc(c.subject)}</span>${refs.slice(0, 2).join("")}${refs.length > 2 ? `<span class="cg-ref more">+${refs.length - 2}</span>` : ""}</div>
+      ${open ? `<div class="cg-detail" style="margin-left:${width + 18}px">${open === "loading" ? "Читаю…" : open.error ? esc(open.error)
+        : `<div class="cg-msg">${esc(open.message.trim())}</div>${open.files.map((f) => `<div class="cg-file"><b class="st-${f.status === "?" ? "N" : esc(f.status)}">${esc(f.status)}</b><span>${esc(f.path)}</span>${f.additions ? `<span class="add">+${f.additions}</span>` : ""}${f.deletions ? `<span class="del">−${f.deletions}</span>` : ""}</div>`).join("")}`}</div>` : ""}`;
+  }).join("")}</div>`;
+}
+
+// The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
+let itab = (() => { try { return localStorage.getItem("mako-itab") || "changes"; } catch { return "changes"; } })();
+function inspectorTabs(r, term, nFiles, list) {
+  const c = review?.review, cs = changes?.commits ?? [];
+  const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
+    : !c ? ["", ""] : c.ci === "failed" || c.conflicts ? ["!", "bad"] : c.threads.length ? [String(c.threads.length), "warn"]
+    : ["running", "pending", "created"].includes(c.ci) ? ["⟳", "run"] : c.mergeable ? ["✓", "ok"] : ["", ""];
+  const nCommits = history ? `${history.commits.length}${history.more ? "+" : ""}` : String(cs.length);
+  const tabs = [["changes", "Зміни", [String(nFiles), ""]], ["commits", "Коміти", [nCommits, ""]], ["mr", "MR", mrBadge]];
+  const panel = itab === "commits" ? (history ? commitGraph(history.commits) : `<div class="files-empty">Читаю історію…</div>`)
+    : itab === "mr" ? mrCard(r, term)
+    : `${changes?.base ? `<div class="files-sub">від ${esc(changes.base)}</div>` : ""}${list}`;
+  return `<div class="insp-card"><div class="itabs" role="tablist">${tabs.map(([k, label, [badge, cls]]) =>
+      `<button type="button" role="tab" class="itab ${itab === k ? "on" : ""}" data-itab="${k}">${label}${badge ? `<span class="ibadge ${cls}">${esc(badge)}</span>` : ""}</button>`).join("")}</div>
+    <div class="insp-panel">${panel}</div></div>`;
 }
 
 // The MR: its CI, review threads and conflicts, each with what fixes it; then «Оновити MR» and «Змерджити».
@@ -301,13 +413,54 @@ const CI = { failed: ["bad", "CI впав"], running: ["run", "CI іде"], pend
   preparing: ["run", "CI чекає"], waiting_for_resource: ["run", "CI чекає"], scheduled: ["run", "CI заплановано"], success: ["ok", "CI пройшов"],
   canceled: ["idle", "CI скасовано"], skipped: ["idle", "CI пропущено"], manual: ["idle", "CI чекає ручного запуску"] };
 const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
+// One line of a card: a status icon, what it is (a link when it has one), and the button that fixes it.
+const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
+  ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${esc(text)}">${esc(text)}</a>` : `<span title="${esc(text)}">${esc(text)}</span>`}${btn}</div>`;
+// ✨: the agent in the terminal does it; only while it runs.
+const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
+const commits = (n) => `${n} ${plural(n, "коміт", "коміти", "комітів")}`;
+
+// The branch: against its base and its remote, uncommitted work; copy its name, open it in Finder or the editor.
+function branchCard(r, term) {
+  const b = changes?.branch;
+  if (!b) return "";
+  const live = term && r.live;
+  let rows = b.behind ? row("idle", `Позаду ${b.base} на ${commits(b.behind)}`, "", fixBtn(live, "rebase", `Агент оновить гілку з ${b.base}`))
+    : row("ok", `Актуальна з ${b.base}`);
+  if (b.unpushed) rows += row("run", `${commits(b.unpushed)} не запушено`, "", fixBtn(live, "push", "Агент запушить гілку"));
+  else if (b.pushed) rows += row("ok", "Усе запушено");
+  if (b.dirty) rows += row("idle", `${b.dirty} ${plural(b.dirty, "файл", "файли", "файлів")} не закомічено`);
+  return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">Гілка</span>
+      <code class="branch-name" title="${esc(b.name)}">${esc(b.name)}</code>
+      <button type="button" class="icon" data-copy="${esc(b.name)}" title="Скопіювати назву гілки" aria-label="Скопіювати назву гілки">${ICON.copy}</button>
+      <button type="button" class="icon" data-open="finder" title="Показати у Finder" aria-label="Показати у Finder">${ICON.folder}</button>
+      ${data.editor ? `<button type="button" class="icon" data-open="editor" title="Відкрити в ${esc(data.editor)}" aria-label="Відкрити в ${esc(data.editor)}">${ICON.code}</button>` : ""}
+    </div>${rows}</div>`;
+}
+
+// The pipeline as GitLab draws it: a line per stage, its jobs with their state.
+const JOB = { success: ["ok", "✓"], failed: ["bad", "✗"], running: ["run", "⟳"], pending: ["wait", "◷"], created: ["wait", "◷"],
+  preparing: ["wait", "◷"], waiting_for_resource: ["wait", "◷"], scheduled: ["wait", "◷"], manual: ["idle", "▶"], canceled: ["idle", "⊘"], skipped: ["idle", "⊘"] };
+function stagesHTML(jobs) {
+  if (!jobs?.length) return "";
+  const stages = [];
+  for (const j of jobs) {
+    let st = stages.find((x) => x.name === (j.stage || ""));
+    if (!st) stages.push((st = { name: j.stage || "", jobs: [] }));
+    st.jobs.push(j);
+  }
+  return `<div class="stages">${stages.map((st) => `<div class="stage">${st.name ? `<span class="stage-name">${esc(st.name)}</span>` : ""}${st.jobs.map((j) => {
+    const allowed = j.status === "failed" && j.allowFailure;
+    const [cls, mark] = allowed ? ["warn", "!"] : JOB[j.status] ?? ["idle", "•"];
+    return `<a class="job ${cls}" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.name)}: ${esc(j.status)}${allowed ? " (дозволено падати)" : ""}"><span class="jm">${mark}</span>${esc(j.name)}</a>`;
+  }).join("")}</div>`).join("")}</div>`;
+}
+
 function mrCard(r, term) {
   const live = term && r.live, c = review?.review;
   const num = r.prUrl?.match(/\/(?:merge_requests|pull)\/(\d+)/)?.[1];
   const state = c?.state ?? (r.reviewState || (r.prUrl ? "open" : ""));
-  const fix = (kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
-  const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
-    ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${esc(text)}">${esc(text)}</a>` : `<span title="${esc(text)}">${esc(text)}</span>`}${btn}</div>`;
+  const fix = (kind, label) => fixBtn(live, kind, label);
   let rows = "";
   if (!r.prUrl) rows = `<div class="muted mr-none">Ще немає: агент відкриє MR, коли закінчить</div>`;
   else if (review?.error) rows = `<div class="mr-none mr-err">${esc(review.error)}</div>`;
@@ -316,7 +469,7 @@ function mrCard(r, term) {
     if (c.ci) {
       const [icon, text] = CI[c.ci] ?? ["run", `CI: ${c.ci}`];
       rows += row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl,
-        c.ci === "failed" && c.failed.length ? fix("ci", "Агент полагодить CI у терміналі") : "");
+        c.ci === "failed" && c.failed.length ? fix("ci", "Агент полагодить CI у терміналі") : "") + stagesHTML(c.jobs);
     }
     if (c.threads.length) {
       const n = c.threads.length;
@@ -324,21 +477,25 @@ function mrCard(r, term) {
     }
     rows += c.conflicts ? row("bad", "Конфлікти з основною гілкою", "", fix("conflicts", "Агент розвʼяже конфлікти у терміналі")) : row("ok", "Без конфліктів");
   }
-  const update = live && r.prUrl && state === "open" ? `<button type="button" data-ask="push" title="Агент закомітить і запушить зроблене">Оновити MR</button>` : "";
-  const open = live && !r.prUrl ? `<button type="button" class="primary" data-ask="open" title="Агент закомітить, запушить і відкриє MR">Відкрити MR</button>` : "";
-  const merge = c?.state === "open" ? `<button type="button" class="${c.mergeable ? "primary" : ""}" data-merge ${c.mergeable ? "" : "disabled"}
-      title="${esc(c.mergeable ? "Змерджити MR в основну гілку" : `Ще не можна: ${c.blocked || "GitLab не дозволяє"}`)}">Змерджити</button>` : "";
-  const buttons = update || open || merge ? `<div class="mr-actions">${update}${open}${merge}</div>` : "";
+  // The MR's own actions sit in its header, as icons: open it, update it, merge it.
+  const icon = (attr, label, name, cls = "", disabled = false) =>
+    `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
+  const open = live && !r.prUrl ? icon(`data-ask="open"`, "Відкрити MR: агент закомітить, запушить і відкриє його", "pr") : "";
+  const update = live && r.prUrl && state === "open" ? icon(`data-ask="push"`, "Оновити MR: агент закомітить і запушить зроблене", "push") : "";
+  const merge = c?.state === "open" ? icon("data-merge", c.mergeable ? "Змерджити MR в основну гілку" : `Змерджити ще не можна: ${c.blocked || "GitLab не дозволяє"}`,
+    "merge", c.mergeable ? "ready" : "", !c.mergeable) : "";
+  const close = c?.state === "open" ? icon("data-close-mr", "Закрити MR без злиття", "closeMR", "danger") : "";
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "відкрити"}</a>` : ""}
-      <span class="spacer"></span><span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span></div>
-    ${rows}${buttons}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
+      <span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span>
+      <span class="spacer"></span>${open}${update}${merge}${close}</div>
+    ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
 }
 
 // The card's buttons: a request to the agent, or the merge.
 async function mrAction(id, action, kind = "") {
   const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
-  mrNote = res.ok === false || res.error ? `⚠ ${res.error}` : action === "merge" ? "MR змерджено" : "Передано агенту в терміналі";
+  mrNote = res.ok === false || res.error ? `⚠ ${res.error}` : { merge: "MR змерджено", close: "MR закрито без злиття" }[action] ?? "Передано агенту";
   await loadWork();
   renderDetail();
   if (action === "ask" && !res.error) tv?.term.focus();
@@ -371,13 +528,16 @@ function renderDetail() {
   const ib = (action, label, icon, cls = "") => `<button class="icon ${cls}" data-a="${action}" title="${label}" aria-label="${label}">${ICON[icon]}</button>`;
   let actions = "";
   const term = r.executor === "terminal" && r.worktree;
+  // Mako's own agent goes on after its MR too (CI, review comments), until the merge.
+  const agentOn = term && !r.archivedAt && r.reviewState !== "merged" && (r.column === "doing" || r.column === "review");
   if (r.column === "new") actions = b("take", data.executor === "terminal" ? "Віддати агенту" : "Віддати в Orca", "primary") + b("later", "Відкласти на годину", "", "&min=60") + b("later", "До завтра", "", "&min=1080");
   else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
-  else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : b("resume", "Продовжити в терміналі", "primary")) + ib("cancel", "Більше не стежити", "unwatch", "danger");
+  else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("archive", "В архів", "archive");
+  else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + ib("cancel", "Більше не стежити", "unwatch", "danger");
   else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + ib("cancel", "Більше не стежити", "unwatch", "danger");
-  else if (r.column === "failed") actions = b("retry", "Повторити", "primary") + b("archive", "В архів");
-  else actions = b("archive", "В архів");
-  if (r.archivedAt) actions = b("unarchive", "Повернути з архіву");
+  else if (r.column === "failed") actions = b("retry", "Повторити", "primary") + ib("archive", "В архів", "archive");
+  else actions = ib("archive", "В архів", "archive");
+  if (r.archivedAt) actions = ib("unarchive", "Повернути з архіву", "unarchive");
 
   const facts = [];
   if (t.meta) facts.push(["Трекер", esc(t.meta)]);
@@ -396,26 +556,36 @@ function renderDetail() {
     <h3>Опис</h3>
     <div class="text">${t.description?.trim() ? linkify(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>
     ${t.comments?.length ? `<h3>Коментарі</h3>${t.comments.map((c) => `<div class="comment"><b>${esc(c.author)}</b><div class="text">${linkify(c.body)}</div></div>`).join("")}` : ""}
-    ${logs.length ? `<h3>Журнал</h3><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div>` : ""}`;
+    ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
+      <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   // A new task opened: a terminal task in progress opens on its terminal.
   if (workOf !== r.id) {
     workOf = r.id;
-    changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = "";
+    changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; history = null; commitOpen = {};
     tab = term && r.column === "doing" ? "orca" : "task";
-    if (tab === "orca") loadWork().then(renderDetail);
+    if (r.worktree) loadWork().then(renderDetail);
   }
-  const orca = (r.worktree ? workArea(r, term) : "") + (term ? "" : agentBlock(r));
+  // A task of Mako's own agent is one workspace: the tabs only change the centre, the right panel stays.
+  const taskPane = term ? `<div class="task-pane">
+      <div class="d-id">${kind(r)}<span class="s ${st}">${LABEL[st]}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span>${esc(t.project)}</span></div>
+      <h1>${esc(t.title)}</h1>
+      ${t.labels?.length ? `<div class="labels">${t.labels.map((l) => `<span class="label">${esc(l)}</span>`).join("")}</div>` : ""}
+      ${task}</div>` : "";
+  const orca = (r.worktree ? workArea(r, term, taskPane) : "") + (term ? "" : agentBlock(r));
   if (!orca.trim()) tab = "task";
   const waiting = agentOf(r)?.state === "waiting";
   // One bar: the task, the agent's terminal (or Orca), and the files opened from the changes.
   const bar = orca.trim() ? `<div class="tabs">
       <button class="tab ${tab === "task" ? "on" : ""}" data-tab="task">Задача</button>
-      <button class="tab ${tab === "orca" && !fileTab ? "on" : ""}" data-tab="orca">${term ? "Термінал" : "Orca"}${waiting ? ` <span class="wait">· чекає на вас</span>` : ""}</button>
+      <button class="tab ${tab === "orca" && !fileTab ? "on" : ""}" data-tab="orca">${term ? "Агент" : "Orca"}${waiting ? ` <span class="wait">· чекає на вас</span>` : ""}</button>
       ${openFiles.map((p) => `<button class="tab ${tab === "orca" && p === fileTab ? "on" : ""}" data-ftab="${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())}<span class="x" data-close="${esc(p)}" title="Закрити">×</span></button>`).join("")}
     </div>` : "";
-  const body = bar && tab === "orca" ? orca : task;
-  // The terminal is a workspace: the header and the tabs on top, the terminal and the files fill the rest.
-  const ws = tab === "orca" && !!term;
+  const ws = !!term;
+  const body = ws ? orca : bar && tab === "orca" ? orca : task;
+  // How the agent is shown: its chat or its terminal; the same conversation either way.
+  const view = r.view === "chat" ? "chat" : "terminal";
+  const views = agentOn ? `<span class="seg" role="group" aria-label="Вигляд агента">
+      <button type="button" class="${view === "chat" ? "on" : ""}" data-view="chat">Чат</button><button type="button" class="${view === "terminal" ? "on" : ""}" data-view="terminal">Термінал</button></span>` : "";
   $("detail").classList.toggle("ws", ws);
   if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
 
@@ -425,7 +595,7 @@ function renderDetail() {
   // In the workspace the tabs, the task's id and the buttons share one thin bar: the rest is the terminal's.
   const html = ws ? `
     <button class="ghost back" id="back">← Задачі</button>
-    <div class="ws-bar">${bar}
+    <div class="ws-bar">${bar}${views}
       <div class="actions">${actions}</div>
     </div>${notices}${body}` : `
     <button class="ghost back" id="back">← Задачі</button>
@@ -439,27 +609,60 @@ function renderDetail() {
     ${t.labels?.length && !ws ? `<div class="labels">${t.labels.map((l) => `<span class="label">${esc(l)}</span>`).join("")}</div>` : ""}
     ${notices}
     ${bar}${body}`;
-  if (!term) closeTerminal();
+  if (!term) { closeTerminal(); closeChat(); }
   // The board reloads every 5 s: the same page is left as it is, so the terminal keeps its focus and selection.
   if (html === shown) return;
-  const typing = tv?.el.contains(document.activeElement);
+  const typing = tv?.el.contains(document.activeElement) || cv?.el.contains(document.activeElement);
   $("detail").innerHTML = shown = html;
-  if (term && $("term-slot")) {
+  if (term && $("term-slot") && view === "chat") {
+    closeTerminal();
+    const c = chatFor(r.id);
+    $("term-slot").append(c.el);
+    if (typing) c.input.focus();
+  } else if (term && $("term-slot")) {
+    closeChat();
     const v = terminalFor(r.id);
     $("term-slot").append(v.el);
     if (r.live && v.gone) connect(v);
     requestAnimationFrame(() => { v.resize(); if (typing) v.term.focus(); });
   }
+  for (const j of $("detail").querySelectorAll("details.journal")) j.ontoggle = () => { journalOpen = j.open; };
+  for (const btn of $("detail").querySelectorAll("[data-itab]")) btn.onclick = () => {
+    itab = btn.dataset.itab;
+    try { localStorage.setItem("mako-itab", itab); } catch {}
+    renderDetail();
+    loadWork().then(renderDetail);
+  };
+  for (const btn of $("detail").querySelectorAll("[data-commit]")) btn.onclick = async () => {
+    const h = btn.dataset.commit;
+    if (commitOpen[h]) { delete commitOpen[h]; renderDetail(); return; }
+    commitOpen[h] = "loading";
+    renderDetail();
+    commitOpen[h] = await getJSON(`/api/commit?id=${encodeURIComponent(r.id)}&hash=${h}`);
+    renderDetail();
+  };
+  for (const btn of $("detail").querySelectorAll("[data-view]")) btn.onclick = async () => {
+    if (btn.classList.contains("on")) return;
+    btn.disabled = true;
+    await fetch(`/api/view?id=${encodeURIComponent(r.id)}&to=${btn.dataset.view}`, { method: "POST" });
+    await load();
+  };
   for (const btn of $("detail").querySelectorAll("[data-tab]")) btn.onclick = () => {
     tab = btn.dataset.tab;
     if (tab === "orca") fileTab = "";
     renderDetail();
-    if (tab === "orca") { tv?.term.focus(); loadWork().then(renderDetail); }
+    if (tab === "orca") { tv?.term.focus(); cv?.input.focus(); }
+    loadWork().then(renderDetail);
   };
   for (const btn of $("detail").querySelectorAll("[data-file]")) btn.onclick = () => openFile(btn.dataset.file);
+  for (const btn of $("detail").querySelectorAll("[data-copy]")) btn.onclick = () => navigator.clipboard?.writeText(btn.dataset.copy);
+  for (const btn of $("detail").querySelectorAll("[data-open]")) btn.onclick = () => fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=${btn.dataset.open}`, { method: "POST" });
   for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; mrAction(r.id, "ask", btn.dataset.ask); };
   for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = () => {
     if (confirm("Змерджити MR? Гілку задачі буде видалено, задача отримає фінальний статус.")) { btn.disabled = true; mrAction(r.id, "merge"); }
+  };
+  for (const btn of $("detail").querySelectorAll("[data-close-mr]")) btn.onclick = () => {
+    if (confirm("Закрити MR без злиття? Зміни лишаться в гілці, задача отримає статус «Не виконано».")) { btn.disabled = true; mrAction(r.id, "close"); }
   };
   for (const btn of $("detail").querySelectorAll("[data-dir]")) btn.onclick = () => {
     const d = btn.dataset.dir;
@@ -478,6 +681,154 @@ function renderDetail() {
 }
 
 // The task from the link, else the one open last time.
+// Mako's chat with the agent: one for the open task, kept while the board re-renders around it; the board asks
+// for its conversation every second and redraws it only when it changed.
+let cv = null;
+function chatFor(id) {
+  if (cv?.id === id) return cv;
+  closeChat();
+  const el = document.createElement("div");
+  el.className = "chat";
+  el.innerHTML = `<div class="chat-list" role="log" aria-live="polite"></div>
+    <div class="chat-foot">
+      <div class="chat-box"><textarea rows="2" aria-label="Повідомлення агенту"></textarea>
+        <button type="button" class="icon chat-stop" title="Перервати поточний крок" aria-label="Перервати поточний крок" hidden>${ICON.stop}</button>
+        <button type="button" class="chat-send" title="Надіслати (Enter)" aria-label="Надіслати">${ICON.push}</button></div>
+      <div class="chat-resume" hidden><span>Агент зупинився. Розмова збережена в Claude Code.</span>
+        <button type="button" class="resume-btn on-light" data-chat-resume>${ICON.play}Продовжити розмову</button></div>
+      <div class="chat-hint">
+        <label class="chat-mode" title="Що Claude робить без питань; діє одразу, як Shift+Tab у терміналі">
+          <select aria-label="Що Claude робить без питань">
+            <option value="auto">auto</option><option value="default">питати все</option><option value="acceptEdits">правки без питань</option>
+            <option value="plan">план</option><option value="bypassPermissions">без питань</option></select></label>
+        <span class="chat-model"></span><span class="chat-ctx"></span><span class="chat-limits"></span>
+        <span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span></div>
+    </div>`;
+  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null });
+  const send = async () => {
+    const text = v.input.value.trim();
+    if (!text) return;
+    v.input.value = "";
+    await fetch(`/api/say?id=${encodeURIComponent(id)}`, { method: "POST", body: text });
+    pollChat();
+  };
+  v.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+  el.querySelector(".chat-send").onclick = send;
+  el.querySelector(".chat-mode select").onchange = (e) =>
+    fetch(`/api/mode?id=${encodeURIComponent(id)}&to=${e.target.value}`, { method: "POST" }).then(() => pollChat());
+  el.querySelector(".chat-stop").onclick = () => fetch(`/api/interrupt?id=${encodeURIComponent(id)}`, { method: "POST" });
+  el.querySelector("[data-chat-resume]").onclick = () => post("resume", id).then(() => { v.version = -1; pollChat(); });
+  v.list.onclick = (e) => {
+    const t = e.target.closest("[data-toggle]");
+    if (t) { if (!v.flip.delete(t.dataset.toggle)) v.flip.add(t.dataset.toggle); renderChat(v); return; }
+    const p = e.target.closest("[data-permit]");
+    if (p) {
+      p.disabled = true;
+      fetch(`/api/permit?id=${encodeURIComponent(id)}&req=${encodeURIComponent(p.dataset.permit)}&decision=${p.dataset.d}`, { method: "POST" }).then(() => pollChat());
+    }
+  };
+  v.timer = setInterval(pollChat, 1000);
+  pollChat();
+  return v;
+}
+function closeChat() {
+  if (!cv) return;
+  clearInterval(cv.timer);
+  cv = null;
+}
+async function pollChat() {
+  const v = cv;
+  if (!v || !v.el.isConnected) return;
+  const s = await getJSON(`/api/chat?id=${encodeURIComponent(v.id)}&v=${v.version}`);
+  if (v !== cv || s.same || s.error) return;
+  v.snap = s;
+  v.version = s.version;
+  renderChat(v);
+}
+function renderChat(v) {
+  const s = v.snap, list = v.list;
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  const running = [...s.items].reverse().find((it) => it.kind === "tool" && it.status === "running");
+  list.innerHTML = `<div class="chat-col">${s.items.map((it, i) => chatItem(it, i, v)).join("") || `<div class="files-empty">${s.live ? "Агент чекає: напишіть йому, що робити." : "Розмова зʼявиться тут, щойно агент почне."}</div>`}
+    ${s.state === "working" ? `<div class="chat-working"><span class="pulse"></span>${esc(running ? `${running.tool}${toolArg(running.input)}` : "Думає…")}</div>` : ""}</div>`;
+  if (atBottom || v.version <= 1) list.scrollTop = list.scrollHeight;
+  v.el.querySelector(".chat-stop").hidden = s.state !== "working";
+  v.el.querySelector(".chat-box").hidden = !s.live;
+  v.el.querySelector(".chat-resume").hidden = s.live;
+  const mode = v.el.querySelector(".chat-mode select");
+  if (document.activeElement !== mode) mode.value = s.mode || "default";
+  mode.disabled = !s.live;
+  v.el.querySelector(".chat-model").textContent = s.model ? s.model.replace(/^claude-/, "").replace(/-(\d+)-(\d+)$/, " $1.$2") : "";
+  const k = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`;
+  const ctx = v.el.querySelector(".chat-ctx");
+  ctx.textContent = s.context ? `контекст ${s.window ? Math.round((100 * s.context) / s.window) + "% · " : ""}${k(s.context)}${s.window ? " з " + k(s.window) : ""}` : "";
+  ctx.className = "chat-ctx" + (s.window && s.context / s.window > 0.8 ? " full" : "");
+  // The account's limits next to the context: what is left before Claude stops.
+  const lim = data?.limits, pct = (w) => Math.round(w.used * 100);
+  v.el.querySelector(".chat-limits").innerHTML = [["5 год", lim?.fiveHour], ["тиждень", lim?.week]].filter(([, w]) => w)
+    .map(([label, w]) => `<span class="${pct(w) >= 85 ? "bad" : pct(w) >= 60 ? "warn" : ""}" title="Ліміт Claude: використано ${pct(w)}%">${label} ${pct(w)}%</span>`).join(" · ");
+  v.input.placeholder = s.state === "waiting" ? "Або напишіть агенту інакше…" : s.state === "working" ? "Агент прочитає після поточного кроку…" : "Що далі? Напишіть агенту…";
+}
+const toolArg = (input) => {
+  for (const k of ["command", "file_path", "pattern", "url", "description", "prompt"]) {
+    const x = input?.[k];
+    if (typeof x === "string" && x) return `: ${x.split("\n")[0].slice(0, 160)}`;
+  }
+  return "";
+};
+function chatItem(it, i, v) {
+  const open = (key, byDefault) => byDefault !== v.flip.has(key);
+  switch (it.kind) {
+    case "user":
+      if (i === 0 && it.text.length > 400) {
+        return `<div class="prompt-card"><button type="button" class="prompt-h" data-toggle="prompt">${ICON.doc}<span>Завдання від Mako: опис задачі, коментарі, як закінчити</span><span class="muted">${open("prompt", false) ? "Сховати" : "Показати"}</span></button>
+          ${open("prompt", false) ? `<div class="prompt-body md">${md(it.text)}</div>` : ""}</div>`;
+      }
+      return `<div class="msg me"><div class="who">Ви</div><div class="bubble">${linkify(it.text)}</div></div>`;
+    case "text":
+      return `<div class="msg"><div class="who">Claude</div><div class="md">${md(it.text)}</div></div>`;
+    case "tool": {
+      const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
+      const edit = ["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(it.tool);
+      const detail = toolDetail(it);
+      const shown = detail && open(it.id, edit ? true : it.status === "error");
+      return `<div class="tool-card ${it.status}"><button type="button" class="tool-h" ${detail ? `data-toggle="${esc(it.id)}"` : "disabled"}>${MR_ICON[icon]}<b>${esc(it.tool)}</b>
+          <code>${esc(toolArg(it.input).slice(2))}</code>${detail ? `<span class="muted">${shown ? "▾" : "▸"}</span>` : ""}</button>${shown ? detail : ""}</div>`;
+    }
+    case "permission": {
+      const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200);
+      if (it.status !== "asked") {
+        return `<div class="perm-done ${it.status}">${{ allowed: "✓ Дозволено", always: "✓ Дозволено й надалі", denied: "✗ Заборонено" }[it.status] ?? it.status}: ${esc(it.tool)} ${esc(arg)}</div>`;
+      }
+      const sug = Array.isArray(it.suggestions) ? it.suggestions[0] : null;
+      const always = !sug ? "" : sug.type === "addRules" ? `Дозволяти ${(sug.rules ?? []).map((r) => r.ruleContent || r.toolName).join(", ")}`
+        : sug.type === "setMode" && sug.mode === "acceptEdits" ? "Дозволяти правки файлів" : "Дозволяти й надалі";
+      return `<div class="perm"><div class="perm-h"><b>Агент просить дозволу</b><span class="muted">· ${esc(it.tool)}</span></div>
+        <code class="perm-cmd">${esc(arg)}</code>
+        <div class="perm-btns"><button type="button" class="primary" data-permit="${esc(it.id)}" data-d="allow">Дозволити</button>
+          ${always ? `<button type="button" data-permit="${esc(it.id)}" data-d="always" title="${esc(always)}">${esc(always.length > 48 ? always.slice(0, 47) + "…" : always)}</button>` : ""}
+          <button type="button" class="danger" data-permit="${esc(it.id)}" data-d="deny">Ні</button></div></div>`;
+    }
+    case "result": {
+      const sec = Math.round(it.seconds || 0), dur = sec >= 60 ? `${Math.floor(sec / 60)} хв ${sec % 60} с` : `${sec} с`;
+      return `<div class="turn-end">${MR_ICON.ok}Хід закінчено · ${dur}${it.cost ? ` · $${it.cost.toFixed(2)}` : ""}</div>`;
+    }
+    case "error":
+      return `<div class="notice">${esc(it.text)}</div>`;
+  }
+  return "";
+}
+// What a tool card shows when opened: an edit's diff, a command's output.
+function toolDetail(it) {
+  const inp = it.input ?? {};
+  const lines = (txt, sign) => String(txt ?? "").split("\n").map((l) => sign + l).join("\n");
+  if (it.tool === "Edit") return diffHTML(`${lines(inp.old_string, "-")}\n${lines(inp.new_string, "+")}`);
+  if (it.tool === "MultiEdit") return diffHTML((inp.edits ?? []).map((e) => `${lines(e.old_string, "-")}\n${lines(e.new_string, "+")}`).join("\n@@\n"));
+  if (it.tool === "Write") return diffHTML(lines(String(inp.content ?? "").split("\n").slice(0, 60).join("\n"), "+"));
+  if (it.tool === "Read" || it.tool === "Glob" || it.tool === "Grep") return "";
+  return it.output ? `<pre class="tool-out">${esc(it.output)}</pre>` : "";
+}
+
 // Mako's own terminal: one xterm for the open task, kept while the board re-renders around it.
 let tv = null;
 function terminalFor(id) {

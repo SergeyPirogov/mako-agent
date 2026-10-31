@@ -29,6 +29,7 @@ type ChangeSet struct {
 	Base    string        `json:"base"`
 	Commits []Commit      `json:"commits"`
 	Files   []ChangedFile `json:"files"`
+	Branch  *BranchState  `json:"branch,omitempty"`
 }
 
 const (

@@ -237,6 +237,9 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		agentText = a.Message
 	}
 	d.mu.Unlock()
+	if s := d.Chats.Get(r.ID); s != nil && agentText == "" {
+		agentText = s.LastText()
+	}
 	if s := d.Sessions.Get(r.ID); s != nil && agentText == "" {
 		agentText = s.Output(6000)
 	}

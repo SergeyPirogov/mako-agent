@@ -284,7 +284,7 @@ function projectsTable(t) {
   const ph = t.type === "jira" ? "PAY" : t.type === "github" ? "acme/web" : "group/app";
   wrap.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Проєкти</h3>
     <div style="font-size:12.5px;color:var(--mute)">${t.type === "jira" ? "Для кожного проєкту Jira — де лежить код." : "Порожній шлях — клон у папці проєктів, адреса для клонування — за SSH."}</div>
-    <table class="projects"><thead><tr><th>${what}</th><th>Шлях до репозиторію</th><th>Звідки клонувати</th><th></th></tr></thead><tbody></tbody></table>
+    <table class="projects"><thead><tr><th>${what}</th><th>Шлях до репозиторію</th><th>Звідки клонувати</th><th title="Від якої гілки починати задачі й куди відкривати MR">Від гілки</th><th title="Команда, що готує новий worktree терміналу Mako">Підготовка</th><th></th></tr></thead><tbody></tbody></table>
     <button style="margin-top:6px" data-addp>+ Проєкт</button>`;
   const body = wrap.querySelector("tbody");
   const rows = Object.entries(t.projects);
@@ -292,9 +292,11 @@ function projectsTable(t) {
     const tr = document.createElement("tr");
     const multi = p && p.repos && Object.keys(p.repos).length > 1;
     tr.innerHTML = `<td><input type="text" value="${esc(key)}" data-key></td>` +
-      (multi ? `<td colspan="2" style="color:var(--mute);font-size:12.5px;padding-top:8px">Кілька репозиторіїв (${Object.keys(p.repos).map(esc).join(", ")}): змінюйте у mako.config.json</td>`
+      (multi ? `<td colspan="4" style="color:var(--mute);font-size:12.5px;padding-top:8px">Кілька репозиторіїв (${Object.keys(p.repos).map(esc).join(", ")}): змінюйте у mako.config.json</td>`
         : `<td><input type="text" placeholder="~/mako/projects/${esc(key.split("/").pop() || "назва")}" value="${esc(p?.repoPath ?? "")}" data-f="repoPath"></td>
-           <td><input type="text" placeholder="${t.type === "jira" ? "git@host:group/app.git" : "автоматично"}" value="${esc(p?.cloneUrl ?? "")}" data-f="cloneUrl"></td>`) +
+           <td><input type="text" placeholder="${t.type === "jira" ? "git@host:group/app.git" : "автоматично"}" value="${esc(p?.cloneUrl ?? "")}" data-f="cloneUrl"></td>
+           <td><input type="text" placeholder="як в origin" value="${esc(p?.baseBranch ?? "")}" data-f="baseBranch"></td>
+           <td><input type="text" placeholder="загальна" title="«-» — нічого" value="${esc(p?.setup ?? "")}" data-f="setup"></td>`) +
       `<td><button class="ghost danger" title="Прибрати">✕</button></td>`;
     let current = key;
     tr.querySelector("[data-key]").onchange = (e) => {
@@ -355,7 +357,7 @@ function renderOrca() {
   const box = $("orca");
   box.innerHTML = "";
   const who = { kind: onTerminal() ? "terminal" : "orca" };
-  const pick = select(who, "kind", "Хто виконує задачі", [["orca", "агент в Orca"], ["terminal", "Claude Code у терміналі Mako"]],
+  const pick = select(who, "kind", "Хто виконує задачі", [["orca", "агент в Orca"], ["terminal", "Claude Code у Mako"]],
     { hint: "Термінал Mako: Mako сам створює worktree і запускає Claude, а ви бачите його й відповідаєте йому на дошці, у вкладці «Термінал»" });
   pick.querySelector("select").onchange = (e) => {
     if (e.target.value === "terminal") cfg.defaultExecutor = terminalExecutor()[0];
@@ -367,7 +369,10 @@ function renderOrca() {
   box.append(pick);
   if (onTerminal()) {
     const t = terminalExecutor()[1];
+    box.append(select(t, "view", "Як показувати агента", [["chat", "чат: повідомлення, картки інструментів, дозволи кнопками"], ["terminal", "термінал Claude Code"]],
+      { def: "chat", hint: "Для нових задач. На дошці можна перемкнути будь-яку задачу: та сама розмова" }));
     box.append(text(t, "command", "Команда агента", { placeholder: "claude", hint: "Повний шлях, якщо Mako не знаходить claude сам" }));
+    box.append(text(t, "setupCommand", "Підготовка нового worktree", { placeholder: "за lockfile: pnpm install, npm ci, yarn, bun", hint: "Виконується в терміналі задачі перед агентом. У проєкту може бути своя — у таблиці проєктів. «-» — нічого" }));
     box.append(select(t, "permissionMode", "Що Claude робить без питань", [["auto", "auto: Claude сам оцінює, що безпечно"], ["acceptEdits", "редагує файли без питань"], ["default", "питає про все"], ["bypassPermissions", "нічого не питає"]], { def: "auto" }));
   } else {
     const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];

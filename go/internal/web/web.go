@@ -7,12 +7,15 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
@@ -54,6 +57,8 @@ type stateReply struct {
 	Paused   bool                       `json:"paused"`
 	Agents   map[string]dispatch.Agent  `json:"agents"`
 	Executor string                     `json:"executor"` // who gets new tasks: "orca" or "terminal"
+	Editor   string                     `json:"editor"`   // the code editor a worktree opens in, "" when none
+	Limits   chat.Limits                `json:"limits"`   // Claude's usage limits, as the agents last reported them
 }
 
 type recordView struct {
@@ -93,12 +98,10 @@ func (s *Server) Handler() http.Handler {
 		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
-		reply.Executor = s.D.Config().Executor
+		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		for _, rec := range s.D.Store.All() {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
-			if sess := s.D.Sessions.Get(rec.ID); sess != nil {
-				v.Live = sess.Running()
-			}
+			v.Live = s.D.Live(rec.ID)
 			reply.Records = append(reply.Records, v)
 		}
 		for _, t := range s.D.TrackerList() {
@@ -113,6 +116,36 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, cs)
+	})
+	// The agent's conversation: everything when it changed since the board's version, else only the version.
+	mux.HandleFunc("GET /api/chat", func(w http.ResponseWriter, r *http.Request) {
+		c := s.D.Chats.Get(r.URL.Query().Get("id"))
+		if c == nil {
+			writeJSON(w, chat.Snapshot{State: "exited", Items: []chat.Item{}})
+			return
+		}
+		snap := c.Snapshot()
+		if strconv.Itoa(snap.Version) == r.URL.Query().Get("v") {
+			writeJSON(w, map[string]any{"version": snap.Version, "same": true})
+			return
+		}
+		writeJSON(w, snap)
+	})
+	mux.HandleFunc("GET /api/commits", func(w http.ResponseWriter, r *http.Request) {
+		h, err := s.D.History(r.Context(), r.URL.Query().Get("id"))
+		if err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, h)
+	})
+	mux.HandleFunc("GET /api/commit", func(w http.ResponseWriter, r *http.Request) {
+		c, err := s.D.CommitInfo(r.Context(), r.URL.Query().Get("id"), r.URL.Query().Get("hash"))
+		if err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, c)
 	})
 	mux.HandleFunc("GET /api/review", func(w http.ResponseWriter, r *http.Request) {
 		c, err := s.D.Review(r.Context(), r.URL.Query().Get("id"))
@@ -175,12 +208,44 @@ func (s *Server) Handler() http.Handler {
 			}
 		case "stop":
 			s.D.StopTerminal(id)
-		case "ask", "merge":
+		case "say", "permit", "interrupt", "view", "mode":
 			var err error
-			if action == "ask" {
+			c := s.D.Chats.Get(id)
+			switch {
+			case action == "view":
+				err = s.D.SwitchView(id, r.URL.Query().Get("to"))
+			case c == nil:
+				err = fmt.Errorf("агент не запущений")
+			case action == "say":
+				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
+				if text := strings.TrimSpace(string(body)); text != "" {
+					err = c.Send(text)
+				}
+			case action == "mode":
+				err = c.SetMode(r.URL.Query().Get("to"))
+			case action == "permit":
+				err = c.Permit(r.URL.Query().Get("req"), r.URL.Query().Get("decision"))
+			default:
+				err = c.Interrupt()
+			}
+			if err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "open":
+			if err := s.D.OpenWorktree(id, r.URL.Query().Get("in")); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "ask", "merge", "close":
+			var err error
+			switch action {
+			case "ask":
 				err = s.D.AskAgent(ctx, id, r.URL.Query().Get("kind"))
-			} else {
+			case "merge":
 				err = s.D.MergeReview(ctx, id)
+			default:
+				err = s.D.CloseReview(ctx, id)
 			}
 			if err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

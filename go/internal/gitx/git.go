@@ -170,8 +170,19 @@ func EnsureClone(ctx context.Context, r *config.Repo, log func(string)) error {
 	return nil
 }
 
-// DetectBaseBranch: origin/HEAD, else whichever of main/master/develop the remote has, else main.
+// DetectBaseBranch: origin/HEAD, else whichever of main/master/develop the remote has, else main. repo may be a
+// worktree too, where .git is a file: git itself answers first.
 func DetectBaseBranch(repo string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := Run(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil && strings.HasPrefix(out, "origin/") {
+		return strings.TrimPrefix(out, "origin/")
+	}
+	for _, b := range []string{"main", "master", "develop"} {
+		if _, err := Run(ctx, repo, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+b); err == nil {
+			return b
+		}
+	}
 	gitDir := filepath.Join(repo, ".git")
 	if b, err := os.ReadFile(filepath.Join(gitDir, "refs", "remotes", "origin", "HEAD")); err == nil {
 		if ref := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(b)), "ref: refs/remotes/origin/")); ref != "" && !strings.HasPrefix(ref, "ref:") {
