@@ -19,3 +19,25 @@ func TestReviewNotes(t *testing.T) {
 		t.Error("an empty answer passed")
 	}
 }
+
+func TestParseAssessment(t *testing.T) {
+	a, err := ParseAssessment("Ось оцінка:\n```json\n" + `{"clarity":{"score":2,"why":" Не сказано де "},"complexity":{"score":3,"why":"x"},"completeness":{"score":5,"why":"y"},"risk":{"score":1,"why":"z"},"missing":["де кнопка","- який текст"]}` + "\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.State != "done" || a.Clarity.Value != 2 || a.Clarity.Why != "Не сказано де" || a.Complexity.Value != 3 || a.Completeness.Value != 5 || a.Risk.Value != 1 {
+		t.Fatalf("%+v", a)
+	}
+	if a.Missing != "- де кнопка\n- який текст" {
+		t.Fatalf("missing %q", a.Missing)
+	}
+	a, err = ParseAssessment(`{"clarity":{"score":5},"complexity":{"score":1},"completeness":{"score":4},"risk":{"score":2},"missing":""}`)
+	if err != nil || a.Missing != "" || a.Clarity.Value != 5 {
+		t.Fatalf("%+v, %v", a, err)
+	}
+	for _, bad := range []string{"немає", `{"clarity":{"score":0},"complexity":{"score":1},"completeness":{"score":1},"risk":{"score":1}}`, `{"clarity":{"score":6}}`} {
+		if _, err := ParseAssessment(bad); err == nil {
+			t.Errorf("ParseAssessment(%q) passed", bad)
+		}
+	}
+}

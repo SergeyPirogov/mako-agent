@@ -30,6 +30,12 @@ type Stats struct {
 	Projects []Group `json:"projects"`
 	// Executors: by who did the work: Mako's own agent or an executor in Orca.
 	Executors []Group `json:"executors"`
+	// Assessed: the tasks the agent rated; the rest are the average scores over them.
+	Assessed     int     `json:"assessed"`
+	Clarity      float64 `json:"clarity"`
+	Complexity   float64 `json:"complexity"`
+	Completeness float64 `json:"completeness"`
+	Risk         float64 `json:"risk"`
 }
 
 // Group is how the tasks of one project or one executor went.
@@ -39,6 +45,9 @@ type Group struct {
 	Succeeded int     `json:"succeeded"`
 	Failed    int     `json:"failed"`
 	Cost      float64 `json:"cost"`
+	// Clarity: the average score of how well the tasks were described, over the Assessed ones.
+	Clarity  float64 `json:"clarity"`
+	Assessed int     `json:"assessed"`
 }
 
 type Reason struct {
@@ -83,6 +92,17 @@ func Summarize(records []Record, now time.Time) Stats {
 			g.Taken++
 			g.Cost += r.Cost
 		}
+		if a := r.Assessment; a != nil && a.State == "done" {
+			st.Assessed++
+			st.Clarity += float64(a.Clarity.Value)
+			st.Complexity += float64(a.Complexity.Value)
+			st.Completeness += float64(a.Completeness.Value)
+			st.Risk += float64(a.Risk.Value)
+			for _, g := range groups {
+				g.Assessed++
+				g.Clarity += float64(a.Clarity.Value)
+			}
+		}
 		switch {
 		case r.Status == Failed || r.Status == Cancelled || r.ReviewState == "closed":
 			st.Failed++
@@ -125,6 +145,9 @@ func Summarize(records []Record, now time.Time) Stats {
 	if reviewed > 0 {
 		st.ReviewSeconds = review.Seconds() / float64(reviewed)
 	}
+	if n := float64(st.Assessed); n > 0 {
+		st.Clarity, st.Complexity, st.Completeness, st.Risk = st.Clarity/n, st.Complexity/n, st.Completeness/n, st.Risk/n
+	}
 	st.Projects, st.Executors = sorted(projects), sorted(executors)
 	for text, n := range reasons {
 		st.Reasons = append(st.Reasons, Reason{Text: text, Count: n})
@@ -146,6 +169,9 @@ func group(groups map[string]*Group, name string) *Group {
 func sorted(groups map[string]*Group) []Group {
 	out := make([]Group, 0, len(groups))
 	for _, g := range groups {
+		if g.Assessed > 0 {
+			g.Clarity /= float64(g.Assessed)
+		}
 		out = append(out, *g)
 	}
 	sort.Slice(out, func(i, j int) bool {

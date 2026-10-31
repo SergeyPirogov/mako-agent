@@ -964,6 +964,25 @@ function reviewerHTML(r) {
   }).join("");
 }
 
+// The agent's rating of a finished task: four scores from 1 to 5 with why, and what the description lacked.
+const ASSESS = [["clarity", "Опис задачі", "up"], ["complexity", "Складність", ""], ["completeness", "Виконано задачі", "up"], ["risk", "Ризик змін", "down"]];
+function assessmentHTML(r, card) {
+  if (r.status !== "done") return "";
+  const a = r.assessment;
+  const btn = (label) => `<button class="ghost" data-a="assess" title="Агент оцінить опис задачі, складність, повноту й ризик змін">${label}</button>`;
+  if (!a) return card("Оцінка агента", `<div class="tcard-b muted">Ще не оцінено.</div>`, "", btn("Оцінити"));
+  if (a.state === "running") return card("Оцінка агента", `<div class="tcard-b muted">Агент оцінює задачу…</div>`);
+  if (a.state === "failed") return card("Оцінка агента", `<div class="tcard-b mr-err">${esc(a.error || "Не вдалось оцінити")}</div>`, "", btn("Спробувати ще"));
+  const rows = ASSESS.map(([k, label, way]) => {
+    const s = a[k] || {}, v = s.value || 0;
+    const tone = !way ? "" : (way === "up" ? v : 6 - v) >= 4 ? "good" : (way === "up" ? v : 6 - v) <= 2 ? "bad" : "mid";
+    const pips = [1, 2, 3, 4, 5].map((i) => `<i class="${i <= v ? "on" : ""}"></i>`).join("");
+    return `<div class="score ${tone}"><span class="k">${label}</span><span class="pips" title="${v} з 5">${pips}</span><b>${v}/5</b>${s.why ? `<span class="score-why">${esc(s.why)}</span>` : ""}</div>`;
+  }).join("");
+  const missing = a.missing?.trim() ? `<div class="sec warn"><h4><span class="ic">!</span>Чого бракувало в описі</h4>${md(a.missing)}</div>` : "";
+  return card("Оцінка агента", `<div class="tcard-b scores">${rows}</div>${missing}`, "assess", btn("Оцінити ще раз"));
+}
+
 // The rule Mako drew from your correction of the agent: saved, it goes into the repo's CLAUDE.md for the next agents.
 function lessonHTML(r) {
   const base = changes?.branch?.base;
@@ -1263,6 +1282,13 @@ function statsHTML(s) {
       ${tile("Повторні спроби", s.retried || 0, `${pct(s.retried || 0)}% задач`)}
       ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу · ${s.priced} ${plural(s.priced, "задача", "задачі", "задач")}` : "лише агент у Mako")}
     </div>
+    ${s.assessed ? `<h3>Оцінка агента <span class="muted">· ${s.assessed} ${plural(s.assessed, "задача", "задачі", "задач")}</span></h3>
+    <div class="stat-row">
+      ${tile("Опис задач", `${s.clarity.toFixed(1)}/5`, "наскільки добре описано")}
+      ${tile("Складність", `${s.complexity.toFixed(1)}/5`, "в середньому")}
+      ${tile("Виконано задачі", `${s.completeness.toFixed(1)}/5`, "наскільки повно")}
+      ${tile("Ризик змін", `${s.risk.toFixed(1)}/5`, "в середньому")}
+    </div>` : ""}
     ${groupsHTML("За проєктами", s.projects, "Проєкт")}
     ${groupsHTML("За агентами", s.executors, "Агент", (n) => n === "terminal" ? "Агент у Mako" : n === "—" ? "—" : `Orca · ${n}`)}
     <h3>Причини невдач</h3>
@@ -1311,8 +1337,9 @@ function bindFaults() {
 // One row per project or agent: how its tasks went. Hidden while there is only one.
 function groupsHTML(title, groups, col, name = (n) => n) {
   if (!groups || groups.length < 2) return "";
-  const row = (g) => `<tr><td>${esc(name(g.name))}</td><td>${g.taken}</td><td>${g.succeeded}</td><td>${g.failed}</td><td>${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td><td>${g.cost ? `$${g.cost.toFixed(2)}` : "—"}</td></tr>`;
-  return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th></tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
+  const rated = groups.some((g) => g.assessed);
+  const row = (g) => `<tr><td>${esc(name(g.name))}</td><td>${g.taken}</td><td>${g.succeeded}</td><td>${g.failed}</td><td>${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td><td>${g.cost ? `$${g.cost.toFixed(2)}` : "—"}</td>${rated ? `<td>${g.assessed ? `${g.clarity.toFixed(1)}/5` : "—"}</td>` : ""}</tr>`;
+  return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th>${rated ? `<th title="Як добре описано задачі, за оцінкою агента">Опис</th>` : ""}</tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
 }
 
 // «Поки вас не було»: what waits for you, the MRs to merge, what failed and got merged, with links to the tasks.
@@ -1394,6 +1421,7 @@ function renderDetail() {
   const task = `
     ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
+    ${assessmentHTML(r, card)}
     ${reviewerHTML(r)}
     ${r.retryNote ? card(`Спроба ${r.attempt || 2}: що зробити інакше`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
     ${card("Опис", `<div class="tcard-b text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", `з ${esc(trackerName(t))}`)}

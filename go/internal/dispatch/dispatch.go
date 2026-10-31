@@ -673,6 +673,9 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		d.move(ctx, t, r.Task, trackers.AtReview)
 		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
 		d.summarize(ctx, r, repo.BaseBranch, review.URL)
+		if d.startAssess(r.ID) == nil {
+			d.assess(ctx, r.ID)
+		}
 		if rec, _ := d.Store.Get(r.ID); d.reviewWanted(rec) {
 			go d.maybeReview(r.ID)
 		}
@@ -881,7 +884,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
 		rec.AutoFixed, rec.AutoFixes = nil, 0
-		rec.AgentReviews = nil
+		rec.AgentReviews, rec.Assessment = nil, nil
 	})
 	d.Take(ctx, id)
 }
