@@ -58,6 +58,10 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .search.err { color: var(--err); }
 .filter { flex: none; padding: 6px 8px; border-bottom: 1px solid var(--line); }
 .filter[hidden] { display: none; }
+.filter { display: flex; flex-direction: column; gap: 6px; }
+.filter [hidden] { display: none; }
+.filter input { width: 100%; height: 28px; padding: 0 8px; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--card);
+  border: 1px solid var(--line); border-radius: 7px; }
 .filter select { width: 100%; height: 28px; padding: 0 6px; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--card);
   border: 1px solid var(--line); border-radius: 7px; }
 .chip { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--mute); }
@@ -67,9 +71,15 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .side-bar { height: 36px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
 .side-bar .icon-btn { width: 26px; height: 26px; }
-#list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0 24px; }
-.group { height: 30px; align-items: flex-end; padding: 0 12px 4px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); display: flex; gap: 6px; }
-.group .n { color: var(--faint); }
+#list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 24px; }
+/* A group's heading sticks to the top while its group scrolls by; a click folds the group. */
+.group { position: sticky; top: 0; z-index: 1; width: 100%; height: 30px; align-items: flex-end; padding: 0 12px 4px 8px; font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--mute); display: flex; gap: 4px; border: 0; border-radius: 0; background: var(--bg); text-align: left; }
+.group:hover { background: var(--bg); color: var(--fg); }
+.group:active { transform: none; }
+.group .n { color: var(--faint); margin-left: 2px; }
+.group .chev { flex: none; align-self: center; margin-top: 8px; transition: transform .15s; }
+.group.folded .chev { transform: rotate(-90deg); }
 .item { display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; height: 48px; text-align: left; border: 0; border-radius: 0;
   background: none; padding: 0 10px; border-left: 2px solid transparent; }
 .item:hover { background: var(--hover); }
