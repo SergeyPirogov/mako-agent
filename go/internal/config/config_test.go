@@ -228,3 +228,13 @@ func TestParseAutoTakeOnly(t *testing.T) {
 		}
 	}
 }
+
+// The Mac stays awake while agents work unless the settings say otherwise.
+func TestKeepAwake(t *testing.T) {
+	if c, _ := Parse([]byte(`{}`), nil); !c.KeepAwake {
+		t.Error("on by default")
+	}
+	if c, _ := Parse([]byte(`{"keepAwake":false}`), nil); c.KeepAwake {
+		t.Error("off when the settings say")
+	}
+}

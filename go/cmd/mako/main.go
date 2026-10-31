@@ -113,7 +113,8 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	d.Problems = problems
 	d.Version = version
 	d.BoardURL = "http://" + ln.Addr().String()
-	d.KeepAwake = awake.Keep // the Mac does not fall asleep while an agent works
+	// The Mac does not fall asleep while an agent works, unless the settings let it.
+	d.KeepAwake = func(on bool) { awake.Keep(on && d.Config().KeepAwake) }
 	// The board opens in Mako's own window on macOS (it needs the menu bar's run loop), else in the browser.
 	tray := !noTray && desktop.Available()
 	show := notify.Open

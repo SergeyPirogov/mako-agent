@@ -544,6 +544,7 @@ function renderLimits() {
   box.lastChild.querySelector("input").addEventListener("change", renderLimits);
   if (!cfg.wipAuto) box.append(num(cfg, "wipLimit", "Задач в Orca одночасно (WIP)", { placeholder: "без ліміту", hint: "Решта чекає в черзі" }));
   box.append(num(cfg, "pollIntervalSec", "Шукати задачі кожні, с", { placeholder: "60" }));
+  box.append(check(cfg, "keepAwake", "Не давати Mac заснути, поки агенти працюють", { def: true, hint: "Лише сон від бездіяльності: закрита кришка чи «Сон» вручну все одно зупинять агентів. Вимкнено — Mac засинає як звичайно" }));
   box.append(num(cfg, "archiveAfterDays", "Архівувати завершені через, днів", { placeholder: "2", hint: "0 — не архівувати" }));
   box.append(text(cfg, "branchPattern", "Назва гілки задачі", { placeholder: "{type}/{id}-{title}", hint: "{type} — feature або fix, {id}, {title}, {slug}" }));
   box.append(text(cfg, "projectsDir", "Папка для проєктів", { placeholder: "~/mako/projects" }));
