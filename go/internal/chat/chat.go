@@ -791,6 +791,19 @@ func (m *Manager) Busy() int {
 	return n
 }
 
+// Live: how many agents still run.
+func (m *Manager) Live() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, s := range m.all {
+		if s.Running() {
+			n++
+		}
+	}
+	return n
+}
+
 func (m *Manager) SetLimits(l Limits) {
 	m.mu.Lock()
 	m.limits = l

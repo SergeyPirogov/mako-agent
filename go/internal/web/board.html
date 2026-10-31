@@ -19,8 +19,10 @@
   <span class="logo">🦈 Mako</span>
   <span class="wip" id="wip"></span>
   <span id="waiting"></span>
+  <span id="restart-note"></span>
   <span class="spacer"></span>
   <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
+  <button class="icon-btn" id="restart" title="Перезапустити Mako, коли агенти закінчать хід" aria-label="Перезапустити Mako, коли агенти закінчать хід"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v7"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg></button>
   <button class="icon-btn" id="stats-btn" title="Статистика" aria-label="Статистика"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
   <a class="icon-btn" id="settings-link" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
@@ -161,6 +163,7 @@ async function post(action, id, extra = "") {
   await load();
 }
 $("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
+$("restart").onclick = () => fetch(`/api/restart?on=${data?.restart?.pending ? 0 : 1}`, { method: "POST" }).then(load);
 $("stats-btn").onclick = () => {
   selected = null; statsOpen = true;
   history.replaceState(null, "", location.pathname);
@@ -243,6 +246,12 @@ function render() {
   $("pause").innerHTML = data.paused ? ICON.play : ICON.pause;
   $("pause").title = $("pause").ariaLabel = data.paused ? "Пошук на паузі: продовжити" : "Пауза: не шукати нових задач";
   $("pause").classList.toggle("on", !!data.paused);
+  // «Перезапустити, коли агенти закінчать хід»: Mako waits for the agents that work now, then restarts.
+  const rs = data.restart || {};
+  $("restart").classList.toggle("on", !!rs.pending);
+  $("restart").title = $("restart").ariaLabel = rs.pending ? "Скасувати перезапуск" : "Перезапустити Mako, коли агенти закінчать хід";
+  $("restart-note").innerHTML = rs.pending
+    ? `<span class="waiting-chip" title="${esc((rs.busy || []).join(", "))}">${rs.busy?.length ? `Перезапуск, коли агенти закінчать хід: ${rs.busy.length}` : "Перезапуск…"}</span>` : "";
   const live = data.records.filter((r) => !r.archivedAt);
   const doing = live.filter((r) => r.column === "doing").length;
   $("wip").className = "wip" + (data.wipLimit && doing >= data.wipLimit ? " full" : "");

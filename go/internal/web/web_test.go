@@ -51,6 +51,24 @@ func TestBoard(t *testing.T) {
 	if len(st.Records) != 1 || !st.Records[0].Postponed || st.Records[0].Column != "new" {
 		t.Fatalf("state %+v", st.Records)
 	}
+
+	// «Перезапустити, коли агенти закінчать хід»: asked for, then taken back.
+	req, _ = http.NewRequest("POST", srv.URL+"/api/restart?on=1", nil)
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 || !d.RestartPending() {
+		t.Fatalf("restart: %d, pending %v", res.StatusCode, d.RestartPending())
+	}
+	res, _ = http.Get(srv.URL + "/api/state")
+	st = stateReply{}
+	json.NewDecoder(res.Body).Decode(&st)
+	if !st.Restart.Pending || len(st.Restart.Busy) != 0 {
+		t.Fatalf("restart in state: %+v", st.Restart)
+	}
+	req, _ = http.NewRequest("POST", srv.URL+"/api/restart?on=0", nil)
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 || d.RestartPending() {
+		t.Fatalf("restart taken back: %d, pending %v", res.StatusCode, d.RestartPending())
+	}
 }
 
 func TestSettingsSaveReloads(t *testing.T) {

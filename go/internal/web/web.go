@@ -71,6 +71,13 @@ type stateReply struct {
 	Remote   bool                       `json:"remote"`              // the page is open on a phone
 	Stats    core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
 	Update   *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
+	Restart  restartView                `json:"restart"`
+}
+
+// restartView: «Перезапустити, коли агенти закінчать хід» is pressed, and the tasks whose agents it waits for.
+type restartView struct {
+	Pending bool     `json:"pending"`
+	Busy    []string `json:"busy"`
 }
 
 type recordView struct {
@@ -118,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 			st := s.Update.Status()
 			reply.Update = &st
 		}
+		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
 		all := s.D.Store.All()
 		reply.Stats = core.Summarize(all, time.Now())
 		for _, rec := range all {
@@ -229,6 +237,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		if action == "poll" {
 			s.D.Wake()
+			writeJSON(w, map[string]bool{"ok": true})
+			return
+		}
+		if action == "restart" {
+			s.D.RequestRestart(r.URL.Query().Get("on") == "1")
 			writeJSON(w, map[string]bool{"ok": true})
 			return
 		}
