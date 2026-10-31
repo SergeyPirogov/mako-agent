@@ -93,6 +93,33 @@ type Record struct {
 	AutoFixes int               `json:"autoFixes,omitempty"`
 	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.
 	AgentReviews []AgentReview `json:"agentReviews,omitempty"`
+	// Assessment: how the agent rates the finished task: its description, how hard it was, how much of it is
+	// done and how risky the change is.
+	Assessment *Assessment `json:"assessment,omitempty"`
+}
+
+// Assessment is the agent's rating of a finished task, each score from 1 to 5.
+type Assessment struct {
+	At string `json:"at"`
+	// State: "running", "done" or "failed".
+	State string `json:"state"`
+	// Clarity: how well the task was described (5: everything needed was in it).
+	Clarity Score `json:"clarity"`
+	// Complexity: how hard the task was (5: the hardest).
+	Complexity Score `json:"complexity"`
+	// Completeness: how much of the task the change does (5: all of it).
+	Completeness Score `json:"completeness"`
+	// Risk: how likely the change is to break something (5: the riskiest).
+	Risk Score `json:"risk"`
+	// Missing: what the description should have said, for whoever writes the next one.
+	Missing string `json:"missing,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// Score is one rating from 1 to 5 (0: none) with why.
+type Score struct {
+	Value int    `json:"value"`
+	Why   string `json:"why,omitempty"`
 }
 
 // AgentReview is one look of the reviewer agent at the task's branch.

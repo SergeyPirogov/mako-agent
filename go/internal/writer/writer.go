@@ -3,6 +3,7 @@ package writer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -274,4 +275,86 @@ func ReviewNotes(answer string) (string, error) {
 		text = text[:12000] + "\n…"
 	}
 	return text, nil
+}
+
+// Assess: the agent's rating of a finished task, from the task as it was written, the end of the agent's work
+// and the branch's changes. Each score is from 1 to 5, its reason and what the description lacked in Ukrainian.
+func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText, summary string) (core.Assessment, error) {
+	var commits, stat, diff string
+	if baseBranch != "" {
+		commits, stat, diff = BranchWork(ctx, dir, baseBranch)
+	}
+	var comments []string
+	for _, c := range t.Comments {
+		comments = append(comments, "- "+c.Author+": "+clipTo(c.Body, 1500))
+	}
+	text, err := Ask(ctx, dir, strings.Join([]string{
+		"A coding agent finished the task below. Rate it, for the developer who gave the task, on four scores from 1 to 5:",
+		"- clarity: how well the task was described: 5 when it said everything needed to do it (what, where, how to tell it is done), 1 when the agent had to guess most of it;",
+		"- complexity: how hard the task was: 1 a trivial edit, 5 a large or tricky change across many places;",
+		"- completeness: how much of what the task asks the changes actually do: 5 all of it, 1 almost nothing;",
+		"- risk: how likely the change is to break something or need rework in review: 1 safe, 5 very risky.",
+		"Base the scores on the task's text and the actual changes, not on what the agent says about itself.",
+		"Answer with JSON only, no code fences, in this shape, each \"why\" one short sentence in Ukrainian:",
+		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"missing":"..."}`,
+		"\"missing\": in Ukrainian, at most 3 short points on what the description should have said (\"\" when nothing).",
+		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
+		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
+		"", "Summary of the work:", orNone(summary),
+		"", "End of the agent's session:", orNone(lastOf(agentText, 6000)),
+		"", "Commits:", orNone(commits), stat, clip(diff),
+	}, "\n"))
+	if err != nil {
+		return core.Assessment{}, err
+	}
+	return ParseAssessment(text)
+}
+
+// ParseAssessment reads the JSON Assess asks for; a score out of 1..5 is an error, not a guess.
+func ParseAssessment(answer string) (core.Assessment, error) {
+	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
+	if start < 0 || end < start {
+		return core.Assessment{}, errors.New("оцінка не в JSON")
+	}
+	type score struct {
+		Score int    `json:"score"`
+		Why   string `json:"why"`
+	}
+	var in struct {
+		Clarity, Complexity, Completeness, Risk score
+		Missing                                 json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
+		return core.Assessment{}, fmt.Errorf("оцінка не в JSON: %v", err)
+	}
+	a := core.Assessment{State: "done", Missing: missingText(in.Missing)}
+	for _, s := range []struct {
+		in  score
+		out *core.Score
+	}{{in.Clarity, &a.Clarity}, {in.Complexity, &a.Complexity}, {in.Completeness, &a.Completeness}, {in.Risk, &a.Risk}} {
+		if s.in.Score < 1 || s.in.Score > 5 {
+			return core.Assessment{}, fmt.Errorf("оцінка %d поза 1–5", s.in.Score)
+		}
+		*s.out = core.Score{Value: s.in.Score, Why: clipTo(strings.TrimSpace(s.in.Why), 500)}
+	}
+	return a, nil
+}
+
+// missingText: "missing" as a string or, as models sometimes answer, a list of points.
+func missingText(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return clipTo(strings.TrimSpace(s), 1500)
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		var out []string
+		for _, l := range list {
+			if l = strings.TrimSpace(l); l != "" {
+				out = append(out, "- "+strings.TrimLeft(l, "-*• "))
+			}
+		}
+		return clipTo(strings.Join(out, "\n"), 1500)
+	}
+	return ""
 }

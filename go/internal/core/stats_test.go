@@ -28,8 +28,8 @@ func TestSummarize(t *testing.T) {
 	if st.Retried != 1 || st.LastWeek != 3 {
 		t.Fatalf("retried %d, last week %d", st.Retried, st.LastWeek)
 	}
-	wantProjects := []Group{{"g/app", 5, 2, 2, 4}, {"g/web", 3, 1, 2, 0}}
-	wantExecutors := []Group{{"mako", 4, 2, 2, 4}, {"orca", 3, 1, 1, 0}, {"—", 1, 0, 1, 0}}
+	wantProjects := []Group{{"g/app", 5, 2, 2, 4, 0, 0}, {"g/web", 3, 1, 2, 0, 0, 0}}
+	wantExecutors := []Group{{"mako", 4, 2, 2, 4, 0, 0}, {"orca", 3, 1, 1, 0, 0, 0}, {"—", 1, 0, 1, 0, 0, 0}}
 	for _, c := range []struct{ got, want []Group }{{st.Projects, wantProjects}, {st.Executors, wantExecutors}} {
 		if len(c.got) != len(c.want) {
 			t.Fatalf("groups %+v", c.got)
@@ -50,6 +50,28 @@ func TestSummarize(t *testing.T) {
 	for i := range want {
 		if st.Reasons[i] != want[i] {
 			t.Fatalf("reasons %+v", st.Reasons)
+		}
+	}
+}
+
+func TestSummarizeAssessments(t *testing.T) {
+	rated := func(project string, clarity, complexity, completeness, risk int) Record {
+		return Record{Status: Done, Task: Task{Project: project}, StartedAt: "2026-10-01T10:00:00Z", PRURL: "u",
+			Assessment: &Assessment{State: "done", Clarity: Score{Value: clarity}, Complexity: Score{Value: complexity},
+				Completeness: Score{Value: completeness}, Risk: Score{Value: risk}}}
+	}
+	running := rated("g/app", 1, 1, 1, 1)
+	running.Assessment.State = "running"
+	st := Summarize([]Record{
+		rated("g/app", 2, 3, 5, 1), rated("g/app", 4, 1, 3, 3), rated("g/web", 5, 5, 4, 2), running,
+		{Status: Done, Task: Task{Project: "g/web"}, StartedAt: "2026-10-01T10:00:00Z", PRURL: "u"},
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC))
+	if st.Assessed != 3 || st.Clarity != 11.0/3 || st.Complexity != 3 || st.Completeness != 4 || st.Risk != 2 {
+		t.Fatalf("assessment %+v", st)
+	}
+	for _, g := range st.Projects {
+		if g.Name == "g/app" && (g.Assessed != 2 || g.Clarity != 3) || g.Name == "g/web" && (g.Assessed != 1 || g.Clarity != 5) {
+			t.Fatalf("groups %+v", st.Projects)
 		}
 	}
 }

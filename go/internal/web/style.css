@@ -700,3 +700,17 @@ a.tchip:hover { text-decoration: none; background: var(--hover); }
 .cmt b { font-size: 12.5px; }
 .av { width: 26px; height: 26px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 700; background: color-mix(in srgb, var(--accent) 18%, var(--card)); color: var(--accent); }
+
+/* The agent's rating of a finished task. */
+.tcard .scores { display: grid; gap: 8px; }
+.score { display: grid; grid-template-columns: 130px auto 34px 1fr; align-items: center; gap: 10px; font-size: 13px; }
+.score .k { color: var(--mute); }
+.score b { font-variant-numeric: tabular-nums; }
+.score .score-why { color: var(--mute); font-size: 12.5px; }
+.score .pips { display: inline-flex; gap: 3px; }
+.score .pips i { width: 14px; height: 6px; border-radius: 3px; background: var(--line); }
+.score .pips i.on { background: var(--accent); }
+.score.good .pips i.on { background: var(--ok); }
+.score.mid .pips i.on { background: var(--warn); }
+.score.bad .pips i.on { background: var(--err); }
+@media (max-width: 640px) { .score { grid-template-columns: 110px auto 34px; } .score .score-why { grid-column: 1 / -1; } }

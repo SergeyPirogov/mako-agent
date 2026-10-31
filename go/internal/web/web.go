@@ -398,6 +398,11 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "assess":
+			if err := s.D.Assess(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "archive":
 			s.D.Archive(id, true)
 		case "unarchive":
