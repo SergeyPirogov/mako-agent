@@ -32,6 +32,7 @@
 <div id="problems"></div>
 <div id="trackers-down"></div>
 <div id="update"></div>
+<div id="release"></div>
 <div id="limit-hold"></div>
 <div class="work" id="work">
   <div class="side">
@@ -316,8 +317,20 @@ function updateHTML(u) {
   return `<div class="banner update"><div class="update-head"><b>Оновлення Mako</b>${button}</div>${failed}</div>`;
 }
 
+// A newer release of Mako, for one installed from a release: a link to download it, hidden until the next one.
+function releaseHTML(r) {
+  if (!r) return "";
+  return `<div class="banner update"><div class="update-head"><b>Є Mako ${esc(r.version)}</b>`
+    + `<a class="button primary" href="${esc(r.url)}" target="_blank" rel="noopener">Завантажити</a>`
+    + `<span class="spacer"></span><button type="button" class="icon" id="release-hide" title="Сховати до наступної версії" aria-label="Сховати до наступної версії">×</button></div>`
+    + (r.notes ? `<div class="muted">${esc(r.notes)}</div>` : "") + `</div>`;
+}
+
 function render() {
   $("update").innerHTML = updateHTML(data.update);
+  $("release").innerHTML = releaseHTML(data.release);
+  const rh = $("release-hide");
+  if (rh) rh.onclick = async () => { rh.disabled = true; await fetch("/api/release/dismiss?version=" + encodeURIComponent(data.release.version), { method: "POST" }); await load(); };
   $("limit-hold").innerHTML = limitHoldHTML(data.limitHold);
   const ub = $("update-btn");
   if (ub) ub.onclick = async () => { ub.disabled = true; await fetch("/api/update", { method: "POST" }); await load(); };

@@ -63,6 +63,9 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .banner > button { align-self: flex-start; margin-top: 4px; }
 .banner.update { background: color-mix(in srgb, var(--accent) 10%, var(--card)); gap: 6px; }
 .update-head { display: flex; align-items: center; gap: 12px; }
+/* «Завантажити» on the new release's banner: a link that looks like the primary button. */
+.update-head a.button { padding: 6px 12px; border-radius: 8px; background: var(--primary); color: var(--primary-fg); font-weight: 600; text-decoration: none; }
+.update-head a.button:hover { opacity: .9; }
 .search { color: var(--mute); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .search.err { color: var(--err); }
 .filter { flex: none; padding: 6px 8px; border-bottom: 1px solid var(--line); }

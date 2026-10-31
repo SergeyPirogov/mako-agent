@@ -179,7 +179,13 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 			go updater.Watch(ctx, 30*time.Minute)
 		}
 	}
-	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones, Update: updater}).Handler()}
+	// Mako installed from a release has no clone: it only tells that a newer release is out.
+	var releases *update.Releases
+	if updater == nil && update.IsRelease(version) {
+		releases = &update.Releases{Current: version, File: filepath.Join(cfg.StateDir, "release.json")}
+		go releases.Watch(ctx, 6*time.Hour)
+	}
+	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones, Update: updater, Release: releases}).Handler()}
 	go srv.Serve(ln)
 	log.Printf("Mako %s: %s, дошка %s", version, home, d.BoardURL)
 	if len(cfg.Trackers) == 0 {
