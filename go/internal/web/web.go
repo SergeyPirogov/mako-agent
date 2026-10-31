@@ -28,6 +28,8 @@ type Server struct {
 	D       *dispatch.Dispatcher
 	Version string
 	Home    string // where mako.config.json and .env live
+	// Show opens a page of the board for the user (Mako's window or the browser); a second start asks for it.
+	Show func(url string)
 }
 
 type stateReply struct {
@@ -92,6 +94,15 @@ func (s *Server) Handler() http.Handler {
 		}
 		ctx := context.WithoutCancel(r.Context())
 		action, id := r.PathValue("action"), r.URL.Query().Get("id")
+		if action == "show" {
+			if s.Show == nil {
+				http.Error(w, "no window", http.StatusNotImplemented)
+				return
+			}
+			s.Show(s.D.BoardURL)
+			writeJSON(w, map[string]bool{"ok": true})
+			return
+		}
 		if action == "poll" {
 			s.D.Wake()
 			writeJSON(w, map[string]bool{"ok": true})

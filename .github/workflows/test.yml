@@ -36,3 +36,20 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./...
+
+  # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them.
+  go-mac:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      - run: CGO_ENABLED=1 GOARCH=amd64 go build -o /dev/null ./cmd/mako
+      - run: go build -o mako ./cmd/mako && ls -la mako

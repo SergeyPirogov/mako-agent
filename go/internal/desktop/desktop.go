@@ -22,7 +22,9 @@ type App struct {
 	D        *dispatch.Dispatcher
 	BoardURL string
 	Home     string
-	Open     func(url string)
+	Open     func(url string) // the board: Mako's window on macOS, else the browser
+	// OpenBrowser: the same pages in the browser, for whoever prefers a tab.
+	OpenBrowser func(url string)
 	// Start runs Mako's loop until ctx ends; the menu starts it once it is up.
 	Start func(ctx context.Context)
 }

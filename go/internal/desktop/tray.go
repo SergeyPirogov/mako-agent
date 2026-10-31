@@ -70,6 +70,10 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 	}
 	systray.AddSeparator()
 	board := systray.AddMenuItem("Відкрити дошку", "")
+	browser := systray.AddMenuItem("Відкрити в браузері", "")
+	if !HasWindow() {
+		browser.Hide()
+	}
 	settings := systray.AddMenuItem("Налаштування…", "")
 	poll := systray.AddMenuItem("Перевірити трекери зараз", "")
 	systray.AddSeparator()
@@ -132,6 +136,8 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 				app.Open(app.BoardURL)
 			case <-board.ClickedCh:
 				app.Open(app.BoardURL)
+			case <-browser.ClickedCh:
+				app.OpenBrowser(app.BoardURL)
 			case <-settings.ClickedCh:
 				app.Open(app.BoardURL + "/settings")
 			case <-poll.ClickedCh:
