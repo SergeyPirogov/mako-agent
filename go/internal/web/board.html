@@ -612,7 +612,7 @@ function mrCard(r, term) {
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "відкрити"}</a>` : ""}
       <span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span>
-      <span class="spacer"></span>${open}${update}${merge}${close}</div>
+      <span class="spacer"></span>${open}${update}${close}${merge}</div>
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
 }
 
