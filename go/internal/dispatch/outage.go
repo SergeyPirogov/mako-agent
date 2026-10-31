@@ -19,7 +19,7 @@ import (
 // outage: why the search of t failed, in words: "GitLab · git.example.com: немає з'єднання — перевірте
 // інтернет чи VPN".
 func outage(t trackers.Tracker, err error) string {
-	host := trackerHost(t)
+	host := TrackerHost(t)
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		if u, perr := url.Parse(ue.URL); perr == nil && u.Hostname() != "" {
@@ -69,8 +69,8 @@ func outageReason(err error) string {
 	return "пошук не вдався"
 }
 
-// trackerHost: the tracker's web host, "" when it cannot be told.
-func trackerHost(t trackers.Tracker) string {
+// TrackerHost: the tracker's web host, "" when it cannot be told.
+func TrackerHost(t trackers.Tracker) string {
 	if ch, ok := t.(trackers.CodeHost); ok {
 		return ch.Host()
 	}
