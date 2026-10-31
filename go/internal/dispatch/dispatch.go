@@ -76,7 +76,9 @@ type Dispatcher struct {
 	lessoning map[string]bool
 	// reviewing: the tasks whose branch the reviewer agent reads now.
 	reviewing map[string]bool
-	wake      chan struct{}
+	// rebased: when each task's branch was last looked at against its base branch, and what was said of it.
+	rebased map[string]baseLook
+	wake    chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
@@ -100,7 +102,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, rebased: map[string]baseLook{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove
@@ -236,6 +238,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	d.Poll(ctx)
 	d.CheckHandoffs(ctx)
 	d.CheckMerges(ctx)
+	d.AutoRebase(ctx, time.Now())
 	d.AutoFix(ctx, time.Now())
 	d.CheckBlocked(ctx)
 	d.CheckGone(ctx)
@@ -888,7 +891,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 	d.Store.Update(id, func(rec *core.Record) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
-		rec.AutoFixed, rec.AutoFixes = nil, 0
+		rec.AutoFixed, rec.AutoFixes, rec.BaseConflict = nil, 0, nil
 		rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
 	})
 	d.Take(ctx, id)

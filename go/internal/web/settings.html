@@ -464,6 +464,9 @@ function renderOrca() {
     box.append(select(t, "planFirst", "Починати з плану", [["never", "ніколи"], ["big", "для великих задач"], ["always", "завжди"]],
       { def: "never", hint: "Агент стартує в режимі plan: досліджує й пише план, нічого не змінюючи. У чаті план — окремою карткою з кнопками «Затвердити й робити» і «Поправити». Велика задача — з міткою plan або «план», чи з описом від 1500 символів" }));
     box.append(check(t, "autoFix", "Автофікс MR", { hint: "Коли агент закінчив хід, Mako сам просить його розвʼязати конфлікти, полагодити впалий CI й виправити нові коментарі рев'ю, як кнопки ✨. Кожну проблему — один раз, до 5 запитів на задачу" }));
+    box.append(select(t, "autoRebase", "Оновлювати гілку з основної", [["", "ні"], ["rebase", "rebase і push --force-with-lease"], ["merge", "merge основної в гілку і push"]],
+      { def: "", hint: "Поки MR на рев'ю, Mako сам підтягує в гілку свіжу основну. З конфліктом — просить агента розвʼязати його. Поки агент працює чи MR змерджено, гілку не чіпає" }));
+    box.append(num(t, "rebaseEveryMin", "Перевіряти гілку не частіше, хв", { placeholder: "30" }));
   } else {
     const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
     if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
