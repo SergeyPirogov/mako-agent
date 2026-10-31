@@ -111,9 +111,19 @@ async function load() {
     $("search").className = "search err";
     return;
   }
-  if (selected) logs = await (await fetch(`/api/log?id=${encodeURIComponent(selected)}`)).json();
-  if (selected && chatOpen) await loadChat();
+  await loadCard();
   render();
+}
+
+// The open card's journal and conversation, fetched side by side; a reply for a card no longer open is dropped.
+async function loadCard() {
+  const id = selected;
+  if (!id) return;
+  const [l] = await Promise.all([
+    fetch(`/api/log?id=${encodeURIComponent(id)}`).then((r) => r.json()).catch(() => null),
+    chatOpen ? loadChat() : null,
+  ]);
+  if (id === selected && l) logs = l;
 }
 
 // The whole conversation with the agent, read from its Claude Code session; loaded while it is open.
@@ -214,10 +224,12 @@ let chatScroll = null;
 async function select(id) {
   chatScroll = null;
   selected = id;
-  if (chatOpen) await loadChat();
   history.replaceState(null, "", "#" + encodeURIComponent(id));
-  logs = await (await fetch(`/api/log?id=${encodeURIComponent(id)}`)).json();
+  // The card opens at once from what the board already has; its journal and conversation follow.
+  logs = [];
   render();
+  await loadCard();
+  if (id === selected) render();
 }
 
 function agentBlock(r) {
