@@ -107,11 +107,11 @@ func newLabels(t *config.Tracker, bug bool) []string {
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
-// uploadPath: where an image pasted on the board goes, unique by the time.
-func uploadPath(name string) string {
+// uploadPath: where an image pasted on the board goes, under the project's folder, unique by the time.
+func uploadPath(project, name string) string {
 	name = strings.Trim(unsafeName.ReplaceAllString(name, "-"), "-.")
 	if name == "" {
 		name = "image.png"
 	}
-	return fmt.Sprintf(".mako/uploads/%s-%s", time.Now().UTC().Format("20060102-150405.000"), name)
+	return fmt.Sprintf(".mako/uploads/%s/%s-%s", project, time.Now().UTC().Format("20060102-150405.000"), name)
 }
