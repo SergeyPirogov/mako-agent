@@ -1526,8 +1526,8 @@ function renderDetail() {
   // The task itself first; what the agent does in Orca and Mako's log in their own tab.
   const task = `
     ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
-    ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${assessmentHTML(r, card)}
+    ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${retroHTML(r, card)}
     ${reviewerHTML(r)}
     ${r.retryNote ? card(`Спроба ${r.attempt || 2}: що зробити інакше`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
