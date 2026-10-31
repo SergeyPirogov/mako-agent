@@ -164,16 +164,21 @@ const cardStatus = (r) => {
   return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
 };
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
-// A small Markdown for what agents write: headings, lists, tables, code blocks, inline code, bold and links.
-// Markdown images in what agents write (screenshots for the MR, Mako's own ones), shown as images.
-const MD_IMG = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/api\/screenshots\/[^\s)]+)\)/g;
+// A small Markdown for what agents write and for tasks' text from the tracker: headings, lists, tables, code blocks,
+// inline code, bold and links.
+// Images in it (screenshots for the MR, Mako's own ones, the tracker's), Markdown (![alt](url)) or HTML (<img src="…">), shown as images.
+const MD_IMG = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)[^>]*>|!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/api\/screenshots\/[^\s)]+)(?:\s+"[^"]*")?\)/gi;
+// Links: Markdown ([text](url)) and bare URLs.
+const MD_LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>"')]+/g;
 const pic = (src, alt) => `<a href="${esc(src)}" target="_blank" rel="noopener"><img class="pic" src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></a>`;
 function md(text) {
-  const plain = (x) => linkify(x).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const links = (x) => esc(x).replace(MD_LINK, (u, label, href) => `<a href="${href ?? u}" target="_blank" rel="noopener">${label ?? u}</a>`);
+  const plain = (x) => links(x).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
   const inline = (x) => {
     let out = "", at = 0;
     for (const m of x.matchAll(MD_IMG)) {
-      out += plain(x.slice(at, m.index)) + pic(m[2], m[1]);
+      const src = m[1] ?? m[3], alt = m[2] ?? m[0].match(/\balt\s*=\s*["']([^"']*)/i)?.[1] ?? "";
+      out += plain(x.slice(at, m.index)) + pic(src, alt);
       at = m.index + m[0].length;
     }
     return out + plain(x.slice(at));
@@ -1534,8 +1539,8 @@ function renderDetail() {
     ${retroHTML(r, card)}
     ${reviewerHTML(r)}
     ${r.retryNote ? card(`Спроба ${r.attempt || 2}: що зробити інакше`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
-    ${card("Опис", `<div class="tcard-b text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", `з ${esc(trackerName(t))}`)}
-    ${t.comments?.length ? card(`Коментарі · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="text">${richText(c.body)}</div></div></div>`).join("")) : ""}
+    ${card("Опис", `<div class="tcard-b md">${t.description?.trim() ? md(t.description) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", `з ${esc(trackerName(t))}`)}
+    ${t.comments?.length ? card(`Коментарі · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="md">${md(c.body)}</div></div></div>`).join("")) : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
       <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   const started = r.column === "doing" && !!r.worktree;
