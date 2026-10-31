@@ -290,7 +290,14 @@ async function loadWork() {
   await Promise.all([
     part(`/api/changes?${q}`, (v) => (changes = v), !changes),
     part(path && `/api/diff?${q}&path=${encodeURIComponent(path)}${diffWhole ? "&whole=1" : ""}`, (v) => (diffs[path] = v.error ? `⚠ ${v.error}` : v.diff || ""), !(path in diffs)),
-    part(r.prUrl && `/api/review?${q}`, (v) => (review = v), !review),
+    part(r.prUrl && `/api/review?${q}`, (v) => {
+      review = v;
+      // An MR ready to merge opens the side card on its tab, once per task and not over the user's own choice.
+      if (!itabPicked && v.review?.state === "open" && v.review.mergeable) {
+        itabPicked = true;
+        if (itab !== "mr") { itab = "mr"; renderDetail(); }
+      }
+    }, !review),
     part(itab === "commits" && `/api/commits?${q}`, (v) => { if (!v.error) commitLog = v; }, !commitLog),
   ]);
 }
@@ -524,7 +531,7 @@ function commitGraph(commits) {
 const IBADGE_SPIN = `<svg class="spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" role="img" aria-label="CI виконується"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>`;
 
 // The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
-let itab = "changes";
+let itab = "changes", itabPicked = false;
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
@@ -815,7 +822,7 @@ function renderDetail() {
   // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
     workOf = r.id;
-    itab = "changes";
+    itab = "changes"; itabPicked = false;
     changes = null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
@@ -902,7 +909,7 @@ function renderDetail() {
     };
   }
   for (const btn of $("detail").querySelectorAll("[data-itab]")) btn.onclick = () => {
-    itab = btn.dataset.itab;
+    itab = btn.dataset.itab; itabPicked = true;
     renderDetail();
     loadWork().then(renderDetail);
   };
