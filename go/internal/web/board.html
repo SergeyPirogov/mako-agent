@@ -359,13 +359,15 @@ function render() {
   const counts = {};
   for (const r of live) counts[r.task.project] = (counts[r.task.project] || 0) + 1;
   const projects = Object.keys(counts).sort();
-  if (project && !counts[project]) project = "";
+  if (project && (!counts[project] || projects.length < 2)) project = "";
   const archived = data.records.filter((r) => r.archivedAt).length;
   // One line for what the list shows: all tasks, a project's, or the archive.
-  const scope = showArchive ? "\u0000archive" : project;
+  // Projects are prefixed so none can pass for the archive. (No NUL here: HTML turns it into U+FFFD.)
+  const scope = showArchive ? "archive" : project ? "p:" + project : "";
+  // A single project would only repeat «Усі задачі».
   const options = `<option value="">Усі задачі · ${live.length}</option>` +
-    projects.map((p) => `<option value="${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())} · ${counts[p]}</option>`).join("") +
-    (archived ? `<option value="\u0000archive">Архів · ${archived}</option>` : "");
+    (projects.length > 1 ? projects.map((p) => `<option value="p:${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())} · ${counts[p]}</option>`).join("") : "") +
+    (archived ? `<option value="archive">Архів · ${archived}</option>` : "");
   if ($("scope").dataset.options !== options) { $("scope").innerHTML = options; $("scope").dataset.options = options; }
   $("scope").value = scope;
   const many = visible().length > FILTER_FROM;
@@ -376,8 +378,8 @@ function render() {
   $("q").oninput = () => { query = $("q").value; render(); };
   $("scope").onchange = () => {
     const v = $("scope").value;
-    showArchive = v === "\u0000archive";
-    if (!showArchive) { project = v; try { localStorage.setItem("mako-project", project); } catch {} }
+    showArchive = v === "archive";
+    if (!showArchive) { project = v.replace(/^p:/, ""); try { localStorage.setItem("mako-project", project); } catch {} }
     render();
   };
 
