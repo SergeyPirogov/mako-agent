@@ -692,7 +692,7 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
   border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
 .menu-pop button { border: 0; border-radius: 6px; text-align: left; padding: 7px 10px; background: none; }
 .menu-pop button:hover { background: var(--hover); }
-.notice.later-note { display: flex; align-items: center; gap: 8px; border-color: var(--line); color: var(--mute); }
+.notice.later-note, .notice.auto-skip { display: flex; align-items: center; gap: 8px; border-color: var(--line); color: var(--mute); }
 
 /* «+ Задача»: the button over the list and the form where a card goes. */
 .new-task { flex: none; display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }

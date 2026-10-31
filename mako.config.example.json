@@ -10,6 +10,7 @@
   "notifications": {
     "enabled": true,
     "autoTake": false,
+    "autoTakeOnly": "all",
     "snoozeMin": 60,
     "morningDigest": "09:00",
     "awayHours": 4,

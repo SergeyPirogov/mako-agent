@@ -166,6 +166,8 @@ const cardStatus = (r) => {
   if (r.status === "queued") return ["у черзі", ""];
   const st = state(r);
   if (st === "later") return ["відкладена", "", `Відкладена ${untilText(r.snoozedUntil)}`];
+  // Left in «Нові» by auto-take: why, in the row («велика», «є питання до опису»).
+  if (r.column === "new" && r.autoSkip) return [r.autoSkip, "", `Не взято автоматично: ${r.autoSkip}`];
   if (st === "review") return ["MR на рев'ю", ""];
   return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
 };
@@ -1663,6 +1665,7 @@ function renderDetail() {
 
   const notices = `
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
+    ${r.column === "new" && r.autoSkip ? `<div class="notice auto-skip">Не взято автоматично: ${esc(r.autoSkip)}. Візьміть кнопкою або Mako візьме сам, щойно оцінка підійде під налаштування</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
     ${r.secrets?.length && !r.archivedAt ? secretsHTML(r) : ""}
     ${r.checks?.attention && r.status === "handed-off" ? `<div class="notice warn">Перевірка перед MR не пройшла ${r.checks.fails} раз поспіль (${esc(checksLine(r.checks))}): MR не відкрито, агента більше не просять виправити. Подивіться, що впало, і продовжте з агентом — після нового коміту Mako перевірить ще раз.</div>` : ""}

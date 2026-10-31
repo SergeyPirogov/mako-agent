@@ -113,6 +113,9 @@ type Record struct {
 	Retro *Retro `json:"retro,omitempty"`
 	// Estimate: the agent's look at the task before it starts: how clear, how big, how risky, and how to take it.
 	Estimate *Estimate `json:"estimate,omitempty"`
+	// AutoSkip: why «Віддавати нові задачі без питань» left this new task in «Нові» («велика», «є питання до
+	// опису», …); "" when it did not. Mako looks again each poll, so a task taken once its estimate fits.
+	AutoSkip string `json:"autoSkip,omitempty"`
 	// Secrets: what the last push Mako stopped found in the branch's changes; empty once a push passes.
 	// SecretsAllowed: the lines «Це не секрет» let through (secrets.Finding.Key).
 	Secrets        []secrets.Finding `json:"secrets,omitempty"`

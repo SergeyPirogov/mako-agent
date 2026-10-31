@@ -328,7 +328,7 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 		d.Log(task.ID, "нова задача: "+task.Title)
 		notify.Inform(notify.NewTask, "🦈 Нова задача", task.ID+": "+task.Title, d.BoardURL)
 		if d.Config().Notifications.AutoTake {
-			d.Take(ctx, task.ID)
+			d.autoTake(ctx, task.ID)
 		}
 		d.maybeEstimate(task.ID)
 	case r.Status == core.Cancelled && r.Gone != "":
@@ -340,6 +340,10 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 	case r.Status == core.Asking || r.Status == core.Snoozed:
 		d.Store.Update(task.ID, func(r *core.Record) { r.Task = task })
 		d.maybeEstimate(task.ID)
+		// Left in «Нові» by auto-take: its estimate may fit by now.
+		if r.AutoSkip != "" {
+			d.autoTake(ctx, task.ID)
+		}
 	}
 }
 
@@ -427,7 +431,7 @@ func (d *Dispatcher) Take(ctx context.Context, id string) {
 		return
 	}
 	d.Store.Update(id, func(r *core.Record) {
-		r.Status, r.Error, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt = core.Queued, "", 0, false, 0
+		r.Status, r.Error, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt, r.AutoSkip = core.Queued, "", 0, false, 0, ""
 	})
 	d.schedule(ctx)
 }
