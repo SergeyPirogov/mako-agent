@@ -1663,10 +1663,14 @@ function chatFor(id) {
         <span class="chat-model"></span><span class="chat-ctx"></span><span class="chat-limits"></span>
         <span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span></div>
     </div>`;
-  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null, top: 0, atEnd: true });
+  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null, top: 0, atEnd: true, auto: -1 });
+  // What grows after it is drawn (pictures, opened blocks) keeps the end in view.
+  v.grow = new ResizeObserver(() => { if (v.atEnd && v.list.isConnected) restoreChatScroll(v); });
   // Where the reader is: the board re-attaches the chat when it redraws the page, and that drops the list's scroll.
+  // Only the reader's own scrolling counts: the event from Mako setting the scroll itself comes a frame later, when
+  // pictures may have loaded and pushed the end down, and would leave the chat in the middle from then on.
   v.list.onscroll = () => {
-    if (!v.list.isConnected) return;
+    if (!v.list.isConnected || Math.abs(v.list.scrollTop - v.auto) < 2) return;
     v.top = v.list.scrollTop;
     v.atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
   };
@@ -1745,6 +1749,7 @@ function chatFor(id) {
 function closeChat() {
   if (!cv) return;
   clearInterval(cv.timer);
+  cv.grow.disconnect();
   cv = null;
 }
 async function pollChat() {
@@ -1759,6 +1764,7 @@ async function pollChat() {
 }
 function restoreChatScroll(v) {
   v.list.scrollTop = v.atEnd ? v.list.scrollHeight : v.top;
+  v.auto = v.list.scrollTop;
 }
 function renderChat(v) {
   const s = v.snap, list = v.list;
@@ -1768,6 +1774,8 @@ function renderChat(v) {
   // Stays at the end while the agent writes, unless the reader scrolled up: then right where they were.
   if (v.version <= 1) v.atEnd = true;
   restoreChatScroll(v);
+  v.grow.disconnect();
+  v.grow.observe(list.firstElementChild);
   v.el.querySelector(".chat-stop").hidden = s.state !== "working";
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
