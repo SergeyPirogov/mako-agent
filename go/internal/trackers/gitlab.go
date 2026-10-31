@@ -130,12 +130,12 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 		return nil
 	}
 	if g.cfg.AllProjects {
-		q := url.Values{"scope": {"assigned_to_me"}, "state": {"opened"}, "per_page": {"50"}}
+		q := url.Values{"scope": {"assigned_to_me"}, "state": {"opened"}}
 		if g.cfg.Trigger != "" {
 			q.Set("labels", g.cfg.Trigger)
 		}
-		var issues []glIssue
-		if err := g.do(ctx, "GET", "/issues?"+q.Encode(), nil, &issues); err != nil {
+		issues, err := allPages(q, func(query string, out *[]glIssue) error { return g.do(ctx, "GET", "/issues?"+query, nil, out) })
+		if err != nil {
 			return nil, err
 		}
 		for _, is := range issues {
@@ -156,15 +156,17 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 		assignee = me
 	}
 	for key := range g.cfg.Projects {
-		q := url.Values{"state": {"opened"}, "per_page": {"50"}}
+		q := url.Values{"state": {"opened"}}
 		if g.cfg.Trigger != "" {
 			q.Set("labels", g.cfg.Trigger)
 		}
 		if assignee != "" {
 			q.Set("assignee_username", assignee)
 		}
-		var issues []glIssue
-		if err := g.do(ctx, "GET", project(key)+"/issues?"+q.Encode(), nil, &issues); err != nil {
+		issues, err := allPages(q, func(query string, out *[]glIssue) error {
+			return g.do(ctx, "GET", project(key)+"/issues?"+query, nil, out)
+		})
+		if err != nil {
 			return nil, err
 		}
 		for _, is := range issues {

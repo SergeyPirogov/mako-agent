@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -68,6 +70,28 @@ func call(ctx context.Context, method, url string, headers map[string]string, bo
 		return nil
 	}
 	return json.Unmarshal(data, out)
+}
+
+// perPage and maxPages bound a list read page by page: up to 1000 issues per query.
+const perPage, maxPages = 100, 10
+
+// allPages reads a GitHub or GitLab list page by page (page=1, 2, …) until a page comes back short:
+// one request returns at most perPage items, the rest of the issues are on the next pages.
+func allPages[T any](q url.Values, get func(query string, out *[]T) error) ([]T, error) {
+	q.Set("per_page", strconv.Itoa(perPage))
+	var all []T
+	for page := 1; page <= maxPages; page++ {
+		q.Set("page", strconv.Itoa(page))
+		var items []T
+		if err := get(q.Encode(), &items); err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		if len(items) < perPage {
+			break
+		}
+	}
+	return all, nil
 }
 
 func isStatus(err error, status int) bool {
