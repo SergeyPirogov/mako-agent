@@ -762,6 +762,9 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			}
 			d.removeWorktree(ctx, r, repo)
 			notify.Inform(notify.Merged, "🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
+			if d.startRetro(r.ID) == nil {
+				d.retro(ctx, r.ID)
+			}
 		case "closed":
 			d.Log(r.ID, "MR закрито без мерджу")
 			d.Store.Update(r.ID, func(r *core.Record) {
@@ -884,7 +887,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
 		rec.AutoFixed, rec.AutoFixes = nil, 0
-		rec.AgentReviews, rec.Assessment = nil, nil
+		rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
 	})
 	d.Take(ctx, id)
 }

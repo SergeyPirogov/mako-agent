@@ -96,6 +96,20 @@ type Record struct {
 	// Assessment: how the agent rates the finished task: its description, how hard it was, how much of it is
 	// done and how risky the change is.
 	Assessment *Assessment `json:"assessment,omitempty"`
+	// Retro: the look back at the task once its MR is merged: what went well, what did not, what to do
+	// differently next time.
+	Retro *Retro `json:"retro,omitempty"`
+}
+
+// Retro is the agent's retrospective of a merged task, each part a few Markdown bullets in Ukrainian.
+type Retro struct {
+	At string `json:"at"`
+	// State: "running", "done" or "failed".
+	State string `json:"state"`
+	Good  string `json:"good,omitempty"` // what went well
+	Bad   string `json:"bad,omitempty"`  // what went wrong or took longer than it should
+	Next  string `json:"next,omitempty"` // what to do differently next time: in the task's text, for the agent, in review
+	Error string `json:"error,omitempty"`
 }
 
 // Assessment is the agent's rating of a finished task, each score from 1 to 5.

@@ -327,7 +327,7 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
 		return core.Assessment{}, fmt.Errorf("оцінка не в JSON: %v", err)
 	}
-	a := core.Assessment{State: "done", Missing: missingText(in.Missing)}
+	a := core.Assessment{State: "done", Missing: pointsText(in.Missing)}
 	for _, s := range []struct {
 		in  score
 		out *core.Score
@@ -340,8 +340,8 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 	return a, nil
 }
 
-// missingText: "missing" as a string or, as models sometimes answer, a list of points.
-func missingText(raw json.RawMessage) string {
+// pointsText: a few points, as a string or, as models sometimes answer, a list of them.
+func pointsText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return clipTo(strings.TrimSpace(s), 1500)
@@ -357,4 +357,42 @@ func missingText(raw json.RawMessage) string {
 		return clipTo(strings.Join(out, "\n"), 1500)
 	}
 	return ""
+}
+
+// Retro: the look back at a merged task, from its story as Mako saw it (the task, the attempts, your messages
+// to the agent, the reviews, the journal). Each part is a few points in Ukrainian.
+func Retro(ctx context.Context, dir string, t core.Task, story string) (core.Retro, error) {
+	text, err := Ask(ctx, dir, strings.Join([]string{
+		"A coding agent did the task below and its merge request is merged. Write a short retrospective of how the task went,",
+		"for the developer who gave it, so the next tasks go better. Three parts, each at most 4 short points in Ukrainian:",
+		"- good: what went well;",
+		"- bad: what went wrong, was redone, or took longer than it should (retries, corrections, review rounds, failures);",
+		"- next: what to do differently next time: in how the task is written, in what the agent is told, in review.",
+		"Base it only on the story below; do not invent events. A part with nothing to say is [].",
+		"Answer with JSON only, no code fences, in this shape:",
+		`{"good":["..."],"bad":["..."],"next":["..."]}`,
+		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 6000)),
+		"", story,
+	}, "\n"))
+	if err != nil {
+		return core.Retro{}, err
+	}
+	return ParseRetro(text)
+}
+
+// ParseRetro reads the JSON Retro asks for; an answer with nothing in it is an error.
+func ParseRetro(answer string) (core.Retro, error) {
+	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
+	if start < 0 || end < start {
+		return core.Retro{}, errors.New("ретро не в JSON")
+	}
+	var in struct{ Good, Bad, Next json.RawMessage }
+	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
+		return core.Retro{}, fmt.Errorf("ретро не в JSON: %v", err)
+	}
+	r := core.Retro{State: "done", Good: pointsText(in.Good), Bad: pointsText(in.Bad), Next: pointsText(in.Next)}
+	if r.Good == "" && r.Bad == "" && r.Next == "" {
+		return core.Retro{}, errors.New("ретро порожнє")
+	}
+	return r, nil
 }

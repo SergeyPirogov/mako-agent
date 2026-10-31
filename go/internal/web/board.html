@@ -983,6 +983,19 @@ function assessmentHTML(r, card) {
   return card("Оцінка агента", `<div class="tcard-b scores">${rows}</div>${missing}`, "assess", btn("Оцінити ще раз"));
 }
 
+// The look back at a merged task: what went well, what did not, what to do differently next time.
+function retroHTML(r, card) {
+  if (r.reviewState !== "merged") return "";
+  const x = r.retro;
+  const btn = (label) => `<button class="ghost" data-a="retro" title="Агент перегляне, як ішла задача: що вдалося, що ні, що зробити інакше">${label}</button>`;
+  if (!x) return card("Ретро", `<div class="tcard-b muted">Ретро ще немає.</div>`, "", btn("Написати ретро"));
+  if (x.state === "running") return card("Ретро", `<div class="tcard-b muted">Агент пише ретро…</div>`);
+  if (x.state === "failed") return card("Ретро", `<div class="tcard-b mr-err">${esc(x.error || "Не вдалось написати ретро")}</div>`, "", btn("Спробувати ще"));
+  const sec = (text, cls, ic, h) => text?.trim() ? `<div class="sec ${cls}"><h4><span class="ic">${ic}</span>${h}</h4>${md(text)}</div>` : "";
+  const body = sec(x.good, "check", "✓", "Що вдалося") + sec(x.bad, "warn", "!", "Що пішло не так") + sec(x.next, "done", "→", "Що зробити інакше");
+  return card("Ретро", body, "retro", btn("Написати ще раз"));
+}
+
 // The rule Mako drew from your correction of the agent: saved, it goes into the repo's CLAUDE.md for the next agents.
 function lessonHTML(r) {
   const base = changes?.branch?.base;
@@ -1428,6 +1441,7 @@ function renderDetail() {
     ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${assessmentHTML(r, card)}
+    ${retroHTML(r, card)}
     ${reviewerHTML(r)}
     ${r.retryNote ? card(`Спроба ${r.attempt || 2}: що зробити інакше`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
     ${card("Опис", `<div class="tcard-b text">${t.description?.trim() ? richText(t.description.trim()) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", `з ${esc(trackerName(t))}`)}
