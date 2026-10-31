@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"io/fs"
 	"net"
@@ -61,11 +63,23 @@ func Capture(ctx context.Context, chrome, url, out string, width, height int, wa
 		return err
 	}
 	_ = os.Remove(out) // so a stale file is not taken for the new screenshot
+	// Chrome's window is never narrower than 500 px: a phone's width is photographed in a frame of exactly that
+	// size, and the picture cut to it.
+	page, window := url, width
+	if width < minWindow {
+		frame := filepath.Join(profile, "phone.html")
+		html := fmt.Sprintf(`<!doctype html><body style="margin:0"><iframe src=%q style="display:block;border:0;width:%dpx;height:%dpx"></iframe></body>`,
+			url, width, height)
+		if err := os.WriteFile(frame, []byte(html), 0o600); err != nil {
+			return err
+		}
+		page, window = "file://"+frame, minWindow
+	}
 	ctx, cancel := context.WithTimeout(ctx, wait+60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-		"--no-default-browser-check", "--user-data-dir="+profile, fmt.Sprintf("--window-size=%d,%d", width, height),
-		fmt.Sprintf("--virtual-time-budget=%d", wait.Milliseconds()), "--screenshot="+out, url)
+		"--no-default-browser-check", "--user-data-dir="+profile, fmt.Sprintf("--window-size=%d,%d", window, height),
+		fmt.Sprintf("--virtual-time-budget=%d", wait.Milliseconds()), "--screenshot="+out, page)
 	msg, err := cmd.CombinedOutput()
 	if _, statErr := os.Stat(out); statErr != nil {
 		if err == nil {
@@ -73,7 +87,42 @@ func Capture(ctx context.Context, chrome, url, out string, width, height int, wa
 		}
 		return fmt.Errorf("Chrome не зробив скриншот: %v\n%s", err, tail(string(msg), 800))
 	}
+	if window != width {
+		return crop(out, width, height)
+	}
 	return nil
+}
+
+// minWindow: the narrowest window headless Chrome makes.
+const minWindow = 500
+
+// crop cuts the PNG at path to its top-left width×height.
+func crop(path string, width, height int) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	img, err := png.Decode(f)
+	f.Close()
+	if err != nil {
+		return err
+	}
+	sub, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	})
+	if !ok {
+		return errors.New("скриншот не вдалося обрізати")
+	}
+	part := sub.SubImage(image.Rect(0, 0, width, height).Intersect(img.Bounds()))
+	f, err = os.Create(path)
+	if err != nil {
+		return err
+	}
+	if err := png.Encode(f, part); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // Module: the Go module of Mako in the repository at dir (its go/ folder or the root), "" when it is not Mako.
