@@ -610,6 +610,39 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
 .new-form .nt-actions { display: flex; gap: 8px; }
 .new-form .nt-error { color: var(--err); white-space: pre-wrap; overflow-wrap: anywhere; }
 .new-form .nt-error[hidden] { display: none; }
+/* «Нова задача»: a centred card, the controls one height, the actions at the bottom right. */
+.nt-form { max-width: 680px; min-width: 0; width: 100%; margin: 8px auto 32px; gap: 16px; }
+.nt-head h1 { margin: 0 0 2px; font-size: 22px; }
+.nt-head p { margin: 0; color: var(--mute); font-size: 13px; }
+.nt-card { display: flex; flex-direction: column; gap: 16px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
+.nt-form label, .nt-field > span { font-size: 12.5px; font-weight: 600; color: var(--fg); gap: 6px; }
+.nt-field { display: flex; flex-direction: column; gap: 6px; }
+.nt-form input:not([type=checkbox]):not([type=radio]), .nt-form select { height: 38px; padding: 0 12px; }
+.nt-form textarea { padding: 10px 12px; line-height: 1.5; min-height: 200px; }
+.new-form.nt-form input, .new-form.nt-form textarea, .new-form.nt-form select { font-weight: 400; background: var(--bg); transition: border-color 120ms, box-shadow 120ms; }
+.nt-form input:focus, .nt-form textarea:focus, .nt-form select:focus { outline: none; border-color: var(--accent); background: var(--card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.nt-form input::placeholder, .nt-form textarea::placeholder { color: var(--faint); }
+.nt-hint { font-size: 11.5px; font-weight: 400; color: var(--faint); }
+.nt-form .nt-row { grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: end; }
+.nt-form .nt-row label { min-width: 0; }
+.nt-form .nt-row select { min-width: 0; text-overflow: ellipsis; }
+.nt-type { align-self: auto; height: 38px; padding: 3px; border: 1px solid var(--line); }
+.nt-type label { flex-direction: row; align-items: center; padding: 0 14px; border-radius: 6px; font-weight: 400; color: var(--mute); cursor: pointer; }
+.nt-type label:has(input:checked) { background: var(--card); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .1); }
+.nt-type label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nt-type input { position: absolute; opacity: 0; pointer-events: none; }
+.nt-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.nt-form label.check { font-weight: 400; cursor: pointer; }
+.nt-form label.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.nt-form .nt-actions button { height: 36px; padding: 0 18px; }
+@media (max-width: 760px) {
+  .nt-form { margin-top: 0; }
+  .nt-card { padding: 14px; }
+  .nt-form .nt-row { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .nt-type { align-self: flex-start; }
+}
 
 /* «Повторити інакше» */
 #redo { width: 520px; max-width: calc(100vw - 32px); padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); }

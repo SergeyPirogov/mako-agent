@@ -1081,13 +1081,14 @@ function newTaskTargets() {
   return (data?.trackers || []).flatMap((t) => (t.projects || []).map((p) => ({ tracker: t.id, name: t.name, project: p })));
 }
 
-$("new-task").onclick = () => {
+const openNewTask = () => {
   selected = null; statsOpen = false; newOpen = "task"; digest = null;
   history.replaceState(null, "", location.pathname);
   try { localStorage.removeItem("mako-selected"); } catch {}
   render();
   $("nt-title")?.focus();
 };
+$("new-task").onclick = openNewTask;
 
 function showNewTask() {
   const targets = newTaskTargets(), several = new Set(targets.map((x) => x.tracker)).size > 1;
@@ -1095,18 +1096,28 @@ function showNewTask() {
   const first = Math.max(0, targets.findIndex((x) => x.project === project));
   const options = targets.map((x, i) => `<option value="${i}" ${i === first ? "selected" : ""}>${esc(x.project)}${several ? ` · ${esc(x.name)} (${esc(x.tracker)})` : ""}</option>`).join("");
   $("detail").innerHTML = `<button class="ghost back" id="back">← Задачі</button>
-    <form class="new-form" id="new-form">
-      <h1>Нова задача</h1>
-      <label>Назва<input id="nt-title" required maxlength="250" autocomplete="off"></label>
-      <label>Опис<textarea id="nt-desc" rows="10" placeholder="Markdown. Скриншот можна вставити з буфера (⌘V)."></textarea></label>
-      <div class="nt-row">
-        <label>Проєкт<select id="nt-project">${options}</select></label>
-        <label>Тип<select id="nt-type"><option value="task">Задача</option><option value="bug">Баг</option></select></label>
+    <form class="new-form nt-form" id="new-form">
+      <div class="nt-head">
+        <h1>Нова задача</h1>
+        <p>З'явиться в трекері, призначена на вас, і одразу на дошці.</p>
       </div>
-      <label class="check"><input type="checkbox" id="nt-take"> Одразу взяти в роботу</label>
-      <div class="nt-error" id="nt-error" hidden></div>
-      <div class="nt-actions"><button type="submit" class="primary" id="nt-submit">Створити</button><button type="button" id="nt-cancel">Скасувати</button></div>
-      <p class="stats-note">Задача з'явиться в трекері, призначена на вас, і одразу на дошці.</p>
+      <div class="nt-card">
+        <label>Назва<input id="nt-title" required maxlength="250" autocomplete="off" placeholder="Коротко: що треба зробити"></label>
+        <label>Опис<textarea id="nt-desc" rows="10" placeholder="Що саме, навіщо і як перевірити."></textarea>
+          <span class="nt-hint">Markdown · скриншот можна вставити з буфера (⌘V)</span></label>
+        <div class="nt-row">
+          <label>Проєкт<select id="nt-project">${options}</select></label>
+          <div class="nt-field"><span>Тип</span><div class="seg nt-type" role="radiogroup" aria-label="Тип">
+            <label><input type="radio" name="nt-type" value="task" checked>Задача</label>
+            <label><input type="radio" name="nt-type" value="bug">Баг</label>
+          </div></div>
+        </div>
+        <div class="nt-error" id="nt-error" hidden></div>
+      </div>
+      <div class="nt-foot">
+        <label class="check"><input type="checkbox" id="nt-take"> Одразу взяти в роботу</label>
+        <div class="nt-actions"><button type="button" id="nt-cancel">Скасувати</button><button type="submit" class="primary" id="nt-submit">Створити</button></div>
+      </div>
     </form>`;
   const close = () => { newOpen = false; render(); };
   $("back").onclick = $("nt-cancel").onclick = close;
@@ -1125,7 +1136,7 @@ function showNewTask() {
     if (!t) return fail("Немає проєкту, куди записати задачу");
     fail("");
     $("nt-submit").disabled = true; $("nt-submit").textContent = "Створюю…";
-    const body = { tracker: t.tracker, project: t.project, title: $("nt-title").value, description: $("nt-desc").value, type: $("nt-type").value, take: $("nt-take").checked };
+    const body = { tracker: t.tracker, project: t.project, title: $("nt-title").value, description: $("nt-desc").value, type: document.querySelector('input[name="nt-type"]:checked').value, take: $("nt-take").checked };
     const res = await fetch("/api/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then((r) => r.json()).catch((err) => ({ error: err.message }));
     if (!res.ok) {
@@ -2036,7 +2047,9 @@ function closeTerminal() {
 // #digest:<ms>: the morning push's link, the digest from that time.
 const digestHash = () => { const h = decodeURIComponent(location.hash.slice(1)); return h.startsWith("digest:") ? h.slice(7) : null; };
 const startDigest = digestHash();
-selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })();
+// #new: straight to the new-task form.
+if (location.hash === "#new") newOpen = "task";
+else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })();
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
 // An open menu closes on a click anywhere else.
 document.addEventListener("click", (e) => {
@@ -2046,6 +2059,7 @@ window.addEventListener("hashchange", () => {
   const since = digestHash();
   if (since) return loadDigest(since);
   const id = decodeURIComponent(location.hash.slice(1));
+  if (id === "new") return openNewTask();
   if (id && id !== selected) select(id);
 });
 // Back at the board: look at once, so what happened meanwhile shows without waiting for the next poll.
