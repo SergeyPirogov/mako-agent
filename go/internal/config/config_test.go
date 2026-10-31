@@ -85,6 +85,15 @@ func TestParseTerminal(t *testing.T) {
 		len(c.Terminal.AllowedTools) != 1 || c.Orca.MRBy != "me" {
 		t.Fatalf("%+v %+v", c.Terminal, c.Orca)
 	}
+	if c.Terminal.AutoRebase != "" {
+		t.Fatalf("auto-rebase on by default: %q", c.Terminal.AutoRebase)
+	}
+	for raw, want := range map[string]string{"merge": "merge", "rebase": "rebase", "squash": ""} {
+		c, _ := Parse([]byte(`{"executors":{"t":{"type":"terminal","autoRebase":"`+raw+`","rebaseEveryMin":15}}}`), nil)
+		if c.Terminal.AutoRebase != want || c.Terminal.RebaseEveryMin != 15 {
+			t.Fatalf("%s: %+v", raw, c.Terminal)
+		}
+	}
 	if c, _ := Parse([]byte(`{"executors":{"o":{"type":"orca"}}}`), nil); c.Executor != "orca" {
 		t.Fatalf("executor %q", c.Executor)
 	}

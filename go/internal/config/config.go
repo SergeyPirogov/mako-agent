@@ -123,6 +123,11 @@ type Terminal struct {
 	View string
 	// AutoFix: the agent is asked by itself to fix its MR's failed CI, conflicts and new review comments.
 	AutoFix bool
+	// AutoRebase: how Mako brings the branch of an MR in review up to its base branch by itself, "rebase" or
+	// "merge"; "" never. Conflicts go to the agent.
+	AutoRebase string
+	// RebaseEveryMin: how often a branch is looked at for that, in minutes (30 when not set).
+	RebaseEveryMin int
 	// PlanFirst: when the agent starts in Claude Code's plan mode, exploring and writing a plan you approve
 	// before it changes anything: "never" (default), "big" (a task labelled plan or with a long description),
 	// "always".
@@ -285,7 +290,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, PlanFirst: e.PlanFirst}
+			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst}
 			break
 		}
 	}
@@ -610,6 +615,8 @@ type rawExecutor struct {
 	View           string   `json:"view"`
 	Model          string   `json:"model"`
 	AutoFix        bool     `json:"autoFix"`
+	AutoRebase     string   `json:"autoRebase"`
+	RebaseEveryMin int      `json:"rebaseEveryMin"`
 	PlanFirst      string   `json:"planFirst"`
 }
 
@@ -640,4 +647,12 @@ type rawRepo struct {
 	BaseBranch    string `json:"baseBranch"`
 	Setup         string `json:"setup"`
 	BranchPattern string `json:"branchPattern"`
+}
+
+// autoRebase: "rebase" or "merge" as set, anything else is off.
+func autoRebase(v string) string {
+	if v == "rebase" || v == "merge" {
+		return v
+	}
+	return ""
 }

@@ -93,6 +93,9 @@ type Record struct {
 	// "comments"), so the same problem is asked about once; AutoFixes counts those requests.
 	AutoFixed map[string]string `json:"autoFixed,omitempty"`
 	AutoFixes int               `json:"autoFixes,omitempty"`
+	// BaseConflict: the branch conflicted with its base branch and the agent was asked to resolve it; until
+	// the branch has that commit of the base.
+	BaseConflict *BaseConflict `json:"baseConflict,omitempty"`
 	// ReviewFixes: how many times the agent was asked to fix the MR's review comments, by you or by itself.
 	ReviewFixes int `json:"reviewFixes,omitempty"`
 	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.
@@ -105,6 +108,12 @@ type Record struct {
 	Retro *Retro `json:"retro,omitempty"`
 	// Estimate: the agent's look at the task before it starts: how clear, how big, how risky, and how to take it.
 	Estimate *Estimate `json:"estimate,omitempty"`
+}
+
+// BaseConflict: the base branch's commit the task's branch conflicted with, and the files.
+type BaseConflict struct {
+	Base  string   `json:"base"`
+	Files []string `json:"files"`
 }
 
 // Estimate is the agent's rating of a new task, from its text and the repository's layout, before anyone
