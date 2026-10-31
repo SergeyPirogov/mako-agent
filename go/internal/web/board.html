@@ -800,6 +800,7 @@ function renderDetail() {
     closeTerminal();
     const c = chatFor(r.id);
     $("term-slot").append(c.el);
+    restoreChatScroll(c);
     if (typing) c.input.focus();
   } else if (term && $("term-slot")) {
     closeChat();
@@ -919,7 +920,13 @@ function chatFor(id) {
         <span class="chat-model"></span><span class="chat-ctx"></span><span class="chat-limits"></span>
         <span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span></div>
     </div>`;
-  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null });
+  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null, top: 0, atEnd: true });
+  // Where the reader is: the board re-attaches the chat when it redraws the page, and that drops the list's scroll.
+  v.list.onscroll = () => {
+    if (!v.list.isConnected) return;
+    v.top = v.list.scrollTop;
+    v.atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
+  };
   // To a closed agent too: the message resumes the conversation, in a new session the board reads from 0.
   const say = async (text) => {
     if (!text) return;
@@ -991,13 +998,17 @@ async function pollChat() {
   v.version = s.version;
   renderChat(v);
 }
+function restoreChatScroll(v) {
+  v.list.scrollTop = v.atEnd ? v.list.scrollHeight : v.top;
+}
 function renderChat(v) {
   const s = v.snap, list = v.list;
-  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
   const running = [...s.items].reverse().find((it) => it.kind === "tool" && it.status === "running");
   list.innerHTML = `<div class="chat-col">${chatBlocks(s.items, v) || `<div class="files-empty">${s.live ? "Агент чекає: напишіть йому, що робити." : "Розмова зʼявиться тут, щойно агент почне."}</div>`}
     ${s.state === "working" ? `<div class="chat-working"><span class="pulse"></span>${esc(running ? `${running.tool}${toolArg(running.input)}` : "Думає…")}</div>` : ""}</div>`;
-  if (atBottom || v.version <= 1) list.scrollTop = list.scrollHeight;
+  // Stays at the end while the agent writes, unless the reader scrolled up: then right where they were.
+  if (v.version <= 1) v.atEnd = true;
+  restoreChatScroll(v);
   v.el.querySelector(".chat-stop").hidden = s.state !== "working";
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
