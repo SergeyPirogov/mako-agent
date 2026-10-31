@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -41,14 +42,28 @@ func ts(ctx context.Context, args ...string) ([]byte, error) {
 	if cli == "" {
 		return nil, errors.New("Tailscale не встановлено")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, tsTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, cli, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, cli, args...)
+	// `tailscale funnel` waits until Funnel is allowed for this Mac, and /usr/local/bin/tailscale is a shell
+	// script that runs the app's binary as its child. Killing only the script left that child holding the
+	// output pipe, so the call never returned and «Зачекайте…» stayed forever: kill the whole group instead.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return out, fmt.Errorf("tailscale %s: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
+		msg := strings.TrimSpace(string(out))
+		if ctx.Err() != nil {
+			msg = strings.TrimSpace(msg + "\nTailscale не відповів за " + tsTimeout.String())
+		}
+		return out, fmt.Errorf("tailscale %s: %s", strings.Join(args, " "), msg)
 	}
 	return out, nil
 }
+
+// tsTimeout: how long one tailscale command may take; tests shorten it.
+var tsTimeout = 20 * time.Second
 
 // TailscaleState: whether Tailscale runs here, the Mac's name in the tailnet, and whether Mako is served on it.
 func TailscaleState(ctx context.Context, port int) Tailscale {
