@@ -220,13 +220,46 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .file .num { flex: none; font: 11px var(--mono); }
 .add { color: var(--ok); } .del { color: var(--err); }
 .commit { padding: 2px 10px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-pre.diff { margin: 0; font: 12px/1.45 var(--mono); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 0;
-  overflow-x: auto; min-height: min(70vh, 640px); }
-pre.diff span { display: block; padding: 0 12px; white-space: pre; min-width: max-content; }
-pre.diff .da { background: color-mix(in srgb, var(--ok) 14%, transparent); }
-pre.diff .dd { background: color-mix(in srgb, var(--err) 14%, transparent); }
-pre.diff .dh { color: var(--purple); }
-pre.diff .dm { color: var(--mute); }
+/* The diff: numbers in a gutter that stays while the code scrolls sideways, changed words marked. */
+.diff { position: relative; font: 12px/1.5 var(--mono); background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: auto; tab-size: 4;
+  --da: color-mix(in srgb, var(--ok) 13%, var(--card)); --dd: color-mix(in srgb, var(--err) 13%, var(--card));
+  --dam: color-mix(in srgb, var(--ok) 34%, var(--card)); --ddm: color-mix(in srgb, var(--err) 34%, var(--card)); }
+.diff-rows { display: grid; width: max-content; min-width: 100%; padding-bottom: 4px; }
+.diff .dl { display: flex; }
+.diff .ln { flex: none; width: var(--lw); padding-right: 8px; text-align: right; color: var(--faint); background: var(--card); position: sticky; left: 0;
+  user-select: none; font-variant-numeric: tabular-nums; }
+.diff .dl .ln + .ln { left: var(--lw); border-right: 1px solid var(--line); }
+.diff .sg { flex: none; width: 2ch; text-align: center; color: var(--faint); user-select: none; }
+.diff .code { flex: 1; white-space: pre; padding-right: 16px; }
+.diff .da, .diff .da .ln { background: var(--da); }
+.diff .dd, .diff .dd .ln { background: var(--dd); }
+.diff .da .sg { color: var(--ok); } .diff .dd .sg { color: var(--err); }
+.diff .da mark { background: var(--dam); color: inherit; border-radius: 2px; }
+.diff .dd mark { background: var(--ddm); color: inherit; border-radius: 2px; }
+.diff.bare .ln { display: none; }
+.diff.bare .dl .sg { padding-left: 4px; }
+.dhunk { display: flex; gap: 12px; align-items: center; padding: 3px 12px; margin: 4px 0; background: var(--hover); color: var(--mute); font-size: 11.5px;
+  box-sizing: border-box; }
+.diff-rows > .dhunk:first-child { margin-top: 0; }
+.dhunk code { color: var(--purple); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-note { padding: 10px 12px; color: var(--mute); font-family: var(--font, inherit); }
+/* Side by side: two halves, long lines wrap instead of scrolling. */
+.diff.split .diff-rows { width: auto; }
+.diff .dl2 { display: grid; grid-template-columns: var(--lw) 1fr var(--lw) 1fr; }
+.diff .dl2 .ln { position: static; }
+.diff .dl2 .code { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 10px 0 8px; min-width: 0; }
+.diff .dl2 .code:nth-child(2) { border-right: 1px solid var(--line); }
+.diff .dl2 .dx { background: repeating-linear-gradient(135deg, transparent 0 4px, var(--hover) 4px 8px); }
+.diff-view { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+.diff-head { display: flex; align-items: center; gap: 10px; min-height: 32px; flex: none; }
+.diff-head .st { font: 600 12px var(--mono); flex: none; }
+.diff-head .dpath { flex: 1; min-width: 0; display: flex; white-space: nowrap; font-weight: 600; }
+.diff-head .ddir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--mute); font-weight: 400; }
+.diff-head .dname { flex: none; }
+.diff-head .num { flex: none; font: 12px var(--mono); }
+.diff-view > .diff { flex: 1; min-height: 0; }
+.dnav { display: inline-flex; flex: none; }
+.dnav .icon { width: 26px; height: 26px; font-size: 13px; }
 @media (max-width: 1000px) { .split { flex-direction: column; } .inspector { width: auto; } .files { max-height: 260px; } }
 .d-head { display: flex; gap: 8px 20px; align-items: flex-end; flex-wrap: wrap; }
 .d-main { flex: 1; min-width: 260px; }
@@ -260,7 +293,6 @@ section.ws #term-slot { flex: 1; min-height: 0; margin: 0; display: flex; flex-d
 .resume-btn:hover { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .35); }
 section.ws #term-slot.away { display: none; }
 section.ws .term-wrap { flex: 1; min-height: 120px; height: auto; }
-section.ws pre.diff { flex: 1; min-height: 0; overflow: auto; }
 section.ws .files { max-height: none; flex: 1; min-height: 0; }
 /* Claude's limits in the header: fixed widths, so a new number moves nothing. */
 .limits { display: inline-flex; align-items: center; gap: 14px; font-size: 12px; color: var(--mute); }
@@ -322,7 +354,7 @@ section.ws .insp-card { max-height: none; }
 .seg button:active { transform: none; }
 
 /* The agent's chat: the conversation scrolls, the input stays at the bottom. */
-.chat { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
+.chat { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
 section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .chat-list { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 10px; }
 .chat-col { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
@@ -338,12 +370,24 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .prompt-h:active { transform: none; }
 .prompt-body { padding: 0 12px 10px; font-size: 12.5px; }
 .tool-card { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.tool-h .num { flex: none; font: 12px var(--mono); }
+.tool-card.edit .tool-h code { flex: 0 1 auto; color: var(--fg); }
+.tool-card.edit .tool-h .num { margin-right: auto; }
+/* The folded steps: one quiet line, the cards inside when opened. */
+.steps-h { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px; border: 0; background: none; color: var(--mute);
+  font-size: 12.5px; text-align: left; border-radius: 8px; }
+.steps-h:hover { background: var(--hover); color: var(--fg); }
+.steps-h:active { transform: none; }
+.steps-h > span:first-of-type { color: var(--fg); font-weight: 600; flex: none; }
+.steps-h .muted:not(.tw) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.steps-bad { color: var(--err); flex: none; }
+.steps-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 2px 18px; border-left: 2px solid var(--line); margin-left: 16px; }
 .tool-h { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 12px; border: 0; border-radius: 0; background: var(--bg); color: var(--fg); text-align: left; }
 .tool-h:disabled { cursor: default; opacity: 1; }
 .tool-h:active { transform: none; }
 .tool-h b { font-weight: 600; flex: none; }
 .tool-h code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mute); font-size: 12px; }
-.tool-card pre.diff { border: 0; border-top: 1px solid var(--line); border-radius: 0; min-height: 0; max-height: 360px; overflow: auto; }
+.tool-card .diff { border: 0; border-top: 1px solid var(--line); border-radius: 0; max-height: 360px; }
 .tool-out { margin: 0; padding: 10px 12px; max-height: 280px; overflow: auto; background: #14161b; color: #d7d8db; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .perm { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--warn); border-radius: 10px;
   background: color-mix(in srgb, var(--warn) 8%, var(--card)); }
@@ -363,8 +407,9 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .chat-box textarea { flex: 1; min-height: 40px; max-height: 160px; border: 0; outline: none; resize: none; font: inherit; color: var(--fg); background: none; }
 .chat-send { width: 30px; height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px;
   background: var(--primary); color: var(--primary-fg); }
-.chat-resume { max-width: 780px; margin: 0 auto; display: flex; align-items: center; gap: 12px; color: var(--mute); font-size: 12.5px; }
-.chat-resume span { flex: 1; }
+/* A stopped agent: the way back in the middle of the chat; the conversation under it still scrolls. */
+.chat-resume { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.chat-resume .resume-btn { pointer-events: auto; box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
 .resume-btn.on-light { border-color: var(--line); background: var(--card); color: var(--fg); }
 .resume-btn.on-light:hover { background: var(--hover); }
 .chat-hint { max-width: 780px; margin: 6px auto 0; display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 11.5px; }

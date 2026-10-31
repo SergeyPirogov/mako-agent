@@ -388,13 +388,17 @@ func Editor() string {
 }
 
 // OpenWorktree shows the task's worktree in Finder ("finder") or the code editor ("editor").
-func (d *Dispatcher) OpenWorktree(id, where string) error {
+func (d *Dispatcher) OpenWorktree(id, where, file string) error {
 	wt, _, err := d.workOf(id)
 	if err != nil {
 		return err
 	}
 	if where == "editor" {
 		if e := Editor(); e != "" {
+			// One of the task's files, never a path out of its worktree.
+			if f := filepath.Clean(file); file != "" && !filepath.IsAbs(f) && f != ".." && !strings.HasPrefix(f, "../") {
+				return exec.Command("open", "-a", e, filepath.Join(wt, f)).Start()
+			}
 			return exec.Command("open", "-a", e, wt).Start()
 		}
 		return fmt.Errorf("не знайдено редактора (Cursor, VS Code, Zed)")
@@ -418,12 +422,12 @@ func (d *Dispatcher) removeWorktree(ctx context.Context, r core.Record, repo *co
 }
 
 // FileDiff: one changed file of the task.
-func (d *Dispatcher) FileDiff(ctx context.Context, id, path string) (string, error) {
+func (d *Dispatcher) FileDiff(ctx context.Context, id, path string, whole bool) (string, error) {
 	wt, base, err := d.workOf(id)
 	if err != nil {
 		return "", err
 	}
-	return gitx.FileDiff(ctx, wt, base, path)
+	return gitx.FileDiff(ctx, wt, base, path, whole)
 }
 
 // workOf: the task's worktree and the branch it goes into.

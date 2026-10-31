@@ -99,8 +99,9 @@ func Changes(ctx context.Context, worktree, baseBranch string) (*ChangeSet, erro
 	return cs, nil
 }
 
-// FileDiff: one file's diff against the fork point; a new file not committed yet shows as added.
-func FileDiff(ctx context.Context, worktree, baseBranch, path string) (string, error) {
+// FileDiff: one file's diff against the fork point; a new file not committed yet shows as added. whole shows
+// the entire file around the changes, not 3 lines of context.
+func FileDiff(ctx context.Context, worktree, baseBranch, path string, whole bool) (string, error) {
 	if path == "" || strings.HasPrefix(path, ":") || strings.HasPrefix(path, "-") {
 		return "", fmt.Errorf("немає такого файла")
 	}
@@ -113,7 +114,7 @@ func FileDiff(ctx context.Context, worktree, baseBranch, path string) (string, e
 		if len(b) > maxNewFile || bytes.Contains(b, []byte{0}) {
 			return "Binary or large file " + path + " (not committed yet)", nil
 		}
-		ls := lines(strings.TrimSuffix(string(b), "\n"))
+		ls := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") // blank lines too: they are the file
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "new file, not committed yet\n--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n", path, len(ls))
 		for _, l := range ls {
@@ -121,7 +122,11 @@ func FileDiff(ctx context.Context, worktree, baseBranch, path string) (string, e
 		}
 		return sb.String(), nil
 	}
-	diff, err := Run(ctx, worktree, "diff", "-M", "--no-color", forkPoint(ctx, worktree, baseBranch), "--", path)
+	args := []string{"diff", "-M", "--no-color"}
+	if whole {
+		args = append(args, "-U1000000")
+	}
+	diff, err := Run(ctx, worktree, append(args, forkPoint(ctx, worktree, baseBranch), "--", path)...)
 	if err != nil {
 		return "", err
 	}

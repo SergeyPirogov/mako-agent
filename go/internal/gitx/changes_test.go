@@ -47,10 +47,10 @@ func TestChanges(t *testing.T) {
 	if got["new.txt"].Status != "R" || got["нове.txt"].Status != "?" || got["нове.txt"].Additions != 2 {
 		t.Fatalf("files %+v", cs.Files)
 	}
-	if d, _ := FileDiff(ctx, dir, "main", "a.txt"); !strings.Contains(d, "-two\n+2") {
+	if d, _ := FileDiff(ctx, dir, "main", "a.txt", false); !strings.Contains(d, "-two\n+2") {
 		t.Fatalf("diff %q", d)
 	}
-	if d, _ := FileDiff(ctx, dir, "main", "нове.txt"); !strings.Contains(d, "+x\n+y\n") {
+	if d, _ := FileDiff(ctx, dir, "main", "нове.txt", false); !strings.Contains(d, "+x\n+y\n") {
 		t.Fatalf("new file %q", d)
 	}
 	h, err := Log(ctx, dir, "main", 1)
@@ -79,7 +79,7 @@ func TestChanges(t *testing.T) {
 		t.Fatal(GuessSetup(dir))
 	}
 	// A path outside the worktree is never read.
-	if d, _ := FileDiff(ctx, dir, "main", "../../etc/passwd"); strings.Contains(d, "root") {
+	if d, _ := FileDiff(ctx, dir, "main", "../../etc/passwd", false); strings.Contains(d, "root") {
 		t.Fatal("read outside the worktree")
 	}
 }
@@ -114,5 +114,29 @@ func TestRemoveWorktree(t *testing.T) {
 	}
 	if out, _ := Run(ctx, repo, "branch", "--list", "fix/2"); out != "" {
 		t.Fatal("branch still there")
+	}
+}
+
+func TestFileDiffWhole(t *testing.T) {
+	dir := t.TempDir()
+	g := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	g("init", "-q", "-b", "main")
+	os.WriteFile(filepath.Join(dir, "f.txt"), []byte("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\n"), 0o644)
+	g("add", ".")
+	g("commit", "-q", "-m", "init")
+	g("checkout", "-q", "-b", "fix/1")
+	os.WriteFile(filepath.Join(dir, "f.txt"), []byte("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nL9\n"), 0o644)
+	ctx := context.Background()
+	if d, _ := FileDiff(ctx, dir, "main", "f.txt", false); strings.Contains(d, " l1\n") {
+		t.Fatalf("3 lines of context %q", d)
+	}
+	if d, _ := FileDiff(ctx, dir, "main", "f.txt", true); !strings.Contains(d, " l1\n") || !strings.Contains(d, "-l9\n+L9") {
+		t.Fatalf("whole file %q", d)
 	}
 }

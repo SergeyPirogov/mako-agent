@@ -243,13 +243,13 @@ async function loadWork() {
   const r = data?.records.find((x) => x.id === selected);
   if (!r?.worktree || workOf !== r.id || (tab !== "orca" && r.executor !== "terminal")) return;
   const q = `id=${encodeURIComponent(r.id)}`;
-  const [cs, d, rv, hs] = await Promise.all([getJSON(`/api/changes?${q}`), fileTab ? getJSON(`/api/diff?${q}&path=${encodeURIComponent(fileTab)}`) : null,
+  const [cs, d, rv, hs] = await Promise.all([getJSON(`/api/changes?${q}`), fileTab ? getJSON(`/api/diff?${q}&path=${encodeURIComponent(fileTab)}${diffWhole ? "&whole=1" : ""}`) : null,
     r.prUrl ? getJSON(`/api/review?${q}`) : null, itab === "commits" ? getJSON(`/api/commits?${q}`) : null]);
   if (workOf !== r.id) return;
   changes = cs;
   review = rv;
   if (hs && !hs.error) history = hs;
-  if (d) diffs[fileTab] = d.error ? `⚠ ${d.error}` : d.diff || "Змін немає";
+  if (d) diffs[fileTab] = d.error ? `⚠ ${d.error}` : d.diff || "";
 }
 
 async function openFile(path) {
@@ -269,10 +269,103 @@ function closeFile(path) {
 }
 
 const DIFF_META = /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode)/;
-const diffHTML = (text) => `<pre class="diff">${text.split("\n").map((l) => {
-  const cls = DIFF_META.test(l) ? "dm" : l.startsWith("@@") ? "dh" : l.startsWith("+") ? "da" : l.startsWith("-") ? "dd" : "";
-  return `<span class="${cls}">${esc(l) || " "}</span>`;
-}).join("")}</pre>`;
+let diffMode = (() => { try { return localStorage.getItem("mako-diff") || "unified"; } catch { return "unified"; } })();
+// The whole file around its changes, or just them with 3 lines on each side.
+let diffWhole = (() => { try { return localStorage.getItem("mako-diff-whole") === "1"; } catch { return false; } })();
+
+// A unified diff as hunks of rows (context, removed, added) with their line numbers; what is not a row is a note.
+function parseDiff(text) {
+  const d = { notes: [], hunks: [], numbered: false };
+  let h = null, o = 1, n = 1;
+  for (const l of String(text ?? "").split("\n")) {
+    const m = l.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)/);
+    if (m) { o = +m[1]; n = +m[2]; h = { o, n, ctx: m[3], rows: [] }; d.hunks.push(h); d.numbered = true; continue; }
+    if (l === "@@") { h = { rows: [] }; d.hunks.push(h); continue; } // one MultiEdit's edits apart
+    if (!h && DIFF_META.test(l)) continue;
+    if (l.startsWith("\\")) continue; // "\ No newline at end of file"
+    const t = l[0];
+    if (t !== "+" && t !== "-" && t !== " ") { if (l.trim()) d.notes.push(l); continue; }
+    if (!h) { h = { rows: [] }; d.hunks.push(h); } // an edit without hunk headers: a tool card's
+    h.rows.push(t === "+" ? { t, n: n++, s: l.slice(1) } : t === "-" ? { t, o: o++, s: l.slice(1) } : { t, o: o++, n: n++, s: l.slice(1) });
+    h.oEnd = o;
+  }
+  for (const hk of d.hunks) markWords(hk.rows);
+  return d;
+}
+
+// A line changed in place: the words that differ stand out, the rest of it is plain.
+const TOKENS = /[\p{L}\p{N}_]+|\s+|[^\p{L}\p{N}_\s]/gu;
+function markWords(rows) {
+  for (let i = 0; i < rows.length;) {
+    if (rows[i].t !== "-") { i++; continue; }
+    let j = i; while (j < rows.length && rows[j].t === "-") j++;
+    let k = j; while (k < rows.length && rows[k].t === "+") k++;
+    for (let p = 0; p < Math.min(j - i, k - j); p++) {
+      const a = rows[i + p], b = rows[j + p], ta = a.s.match(TOKENS) ?? [], tb = b.s.match(TOKENS) ?? [];
+      let pre = 0; while (pre < ta.length && pre < tb.length && ta[pre] === tb[pre]) pre++;
+      let suf = 0; while (suf < ta.length - pre && suf < tb.length - pre && ta[ta.length - 1 - suf] === tb[tb.length - 1 - suf]) suf++;
+      const pa = ta.slice(0, pre).join("").length, sa = ta.slice(ta.length - suf).join("").length, sb = tb.slice(tb.length - suf).join("").length;
+      if (pa + sa < 0.3 * Math.max(a.s.length, b.s.length)) continue; // a different line, not an edited one
+      a.mark = [pa, a.s.length - sa];
+      b.mark = [pa, b.s.length - sb];
+    }
+    i = k;
+  }
+}
+const codeHTML = (r) => !r ? "" : r.mark && r.mark[1] > r.mark[0]
+  ? `${esc(r.s.slice(0, r.mark[0]))}<mark>${esc(r.s.slice(r.mark[0], r.mark[1]))}</mark>${esc(r.s.slice(r.mark[1]))}`
+  : esc(r.s) || " ";
+
+// The diff: line numbers, the changed words marked, unchanged lines between hunks folded; one column or side by side.
+function diffHTML(text, mode = "unified") {
+  const d = parseDiff(text), CLS = { "+": "da", "-": "dd", " ": "" };
+  const notes = d.notes.map((x) => `<div class="diff-note">${esc(x)}</div>`).join("");
+  if (!d.hunks.length) return `<div class="diff">${notes || `<div class="diff-note">Змін немає</div>`}</div>`;
+  const last = Math.max(...d.hunks.map((h) => h.oEnd ?? 0), ...d.hunks.flatMap((h) => h.rows.map((r) => r.n ?? 0)));
+  const lw = d.numbered ? `${String(last).length + 1}ch` : "0px";
+  let prevEnd = 1, out = "";
+  for (const h of d.hunks) {
+    if (d.numbered) {
+      const skipped = h.o - prevEnd;
+      if (skipped > 0) out += `<div class="dhunk"><span>⋯ ${skipped} ${plural(skipped, "рядок", "рядки", "рядків")} без змін</span>${h.ctx ? `<code>${esc(h.ctx)}</code>` : ""}</div>`;
+      prevEnd = h.oEnd ?? h.o;
+    } else if (out) out += `<div class="dhunk"><span>⋯</span></div>`;
+    if (mode === "split") {
+      for (let i = 0; i < h.rows.length;) {
+        const r = h.rows[i];
+        if (r.t === " ") { out += splitRow(r, r); i++; continue; }
+        let j = i; while (j < h.rows.length && h.rows[j].t === "-") j++;
+        let k = j; while (k < h.rows.length && h.rows[k].t === "+") k++;
+        for (let p = 0; p < Math.max(j - i, k - j); p++) out += splitRow(i + p < j ? h.rows[i + p] : null, j + p < k ? h.rows[j + p] : null, p === 0);
+        i = k;
+      }
+    } else {
+      h.rows.forEach((r, x) => out += `<div class="dl ${CLS[r.t]}${r.t !== " " && h.rows[x - 1]?.t !== r.t && h.rows[x - 1]?.t !== "-" ? " dstart" : ""}"><span class="ln">${r.o ?? ""}</span><span class="ln">${r.n ?? ""}</span><span class="sg">${r.t.trim()}</span><span class="code">${codeHTML(r)}</span></div>`);
+    }
+  }
+  return `<div class="diff ${mode}${d.numbered ? "" : " bare"}" style="--lw:${lw}">${notes}<div class="diff-rows">${out}</div></div>`;
+}
+const splitRow = (a, b, start) => `<div class="dl2${start ? " dstart" : ""}"><span class="ln ${a ? CLS2(a) : "dx"}">${a?.o ?? ""}</span><span class="code ${a ? CLS2(a) : "dx"}">${codeHTML(a)}</span>` +
+  `<span class="ln ${b ? CLS2(b) : "dx"}">${b?.n ?? ""}</span><span class="code ${b ? CLS2(b) : "dx"}">${codeHTML(b)}</span></div>`;
+const CLS2 = (r) => ({ "+": "da", "-": "dd", " ": "" })[r.t];
+
+// An open file: its path, what it gained and lost, the view and the way to the editor, then its diff.
+function diffView(r, path) {
+  const f = changes?.files?.find((x) => x.path === path);
+  const cut = path.lastIndexOf("/") + 1;
+  const status = f ? (f.status === "?" ? "N" : f.status) : "";
+  const seg = ["unified", "split"].map((m) => `<button type="button" class="${diffMode === m ? "on" : ""}" data-dmode="${m}">${m === "unified" ? "Рядком" : "Поруч"}</button>`).join("");
+  const scope = [[false, "Зміни"], [true, "Весь файл"]].map(([w, label]) => `<button type="button" class="${diffWhole === w ? "on" : ""}" data-dwhole="${w ? 1 : 0}">${label}</button>`).join("");
+  return `<div class="diff-view"><div class="diff-head">
+      ${status ? `<span class="st st-${esc(status)}">${status === "N" ? "+" : esc(status)}</span>` : ""}
+      <span class="dpath" title="${esc(path)}"><span class="ddir">${esc(path.slice(0, cut))}</span><span class="dname">${esc(path.slice(cut))}</span></span>
+      <span class="num">${f?.additions ? `<span class="add">+${f.additions}</span>` : ""}${f?.deletions ? ` <span class="del">−${f.deletions}</span>` : ""}</span>
+      <span class="dnav"><button type="button" class="icon" data-dnav="-1" title="Попередня зміна" aria-label="Попередня зміна">↑</button><button type="button" class="icon" data-dnav="1" title="Наступна зміна" aria-label="Наступна зміна">↓</button></span>
+      <span class="seg" role="group" aria-label="Скільки файла">${scope}</span>
+      <span class="seg" role="group" aria-label="Вигляд змін">${seg}</span>
+      ${data.editor ? `<button type="button" class="icon" data-open-file="${esc(path)}" title="Відкрити в ${esc(data.editor)}" aria-label="Відкрити в ${esc(data.editor)}">${ICON.code}</button>` : ""}
+    </div>${path in diffs ? diffHTML(diffs[path], diffMode) : `<div class="diff"><div class="diff-note">Читаю…</div></div>`}</div>`;
+}
 
 // The changed files as a tree of folders; a folder with only one folder inside shares its row («src/app»).
 function fileTree(files) {
@@ -321,7 +414,7 @@ function workArea(r, term, taskPane = "") {
   const onTask = tab === "task" && taskPane;
   const chatView = r.view === "chat";
   const main = (term ? `<div id="term-slot" class="${fileTab || onTask ? "away" : ""}">${chatView ? "" : idle}</div>` : "") +
-    (onTask ? taskPane : fileTab ? diffHTML(diffs[fileTab] ?? "Читаю…") : term ? "" : `<div class="files-empty pick">Виберіть файл праворуч, щоб побачити його зміни</div>`);
+    (onTask ? taskPane : fileTab ? diffView(r, fileTab) : term ? "" : `<div class="files-empty pick">Виберіть файл праворуч, щоб побачити його зміни</div>`);
   return `<div class="split"><div class="split-main">${main}</div><div class="inspector">${branchCard(r, term)}${inspectorTabs(r, term, files.length, list)}</div></div>`;
 }
 
@@ -657,6 +750,28 @@ function renderDetail() {
   for (const btn of $("detail").querySelectorAll("[data-file]")) btn.onclick = () => openFile(btn.dataset.file);
   for (const btn of $("detail").querySelectorAll("[data-copy]")) btn.onclick = () => navigator.clipboard?.writeText(btn.dataset.copy);
   for (const btn of $("detail").querySelectorAll("[data-open]")) btn.onclick = () => fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=${btn.dataset.open}`, { method: "POST" });
+  for (const btn of $("detail").querySelectorAll("[data-open-file]")) btn.onclick = () =>
+    fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=editor&file=${encodeURIComponent(btn.dataset.openFile)}`, { method: "POST" });
+  for (const btn of $("detail").querySelectorAll("[data-dwhole]")) btn.onclick = () => {
+    diffWhole = btn.dataset.dwhole === "1";
+    try { localStorage.setItem("mako-diff-whole", diffWhole ? "1" : "0"); } catch {}
+    for (const k in diffs) delete diffs[k];
+    renderDetail();
+    loadWork().then(renderDetail);
+  };
+  // From the change at the top of the view to the next or the one before it.
+  for (const btn of $("detail").querySelectorAll("[data-dnav]")) btn.onclick = () => {
+    const box = $("detail").querySelector(".diff-view > .diff");
+    if (!box) return;
+    const top = box.scrollTop, starts = [...box.querySelectorAll(".dstart")].map((e) => e.offsetTop - 40);
+    const to = btn.dataset.dnav === "1" ? starts.find((y) => y > top + 2) : starts.reverse().find((y) => y < top - 2);
+    if (to !== undefined) box.scrollTo({ top: Math.max(0, to), behavior: "smooth" });
+  };
+  for (const btn of $("detail").querySelectorAll("[data-dmode]")) btn.onclick = () => {
+    diffMode = btn.dataset.dmode;
+    try { localStorage.setItem("mako-diff", diffMode); } catch {}
+    renderDetail();
+  };
   for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; mrAction(r.id, "ask", btn.dataset.ask); };
   for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = () => {
     if (confirm("Змерджити MR? Гілку задачі буде видалено, задача отримає фінальний статус.")) { btn.disabled = true; mrAction(r.id, "merge"); }
@@ -690,12 +805,11 @@ function chatFor(id) {
   const el = document.createElement("div");
   el.className = "chat";
   el.innerHTML = `<div class="chat-list" role="log" aria-live="polite"></div>
+    <div class="chat-resume" hidden><button type="button" class="resume-btn on-light" data-chat-resume title="Агент зупинився. Розмова збережена в Claude Code.">${ICON.play}Продовжити розмову</button></div>
     <div class="chat-foot">
       <div class="chat-box"><textarea rows="2" aria-label="Повідомлення агенту"></textarea>
         <button type="button" class="icon chat-stop" title="Перервати поточний крок" aria-label="Перервати поточний крок" hidden>${ICON.stop}</button>
         <button type="button" class="chat-send" title="Надіслати (Enter)" aria-label="Надіслати">${ICON.push}</button></div>
-      <div class="chat-resume" hidden><span>Агент зупинився. Розмова збережена в Claude Code.</span>
-        <button type="button" class="resume-btn on-light" data-chat-resume>${ICON.play}Продовжити розмову</button></div>
       <div class="chat-hint">
         <label class="chat-mode" title="Що Claude робить без питань; діє одразу, як Shift+Tab у терміналі">
           <select aria-label="Що Claude робить без питань">
@@ -749,7 +863,7 @@ function renderChat(v) {
   const s = v.snap, list = v.list;
   const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
   const running = [...s.items].reverse().find((it) => it.kind === "tool" && it.status === "running");
-  list.innerHTML = `<div class="chat-col">${s.items.map((it, i) => chatItem(it, i, v)).join("") || `<div class="files-empty">${s.live ? "Агент чекає: напишіть йому, що робити." : "Розмова зʼявиться тут, щойно агент почне."}</div>`}
+  list.innerHTML = `<div class="chat-col">${chatBlocks(s.items, v) || `<div class="files-empty">${s.live ? "Агент чекає: напишіть йому, що робити." : "Розмова зʼявиться тут, щойно агент почне."}</div>`}
     ${s.state === "working" ? `<div class="chat-working"><span class="pulse"></span>${esc(running ? `${running.tool}${toolArg(running.input)}` : "Думає…")}</div>` : ""}</div>`;
   if (atBottom || v.version <= 1) list.scrollTop = list.scrollHeight;
   v.el.querySelector(".chat-stop").hidden = s.state !== "working";
@@ -776,6 +890,32 @@ const toolArg = (input) => {
   }
   return "";
 };
+// What matters in a conversation is what the agent says, what it changed and what it asks: the commands and
+// reads between are folded into one line, open on a click.
+const EDITS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
+const quiet = (it) => (it.kind === "tool" && !EDITS.includes(it.tool)) || (it.kind === "permission" && it.status !== "asked");
+const STEP = { Bash: "команди", Read: "читання", Grep: "пошук", Glob: "пошук", LS: "пошук", WebFetch: "веб", WebSearch: "веб",
+  Task: "субагенти", Agent: "субагенти", TodoWrite: "план" };
+function chatBlocks(items, v) {
+  let out = "";
+  for (let i = 0; i < items.length;) {
+    if (!quiet(items[i])) { out += chatItem(items[i], i, v); i++; continue; }
+    let j = i; while (j < items.length && quiet(items[j])) j++;
+    const group = items.slice(i, j).filter((it) => it.kind === "tool");
+    if (group.length <= 1) { out += items.slice(i, j).map((it, k) => chatItem(it, i + k, v)).join(""); i = j; continue; }
+    const key = `g:${group[0].id}`, open = v.flip.has(key);
+    const counts = {};
+    for (const it of group) { const k = STEP[it.tool] ?? it.tool; counts[k] = (counts[k] ?? 0) + 1; }
+    const failed = group.filter((it) => it.status === "error").length, running = group.some((it) => it.status === "running");
+    out += `<div class="steps${open ? " open" : ""}"><button type="button" class="steps-h" data-toggle="${esc(key)}">${MR_ICON[running ? "run" : "ok"]}
+        <span>${group.length} ${plural(group.length, "крок", "кроки", "кроків")}</span>
+        <span class="muted">${Object.entries(counts).map(([k, n]) => `${esc(k)} ${n}`).join(" · ")}</span>
+        ${failed ? `<span class="steps-bad">${failed} з помилкою</span>` : ""}<span class="muted tw">${open ? "▾" : "▸"}</span></button>
+      ${open ? `<div class="steps-body">${items.slice(i, j).map((it, k) => chatItem(it, i + k, v)).join("")}</div>` : ""}</div>`;
+    i = j;
+  }
+  return out;
+}
 function chatItem(it, i, v) {
   const open = (key, byDefault) => byDefault !== v.flip.has(key);
   switch (it.kind) {
@@ -789,11 +929,15 @@ function chatItem(it, i, v) {
       return `<div class="msg"><div class="who">Claude</div><div class="md">${md(it.text)}</div></div>`;
     case "tool": {
       const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
-      const edit = ["Edit", "MultiEdit", "Write", "NotebookEdit"].includes(it.tool);
+      const edit = EDITS.includes(it.tool);
       const detail = toolDetail(it);
-      const shown = detail && open(it.id, edit ? true : it.status === "error");
-      return `<div class="tool-card ${it.status}"><button type="button" class="tool-h" ${detail ? `data-toggle="${esc(it.id)}"` : "disabled"}>${MR_ICON[icon]}<b>${esc(it.tool)}</b>
-          <code>${esc(toolArg(it.input).slice(2))}</code>${detail ? `<span class="muted">${shown ? "▾" : "▸"}</span>` : ""}</button>${shown ? detail : ""}</div>`;
+      const shown = detail && open(it.id, it.status === "error" && !edit);
+      const arg = toolArg(it.input).slice(2);
+      // An edit says which file and how much: «Змінено checkout.ts +3 −1», the diff on a click.
+      const head = edit ? `<b>${{ Write: "Створено" }[it.tool] ?? "Змінено"}</b><code title="${esc(arg)}">${esc(relPath(arg, v))}</code>${editCount(it)}`
+        : `<b>${esc(it.tool)}</b><code>${esc(arg)}</code>`;
+      return `<div class="tool-card ${it.status}${edit ? " edit" : ""}"><button type="button" class="tool-h" ${detail ? `data-toggle="${esc(it.id)}"` : "disabled"}>${MR_ICON[icon]}${head}
+          ${detail ? `<span class="muted">${shown ? "▾" : "▸"}</span>` : ""}</button>${shown ? detail : ""}</div>`;
     }
     case "permission": {
       const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200);
@@ -817,6 +961,17 @@ function chatItem(it, i, v) {
       return `<div class="notice">${esc(it.text)}</div>`;
   }
   return "";
+}
+const relPath = (p, v) => {
+  const wt = data?.records.find((x) => x.id === v.id)?.worktree;
+  return wt && p.startsWith(wt + "/") ? p.slice(wt.length + 1) : p;
+};
+function editCount(it) {
+  const inp = it.input ?? {}, n = (t) => (t ? String(t).split("\n").length : 0);
+  const pairs = it.tool === "MultiEdit" ? inp.edits ?? [] : it.tool === "Edit" ? [inp] : [];
+  const add = it.tool === "Write" ? n(inp.content) : pairs.reduce((a, e) => a + n(e.new_string), 0);
+  const del = pairs.reduce((a, e) => a + n(e.old_string), 0);
+  return `<span class="num">${add ? `<span class="add">+${add}</span>` : ""}${del ? ` <span class="del">−${del}</span>` : ""}</span>`;
 }
 // What a tool card shows when opened: an edit's diff, a command's output.
 function toolDetail(it) {

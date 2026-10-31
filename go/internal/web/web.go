@@ -156,7 +156,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]any{"review": c})
 	})
 	mux.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
-		diff, err := s.D.FileDiff(r.Context(), r.URL.Query().Get("id"), r.URL.Query().Get("path"))
+		diff, err := s.D.FileDiff(r.Context(), r.URL.Query().Get("id"), r.URL.Query().Get("path"), r.URL.Query().Get("whole") == "1")
 		if err != nil {
 			writeJSON(w, map[string]string{"error": err.Error()})
 			return
@@ -233,7 +233,7 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		case "open":
-			if err := s.D.OpenWorktree(id, r.URL.Query().Get("in")); err != nil {
+			if err := s.D.OpenWorktree(id, r.URL.Query().Get("in"), r.URL.Query().Get("file")); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
