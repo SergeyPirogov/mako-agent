@@ -53,7 +53,17 @@ type Reviewer struct {
 	Enabled   bool
 	MaxRounds int    // reviews of one task at most, 1 by default
 	Model     string // "" — the agents' model
+	// When: which tasks get it, by the risk of their assessment: "always", "medium" (medium and high risk) or
+	// "high" (high risk only). A task with no assessment gets it.
+	When string
 }
+
+// Reviewer's When.
+const (
+	ReviewAlways = "always"
+	ReviewMedium = "medium"
+	ReviewHigh   = "high"
+)
 
 // Comments Mako leaves in the issue, written as the developer: {branch} {taskId} {title} {url} {mr} are filled
 // in; "-" leaves no comment.
@@ -254,6 +264,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			Enabled:   raw.AgentReview.Enabled,
 			MaxRounds: max(orInt(raw.AgentReview.MaxRounds, 1), 1),
 			Model:     strings.TrimSpace(raw.AgentReview.Model),
+			When:      reviewWhen(raw.AgentReview.When),
 		},
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
@@ -520,9 +531,19 @@ type rawConfig struct {
 		Enabled   bool   `json:"enabled"`
 		MaxRounds *int   `json:"maxRounds"`
 		Model     string `json:"model"`
+		When      string `json:"when"`
 	} `json:"agentReview"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
+}
+
+// reviewWhen: the reviewer's When, "always" for anything else.
+func reviewWhen(s string) string {
+	switch s = strings.TrimSpace(s); s {
+	case ReviewMedium, ReviewHigh:
+		return s
+	}
+	return ReviewAlways
 }
 
 // executorOrder: the default executor first, so a config with several Orcas uses the chosen one.

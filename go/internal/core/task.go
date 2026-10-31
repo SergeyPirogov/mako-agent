@@ -140,10 +140,12 @@ type Score struct {
 type AgentReview struct {
 	At     string `json:"at"`
 	Commit string `json:"commit"` // the branch's HEAD it read
-	// State: "running"; "notes" (its remarks went to the agent); "clean" (nothing to fix); "failed".
-	State string `json:"state"`
-	Notes string `json:"notes,omitempty"` // Markdown
-	Error string `json:"error,omitempty"`
+	// State: "running"; "notes" (its remarks went to the agent); "clean" (nothing to fix); "failed"; "skipped"
+	// (the task's risk is below what the settings ask the reviewer for: Reason says which).
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+	Notes  string `json:"notes,omitempty"` // Markdown
+	Error  string `json:"error,omitempty"`
 }
 
 // Lesson is a rule for the repo's next agents, drawn from what you told one of them.

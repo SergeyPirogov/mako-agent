@@ -945,10 +945,13 @@ function mrCard(r, term) {
 
 // The reviewer agent's rounds over the branch: the last one as a line of the MR card, all of them in the task.
 const REVIEW_STATE = { running: ["run", "Рецензент-агент переглядає гілку…"], notes: ["talk", "Зауваження рецензента-агента передано агенту"],
-  clean: ["ok", "Рев'ю агентом пройдено"], failed: ["bad", "Рев'ю агентом не вдалось"] };
+  clean: ["ok", "Рев'ю агентом пройдено"], failed: ["bad", "Рев'ю агентом не вдалось"], skipped: ["idle", "Рев'ю агентом пропущено"] };
+const skippedText = (a) => `Рев'ю агентом пропущено${a.reason ? `: ${a.reason}` : ""}`;
 function reviewerRow(r) {
   const last = r.agentReviews?.at(-1);
   if (!last) return "";
+  if (last.state === "skipped") return row("idle", skippedText(last), "",
+    `<button type="button" class="ghost" data-a="agentreview" title="Рецензент-агент прочитає задачу й diff гілки попри ризик">Запустити</button>`);
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
   const n = r.agentReviews.filter((a) => a.state === "notes" || a.state === "clean").length;
   return row(icon, n > 1 ? `${text} · раунд ${n}` : text, "");
@@ -971,7 +974,7 @@ const initials = (name) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).ma
 function reviewerHTML(r) {
   if (!r.agentReviews?.length) return "";
   return `<h3>Рев'ю агентом</h3>` + r.agentReviews.map((a, i) => {
-    const [, text] = REVIEW_STATE[a.state] ?? ["", a.state];
+    const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1];
     return `<div class="agent-review ${esc(a.state)}"><div class="muted">Раунд ${i + 1} · ${new Date(a.at).toLocaleString("uk")} · <code>${esc(a.commit.slice(0, 8))}</code> · ${esc(text)}</div>
       ${a.notes ? `<div class="summary">${md(a.notes)}</div>` : ""}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
   }).join("");

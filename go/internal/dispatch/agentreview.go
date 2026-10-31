@@ -2,11 +2,13 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
@@ -62,9 +64,74 @@ func reviewDue(list []core.AgentReview, head string, max int) bool {
 	return true
 }
 
+// riskGate: whether the settings' When lets the reviewer read a task with this assessment. skip: why not (the
+// task is less risky than asked); wait: its assessment is still running. No assessment, or a failed one, lets it.
+func riskGate(when string, a *core.Assessment) (skip string, wait bool) {
+	if when != config.ReviewMedium && when != config.ReviewHigh || a == nil {
+		return "", false
+	}
+	if a.State == "running" {
+		return "", !stale(a.At)
+	}
+	if a.State != "done" || a.Risk.Value == 0 {
+		return "", false
+	}
+	switch v := a.Risk.Value; {
+	case v <= 2:
+		return "низький ризик", false
+	case v == 3 && when == config.ReviewHigh:
+		return "середній ризик", false
+	}
+	return "", false
+}
+
+// reviewed: the reviewer has read the branch already (not counting rounds it skipped): the next rounds do not
+// look at the risk again.
+func reviewed(list []core.AgentReview) bool {
+	for _, a := range list {
+		if a.State == "notes" || a.State == "clean" || a.State == "failed" {
+			return true
+		}
+	}
+	return false
+}
+
+// withoutSkipped: the rounds the reviewer did read.
+func withoutSkipped(list []core.AgentReview) []core.AgentReview {
+	out := []core.AgentReview{}
+	for _, a := range list {
+		if a.State != "skipped" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// ReviewNow runs the reviewer the settings skipped for the task's low risk, from the board's button.
+func (d *Dispatcher) ReviewNow(id string) error {
+	r, ok := d.Store.Get(id)
+	if !ok {
+		return errors.New("немає такої задачі")
+	}
+	if n := len(r.AgentReviews); n == 0 || r.AgentReviews[n-1].State != "skipped" {
+		return errors.New("рев'ю агентом не пропускали")
+	}
+	if !d.reviewWanted(r) {
+		return errors.New("рецензента вимкнено в налаштуваннях")
+	}
+	if !d.agentIdle(id) {
+		return errors.New("агент ще працює: рецензент прочитає гілку, коли він закінчить")
+	}
+	go d.review(id, true)
+	return nil
+}
+
 // maybeReview starts the reviewer on the task's branch when it is due: the agent's turn is over and the branch
-// is ready and not reviewed at this commit.
-func (d *Dispatcher) maybeReview(id string) {
+// is ready and not reviewed at this commit, and the task is as risky as the settings ask for.
+func (d *Dispatcher) maybeReview(id string) { d.review(id, false) }
+
+// review runs the reviewer when it is due; manual: you asked for it, whatever the task's risk.
+func (d *Dispatcher) review(id string, manual bool) {
 	r, ok := d.Store.Get(id)
 	if !ok || !d.reviewWanted(r) || !exists(r.Worktree) || !d.agentIdle(id) {
 		return
@@ -90,8 +157,27 @@ func (d *Dispatcher) maybeReview(id string) {
 	cfg := d.Config()
 	push := cfg.Orca.MRBy != "me" || r.PRURL != ""
 	head, ready := readyBranch(ctx, wt, base, branchOf(r), push)
-	if !ready || !reviewDue(r.AgentReviews, head, cfg.Reviewer.MaxRounds) {
+	list := r.AgentReviews
+	if manual {
+		list = withoutSkipped(list)
+	}
+	if !ready || !reviewDue(list, head, cfg.Reviewer.MaxRounds) {
 		return
+	}
+	if !manual && !reviewed(r.AgentReviews) && cfg.Reviewer.When != config.ReviewAlways && cfg.Reviewer.When != "" {
+		// The risk comes from the assessment, made once the MR is found: when the agent opens it, wait for it.
+		if r.PRURL == "" && cfg.Orca.MRBy != "me" {
+			return
+		}
+		skip, wait := riskGate(cfg.Reviewer.When, r.Assessment)
+		if wait {
+			return
+		}
+		if skip != "" {
+			d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "skipped", Reason: skip})
+			d.Log(id, "рев'ю агентом пропущено: "+skip)
+			return
+		}
 	}
 	round := 1
 	for _, a := range r.AgentReviews {
@@ -124,10 +210,10 @@ func (d *Dispatcher) maybeReview(id string) {
 	}
 }
 
-// setReview puts the round in the task's record: in place of its «running» one, or as a new one.
+// setReview puts the round in the task's record: in place of its «running» or «skipped» one, or as a new one.
 func (d *Dispatcher) setReview(id string, a core.AgentReview) {
 	d.Store.Update(id, func(r *core.Record) {
-		if n := len(r.AgentReviews); n > 0 && r.AgentReviews[n-1].State == "running" {
+		if n := len(r.AgentReviews); n > 0 && (r.AgentReviews[n-1].State == "running" || r.AgentReviews[n-1].State == "skipped") {
 			r.AgentReviews[n-1] = a
 			return
 		}

@@ -18,7 +18,8 @@
   },
   "agentReview": {
     "enabled": false,
-    "maxRounds": 1
+    "maxRounds": 1,
+    "when": "always"
   },
   "executors": {
     "terminal": {
