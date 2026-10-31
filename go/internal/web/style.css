@@ -586,9 +586,21 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
 .notice.later-note { display: flex; align-items: center; gap: 8px; border-color: var(--line); color: var(--mute); }
 
 /* «+ Задача»: the button over the list and the form where a card goes. */
-.new-task { flex: none; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-.new-task[hidden] { display: none; }
-.new-task button { width: 100%; height: 28px; padding: 0 8px; font-size: 12.5px; }
+.new-task { flex: none; display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.new-task button { flex: 1; height: 28px; padding: 0 8px; font-size: 12.5px; white-space: nowrap; }
+.new-task button.ghost { flex: none; }
+.new-task button[hidden] { display: none; }
+.new-task button[hidden] + button.ghost { flex: 1; }
+.why { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.why-task { font-size: 14px; overflow-wrap: anywhere; }
+.why-task code { margin-right: 6px; }
+.why-verdict { font-weight: 600; font-size: 14px; }
+.why-verdict.ok { color: var(--ok); } .why-verdict.bad { color: var(--err); }
+.why-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.why-checks li { display: flex; gap: 8px; overflow-wrap: anywhere; }
+.why-checks .mk { flex: none; width: 14px; font-weight: 700; }
+.why-checks .ok .mk { color: var(--ok); } .why-checks .bad .mk { color: var(--err); }
+.why button { align-self: flex-start; }
 .new-form { max-width: 720px; display: flex; flex-direction: column; gap: 12px; }
 .new-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--mute); }
 .new-form input:not([type=checkbox]), .new-form textarea, .new-form select { font: inherit; font-size: 14px; color: var(--fg); background: var(--card);
