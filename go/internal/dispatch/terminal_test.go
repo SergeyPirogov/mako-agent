@@ -245,6 +245,7 @@ echo "$more" > more.json
 	// The resumed agent saves the task when it exits: let it finish before the temp dirs go.
 	d.StopTerminal(r.ID)
 	d.Chats.Get(r.ID).Wait()
+	d.WaitContexts() // its cost starts a read of the context that writes to the state dir
 }
 
 // A message sent after the idle timer closed the agent, while its process still lingers, is delivered: the
@@ -288,7 +289,7 @@ sleep 2
 		t.Fatalf("status %s view %q error %q", r.Status, r.View, r.Error)
 	}
 	s := d.Chats.Get(r.ID)
-	defer func() { d.StopTerminal(r.ID); d.Chats.Get(r.ID).Wait() }()
+	defer func() { d.StopTerminal(r.ID); d.Chats.Get(r.ID).Wait(); d.WaitContexts() }()
 	waitFor(t, func() bool { st, _, _ := s.State(); return st == "done" }, "the chat is not done")
 	// The idle timer closes its stdin; the process lingers after that.
 	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(r.Worktree, "stdin-closed")); return err == nil }, "the idle timer did not close the agent")
