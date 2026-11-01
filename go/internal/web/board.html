@@ -285,12 +285,12 @@ const resetTime = (sec) => {
 };
 function limitsHTML(l) {
   const bad = data.limitPausePct || 85;
-  const meter = (label, w, what) => {
+  const meter = (label, short, w, what) => {
     if (!w) return "";
     const pct = Math.round(w.used * 100), cls = pct >= bad ? "bad" : pct >= 60 ? "warn" : "";
-    return `<span class="limit ${cls}" title="${what}: використано ${pct}%, оновиться ${resetTime(w.resetsAt)}"><span class="lk">${label}</span><span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b></span>`;
+    return `<span class="limit ${cls}" title="${what}: використано ${pct}%, оновиться ${resetTime(w.resetsAt)}"><span class="lk">${label}</span><span class="ls">${short}</span><span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b></span>`;
   };
-  return meter("5 год", l?.fiveHour, "Ліміт Claude на 5 годин") + meter("Тиждень", l?.week, "Ліміт Claude на тиждень");
+  return meter("5 год", "5г", l?.fiveHour, "Ліміт Claude на 5 годин") + meter("Тиждень", "тиж", l?.week, "Ліміт Claude на тиждень");
 }
 
 // Past the threshold the queue waits for the limit to reset; agents already working go on.
@@ -400,7 +400,7 @@ function render() {
   // On a phone the word goes: «2/5» fits next to the limits.
   $("wip").innerHTML = `<span class="w">${where} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> з </span><span class="sl">/</span>${data.wipLimit}` : "");
   $("wip").title = data.wipLimit ? `${where}: ${doing} з ${data.wipLimit}` : `${where}: ${doing}`;
-  $("waiting").innerHTML = waiting ? `<span class="waiting-chip"><span class="dot"></span>чекає на вас: ${waiting}</span>` : "";
+  $("waiting").innerHTML = waiting ? `<span class="waiting-chip" title="Чекає на вас: ${waiting}"><span class="dot"></span><span class="wt">чекає на вас: </span>${waiting}</span>` : "";
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
   $("limits").innerHTML = limitsHTML(data.limits);
   const searches = Object.entries(data.searches);
