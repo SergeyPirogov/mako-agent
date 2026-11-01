@@ -55,7 +55,7 @@ func (d *Dispatcher) assess(ctx context.Context, id string) {
 	if err != nil {
 		dir, base = os.TempDir(), ""
 	}
-	a, err := writer.Assess(ctx, dir, base, r.Task, d.agentWords(ctx, r), r.Summary)
+	a, err := writer.Assess(d.spending(ctx, id, core.PhaseAssess), dir, base, r.Task, d.agentWords(ctx, r), r.Summary)
 	a.At = now()
 	if err != nil {
 		d.Fault(id, "задачу не оцінено", err)

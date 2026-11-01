@@ -54,6 +54,17 @@ type Stats struct {
 	LeadSeconds float64 `json:"leadSeconds"`
 	// Days: the tasks taken on each day of the period (the last 14 days for all time), the oldest first.
 	Days []Day `json:"days"`
+	// Stages: where the time of a merged task went, on average by stage (Metrics), over the Staged ones.
+	Stages map[string]float64 `json:"stages"`
+	Staged int                `json:"staged"`
+	// Phases: USD by phase (estimate, plan, work, review, assess); PhaseTokens and Tokens: the tokens so.
+	Phases      map[string]float64 `json:"phases"`
+	PhaseTokens map[string]int     `json:"phaseTokens"`
+	Tokens      int                `json:"tokens"`
+	// CIFixes, ReviewFixes: the rounds the agent was asked to fix CI and the review's comments, on average
+	// per merged task.
+	CIFixes     float64 `json:"ciFixes"`
+	ReviewFixes float64 `json:"reviewFixes"`
 }
 
 // Day is how the tasks taken on one day went.
@@ -90,6 +101,9 @@ type SizeGroup struct {
 	Timed   int     `json:"timed"`
 	Cost    float64 `json:"cost"`
 	Priced  int     `json:"priced"`
+	// Tokens: the average over the Tokened tasks.
+	Tokens  float64 `json:"tokens"`
+	Tokened int     `json:"tokened"`
 }
 
 // Group is how the tasks of one project or one executor went.
@@ -104,6 +118,7 @@ type Group struct {
 	Assessed int     `json:"assessed"`
 	// Unclear: the Assessed ones the agent hardly understood (clarity 1–2).
 	Unclear int `json:"unclear"`
+	Tokens  int `json:"tokens"`
 }
 
 // ModelFamily: the model by its family, so Claude Code's own name of it and the alias Mako asked for count as
@@ -135,7 +150,7 @@ type Reason struct {
 // Summarize counts the records of the tasks that were taken since (zero: all of them); ones never handed off
 // are not in it.
 func Summarize(records []Record, now, since time.Time) Stats {
-	st := Stats{Reasons: []Reason{}, Forecast: Forecast{Matrix: make([][]int, len(Sizes))}, BySize: make([]SizeGroup, len(Sizes))}
+	st := Stats{Reasons: []Reason{}, Stages: map[string]float64{}, Phases: map[string]float64{}, PhaseTokens: map[string]int{}, Forecast: Forecast{Matrix: make([][]int, len(Sizes))}, BySize: make([]SizeGroup, len(Sizes))}
 	for i, size := range Sizes {
 		st.Forecast.Matrix[i] = make([]int, len(Sizes))
 		st.BySize[i].Size = size
@@ -178,9 +193,20 @@ func Summarize(records []Record, now, since time.Time) Stats {
 			st.Cost += r.Cost
 			st.Priced++
 		}
+		tokens := r.TokensUsed()
+		st.Tokens += tokens
 		for _, g := range groups {
 			g.Taken++
 			g.Cost += r.Cost
+			g.Tokens += tokens
+		}
+		if m := r.Metrics; m != nil {
+			for phase, usd := range m.Cost {
+				st.Phases[phase] += usd
+			}
+			for phase, n := range m.Tokens {
+				st.PhaseTokens[phase] += n
+			}
 		}
 		if a := r.Assessment; a != nil && a.State == "done" {
 			st.Assessed++
@@ -234,6 +260,14 @@ func Summarize(records []Record, now, since time.Time) Stats {
 				if clean(r) {
 					st.Clean++
 				}
+				st.CIFixes += float64(r.CIFixes)
+				st.ReviewFixes += float64(r.ReviewFixes)
+				if r.Metrics != nil {
+					st.Staged++
+					for stage, sec := range r.StageSeconds(now) {
+						st.Stages[stage] += sec
+					}
+				}
 				if d, ok := between(r.FinishedAt, r.MergedAt); ok {
 					review += d
 					reviewed++
@@ -258,6 +292,15 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		st.MedianSeconds = median(took)
 	}
 	st.LeadSeconds = median(lead)
+	if st.Merged > 0 {
+		st.CIFixes /= float64(st.Merged)
+		st.ReviewFixes /= float64(st.Merged)
+	}
+	if st.Staged > 0 {
+		for stage := range st.Stages {
+			st.Stages[stage] /= float64(st.Staged)
+		}
+	}
 	st.Days = make([]Day, 0, len(days))
 	for _, d := range days {
 		st.Days = append(st.Days, *d)
@@ -276,6 +319,9 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		}
 		if g.Priced > 0 {
 			g.Cost /= float64(g.Priced)
+		}
+		if g.Tokened > 0 {
+			g.Tokens /= float64(g.Tokened)
 		}
 	}
 	st.Projects, st.Executors, st.Authors, st.Models = sorted(projects), sorted(executors), sorted(authors), sorted(models)
@@ -327,6 +373,10 @@ func bySize(st *Stats, r Record) {
 	if r.Cost > 0 {
 		g.Cost += r.Cost
 		g.Priced++
+	}
+	if n := r.TokensUsed(); n > 0 {
+		g.Tokens += float64(n)
+		g.Tokened++
 	}
 }
 

@@ -128,6 +128,9 @@ func (d *Dispatcher) setAgent(r core.Record, a Agent, now time.Time) {
 	}
 	d.agents[r.ID] = &a
 	d.mu.Unlock()
+	if s := workStage(r, a.State); s != "" && r.Status == core.HandedOff {
+		d.enterStage(r, s, now)
+	}
 	// Another request while it still waits is told too: the notification answers that one now.
 	if before != nil && (before.State != a.State || (a.State == "waiting" && askedID(a.Asked) != "" && askedID(a.Asked) != askedID(before.Asked))) {
 		d.tell(r, a)
@@ -294,7 +297,7 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		return
 	}
 	o := d.Config().Orca
-	text, err := writer.TaskSummary(ctx, r.Worktree, baseBranch, r.Task, d.agentWords(ctx, r), reviewURL)
+	text, err := writer.TaskSummary(d.spending(ctx, r.ID, core.PhaseWork), r.Worktree, baseBranch, r.Task, d.agentWords(ctx, r), reviewURL)
 	if err != nil {
 		d.Fault(r.ID, "підсумок не написано", err)
 		return

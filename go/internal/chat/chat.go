@@ -80,8 +80,9 @@ type Options struct {
 	OnState   func()
 	OnLimits  func(Limits)
 	OnSession func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
-	// OnCost: what a turn cost (USD), so the task can add up its budget.
-	OnCost func(usd float64)
+	// OnCost: what a turn cost (USD) and the tokens its model calls read and wrote, so the task can add up its
+	// budget.
+	OnCost func(usd float64, tokens int)
 	// Tools: when set, the only tools the agent may use; a request for any other is denied at once, nobody is
 	// asked (the read-only «Запитати про код»: Read, Grep, Glob).
 	Tools []string
@@ -115,6 +116,8 @@ type Session struct {
 	context   int
 	window    int
 	spent     float64                    // claude reports the cost so far of its process: what of it is already counted
+	tokens    int                        // the tokens of this turn's model calls, told with its cost
+	calls     map[string]bool            // the model calls already counted, by message id: one comes in several events
 	pending   map[string]json.RawMessage // permission request → the tool's input
 	o         Options
 	ended     chan struct{} // closed once the agent has exited and OnState has heard of it
@@ -286,6 +289,7 @@ func (s *Session) handle(line []byte) {
 			}
 		}
 	case "assistant":
+		s.countTokens(e.Message)
 		if e.Parent != nil { // a subagent's own steps: its Task card stands for them
 			return
 		}
@@ -404,13 +408,14 @@ func (s *Session) handle(line []byte) {
 			}
 		}
 		// total_cost_usd grows over the turns of one process; a replayed transcript (no process yet) is not new.
-		turn := 0.0
+		turn, tokens := 0.0, s.tokens
 		if s.cmd != nil && e.Cost > s.spent {
 			turn, s.spent = e.Cost-s.spent, e.Cost
 		}
+		s.tokens = 0
 		s.mu.Unlock()
-		if turn > 0 && s.o.OnCost != nil {
-			s.o.OnCost(turn)
+		if (turn > 0 || tokens > 0) && s.o.OnCost != nil {
+			s.o.OnCost(turn, tokens)
 		}
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: e.Cost})
 		s.setState("done")
@@ -942,4 +947,33 @@ func (m *Manager) Limits() Limits {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.limits
+}
+
+// countTokens adds the tokens of a model call of the running process (the agent's or a subagent's) to the turn's,
+// once per call.
+func (s *Session) countTokens(message json.RawMessage) {
+	var m struct {
+		ID    string `json:"id"`
+		Usage struct {
+			Input       int `json:"input_tokens"`
+			Output      int `json:"output_tokens"`
+			CacheRead   int `json:"cache_read_input_tokens"`
+			CacheCreate int `json:"cache_creation_input_tokens"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal(message, &m) != nil || m.ID == "" {
+		return
+	}
+	u := m.Usage
+	n := u.Input + u.Output + u.CacheRead + u.CacheCreate
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cmd == nil || n == 0 || s.calls[m.ID] { // a replayed transcript is not new
+		return
+	}
+	if s.calls == nil {
+		s.calls = map[string]bool{}
+	}
+	s.calls[m.ID] = true
+	s.tokens += n
 }
