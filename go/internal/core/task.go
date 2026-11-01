@@ -114,8 +114,6 @@ type Record struct {
 	ReviewFixes int `json:"reviewFixes,omitempty"`
 	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.
 	AgentReviews []AgentReview `json:"agentReviews,omitempty"`
-	// ReviewCycle: the reviewer's rounds you started with «Зробити рев'ю»; nil: only the settings start them.
-	ReviewCycle *ReviewCycle `json:"reviewCycle,omitempty"`
 	// Assessment: how the agent rates the finished task: its description, how hard it was, how much of it is
 	// done and how risky the change is.
 	Assessment *Assessment `json:"assessment,omitempty"`
@@ -240,21 +238,14 @@ type Score struct {
 type AgentReview struct {
 	At     string `json:"at"`
 	Commit string `json:"commit"` // the branch's HEAD it read
-	// State: "running"; "notes" (its remarks went to the agent); "clean" (nothing to fix); "failed"; "skipped"
-	// (the task's risk is below what the settings ask the reviewer for: Reason says which).
+	// State: "running"; "notes" (it has remarks); "clean" (nothing to fix); "failed"; "skipped" (older versions
+	// of Mako: the task's risk was below what the settings asked the reviewer for; Reason says which).
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
 	Notes  string `json:"notes,omitempty"` // Markdown
 	Error  string `json:"error,omitempty"`
-}
-
-// ReviewCycle: the rounds from AgentReviews[From] on, up to Rounds of them with remarks: each time the agent
-// pushes its fixes the reviewer reads the branch again, until it passes or the rounds are used up. It stays
-// once over, and the settings' MaxRounds no longer applies to the task: as with the settings' own rounds, a
-// passed or used-up review starts no more by itself, only your next «Зробити рев'ю» (a new cycle).
-type ReviewCycle struct {
-	From   int `json:"from"`
-	Rounds int `json:"rounds"`
+	// Sent: the remarks went to the agent, by your «Виправити».
+	Sent bool `json:"sent,omitempty"`
 }
 
 // Lesson is a rule for the repo's next agents, drawn from what you told one of them.

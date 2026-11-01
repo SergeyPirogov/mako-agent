@@ -46,7 +46,7 @@ type Config struct {
 	// Instructions, MRBy, SummaryComment) is the same for both.
 	Executor string
 	Terminal Terminal
-	// Reviewer: a second agent reads the task and the branch's diff before the MR reaches you.
+	// Reviewer: a second agent reads the task and the branch's diff when you ask for it on the board.
 	Reviewer Reviewer
 	// Estimate: a new task gets the agent's estimate (clarity, size, risk, advice) as it appears.
 	Estimate bool
@@ -54,15 +54,10 @@ type Config struct {
 	EstimateModel bool
 }
 
-// Reviewer is the agent that reviews another agent's branch with a clean context and writes it its remarks;
-// it changes no code. Only Mako's own agents get it: the remarks go into their chat.
+// Reviewer is the agent that reviews another agent's branch with a clean context and writes its remarks; it
+// changes no code. Only Mako's own agents get it: you hand the remarks to their chat from the board.
 type Reviewer struct {
-	Enabled   bool
-	MaxRounds int    // reviews of one task at most, 1 by default
-	Model     string // "" — the agents' model
-	// When: which tasks get it, by the risk of their assessment: "always", "medium" (medium and high risk) or
-	// "high" (high risk only). A task with no assessment gets it.
-	When string
+	Model string // "" — the agents' model
 }
 
 // Notifications' AutoTakeOnly.
@@ -70,13 +65,6 @@ const (
 	AutoTakeAll        = "all"
 	AutoTakeSmallClear = "smallClear"
 	AutoTakeSmall      = "small"
-)
-
-// Reviewer's When.
-const (
-	ReviewAlways = "always"
-	ReviewMedium = "medium"
-	ReviewHigh   = "high"
 )
 
 // Comments Mako leaves in the issue, written as the developer: {branch} {taskId} {title} {url} {mr} are filled
@@ -292,13 +280,8 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			AwayHours:    orInt(raw.Notifications.AwayHours, 4),
 			Off:          map[string]bool{},
 		},
-		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
-		Reviewer: Reviewer{
-			Enabled:   raw.AgentReview.Enabled,
-			MaxRounds: max(orInt(raw.AgentReview.MaxRounds, 1), 1),
-			Model:     strings.TrimSpace(raw.AgentReview.Model),
-			When:      reviewWhen(raw.AgentReview.When),
-		},
+		Orca:          Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
+		Reviewer:      Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model)},
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		Comments: Comments{
@@ -567,10 +550,7 @@ type rawConfig struct {
 		OnReview string `json:"onReview"`
 	} `json:"comments"`
 	AgentReview struct {
-		Enabled   bool   `json:"enabled"`
-		MaxRounds *int   `json:"maxRounds"`
-		Model     string `json:"model"`
-		When      string `json:"when"`
+		Model string `json:"model"`
 	} `json:"agentReview"`
 	Estimate struct {
 		Enabled  *bool `json:"enabled"`
@@ -587,15 +567,6 @@ func autoTakeOnly(s string) string {
 		return s
 	}
 	return AutoTakeAll
-}
-
-// reviewWhen: the reviewer's When, "always" for anything else.
-func reviewWhen(s string) string {
-	switch s = strings.TrimSpace(s); s {
-	case ReviewMedium, ReviewHigh:
-		return s
-	}
-	return ReviewAlways
 }
 
 // executorOrder: the default executor first, so a config with several Orcas uses the chosen one.

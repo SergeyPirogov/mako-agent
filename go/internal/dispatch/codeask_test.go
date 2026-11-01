@@ -33,16 +33,7 @@ func settle(t *testing.T, d *Dispatcher, id string) {
 	}, "the reviewer or the checks did not end")
 }
 
-// reviewNow is maybeReview from the test, after and with the one the agent's turn may have started: whichever
-// runs it, the round is over when it returns.
-func reviewNow(t *testing.T, d *Dispatcher, id string) {
-	t.Helper()
-	settle(t, d, id)
-	d.maybeReview(id)
-	settle(t, d, id)
-}
-
-// checkNow is reviewNow for the checks.
+// checkNow runs the checks before the MR, after and with the ones the agent's turn may have started.
 func checkNow(t *testing.T, d *Dispatcher, id string) {
 	t.Helper()
 	settle(t, d, id)

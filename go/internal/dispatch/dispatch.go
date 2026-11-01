@@ -873,9 +873,6 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		if d.startAssess(r.ID) == nil {
 			d.assess(ctx, r.ID)
 		}
-		if rec, _ := d.Store.Get(r.ID); d.reviewWanted(rec) {
-			go d.maybeReview(r.ID)
-		}
 		if !onTerminal(r) {
 			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
 		}
@@ -1089,7 +1086,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
 		rec.AutoFixed, rec.AutoFixes, rec.BaseConflict = nil, 0, nil
-		rec.AgentReviews, rec.ReviewCycle, rec.Assessment, rec.Retro = nil, nil, nil, nil
+		rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
 	})
 	d.Take(ctx, id)
 }
