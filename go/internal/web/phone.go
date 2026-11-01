@@ -41,6 +41,20 @@ func remote(r *http.Request) bool {
 	return ip == nil || !ip.IsLoopback()
 }
 
+// loopbackHost: Host names this Mac's loopback ("127.0.0.1:8080", "localhost", "[::1]:8080"), not a domain
+// that resolves there.
+func loopbackHost(h string) bool {
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	h = strings.Trim(h, "[]")
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
 // device: the paired phone a remote request comes from, nil when none.
 func (s *Server) device(r *http.Request) *phone.Device {
 	if s.Phones == nil {
@@ -68,6 +82,11 @@ func macOnly(p string) bool {
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !remote(r) {
+			// DNS rebinding: a page on the attacker's domain reaches 127.0.0.1 with its own name in Host.
+			if !loopbackHost(r.Host) {
+				http.Error(w, "unexpected Host", http.StatusForbidden)
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}

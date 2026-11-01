@@ -537,3 +537,20 @@ func TestAnswersBadBody(t *testing.T) {
 		t.Fatalf("reply %+v", reply)
 	}
 }
+
+// DNS rebinding: a request that reaches 127.0.0.1 under another site's name is refused, with Origin matching it.
+func TestForeignHostRefused(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	h := (&Server{D: d}).Handler()
+	for host, want := range map[string]int{"evil.example:8080": http.StatusForbidden, "127.0.0.1:8080": http.StatusOK, "localhost:8080": http.StatusOK, "[::1]:8080": http.StatusOK} {
+		req := httptest.NewRequest("GET", "/api/state", nil)
+		req.Host, req.RemoteAddr = host, "127.0.0.1:5555"
+		req.Header.Set("Origin", "http://"+host)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Errorf("Host %s: got %d, want %d", host, rec.Code, want)
+		}
+	}
+}
