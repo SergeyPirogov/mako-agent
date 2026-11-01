@@ -73,7 +73,7 @@
 <script src="/vendor/addon-web-links.js"></script>
 <script>
 const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
-const LABEL = { new: "нова", later: "відкладена", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
+const LABEL = { new: "нова", later: "відкладена", queued: "у черзі", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
@@ -153,6 +153,8 @@ const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
 // In Orca, the agent's own state says more than «в Orca».
 const state = (r) => {
   if (r.column === "new" && r.postponed) return "later";
+  // Taken but not started yet (the WIP limit or Claude's limit holds it): in «В роботі», but not working.
+  if (r.status === "queued") return "queued";
   const a = agentOf(r);
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
@@ -166,7 +168,6 @@ const cardStatus = (r) => {
   if (r.checks?.attention && r.status === "handed-off") return ["потребує уваги", "warn", `Перевірка перед MR не пройшла: ${checksLine(r.checks)}`];
   if (r.reviewState === "closed") return ["MR закрито", "err"];
   if (r.reviewState === "merged") return ["змерджено", ""];
-  if (r.status === "queued") return ["у черзі", ""];
   const st = state(r);
   if (st === "later") return ["відкладена", "", `Відкладена ${untilText(r.snoozedUntil)}`];
   // Left in «Нові» by auto-take: why, in the row («велика», «є питання до опису»).
