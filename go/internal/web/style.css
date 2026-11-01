@@ -407,8 +407,10 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .d-head .actions { margin: 0 0 2px; }
 .d-head .d-main:not(:has(h1)) { align-self: center; }
 section.ws .d-head { margin-bottom: 0; }
-.tabs { overflow-x: auto; scrollbar-width: thin; }
-.tab { white-space: nowrap; flex: none; }
+.ws-bar .tabs { flex-wrap: wrap; }
+.tab { white-space: nowrap; flex: none; max-width: 100%; }
+.tab .tn { display: inline-block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.ws-bar .tab:has(.tn) { display: inline-flex; align-items: center; }
 .tab .x { margin-left: 8px; opacity: .5; font-weight: 400; }
 .tab .x:hover { opacity: 1; }
 /* The terminal workspace fills the window: nothing scrolls but the terminal, the diff and the file list. */
@@ -666,8 +668,7 @@ details.journal .log { margin-top: 8px; }
   .ws-bar:not(:has(.seg, [data-ftab])) .tabs, section.ws:not([data-tab="orca"]) .ws-bar:not(:has([data-ftab])) .tabs { flex: 1 1 auto; }
   section.ws .task-pane h1 { white-space: normal; overflow-wrap: anywhere; }
   .ws-bar .actions { margin-left: auto; }
-  .tabs { gap: 0; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
+  .tabs { gap: 0; }
   .tab { padding: 10px 10px; min-height: 44px; }
   .tab-phone { display: inline-block; }
   .ws-bar .seg button { height: 32px; padding: 0 12px; }
