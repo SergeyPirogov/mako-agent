@@ -652,8 +652,10 @@ func (d *Dispatcher) CheckGates() {
 	}
 }
 
-// CheckHandoffs: a task in Orca is done on Mako's side once an MR from its branch exists. The issue moves to
-// review, gets a comment with the link, and a bare MR description is written from the branch's changes.
+// CheckHandoffs: a task in Orca is done on Mako's side once an MR from its branch exists and its CI has finished;
+// while CI runs the task stays in work. A bare MR description is written from the branch's changes. CI passed (or
+// none): the issue moves to review and gets a comment with the link; otherwise the card shows under «Заблоковані»
+// and CheckBlocked moves the issue once CI passes.
 func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 	for _, r := range d.Store.All() {
 		if r.Status != core.HandedOff {
@@ -695,21 +697,24 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		// Review only once CI has finished: while it runs the task stays in work.
 		var ci *trackers.ReviewCheck
 		if desk, ok := host.(trackers.ReviewDesk); ok && review.State == "open" {
-			if c, err := desk.CheckReview(ctx, review.URL); err == nil {
-				ci = c
+			c, err := desk.CheckReview(ctx, review.URL)
+			if err != nil {
+				d.Fault(r.ID, "CI не перевірено", err) // asked again next round, not taken for passed
+				continue
 			}
+			ci = c
 		}
 		if ci != nil && trackers.CIRunning(ci.CI) {
 			d.Log(r.ID, "є MR, чекаю на CI: "+review.URL)
 			continue
 		}
-		failed := ci != nil && ci.CI == "failed"
+		failed := ci != nil && !trackers.CIPassed(ci.CI)
 		d.Log(r.ID, "є MR: "+review.URL)
 		if err := d.describeIfBare(ctx, host, r, repo, review.URL); err != nil {
 			d.Fault(r.ID, "опис MR не написано", err)
 		}
 		if failed {
-			d.Log(r.ID, "CI не пройшов: у трекері на рев'ю — коли пройде")
+			d.Log(r.ID, "CI не пройшов ("+ci.CI+"): у трекері на рев'ю — коли пройде")
 		} else {
 			d.comment(ctx, t, r.Task, d.Config().Comments.OnReview, map[string]string{"branch": branch, "mr": review.URL})
 			d.move(ctx, t, r.Task, trackers.AtReview)
@@ -938,7 +943,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 	}
 	d.Store.Update(id, func(rec *core.Record) {
 		rec.Attempt = max(r.Attempt, 1) + 1
-		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
+		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone, rec.AwaitingCI = "", "", "", "", "", false
 		rec.AutoFixed, rec.AutoFixes, rec.BaseConflict = nil, 0, nil
 		rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
 	})

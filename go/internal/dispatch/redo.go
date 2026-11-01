@@ -56,6 +56,7 @@ func (d *Dispatcher) Redo(ctx context.Context, id, note, model string) error {
 			rec.PRURL, rec.ReviewState, rec.MergedAt, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", "", ""
 			rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
 			rec.Summary, rec.SessionID, rec.FinishedAt, rec.WorktreeKept = "", "", "", 0
+			rec.AwaitingCI = false
 		})
 		d.forgetReview(id)
 		d.mu.Lock()

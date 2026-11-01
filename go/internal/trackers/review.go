@@ -62,6 +62,11 @@ func CIRunning(ci string) bool {
 	return false
 }
 
+// CIPassed: the pipeline succeeded, or the MR has none; canceled, skipped or waiting for a manual job is not passed.
+func CIPassed(ci string) bool {
+	return ci == "success" || ci == ""
+}
+
 // holdForCI: no merge while CI is still running, even where the code host itself would allow it.
 func holdForCI(c *ReviewCheck) {
 	if c.Mergeable && CIRunning(c.CI) {

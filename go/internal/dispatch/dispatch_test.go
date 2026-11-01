@@ -33,6 +33,7 @@ type fakeGitLab struct {
 	statusSet []string
 	assigned  []any
 	base      string
+	failMR    bool // the MR itself answers 500, as a host down would
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +129,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"title": in["title"], "description": in["description"], "web_url": fmt.Sprintf("%s/grp/app/-/merge_requests/%d", f.base, iid)}
 			f.mrs = append(f.mrs, mr)
 			reply(mr)
+			return
+		}
+		if f.failMR && r.Method == "GET" {
+			w.WriteHeader(500)
+			reply(map[string]string{"message": "500 Internal Server Error"})
 			return
 		}
 		mr := f.mrs[0]
@@ -273,40 +279,73 @@ func TestTaskLifecycle(t *testing.T) {
 	}
 }
 
-// The issue goes to review only after CI: in work while it runs, «Заблоковані» on the board when it fails, and
-// the tracker's review status with the comment once it passes.
+// The issue goes to review only after CI: in work while it runs or cannot be checked, «Заблоковані» on the board
+// when it fails or is canceled, and the tracker's review status with the comment once it passes.
 func TestReviewWaitsForCI(t *testing.T) {
 	d, f, _ := setup(t)
+	inReview := "In review"
+	d.Config().Trackers[0].Transitions.OnSuccess = &inReview
 	ctx := context.Background()
 	d.Poll(ctx)
 	id := "grp/app#5"
 	d.Take(ctx, id)
 	d.Wait()
 	r, _ := d.Store.Get(id)
-	notes := len(f.notes)
+	notes, moves := len(f.notes), len(f.statusSet)
 	pipeline := map[string]any{"id": 1, "status": "running", "web_url": "ci"}
 	f.mu.Lock()
 	f.mrs = append(f.mrs, map[string]any{"iid": 9, "state": "opened", "web_url": f.base + "/grp/app/-/merge_requests/9", "source_branch": r.Branch,
 		"title": "Fix the payment button", "description": strings.Repeat("written by a person ", 10), "head_pipeline": pipeline})
+	f.failMR = true
 	f.mu.Unlock()
-
-	d.CheckHandoffs(ctx)
-	if r, _ = d.Store.Get(id); r.Status != core.HandedOff || r.Column(0) != "doing" || len(f.notes) != notes {
-		t.Fatalf("in review while CI runs: %+v, notes %v", r, f.notes)
+	untouched := func(stage string) {
+		t.Helper()
+		if len(f.notes) != notes || len(f.statusSet) != moves {
+			t.Fatalf("%s: in review in the tracker: notes %v, statuses %v", stage, f.notes, f.statusSet)
+		}
 	}
+
+	// The host does not answer: not taken for a passed CI.
+	d.CheckHandoffs(ctx)
+	if r, _ = d.Store.Get(id); r.Status != core.HandedOff || r.PRURL != "" {
+		t.Fatalf("in review with CI unknown: %+v", r)
+	}
+	untouched("CI unknown")
+
+	f.mu.Lock()
+	f.failMR = false
+	f.mu.Unlock()
+	d.CheckHandoffs(ctx)
+	if r, _ = d.Store.Get(id); r.Status != core.HandedOff || r.PRURL != "" || r.Column(0) != "doing" {
+		t.Fatalf("in review while CI runs: %+v", r)
+	}
+	untouched("CI running")
 
 	f.mu.Lock()
 	pipeline["status"] = "failed"
 	f.mu.Unlock()
 	d.CheckHandoffs(ctx)
 	r, _ = d.Store.Get(id)
-	if r.Status != core.Done || !r.AwaitingCI || d.Blocked(r) != "CI не пройшов" || len(f.notes) != notes {
-		t.Fatalf("failed CI: %+v, blocked %q, notes %v", r, d.Blocked(r), f.notes)
+	if r.Status != core.Done || !r.AwaitingCI || d.Blocked(r) != "CI не пройшов" {
+		t.Fatalf("failed CI: %+v, blocked %q", r, d.Blocked(r))
 	}
+	untouched("CI failed")
 	d.CheckBlocked(ctx)
-	if r, _ = d.Store.Get(id); !r.AwaitingCI || len(f.notes) != notes {
+	if r, _ = d.Store.Get(id); !r.AwaitingCI {
 		t.Fatalf("moved to review with a failed CI: %+v", r)
 	}
+	untouched("CI failed, next round")
+
+	// Canceled is not passed either.
+	f.mu.Lock()
+	pipeline["status"] = "canceled"
+	f.mu.Unlock()
+	d.forgetReview(id)
+	d.CheckBlocked(ctx)
+	if r, _ = d.Store.Get(id); !r.AwaitingCI || d.Blocked(r) != "CI не пройшов" {
+		t.Fatalf("canceled CI: %+v, blocked %q", r, d.Blocked(r))
+	}
+	untouched("CI canceled")
 
 	f.mu.Lock()
 	pipeline["status"] = "success"
@@ -315,7 +354,10 @@ func TestReviewWaitsForCI(t *testing.T) {
 	d.CheckBlocked(ctx)
 	r, _ = d.Store.Get(id)
 	if r.AwaitingCI || d.Blocked(r) != "" || len(f.notes) != notes+1 || !strings.Contains(f.notes[notes], "merge_requests/9") {
-		t.Fatalf("CI passed, not in review: %+v, notes %v", r, f.notes)
+		t.Fatalf("CI passed, no comment: %+v, notes %v", r, f.notes)
+	}
+	if len(f.statusSet) != moves+1 || f.statusSet[moves] != inReview {
+		t.Fatalf("CI passed, status not moved: %v", f.statusSet)
 	}
 }
 

@@ -26,7 +26,7 @@ func (d *Dispatcher) Blocked(r core.Record) string {
 		switch {
 		case l.check.Conflicts:
 			return "конфлікти в MR"
-		case l.check.CI == "failed":
+		case l.check.CI == "failed", r.AwaitingCI && !trackers.CIPassed(l.check.CI) && !trackers.CIRunning(l.check.CI):
 			return "CI не пройшов"
 		}
 	}
@@ -42,7 +42,7 @@ func (d *Dispatcher) CheckBlocked(ctx context.Context) {
 			continue
 		}
 		c, err := d.Review(ctx, r.ID)
-		if !r.AwaitingCI || err != nil || c == nil || c.State != "open" || c.CI == "failed" || trackers.CIRunning(c.CI) {
+		if !r.AwaitingCI || err != nil || c == nil || c.State != "open" || !trackers.CIPassed(c.CI) {
 			continue
 		}
 		t := d.tracker(r.Task.TrackerID)
