@@ -72,14 +72,15 @@
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
 <script>
-const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
+const COLUMNS = [["new", "Нові"], ["later", "Відкладені"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
 const LABEL = { new: "нова", later: "відкладена", queued: "у черзі", starting: "запускаю…", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ci": "чекає на CI", "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
-// The list's groups folded by a click on their heading (column → folded); «Готово» and «Не виконано» start folded.
-let folded = (() => { try { return { done: true, failed: true, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { done: true, failed: true }; } })();
+// The list's groups folded by a click on their heading (column → folded); «Відкладені», «Готово» and «Не виконано» start folded.
+const FOLDED_BY_DEFAULT = { later: true, done: true, failed: true };
+let folded = (() => { try { return { ...FOLDED_BY_DEFAULT, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { ...FOLDED_BY_DEFAULT }; } })();
 // The list's filter, shown once there are more tasks than fit at a glance.
 let query = "";
 const FILTER_FROM = 15;
@@ -151,6 +152,8 @@ const ICON = {
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
 const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "Баг" : "Задача"}</span>`;
+// The list group a task sits in: a held-up task under «Заблоковані», a postponed one under «Відкладені».
+const groupOf = (r) => (r.blocked ? "blocked" : state(r) === "later" ? "later" : r.column);
 const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
 // In Orca, the agent's own state says more than «в Orca».
 const state = (r) => {
@@ -436,7 +439,7 @@ function render() {
   const waiting = live.filter((r) => agentOf(r)?.state === "waiting").length;
   // New tasks go to Orca or to Mako's own terminal.
   const where = data.executor === "terminal" ? "В роботі" : "В Orca";
-  COLUMNS[1][1] = where;
+  COLUMNS.find(([c]) => c === "doing")[1] = where;
   LABEL.doing = where.toLowerCase();
   // On a phone the word goes: «2/5» fits next to the limits.
   $("wip").innerHTML = `<span class="w">${where} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> з </span><span class="sl">/</span>${data.wipLimit}` : "");
@@ -510,7 +513,7 @@ function render() {
     // «Нові»: the clear and small ones first, the not estimated last.
     const newRank = (r) => { const e = estimated(r); return e ? SIZE_RANK[e.size] * 5 + (5 - (e.clarity?.value || 0)) : 99; };
     // A held-up task keeps its column for its actions, but is listed under «Заблоковані».
-    const items = rows.filter((r) => (r.blocked ? "blocked" : r.column) === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed || newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
+    const items = rows.filter((r) => groupOf(r) === col).sort((a, b) => (col === "new" || col === "later" ? newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
     // Others' MRs where I am a reviewer: open ones in «Рев'ю для мене», finished ones in «Готово».
     const asks = col === "forme" || col === "done" ? reviewAsks(words).filter((q) => (q.state === "open") === (col === "forme")) : [];
     if (!items.length && !asks.length) continue;
