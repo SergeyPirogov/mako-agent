@@ -1006,16 +1006,16 @@ const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n 
 // One line of a card: a status icon, what it is (a link when it has one), and the button that fixes it.
 const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
   ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${esc(text)}">${esc(text)}</a>` : `<span title="${esc(text)}">${esc(text)}</span>`}${btn}</div>`;
-// ✨: the agent in the terminal does it; only while it runs.
-// The tracker's priority in words ("Highest", "P1", "urgent") as a tone: hot, mid or low.
+// The tracker's priority in words ("Highest", "P1", "urgent") as a tone: hot, high, mid (unknown) or low.
 function prioTone(p) {
   const s = String(p).toLowerCase();
   if (/block|crit|urgent|highest|^p0$|^p1$|^1$/.test(s)) return "hot";
   if (/high|^p2$|^2$/.test(s)) return "high";
-  if (/low|minor|trivial|lowest|^p3$|^p4$|^[3-5]$/.test(s)) return "low";
+  if (/low|trivial|^p3$|^p4$|^[3-5]$/.test(s)) return "low";
   return "mid";
 }
 const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}" title="Пріоритет: ${esc(t.priority)}">${esc(t.priority)}</span>` : "";
+// ✨: the agent in the terminal does it; only while it runs.
 const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
 const commits = (n) => `${n} ${plural(n, "коміт", "коміти", "комітів")}`;
 
@@ -1942,7 +1942,9 @@ function renderDetail() {
   const chips = [];
   if (r.trackerStatus) chips.push(chip(`<span class="dot"></span><span class="v">${esc(r.trackerStatus.text)}</span>`, r.trackerStatus.ok ? "st" : "st bad", r.trackerStatus.ok ? "Статус у трекері" : r.trackerStatus.text));
   if (t.priority) chips.push(chip(`<span class="k">Пріоритет</span><span class="prio ${prioTone(t.priority)}">${esc(t.priority)}</span>`, "", "Пріоритет у трекері"));
-  if (t.meta) chips.push(chip(esc(t.meta), "", "Трекер"));
+  // Jira's meta carries the priority too: the chip above shows it, so the meta drops it.
+  const meta = t.priority ? t.meta?.split(" | ").filter((p) => !p.startsWith("Priority:")).join(" | ") : t.meta;
+  if (meta) chips.push(chip(esc(meta), "", "Трекер"));
   if (t.assignees?.length) chips.push(chip(`<span class="k">Виконавці</span>${esc(t.assignees.join(", "))}`));
   if (r.repo) chips.push(chip(`<span class="k">Репо</span>${esc(r.repo)}`));
   if (r.agentModel && r.column !== "new") chips.push(chip(`<span class="k">Модель</span><code>${esc(r.agentModel)}</code>`, "", "Модель, якою працював агент"));
