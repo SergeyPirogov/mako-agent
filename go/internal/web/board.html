@@ -24,6 +24,7 @@
   <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
   <button class="icon-btn" id="awake"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/><path class="slash" d="M3 3l18 18"/></svg></button>
   <button class="icon-btn" id="restart" title="Перезапустити Mako, коли агенти закінчать хід" aria-label="Перезапустити Mako, коли агенти закінчать хід"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v7"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg></button>
+  <button class="icon-btn" id="code-btn" title="Запитати про код: агент відповість, читаючи клон проєкту" aria-label="Запитати про код"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></button>
   <button class="icon-btn" id="stats-btn" title="Статистика" aria-label="Статистика"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
   <a class="icon-btn" id="settings-link" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
@@ -1298,6 +1299,8 @@ function newTaskTargets() {
   return (data?.trackers || []).flatMap((t) => (t.projects || []).map((p) => ({ tracker: t.id, name: t.name, project: p })));
 }
 
+// «Зробити задачею» from a question about code: what the form starts with ({title, desc, tracker, project}).
+let taskDraft = null;
 const openNewTask = () => {
   selected = null; statsOpen = false; newOpen = "task"; digest = null;
   history.replaceState(null, "", location.pathname);
@@ -1310,7 +1313,8 @@ $("new-task").onclick = openNewTask;
 function showNewTask() {
   const targets = newTaskTargets(), several = new Set(targets.map((x) => x.tracker)).size > 1;
   // The project the list is filtered by comes first.
-  const first = Math.max(0, targets.findIndex((x) => x.project === project));
+  const draft = taskDraft; taskDraft = null;
+  const first = Math.max(0, draft ? targets.findIndex((x) => x.tracker === draft.tracker && x.project === draft.project) : targets.findIndex((x) => x.project === project));
   const options = targets.map((x, i) => `<option value="${i}" ${i === first ? "selected" : ""}>${esc(x.project)}${several ? ` · ${esc(x.name)} (${esc(x.tracker)})` : ""}</option>`).join("");
   $("detail").innerHTML = `<button class="ghost back" id="back">← Задачі</button>
     <form class="new-form nt-form" id="new-form">
@@ -1338,6 +1342,7 @@ function showNewTask() {
     </form>`;
   const close = () => { newOpen = false; render(); };
   $("back").onclick = $("nt-cancel").onclick = close;
+  if (draft) { $("nt-title").value = draft.title; $("nt-desc").value = draft.desc; }
   const target = () => targets[+$("nt-project").value];
   const fail = (msg) => { $("nt-error").textContent = msg; $("nt-error").hidden = !msg; };
   let uploading = 0;
@@ -1403,6 +1408,183 @@ function showWhy() {
     </div>`;
     if ($("why-open")) $("why-open").onclick = () => { newOpen = false; select(w.id); };
   };
+}
+
+// «Запитати про код»: a question about a project's code, without a task. A quick agent reads the project's clone
+// (Read, Grep, Glob only) and answers here; its file:line places open the file beside the chat. The project keeps
+// its questions, and one can become a new task's description.
+let code = null;
+$("code-btn").onclick = () => {
+  selected = null; statsOpen = false; newOpen = "code"; digest = null;
+  history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+  document.querySelector("#code-ask textarea")?.focus();
+};
+
+async function showCode() {
+  $("detail").innerHTML = `<button class="ghost back" id="back">← Задачі</button><div class="code-ask" id="code-ask">
+    <div class="ca-head"><h1>Запитати про код</h1>
+      <select id="ca-project" aria-label="Проєкт"></select><button type="button" id="ca-new">Нове питання</button></div>
+    <p class="muted ca-sub">Агент (${esc("haiku")}) читає клон проєкту лише через Read, Grep і Glob: нічого не змінює й не запускає, без гілок і worktree.</p>
+    <div class="ca-body">
+      <aside class="ca-history"><div class="ca-h">Історія питань</div><div id="ca-threads"></div></aside>
+      <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
+        <div class="chat-foot"><div class="chat-box"><textarea rows="2" aria-label="Питання про код" placeholder="Напр.: де в нас обробка оплат? як працює оновлення?"></textarea>
+          <button type="button" class="icon chat-stop" title="Перервати" aria-label="Перервати" hidden>${ICON.stop}</button>
+          <button type="button" class="chat-send" title="Надіслати (Enter)" aria-label="Надіслати">${ICON.push}</button></div>
+          <div class="chat-hint"><span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span><span class="spacer"></span>
+            <button type="button" class="ghost" id="ca-task" hidden title="Питання й відповідь стануть описом нової задачі">Зробити задачею</button></div></div></div>
+      <div class="ca-file" id="ca-file" hidden></div>
+    </div></div>`;
+  const projects = (await getJSON("/api/code/projects")).projects ?? [];
+  if (!$("code-ask")) return;
+  let saved = ""; try { saved = localStorage.getItem("mako-code-project") || ""; } catch {}
+  const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
+  code = { project: start?.key ?? "", projects, thread: "", version: -1, snap: null, flip: new Set(), code: true, list: document.querySelector("#code-ask .chat-list"), input: document.querySelector("#code-ask textarea") };
+  $("ca-project").innerHTML = projects.map((p) => `<option value="${esc(p.key)}" ${p.key === code.project ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+  $("back").onclick = () => { newOpen = false; code = null; render(); };
+  if (!projects.length) {
+    $("ca-project").disabled = $("ca-new").disabled = true; code.input.disabled = true;
+    code.list.innerHTML = `<div class="files-empty">На цьому Mac немає клонів проєктів. Клон з'являється, коли Mako бере задачу проєкту, або вкажіть шлях до нього в налаштуваннях.</div>`;
+    return;
+  }
+  $("ca-project").onchange = (e) => {
+    code.project = e.target.value;
+    try { localStorage.setItem("mako-code-project", code.project); } catch {}
+    openLatest();
+  };
+  $("ca-new").onclick = () => { openThread(""); code.input.focus(); };
+  const send = async () => {
+    const text = code.input.value.trim();
+    if (!text) return;
+    code.input.value = "";
+    const keys = document.querySelector("#code-ask .chat-keys");
+    const r = await fetch("/api/code/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: code.project, thread: code.thread, text }) })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    keys.classList.toggle("err", !r.ok);
+    keys.textContent = r.ok ? "Enter — надіслати · Shift+Enter — новий рядок" : `⚠ ${r.error}`;
+    if (!r.ok) { code.input.value ||= text; return; }
+    if (r.id !== code.thread) { code.thread = r.id; code.version = -1; }
+    else if (!code.snap?.live) code.version = -1; // resumed: a new session, read from the start
+    loadThreads(); pollCode();
+  };
+  code.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+  document.querySelector("#code-ask .chat-send").onclick = send;
+  document.querySelector("#code-ask .chat-stop").onclick = () => fetch(`/api/code/stop?id=${encodeURIComponent(code.thread)}`, { method: "POST" });
+  $("ca-task").onclick = toTask;
+  code.list.onclick = (e) => {
+    const src = e.target.closest("[data-src]");
+    if (src) { e.preventDefault(); openSource(src.dataset.src, +src.dataset.line, +(src.dataset.end || src.dataset.line)); return; }
+    const t = e.target.closest("[data-toggle]");
+    if (t) { if (!code.flip.delete(t.dataset.toggle)) code.flip.add(t.dataset.toggle); renderCode(); }
+  };
+  $("ca-threads").onclick = (e) => { const b = e.target.closest("[data-thread]"); if (b) openThread(b.dataset.thread); };
+  code.timer = setInterval(pollCode, 1000);
+  openLatest();
+}
+
+// The project's latest question, to go on with; «Нове питання» starts another.
+async function openLatest() {
+  const v = code;
+  await loadThreads();
+  if (v === code) openThread(v.threads?.[0]?.id ?? "");
+}
+
+function openThread(id) {
+  code.thread = id; code.version = -1; code.snap = null; code.flip = new Set();
+  $("ca-file").hidden = true;
+  renderCode(); loadThreads(); pollCode();
+}
+
+async function loadThreads() {
+  const v = code;
+  const r = await getJSON(`/api/code/threads?project=${encodeURIComponent(v.project)}`);
+  if (v !== code || !$("ca-threads")) return;
+  v.threads = r.threads ?? [];
+  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<button type="button" class="ca-thread ${t.id === v.thread ? "on" : ""}" data-thread="${esc(t.id)}" title="${esc(t.title)}">
+      <span>${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span></button>`).join("")
+    : `<div class="muted ca-none">Питань про цей проєкт ще не було.</div>`;
+}
+
+async function pollCode() {
+  const v = code;
+  if (!v) return;
+  if (!$("code-ask")) { clearInterval(v.timer); if (code === v) code = null; return; }
+  if (!v.thread) return;
+  const s = await getJSON(`/api/chat?id=${encodeURIComponent(v.thread)}&v=${v.version}`);
+  if (v !== code || s.same || s.error) return;
+  const ended = v.snap?.state === "working" && s.state !== "working";
+  v.snap = s; v.version = s.version;
+  renderCode();
+  if (ended) loadThreads();
+}
+
+function renderCode() {
+  const v = code, s = v.snap;
+  if (!v.list.isConnected) return;
+  const atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
+  const items = s?.items ?? [];
+  v.list.innerHTML = `<div class="chat-col">${chatBlocks(items, { id: v.thread, flip: v.flip, code: true }) ||
+      `<div class="files-empty">${v.thread ? "Завантажую розмову…" : "Напишіть питання про код проєкту: агент знайде відповідь і покаже місця в коді."}</div>`}
+    ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Шукаю в коді…</div>` : ""}</div>`;
+  linkSources(v.list);
+  if (atEnd || v.version <= 1) v.list.scrollTop = v.list.scrollHeight;
+  document.querySelector("#code-ask .chat-stop").hidden = s?.state !== "working";
+  $("ca-task").hidden = !items.some((it) => it.kind === "text");
+  for (const b of document.querySelectorAll("#ca-threads .ca-thread")) b.classList.toggle("on", b.dataset.thread === v.thread);
+}
+
+// file:line in the agent's answers (path:12 or path:12-20): links that open the file beside the chat.
+const SRC = /((?:[\w@.-]+\/)*[\w@-][\w@.-]*\.[A-Za-z0-9]+):(\d+)(?:[-–](\d+))?/g;
+function linkSources(root) {
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => n.parentElement.closest("a, .msg.me, .tool-card, .steps") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  const nodes = [];
+  for (let n; (n = walk.nextNode());) if (n.data.search(SRC) >= 0) nodes.push(n);
+  for (const n of nodes) {
+    const frag = document.createDocumentFragment();
+    let at = 0;
+    for (const m of n.data.matchAll(SRC)) {
+      frag.append(n.data.slice(at, m.index));
+      const a = document.createElement("a");
+      a.href = "#"; a.className = "src-link"; a.textContent = m[0];
+      a.dataset.src = m[1]; a.dataset.line = m[2]; if (m[3]) a.dataset.end = m[3];
+      a.title = "Відкрити файл";
+      frag.append(a);
+      at = m.index + m[0].length;
+    }
+    frag.append(n.data.slice(at));
+    n.replaceWith(frag);
+  }
+}
+
+async function openSource(path, line, end) {
+  const box = $("ca-file");
+  box.hidden = false;
+  box.innerHTML = `<div class="ca-file-h"><code title="${esc(path)}">${esc(path)}:${line}${end > line ? "-" + end : ""}</code><span class="spacer"></span>
+    <button type="button" class="icon" id="ca-file-close" title="Закрити" aria-label="Закрити">×</button></div><div class="ca-file-body"><div class="muted">Відкриваю…</div></div>`;
+  $("ca-file-close").onclick = () => { box.hidden = true; };
+  const r = await getJSON(`/api/code/file?project=${encodeURIComponent(code.project)}&path=${encodeURIComponent(path)}`);
+  const body = box.querySelector(".ca-file-body");
+  if (!body) return;
+  if (r.error || typeof r.text !== "string") { body.innerHTML = `<div class="notice">${esc(r.error || "Не вдалося відкрити файл")}</div>`; return; }
+  if (r.path) { const h = box.querySelector(".ca-file-h code"); h.textContent = `${r.path}:${line}${end > line ? "-" + end : ""}`; h.title = r.path; }
+  body.innerHTML = `<pre class="ca-src">${r.text.split("\n").map((l, i) => `<span class="ln${i + 1 >= line && i + 1 <= end ? " hit" : ""}"><i>${i + 1}</i>${esc(l)}</span>`).join("")}</pre>`;
+  body.querySelector(".hit")?.scrollIntoView({ block: "center" });
+}
+
+// «Зробити задачею»: the question and the answers become the description of a new task in this project.
+function toTask() {
+  const items = code.snap?.items ?? [], p = code.projects.find((x) => x.key === code.project);
+  const questions = items.filter((it) => it.kind === "user");
+  const title = (code.threads?.find((t) => t.id === code.thread)?.title || questions[0]?.text || "").split("\n")[0].slice(0, 250);
+  const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
+    .map((it) => it.kind === "user" ? `**Питання:** ${it.text}` : it.text).join("\n\n");
+  taskDraft = { title, desc: `${desc}\n\n_З «Запитати про код» на дошці Mako._`, tracker: p?.tracker, project: p?.project };
+  code = null;
+  newOpen = "task";
+  render();
 }
 
 // A pasted screenshot goes to the tracker; a placeholder stands in the text until its link comes back.
@@ -1573,7 +1755,8 @@ function renderDetail() {
   if (!r && newOpen) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     // The form keeps what is typed: the board re-renders every few seconds.
-    if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (!$("new-form")) showNewTask();
+    if (newOpen === "code") { $("detail").classList.add("ws"); if (!$("code-ask")) showCode(); }
+    else if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (!$("new-form")) showNewTask();
     return;
   }
   if (!r) {
@@ -2145,7 +2328,7 @@ function chatItem(it, i, v) {
   const open = (key, byDefault) => byDefault !== v.flip.has(key);
   switch (it.kind) {
     case "user":
-      if (i === 0 && it.text.length > 400) {
+      if (i === 0 && it.text.length > 400 && !v.code) {
         return `<div class="prompt-card"><button type="button" class="prompt-h" data-toggle="prompt">${ICON.doc}<span>Завдання від Mako: опис задачі, коментарі, як закінчити</span><span class="muted">${open("prompt", false) ? "Сховати" : "Показати"}</span></button>
           ${open("prompt", false) ? `<div class="prompt-body md">${md(it.text)}</div>` : ""}</div>`;
       }
@@ -2360,6 +2543,7 @@ const digestHash = () => { const h = decodeURIComponent(location.hash.slice(1));
 const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
+else if (location.hash === "#code") newOpen = "code";
 // On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
 else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
 // A link to a task (from a notification or the menu) opens it even when the board is already open.

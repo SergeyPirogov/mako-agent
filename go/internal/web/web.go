@@ -194,12 +194,17 @@ func (s *Server) Handler() http.Handler {
 	})
 	// The agent's conversation: everything when it changed since the board's version, else only the version.
 	mux.HandleFunc("GET /api/chat", func(w http.ResponseWriter, r *http.Request) {
-		c := s.D.Chats.Get(r.URL.Query().Get("id"))
-		if c == nil {
+		id := r.URL.Query().Get("id")
+		c := s.D.Chats.Get(id)
+		var snap chat.Snapshot
+		if c != nil {
+			snap = c.Snapshot()
+		} else if q, ok := s.D.QuestionChat(id); ok {
+			snap = q // a question asked before Mako restarted: its transcript
+		} else {
 			writeJSON(w, chat.Snapshot{State: "exited", Items: []chat.Item{}})
 			return
 		}
-		snap := c.Snapshot()
 		if strconv.Itoa(snap.Version) == r.URL.Query().Get("v") {
 			writeJSON(w, map[string]any{"version": snap.Version, "same": true})
 			return
@@ -282,6 +287,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	s.createRoutes(mux)
+	s.codeRoutes(mux)
 	// Mako's own errors: «На аналіз» opens an issue with them in Mako's repository, «Очистити» forgets them.
 	mux.HandleFunc("POST /api/faults/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
