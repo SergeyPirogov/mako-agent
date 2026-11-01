@@ -98,15 +98,14 @@ func modelFor(cfg *config.Config, r core.Record) string {
 	return ""
 }
 
-// DefaultModel: the model the task's agent gets when none is picked for it: the estimate's advice when the
-// settings take it, else "" (the configured one).
+// DefaultModel: the model the task's agent gets when none is picked for it, as StartModel names it.
 func (d *Dispatcher) DefaultModel(r core.Record) string {
 	r.Model = ""
-	return modelFor(d.Config(), r)
+	return StartModel(d.Config(), r)
 }
 
-// DefaultModel: the model of Mako's agent when nothing else names one.
-const DefaultModel = "sonnet"
+// FallbackModel: the model of Mako's agent when nothing else names one.
+const FallbackModel = "sonnet"
 
 // StartModel: the model the task's agent will start with, as the board shows it before the start: Mako's own agent
 // takes terminalModel; Orca's is asked only for one picked or advised, else it starts with its own ("").
@@ -126,7 +125,7 @@ func terminalModel(cfg *config.Config, r core.Record) string {
 	if cfg.Terminal.Model != "" {
 		return cfg.Terminal.Model
 	}
-	return DefaultModel
+	return FallbackModel
 }
 
 // Pick takes the estimate's advice for a task not started yet: model ("" the configured one) and «план спочатку».

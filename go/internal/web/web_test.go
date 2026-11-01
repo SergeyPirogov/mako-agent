@@ -130,37 +130,28 @@ func TestBoard(t *testing.T) {
 	}
 }
 
-// Before the start the board says which model the agent will start with: picked on the card, the estimate's, or Sonnet.
-func TestBoardStartModel(t *testing.T) {
+// Before the take the board names the model the agent gets when none is picked: the estimate's, else Sonnet.
+func TestBoardDefaultModel(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	plain := core.Task{ID: "grp/app#1", Title: "a"}
 	advised := core.Task{ID: "grp/app#2", Title: "b"}
 	store.Update(plain.ID, func(r *core.Record) { r.Status, r.Task = core.Snoozed, plain })
-	store.Update(advised.ID, func(r *core.Record) { r.Status, r.Task = core.Snoozed, advised })
-	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Executor: "terminal", EstimateModel: true}, store, nil)
 	store.Update(advised.ID, func(r *core.Record) {
+		r.Status, r.Task, r.Model = core.Snoozed, advised, "haiku" // picked on the card: the default stays
 		r.Estimate = &core.Estimate{State: "done", Size: "big", Model: "opus", For: dispatch.EstimateKey(advised)}
 	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Executor: "terminal", EstimateModel: true}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
 	defer srv.Close()
-	models := func() map[string]string {
-		res, _ := http.Get(srv.URL + "/api/state")
-		var st stateReply
-		json.NewDecoder(res.Body).Decode(&st)
-		m := map[string]string{}
-		for _, r := range st.Records {
-			m[r.ID] = r.StartModel
-		}
-		return m
+	res, _ := http.Get(srv.URL + "/api/state")
+	var st stateReply
+	json.NewDecoder(res.Body).Decode(&st)
+	m := map[string]string{}
+	for _, r := range st.Records {
+		m[r.ID] = r.DefaultModel
 	}
-	if m := models(); m[plain.ID] != "sonnet" || m[advised.ID] != "opus" {
-		t.Fatalf("start models %v", m)
-	}
-	if err := d.Pick(advised.ID, "haiku", false); err != nil {
-		t.Fatal(err)
-	}
-	if m := models(); m[advised.ID] != "haiku" {
-		t.Fatalf("picked on the card: %v", m)
+	if m[plain.ID] != "sonnet" || m[advised.ID] != "opus" {
+		t.Fatalf("default models %v", m)
 	}
 }
 

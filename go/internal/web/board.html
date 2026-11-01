@@ -1194,21 +1194,6 @@ function estimateHTML(r, card) {
   return card("Оцінка наперед", `<div class="tcard-b scores">${scoreRow("Опис задачі", "up", e.clarity)}${size}${scoreRow("Ризик", "down", e.risk)}</div>${questions}${rec}`, "assess", note);
 }
 
-// Who does a task not started yet: the model the agent will start with, picked on the card or advised by Opus's
-// estimate; with or without an estimate. A second click on the picked one goes back to the advice.
-function modelHTML(r, card) {
-  if (r.column !== "new") return "";
-  const picked = r.model || "", advisedModel = estimated(r)?.model || "";
-  const pick = (m) => `&model=${encodeURIComponent(m)}&plan=${r.planFirst ? 1 : 0}`;
-  const chips = ["haiku", "sonnet", "opus"].map((m) => {
-    const on = r.startModel === m;
-    const title = picked === m ? "Вибрано для задачі. Натисніть, щоб повернутись до моделі за замовчуванням" : on ? "Агент почне з цією моделлю" : `Агент почне з моделлю ${m}`;
-    return `<button type="button" class="tchip pick${on ? " on" : ""}" data-a="pick" data-x="${esc(pick(picked === m ? "" : m))}" title="${esc(title)}" aria-pressed="${on}">${on ? "✓ " : ""}<code>${m}</code>${advisedModel === m ? ` <span class="muted">радить Opus</span>` : ""}</button>`;
-  });
-  const own = r.startModel ? "" : `<span class="muted">агент Orca почне зі своєю моделлю</span>`;
-  return card("Модель", `<div class="tcard-b"><div class="tchips">${chips.join("")}${own}</div></div>`, "", picked ? "вибрано вручну" : advisedModel && r.startModel === advisedModel ? "за оцінкою" : "");
-}
-
 // The look back at a merged task: what went well, what did not, what to do differently next time.
 function retroHTML(r, card) {
   if (r.reviewState !== "merged") return "";
@@ -1311,9 +1296,11 @@ function laterAt(kind) {
 // names the model the agent will start with: picked for the task, else the estimate's when the settings take it.
 function takeButton(r) {
   const model = r.model || "", def = r.defaultModel || "", start = model || def;
-  const item = (m, label) => `<button type="button" data-a="take" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}</button>`;
-  const title = model ? `Агент почне з моделлю ${model}` : def ? `Агент почне з моделлю ${def}, яку радить оцінка` : "Агент почне з моделлю з налаштувань";
-  const byDefault = def ? `Типова: <code>${esc(def)}</code> з оцінки` : "Як у налаштуваннях";
+  // Opus's estimate advises a model by how complex the task is; without it the default is the configured one or Sonnet.
+  const advised = estimated(r)?.model || "", fromEstimate = def && def === advised;
+  const item = (m, label) => `<button type="button" data-a="take" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}${m && m === advised ? ` <span class="muted">радить Opus</span>` : ""}</button>`;
+  const title = model ? `Агент почне з моделлю ${model}` : fromEstimate ? `Агент почне з моделлю ${def}, яку радить оцінка` : def ? `Агент почне з моделлю ${def}` : "Агент почне з моделлю з налаштувань";
+  const byDefault = fromEstimate ? `Типова: <code>${esc(def)}</code> з оцінки` : def ? `Типова: <code>${esc(def)}</code>` : "Як у налаштуваннях";
   return `<span class="split"><button class="primary" data-a="take" data-x="" title="${esc(title)}">Взяти в роботу${start ? ` · <code>${esc(start)}</code>` : ""}</button>
     <details class="menu"><summary class="primary" title="Взяти в роботу з іншою моделлю" aria-label="Вибрати модель">${ICON.chevron}</summary>
     <div class="menu-pop"><div class="menu-h">Взяти в роботу з моделлю</div>${(data?.models ?? []).map((m) => item(m, `<code>${esc(m)}</code>`)).join("")}${item("", byDefault)}</div></details></span>`;
@@ -1929,7 +1916,6 @@ function renderDetail() {
   // The task itself first; what the agent does in Orca and Mako's log in their own tab.
   const task = `
     ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
-    ${modelHTML(r, card)}
     ${estimateHTML(r, card)}
     ${checksHTML(r, card)}
     ${assessmentHTML(r, card)}
