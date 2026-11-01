@@ -538,11 +538,14 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 		case "answers":
-			// «Надіслати в трекер»: the answers to the estimate's questions, one per question ("" for those left).
+			// «Надіслати в трекер»: the answers to the estimate's questions, each with its question.
 			var in struct {
-				Answers []string `json:"answers"`
+				Answers []dispatch.Answer `json:"answers"`
 			}
-			json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in)
+			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": "не вдалось прочитати відповіді: " + err.Error()})
+				return
+			}
 			if err := s.D.AnswerQuestions(ctx, id, in.Answers); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return

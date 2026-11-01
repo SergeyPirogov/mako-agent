@@ -58,7 +58,7 @@ func (d *Dispatcher) autoTake(ctx context.Context, id string) {
 	n := d.Config().Notifications
 	why := autoTakeGate(n.AutoTakeOnly, r.Estimate)
 	// An estimate of the task's earlier text says nothing of its present one.
-	if why == "" && n.AutoTakeOnly != config.AutoTakeAll && r.Estimate.For != EstimateKey(r.Task) {
+	if why == "" && n.AutoTakeOnly != config.AutoTakeAll && !estimateFits(r.Estimate, r.Task) {
 		why = "опис змінився після оцінки"
 	}
 	if !n.AutoTake || r.PostponedByYou {

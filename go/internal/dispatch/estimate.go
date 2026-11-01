@@ -19,14 +19,28 @@ import (
 // «Оцінити ще раз». A failure leaves the task without an estimate, quietly.
 
 // EstimateKey: what the estimate of a task was made for; a changed title, description or comments (answers to
-// its questions among them) make another. A task without comments keeps the key it had before comments counted.
+// its questions among them) make another. Comments count by their words (core.Plain), as a tracker may give
+// back the Markdown of one Mako wrote otherwise. "2:" tells it from a key made before comments counted.
 func EstimateKey(t core.Task) string {
 	text := t.Title + "\n" + t.Description
 	for _, c := range t.Comments {
-		text += "\n\x00" + strings.TrimSpace(c.Body)
+		text += "\n\x00" + core.Plain(c.Body)
 	}
+	return "2:" + key(text)
+}
+
+// textKey: a key as made before comments counted, of the title and description only.
+func textKey(t core.Task) string { return key(t.Title + "\n" + t.Description) }
+
+func key(text string) string {
 	h := sha1.Sum([]byte(text))
 	return hex.EncodeToString(h[:6])
+}
+
+// estimateFits: the estimate was made for the task as it is. One made before comments counted still fits while
+// the title and description stay: an update does not send every commented task in «Нові» to Opus again.
+func estimateFits(e *core.Estimate, t core.Task) bool {
+	return e != nil && (e.For == EstimateKey(t) || !strings.HasPrefix(e.For, "2:") && e.For == textKey(t))
 }
 
 // isNew: the task waits for «Взяти в роботу».
@@ -41,7 +55,7 @@ func (d *Dispatcher) maybeEstimate(id string) {
 	if !ok || !isNew(r) {
 		return
 	}
-	if e := r.Estimate; e != nil && (e.For == EstimateKey(r.Task) || (e.State == "running" && !stale(e.At))) {
+	if e := r.Estimate; e != nil && (estimateFits(e, r.Task) || (e.State == "running" && !stale(e.At))) {
 		return
 	}
 	if d.startEstimate(id) == nil {

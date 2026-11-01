@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -41,14 +42,18 @@ func SplitQuestions(md string) []string {
 	return out
 }
 
-// AnswersComment: the comment with the questions that have an answer, "" when none has.
-func AnswersComment(questions, answers []string) string {
+// Answer: one question of the estimate as the card showed it, and what was written under it.
+type Answer struct {
+	Q string `json:"q"`
+	A string `json:"a"`
+}
+
+// AnswersComment: the comment with the questions that have an answer (by the question's text), in the order of
+// the questions; "" when none has.
+func AnswersComment(questions []string, answers map[string]string) string {
 	var lines []string
-	for i, q := range questions {
-		if i >= len(answers) {
-			break
-		}
-		if a := strings.TrimSpace(answers[i]); a != "" {
+	for _, q := range questions {
+		if a := strings.TrimSpace(answers[q]); a != "" {
 			lines = append(lines, strconv.Itoa(len(lines)+1)+". "+q+" — "+a)
 		}
 	}
@@ -58,9 +63,10 @@ func AnswersComment(questions, answers []string) string {
 	return "**Відповіді на питання до задачі:**\n\n" + strings.Join(lines, "\n")
 }
 
-// AnswerQuestions: «Надіслати в трекер». The answers (one per question, "" for those left) go to the issue as one
-// comment, the task keeps it among its comments for the agent, and the estimate starts again.
-func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []string) error {
+// AnswerQuestions: «Надіслати в трекер». The answers go to the issue as one comment, the task keeps it among its
+// comments for the agent, and the estimate starts again. Each answer names its question: one written for a
+// question the estimate no longer asks (estimated again meanwhile) is not sent under another.
+func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []Answer) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
 		return errors.New("немає такої задачі")
@@ -71,7 +77,18 @@ func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []s
 	if r.Estimate == nil || strings.TrimSpace(r.Estimate.Questions) == "" {
 		return errors.New("в оцінці немає питань")
 	}
-	text := AnswersComment(SplitQuestions(r.Estimate.Questions), answers)
+	qs := SplitQuestions(r.Estimate.Questions)
+	byQ := map[string]string{}
+	for _, a := range answers {
+		if strings.TrimSpace(a.A) == "" {
+			continue
+		}
+		if !slices.Contains(qs, strings.TrimSpace(a.Q)) {
+			return errors.New("питання оцінки змінились: перегляньте відповіді й надішліть ще раз")
+		}
+		byQ[strings.TrimSpace(a.Q)] = a.A
+	}
+	text := AnswersComment(qs, byQ)
 	if text == "" {
 		return errors.New("немає відповідей")
 	}
@@ -97,17 +114,26 @@ func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []s
 }
 
 // refresh reads the task from the tracker again before its start, so the agent sees the latest comments (the
-// answers among them); when the tracker fails or no longer lists it, the stored task stays.
+// answers among them); when the tracker fails or no longer lists it, the stored task stays and the journal says so.
 func (d *Dispatcher) refresh(ctx context.Context, t trackers.Tracker, id string) (core.Task, bool) {
 	tasks, err := t.FetchMine(ctx)
 	if err != nil {
+		d.Log(id, "не вдалось перечитати задачу з трекера перед стартом, беру збережену: "+err.Error())
 		return core.Task{}, false
 	}
 	for _, task := range tasks {
 		if task.ID == id {
-			d.Store.Update(id, func(r *core.Record) { r.Task = task })
-			return task, true
+			var fresh core.Task
+			d.Store.Update(id, func(r *core.Record) {
+				r.Task = withComments(task, r.Task)
+				fresh = r.Task
+			})
+			if task.CommentsUnread {
+				d.Log(id, "трекер не віддав коментарі задачі, агент отримає збережені")
+			}
+			return fresh, true
 		}
 	}
+	d.Log(id, "задачі вже немає в пошуку трекера, агент отримає її збережений текст")
 	return core.Task{}, false
 }

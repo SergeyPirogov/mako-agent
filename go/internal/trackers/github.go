@@ -133,6 +133,8 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 				for _, c := range cs {
 					t.Comments = append(t.Comments, core.Comment{Author: c.User.Login, Body: c.Body})
 				}
+			} else {
+				t.CommentsUnread = true
 			}
 		}
 		tasks = append(tasks, t)

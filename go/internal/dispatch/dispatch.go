@@ -343,6 +343,15 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 	}
 }
 
+// withComments: the task as the tracker gives it now, with the comments Mako had when the tracker failed to give
+// them this time: a missed read does not change what the estimate is for, nor hide the answers from the agent.
+func withComments(fresh, had core.Task) core.Task {
+	if fresh.CommentsUnread {
+		fresh.Comments = had.Comments
+	}
+	return fresh
+}
+
 func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Task) {
 	r, known := d.Store.Get(task.ID)
 	switch {
@@ -359,11 +368,11 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 	case r.Status == core.Cancelled && r.Gone != "":
 		d.Log(task.ID, "знову відкрита в трекері")
 		d.Store.Update(task.ID, func(r *core.Record) {
-			r.Task, r.Status, r.SnoozedUntil, r.PostponedByYou, r.Gone, r.Error, r.ArchivedAt = task, core.Snoozed, 0, false, "", "", 0
+			r.Task, r.Status, r.SnoozedUntil, r.PostponedByYou, r.Gone, r.Error, r.ArchivedAt = withComments(task, r.Task), core.Snoozed, 0, false, "", "", 0
 		})
 		d.maybeEstimate(task.ID)
 	case r.Status == core.Asking || r.Status == core.Snoozed:
-		d.Store.Update(task.ID, func(r *core.Record) { r.Task = task })
+		d.Store.Update(task.ID, func(r *core.Record) { r.Task = withComments(task, r.Task) })
 		d.maybeEstimate(task.ID)
 		// Left in «Нові» by auto-take: its estimate may fit by now.
 		if r.AutoSkip != "" {

@@ -1263,6 +1263,7 @@ function estimateHTML(r, card) {
 // The estimate's questions, each with a field for its answer; «Надіслати в трекер» posts the filled ones as one
 // comment and the task is estimated again. The fields are empty in the HTML: the drafts (kept per task, so they
 // outlive switching tasks) are put in after the render, and the 5 s reload does not take the field you type in.
+// A draft is kept by its question's text: a new estimate with other questions does not put it under another one.
 const splitQuestions = (text) => {
   const qs = [];
   for (const line of (text || "").split("\n")) {
@@ -1278,7 +1279,7 @@ let answerDrafts = (() => { try { return JSON.parse(localStorage.getItem("mako-a
 const saveAnswers = () => { try { localStorage.setItem("mako-answers", JSON.stringify(answerDrafts)); } catch {} };
 const answersErr = {}, answersBusy = {};
 function questionsHTML(r, e) {
-  const items = splitQuestions(e.questions).map((q, i) => `<li class="qa-item"><div class="qa-q">${md(q)}</div><textarea class="qa" data-qa="${i}" rows="2" placeholder="Відповідь (можна лишити порожньою)" aria-label="Відповідь на питання ${i + 1}"></textarea></li>`).join("");
+  const items = splitQuestions(e.questions).map((q, i) => `<li class="qa-item"><div class="qa-q">${md(q)}</div><textarea class="qa" data-qa="${i}" data-q="${esc(q)}" rows="2" placeholder="Відповідь (можна лишити порожньою)" aria-label="Відповідь на питання ${i + 1}"></textarea></li>`).join("");
   const err = answersErr[r.id] ? `<div class="mr-err">${esc(answersErr[r.id])}</div>` : "";
   return `<div class="sec warn"><h4><span class="ic">?</span>Що уточнити в трекері</h4><ol class="qa-list">${items}</ol>${err}
     <div class="qa-bar"><button type="button" class="ghost" data-answers ${answersBusy[r.id] ? "disabled" : ""} title="Mako напише в задачу один коментар з відповідями й оцінить її ще раз">${answersBusy[r.id] ? "Надсилаю…" : "Надіслати в трекер"}</button></div></div>`;
@@ -1286,12 +1287,18 @@ function questionsHTML(r, e) {
 function bindAnswers(r, focused) {
   const fields = [...$("detail").querySelectorAll("textarea[data-qa]")];
   if (!fields.length) return;
-  const draft = answerDrafts[r.id] || [];
+  const had = answerDrafts[r.id] && !Array.isArray(answerDrafts[r.id]) ? answerDrafts[r.id] : {};
+  // Only the drafts of the questions asked now stay.
+  const draft = Object.fromEntries(fields.filter((f) => had[f.dataset.q]).map((f) => [f.dataset.q, had[f.dataset.q]]));
+  if (Object.keys(draft).length !== Object.keys(had).length) {
+    if (Object.keys(draft).length) answerDrafts[r.id] = draft; else delete answerDrafts[r.id];
+    saveAnswers();
+  }
   for (const f of fields) {
-    f.value = draft[+f.dataset.qa] || "";
+    f.value = draft[f.dataset.q] || "";
     f.oninput = () => {
-      const d = answerDrafts[r.id] || [];
-      d[+f.dataset.qa] = f.value;
+      const d = answerDrafts[r.id] && !Array.isArray(answerDrafts[r.id]) ? answerDrafts[r.id] : {};
+      if (f.value.trim()) d[f.dataset.q] = f.value; else delete d[f.dataset.q];
       answerDrafts[r.id] = d;
       saveAnswers();
     };
@@ -1302,8 +1309,8 @@ function bindAnswers(r, focused) {
   }
   const btn = $("detail").querySelector("[data-answers]");
   if (btn) btn.onclick = async () => {
-    const answers = fields.map((f) => f.value);
-    if (!answers.some((a) => a.trim())) { answersErr[r.id] = "Напишіть відповідь хоча б на одне питання"; shown = ""; renderDetail(); return; }
+    const answers = fields.map((f) => ({ q: f.dataset.q, a: f.value }));
+    if (!answers.some((x) => x.a.trim())) { answersErr[r.id] = "Напишіть відповідь хоча б на одне питання"; shown = ""; renderDetail(); return; }
     answersBusy[r.id] = true; delete answersErr[r.id]; shown = ""; renderDetail();
     const res = await fetch(`/api/answers?id=${encodeURIComponent(r.id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers }) })
       .then((x) => x.json()).catch((x) => ({ ok: false, error: x.message }));

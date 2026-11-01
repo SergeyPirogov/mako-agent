@@ -32,6 +32,7 @@ type fakeGitLab struct {
 	notes     []string
 	notesOf   map[int][]string // the notes of each issue, read back with the issue
 	failNotes bool             // the tracker refuses new notes
+	notesDown bool             // the tracker fails to give the notes
 	statusSet []string
 	assigned  []any
 	base      string
@@ -95,6 +96,9 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch {
+		case strings.HasSuffix(rest, "/notes") && r.Method == "GET" && f.notesDown:
+			w.WriteHeader(502)
+			reply(map[string]string{"message": "502 Bad Gateway"})
 		case strings.HasSuffix(rest, "/notes") && r.Method == "GET":
 			list := []any{}
 			for _, b := range f.notesOf[iid] {

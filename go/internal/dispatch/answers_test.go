@@ -2,8 +2,6 @@ package dispatch
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"reflect"
 	"strings"
 	"testing"
@@ -28,12 +26,12 @@ func TestSplitQuestions(t *testing.T) {
 
 func TestAnswersCommentOnlyFilled(t *testing.T) {
 	qs := []string{"Яка кнопка?", "Де?", "Який браузер?"}
-	got := AnswersComment(qs, []string{"«Оплатити»", "  ", "Safari"})
+	got := AnswersComment(qs, map[string]string{"Який браузер?": "Safari", "Яка кнопка?": "«Оплатити»", "Де?": "  "})
 	want := "**Відповіді на питання до задачі:**\n\n1. Яка кнопка? — «Оплатити»\n2. Який браузер? — Safari"
 	if got != want {
 		t.Fatalf("comment:\n%s", got)
 	}
-	if AnswersComment(qs, []string{"", " "}) != "" || AnswersComment(qs, nil) != "" {
+	if AnswersComment(qs, map[string]string{"Де?": " "}) != "" || AnswersComment(qs, nil) != "" {
 		t.Fatal("a comment without answers")
 	}
 }
@@ -54,7 +52,7 @@ func TestAnswerQuestionsCommentsAndEstimatesAgain(t *testing.T) {
 	ctx := context.Background()
 	before := EstimateKey(newWithQuestions(t, d).Task)
 
-	if err := d.AnswerQuestions(ctx, "grp/app#5", []string{"", "Safari 17"}); err != nil {
+	if err := d.AnswerQuestions(ctx, "grp/app#5", []Answer{{Q: "Яка саме кнопка?"}, {Q: "Який браузер?", A: "Safari 17"}}); err != nil {
 		t.Fatal(err)
 	}
 	d.WaitEstimates()
@@ -84,7 +82,18 @@ func TestAnswerQuestionsCommentsAndEstimatesAgain(t *testing.T) {
 		t.Fatalf("estimated again after the poll: %d calls", len(calls()))
 	}
 
-	// The task is read from the tracker before its start: the agent gets what changed meanwhile.
+	// The tracker fails to give the comments once: Mako keeps its own, the key stays, no estimate again.
+	f.mu.Lock()
+	f.notesDown = true
+	f.mu.Unlock()
+	d.Poll(ctx)
+	d.WaitEstimates()
+	if r, _ := d.Store.Get("grp/app#5"); len(r.Task.Comments) != 1 || len(calls()) != 1 {
+		t.Fatalf("after a failed read of the comments: %+v, %d calls", r.Task.Comments, len(calls()))
+	}
+
+	// The task is read from the tracker before its start: the agent gets what changed meanwhile, and the
+	// answers even when the comments fail to come again.
 	f.mu.Lock()
 	f.issues[5]["description"] = "Падає на кліку, у Safari теж"
 	f.mu.Unlock()
@@ -101,7 +110,7 @@ func TestAnswerQuestionsTrackerError(t *testing.T) {
 	newWithQuestions(t, d)
 	f.failNotes = true
 
-	err := d.AnswerQuestions(context.Background(), "grp/app#5", []string{"«Оплатити»"})
+	err := d.AnswerQuestions(context.Background(), "grp/app#5", []Answer{{Q: "Яка саме кнопка?", A: "«Оплатити»"}})
 	d.WaitEstimates()
 	if err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("error: %v", err)
@@ -109,21 +118,43 @@ func TestAnswerQuestionsTrackerError(t *testing.T) {
 	if r, _ := d.Store.Get("grp/app#5"); len(r.Task.Comments) != 0 || r.Estimate.State != "done" || len(calls()) != 0 {
 		t.Fatalf("after a failed comment: %+v, %d calls", r, len(calls()))
 	}
-	if err := d.AnswerQuestions(context.Background(), "grp/app#5", []string{" "}); err == nil {
+	if err := d.AnswerQuestions(context.Background(), "grp/app#5", []Answer{{Q: "Яка саме кнопка?", A: " "}}); err == nil {
 		t.Fatal("sent without answers")
+	}
+}
+
+// An answer written for a question the estimate no longer asks is not sent under another one.
+func TestAnswerQuestionsChangedMeanwhile(t *testing.T) {
+	d, f, _ := setup(t)
+	newWithQuestions(t, d)
+	err := d.AnswerQuestions(context.Background(), "grp/app#5", []Answer{{Q: "Яка саме кнопка?", A: "«Оплатити»"}, {Q: "Старе питання?", A: "так"}})
+	if err == nil || !strings.Contains(err.Error(), "змінились") || len(f.notes) != 0 {
+		t.Fatalf("error %v, notes %q", err, f.notes)
 	}
 }
 
 func TestEstimateKeyCountsComments(t *testing.T) {
 	task := core.Task{Title: "Кнопка", Description: "Падає"}
-	// Without comments the key is the one of before: the estimates made then still fit.
-	old := sha1.Sum([]byte("Кнопка\nПадає"))
-	if EstimateKey(task) != hex.EncodeToString(old[:6]) {
-		t.Fatal("a task without comments got another key")
-	}
 	with := task
-	with.Comments = []core.Comment{{Author: "serg", Body: "Safari"}}
+	with.Comments = []core.Comment{{Author: "serg", Body: "**Відповіді:**\n\n1. Де? — тут"}}
 	if EstimateKey(with) == EstimateKey(task) {
 		t.Fatal("a comment did not change the key")
+	}
+	// What the tracker gives back may differ in its Markdown and spacing, not in its words.
+	back := task
+	back.Comments = []core.Comment{{Author: "Serg", Body: "Відповіді:\n1. Де? —  тут\n"}}
+	if EstimateKey(back) != EstimateKey(with) {
+		t.Fatal("the same words gave another key")
+	}
+	// An estimate made for the new key no longer fits once a comment comes.
+	if estimateFits(&core.Estimate{For: EstimateKey(task)}, with) {
+		t.Fatal("an estimate without the comment still fits")
+	}
+	// One made before comments counted still fits until the title or description changes.
+	old := &core.Estimate{For: textKey(task)}
+	changed := with
+	changed.Description = "Падає двічі"
+	if !estimateFits(old, with) || estimateFits(old, changed) {
+		t.Fatal("an estimate of before the update")
 	}
 }

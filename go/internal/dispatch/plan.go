@@ -83,7 +83,7 @@ func (d *Dispatcher) RevisePlan(id, requestID, notes string) error {
 
 // estimateFresh: e is a finished estimate of the task's current text.
 func estimateFresh(e *core.Estimate, task core.Task) bool {
-	return e != nil && e.State == "done" && e.Size != "" && e.For == EstimateKey(task)
+	return e != nil && e.State == "done" && e.Size != "" && estimateFits(e, task)
 }
 
 // modelFor: the model of the task's agent: picked for the task (on the card or with «Повторити інакше»), else

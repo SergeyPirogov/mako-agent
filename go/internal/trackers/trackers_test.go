@@ -171,3 +171,14 @@ func TestFetchMinePages(t *testing.T) {
 		t.Errorf("pages %v", pages)
 	}
 }
+
+// The answers Mako writes in a Jira issue come back through ADF with the same words: the estimate's key, which
+// counts comments by their words, stays the same.
+func TestJiraCommentRoundTripKeepsWords(t *testing.T) {
+	text := "**Відповіді на питання до задачі:**\n\n1. Яка кнопка? — «Оплатити»\n2. Який браузер? — Safari 17"
+	raw, _ := json.Marshal(textToADF(text))
+	back := adfToText(raw)
+	if core.Plain(back) != core.Plain(text) || core.Plain(text) == "" {
+		t.Fatalf("back from ADF: %q\nwords %q\nwant  %q", back, core.Plain(back), core.Plain(text))
+	}
+}
