@@ -1,13 +1,12 @@
 package i18n
 
-// dict: every text by key, {English, Ukrainian}. Go's texts take fmt verbs (%s, %d); the web pages' take {name}.
+// dict: the Go texts by key, {English, Ukrainian}; they take fmt verbs (%s, %d). The web pages' words are
+// webStrings, English only; they take {name}.
 var dict = map[string][2]string{}
 
 func init() {
-	for _, part := range []map[string][2]string{goStrings, webStrings} {
-		for k, v := range part {
-			dict[k] = v
-		}
+	for k, v := range goStrings {
+		dict[k] = v
 	}
 }
 

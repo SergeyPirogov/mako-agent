@@ -38,7 +38,7 @@ func logged(d *Dispatcher, id string) []string {
 	return out
 }
 
-// While Mako prepares the start the task is «запускаю» with its steps, not «у черзі»; the journal has «взято в
+// While Mako prepares the start the task is “starting” with its steps, not “in the queue”; the journal has «взято в
 // роботу» and the steps' times.
 func TestStartingSteps(t *testing.T) {
 	d, _, _ := setup(t)
@@ -69,13 +69,13 @@ func TestStartingSteps(t *testing.T) {
 	if taken < 0 || tracker < taken {
 		t.Fatalf("«взято в роботу» not before the start's steps:\n%s", lines)
 	}
-	if strings.Contains(lines, "у черзі") ||
+	if strings.Contains(lines, "in the queue") ||
 		!strings.Contains(lines, "оновлюю задачу в трекері · ") || !strings.Contains(lines, "Orca створює worktree і запускає агента · ") {
 		t.Fatalf("journal:\n%s", lines)
 	}
 }
 
-// «у черзі» only when something holds the task: the WIP limit here, said in the journal and by QueueReason.
+// “in the queue” only when something holds the task: the WIP limit here, said in the journal and by QueueReason.
 func TestQueuedOnlyOverWip(t *testing.T) {
 	d, f, _ := setup(t)
 	ctx := context.Background()
@@ -91,14 +91,14 @@ func TestQueuedOnlyOverWip(t *testing.T) {
 	if d.Starting("grp/app#12") != nil {
 		t.Fatal("a task over the WIP limit is shown as starting")
 	}
-	if why := d.QueueReason(); why != "WIP-ліміт: 2 з 2 в роботі" {
+	if why := d.QueueReason(); why != "WIP limit: 2 of 2 in work" {
 		t.Fatalf("reason %q", why)
 	}
-	if lines := strings.Join(logged(d, "grp/app#12"), "\n"); !strings.Contains(lines, "у черзі: WIP-ліміт: 2 з 2 в роботі") {
+	if lines := strings.Join(logged(d, "grp/app#12"), "\n"); !strings.Contains(lines, "in the queue: WIP limit: 2 of 2 in work") {
 		t.Fatalf("journal:\n%s", lines)
 	}
-	if lines := strings.Join(logged(d, "grp/app#10"), "\n"); strings.Contains(lines, "у черзі") {
-		t.Fatalf("started at once, yet «у черзі»:\n%s", lines)
+	if lines := strings.Join(logged(d, "grp/app#10"), "\n"); strings.Contains(lines, "in the queue") {
+		t.Fatalf("started at once, yet “in the queue”:\n%s", lines)
 	}
 }
 

@@ -133,7 +133,7 @@ func (d *Dispatcher) SkipReview(id string) error {
 }
 
 // SkippedByYou: the reason of a round «Пропустити» left.
-const SkippedByYou = "пропущено вами"
+const SkippedByYou = "skipped by you"
 
 // review runs the reviewer's round over head, which ReviewNow has marked as running; its remarks stay in the
 // task until you hand them to the agent.

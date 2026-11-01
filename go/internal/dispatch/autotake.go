@@ -23,27 +23,27 @@ func autoTakeGate(only string, e *core.Estimate) string {
 	}
 	switch {
 	case e == nil:
-		return "ще не оцінена"
+		return "not estimated yet"
 	case e.State == "running":
-		return "ще оцінюється"
+		return "still being estimated"
 	case e.State != "done":
-		return "оцінка не вдалась"
+		return "the estimate failed"
 	}
 	var why []string
 	switch e.Size {
 	case "small":
 	case "medium":
-		why = append(why, "середня")
+		why = append(why, "medium")
 	case "big":
-		why = append(why, "велика")
+		why = append(why, "large")
 	default:
-		why = append(why, "розмір невідомий")
+		why = append(why, "size unknown")
 	}
 	if only == config.AutoTakeSmallClear {
 		if strings.TrimSpace(e.Questions) != "" {
-			why = append(why, "є питання до опису")
+			why = append(why, "the description has questions")
 		} else if e.Clarity.Value < clearEnough {
-			why = append(why, "опис неясний")
+			why = append(why, "the description is unclear")
 		}
 	}
 	return strings.Join(why, ", ")
@@ -59,7 +59,7 @@ func (d *Dispatcher) autoTake(ctx context.Context, id string) {
 	why := autoTakeGate(n.AutoTakeOnly, r.Estimate)
 	// An estimate of the task's earlier text says nothing of its present one.
 	if why == "" && n.AutoTakeOnly != config.AutoTakeAll && !estimateFits(r.Estimate, r.Task) {
-		why = "опис змінився після оцінки"
+		why = "the description changed after the estimate"
 	}
 	if !n.AutoTake || r.PostponedByYou {
 		why = ""

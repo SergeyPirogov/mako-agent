@@ -349,7 +349,7 @@ func TestReviewWaitsForCI(t *testing.T) {
 	f.mu.Unlock()
 	d.CheckHandoffs(ctx)
 	r, _ = d.Store.Get(id)
-	if r.Status != core.Done || !r.AwaitingCI || d.Blocked(r) != "CI не пройшов" || len(f.notes) != notes {
+	if r.Status != core.Done || !r.AwaitingCI || d.Blocked(r) != "CI failed" || len(f.notes) != notes {
 		t.Fatalf("failed CI: %+v, blocked %q, notes %v", r, d.Blocked(r), f.notes)
 	}
 	d.CheckBlocked(ctx)

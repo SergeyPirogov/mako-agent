@@ -11,7 +11,7 @@ import (
 
 // LimitHold: a Claude usage limit is used past the threshold of the settings, so the queue waits for it to reset.
 type LimitHold struct {
-	Window   string `json:"window"` // "5 год" or "тиждень"
+	Window   string `json:"window"` // "5 h" or "week"
 	Used     int    `json:"used"`   // percent
 	Pct      int    `json:"pct"`    // the threshold
 	ResetsAt int64  `json:"resetsAt"`
@@ -27,7 +27,7 @@ func limitHold(l chat.Limits, pct int, now time.Time) *LimitHold {
 	for _, w := range []struct {
 		name string
 		w    *chat.Window
-	}{{"5 год", l.FiveHour}, {"тиждень", l.Week}} {
+	}{{"5 h", l.FiveHour}, {"week", l.Week}} {
 		if w.w == nil || w.w.ResetsAt <= now.Unix() || w.w.Used*100 < float64(pct) {
 			continue
 		}
@@ -68,7 +68,7 @@ func (d *Dispatcher) checkLimits(now time.Time) *LimitHold {
 		d.Log("mako", text)
 		notify.Inform(notify.Limits, i18n.T("notify.limitTitle"), text, d.BoardURL)
 	case hold == nil && was:
-		d.Log("mako", "ліміт Claude оновився, черга продовжується")
+		d.Log("mako", "the Claude limit has reset, the queue goes on")
 		notify.Inform(notify.Limits, i18n.T("notify.limitResetTitle"), i18n.T("notify.limitResetText"), d.BoardURL)
 	}
 	return hold

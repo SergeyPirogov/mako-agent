@@ -30,7 +30,7 @@ type settingsReply struct {
 	JiraBase string          `json:"jiraBaseUrl"`
 	Home     string          `json:"home"`
 	Problems []string        `json:"problems"`
-	AutoWip  int             `json:"autoWip"` // the WIP limit «автоматично» gives on this Mac
+	AutoWip  int             `json:"autoWip"` // the WIP limit “automatically” gives on this Mac
 }
 
 type settingsSave struct {
@@ -256,7 +256,7 @@ func pauseIn(raw map[string]json.RawMessage, id string, on bool) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("трекера %q немає в налаштуваннях", id)
+		return fmt.Errorf("tracker %q is not in the settings", id)
 	}
 	raw["trackers"], err = json.Marshal(ts)
 	return err
@@ -287,7 +287,7 @@ func (s *Server) check(ctx context.Context, rawTracker json.RawMessage, env map[
 		return "", err
 	}
 	if len(cfg.Trackers) != 1 {
-		return "", errors.New("немає трекера")
+		return "", errors.New("no tracker")
 	}
 	tr, err := trackers.New(cfg.Trackers[0], cfg)
 	if err != nil {
@@ -311,7 +311,7 @@ func assigneeProblems(ctx context.Context, ts []trackers.Tracker) []string {
 			continue
 		}
 		if found, err := uf.UserExists(ctx, login); err == nil && !found {
-			out = append(out, fmt.Sprintf("%s: користувача «%s» немає — виправте «Лише призначені на», інакше нових задач звідти не буде", t.Name(), login))
+			out = append(out, fmt.Sprintf("%s: the user «%s» does not exist — fix “Only assigned to”, or no new tasks will come from there", t.Name(), login))
 		}
 	}
 	return out

@@ -1,17 +1,18 @@
-// Shared by the board and the settings: the words in Mako's language and the theme button in the header.
+// Shared by the board and the settings: the words (English only) and the theme button in the header.
 
-// I18N: the pages' words in Mako's language (GET /api/i18n); t picks one, {name} filled from vars.
-let I18N = {}, LANG = "en";
+// I18N: the pages' words (GET /api/i18n); t picks one, {name} filled from vars.
+let I18N = {};
+// LANG: the locale of dates and times.
+const LANG = "en";
 function t(key, vars = {}) {
   return String(I18N[key] ?? key).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 }
-// loadI18n fetches the words (of lang, else Mako's language) and puts them into the static page: data-t is an
+// loadI18n fetches the words and puts them into the static page: data-t is an
 // element's HTML, data-t-title its title, data-t-ph its placeholder.
-async function loadI18n(lang) {
+async function loadI18n() {
   try {
-    const r = await (await fetch("/api/i18n" + (lang ? "?lang=" + encodeURIComponent(lang) : ""), { cache: "no-store" })).json();
+    const r = await (await fetch("/api/i18n", { cache: "no-store" })).json();
     I18N = r.strings ?? {};
-    LANG = r.lang ?? "en";
   } catch {}
   document.documentElement.lang = LANG;
   for (const el of document.querySelectorAll("[data-t]")) el.innerHTML = t(el.dataset.t);
