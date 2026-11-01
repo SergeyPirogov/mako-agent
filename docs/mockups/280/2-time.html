@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stats: time</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+</style>
+
+<div style="width:1040px;height:1080px;box-sizing:border-box;padding:20px 28px 24px;display:flex;flex-direction:column;gap:18px;overflow:hidden;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa">
+
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1 style="margin:0;font-size:22px;font-weight:650;flex:1">Stats</h1>
+    <div style="display:flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px">
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)">7 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">30 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">90 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">All time</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6f7277">Project
+      <select style="font:inherit;font-size:13px;height:34px;padding:0 10px;border:1px solid #e7e7e4;border-radius:8px;background:#fff;color:#1c1d1f"><option>All projects</option></select>
+    </label>
+  </div>
+
+  <div style="display:flex;gap:24px;border-bottom:1px solid #e7e7e4;margin-top:-6px">
+    <a href="1-overview.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Overview</a>
+    <a href="2-time.html" style="font-size:14px;padding:8px 2px;color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde">Time</a>
+    <a href="3-cost.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Cost</a>
+    <a href="4-quality.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Quality</a>
+    <a href="5-context.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Context</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Lead time</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">9 min</div>
+      <div style="font-size:12.5px;color:#6f7277">median, hand-off → merge</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Agent to MR</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">4 min</div>
+      <div style="font-size:12.5px;color:#6f7277">median · average 22 min</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">MR to merge</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">22 min</div>
+      <div style="font-size:12.5px;color:#6f7277">average</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Rework</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">3</div>
+      <div style="font-size:12.5px;color:#6f7277">retries · 0.05 CI fixes per merge</div>
+    </div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:baseline;gap:8px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">Where a merged task's time goes</h2><span style="font-size:12.5px;color:#6f7277">average of 125 tasks</span></div>
+    <div style="display:flex;gap:2px;height:14px">
+      <i style="width:22%;background:#2f6fde;border-radius:4px 0 0 4px"></i>
+      <i style="width:41%;background:#c27c0e"></i>
+      <i style="width:3%;background:#7b61d9"></i>
+      <i style="width:34%;background:#9a9da2;border-radius:0 4px 4px 0"></i>
+    </div>
+    <table style="border-collapse:collapse;width:100%;font-size:13px">
+      <tbody>
+        <tr><td style="padding:8px 0;border-top:1px solid #f0f0ee;width:200px"><span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#2f6fde"></i>Agent working</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee;width:120px"><b style="font-weight:600">1 min 16 s</b> <span style="color:#6f7277">22%</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee;color:#6f7277">estimate, plan, work and the agent review before the MR</td></tr>
+        <tr><td style="padding:8px 0;border-top:1px solid #f0f0ee"><span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#c27c0e"></i>Waiting for you</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee"><b style="font-weight:600">2 min 23 s</b> <span style="color:#6f7277">41%</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee;color:#6f7277">a question, a permission, the plan to approve, the agent's turn is over</td></tr>
+        <tr><td style="padding:8px 0;border-top:1px solid #f0f0ee"><span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#7b61d9"></i>Waiting for CI</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee"><b style="font-weight:600">12 s</b> <span style="color:#6f7277">3%</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee;color:#6f7277">the MR's checks are running</td></tr>
+        <tr><td style="padding:8px 0;border-top:1px solid #f0f0ee"><span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#9a9da2"></i>Waiting for review</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee"><b style="font-weight:600">1 min 57 s</b> <span style="color:#6f7277">34%</span></td><td style="padding:8px 0;border-top:1px solid #f0f0ee;color:#6f7277">the MR is green and waits for review and the merge</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:0;overflow:hidden">
+    <div style="display:flex;align-items:baseline;gap:8px;padding:14px 18px 10px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">By task size</h2><span style="font-size:12.5px;color:#6f7277">the size from the agent's estimate · 37 estimated tasks</span></div>
+    <table style="border-collapse:collapse;width:100%;font-size:13px">
+      <thead><tr style="color:#6f7277;font-size:12px;text-align:left">
+        <th style="font-weight:600;padding:8px 18px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4">Size</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Tasks</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;width:300px">Median time</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">First pass</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Per task</th>
+        <th style="font-weight:600;padding:8px 18px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Tokens</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Small</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">8</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;display:flex"><i style="width:8%;height:10px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:60px;text-align:right">2.5 min</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">5 of 8</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">$0.29</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">1.1M</td></tr>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Medium</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">19</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;display:flex"><i style="width:26%;height:10px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:60px;text-align:right">8.3 min</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">9 of 19</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">$1.24</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">3.6M</td></tr>
+        <tr><td style="padding:10px 18px">Big</td><td style="padding:10px;text-align:right">10</td>
+          <td style="padding:10px"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;display:flex"><i style="width:100%;height:10px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:60px;text-align:right">32 min</span></span></td>
+          <td style="padding:10px;text-align:right;color:#b03030;font-weight:600">0 of 9</td><td style="padding:10px;text-align:right">$8.16</td><td style="padding:10px 18px;text-align:right">15.7M</td></tr>
+      </tbody>
+    </table>
+    <div style="padding:10px 18px;font-size:12.5px;color:#6f7277;border-top:1px solid #e7e7e4">No big task went through without rework: worth splitting them before the hand-off.</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Retries</div>
+      <div style="font-size:20px;font-weight:650">3 <span style="font-size:13px;font-weight:400;color:#6f7277">· 2% of tasks</span></div>
+      <div style="font-size:12.5px;color:#6f7277">taken more than once</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">CI fix rounds</div>
+      <div style="font-size:20px;font-weight:650">0.05 <span style="font-size:13px;font-weight:400;color:#6f7277">· per merged task</span></div>
+      <div style="font-size:12.5px;color:#6f7277">«Fix» after a red CI</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Review fix rounds</div>
+      <div style="font-size:20px;font-weight:650">0 <span style="font-size:13px;font-weight:400;color:#6f7277">· per merged task</span></div>
+      <div style="font-size:12.5px;color:#6f7277">human MR comments sent to the agent</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

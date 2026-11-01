@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stats on a phone</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+</style>
+
+<div style="width:390px;height:844px;box-sizing:border-box;padding:0 16px 16px;display:flex;flex-direction:column;gap:14px;overflow:hidden;font:15px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa">
+  <div style="display:flex;align-items:center;gap:10px;height:52px;border-bottom:1px solid #e7e7e4;margin:0 -16px;padding:0 16px">
+    <a href="#" style="font-size:15px">← Tasks</a>
+    <span style="flex:1;text-align:center;font-weight:650">Stats</span>
+    <select aria-label="Period" style="font:inherit;font-size:14px;height:36px;padding:0 8px;border:1px solid #e7e7e4;border-radius:8px;background:#fff;color:#1c1d1f"><option>7 days</option></select>
+  </div>
+
+  <div style="display:flex;gap:18px;overflow:hidden;margin:-6px -16px 0;padding:0 16px;border-bottom:1px solid #e7e7e4;white-space:nowrap">
+    <a href="#" style="font-size:14px;padding:10px 0;color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde">Overview</a>
+    <a href="#" style="font-size:14px;padding:10px 0;color:#6f7277">Time</a>
+    <a href="#" style="font-size:14px;padding:10px 0;color:#6f7277">Cost</a>
+    <a href="#" style="font-size:14px;padding:10px 0;color:#6f7277">Quality</a>
+    <a href="#" style="font-size:14px;padding:10px 0;color:#6f7277">Context</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px"><div style="font-size:12.5px;color:#6f7277">Merged</div><div style="font-size:24px;font-weight:650;line-height:1.25">125</div><div style="font-size:12px;color:#6f7277">93% of 135</div></div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px"><div style="font-size:12.5px;color:#6f7277">First pass</div><div style="font-size:24px;font-weight:650;line-height:1.25">71%</div><div style="font-size:12px;color:#6f7277">95 of 133</div></div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px"><div style="font-size:12.5px;color:#6f7277">Lead time</div><div style="font-size:24px;font-weight:650;line-height:1.25">9 min</div><div style="font-size:12px;color:#6f7277">median</div></div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px"><div style="font-size:12.5px;color:#6f7277">Spent</div><div style="font-size:24px;font-weight:650;line-height:1.25">$216</div><div style="font-size:12px;color:#6f7277">$2.02 per task</div></div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px 4px">
+    <div style="font-size:15px;font-weight:650;padding-bottom:4px">Needs attention</div>
+    <a href="#" style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #f0f0ee;color:#1c1d1f;font-size:14px;min-height:24px"><b style="min-width:26px;color:#8a5a08">25</b><span style="flex:1">review rounds wait for «Fix»</span><span style="color:#2f6fde">→</span></a>
+    <a href="#" style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #f0f0ee;color:#1c1d1f;font-size:14px;min-height:24px"><b style="min-width:26px;color:#b03030">8</b><span style="flex:1">tasks failed · 5 cancelled</span><span style="color:#2f6fde">→</span></a>
+    <a href="#" style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #f0f0ee;color:#1c1d1f;font-size:14px;min-height:24px"><b style="min-width:26px">8</b><span style="flex:1">tasks the agent hardly understood</span><span style="color:#2f6fde">→</span></a>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:baseline"><span style="font-size:15px;font-weight:650;flex:1">Tasks per day</span><span style="font-size:12px;color:#6f7277">most: 90</span></div>
+    <div style="display:flex;gap:6px;height:96px;align-items:flex-end;border-bottom:1px solid #e7e7e4">
+      <div style="flex:1"></div><div style="flex:1"></div><div style="flex:1"></div><div style="flex:1"></div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end"><i style="display:block;height:2px;background:#d14343;border-radius:3px 3px 0 0"></i></div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:2px"><i style="display:block;height:5px;background:#d14343;border-radius:3px 3px 0 0"></i><i style="display:block;height:89px;background:#2f9e5b"></i></div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:2px"><i style="display:block;height:2px;background:#d14343;border-radius:3px 3px 0 0"></i><i style="display:block;height:44px;background:#2f9e5b"></i></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:#6f7277"><span>Oct 26</span><span>Nov 1</span></div>
+    <div style="display:flex;gap:12px;font-size:12px;color:#6f7277">
+      <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:3px;background:#2f9e5b"></i>Merged</span>
+      <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:3px;background:#c9cbcf"></i>Open</span>
+      <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:3px;background:#d14343"></i>Failed</span>
+    </div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+    <span style="font-size:15px;font-weight:650">Where the time goes</span>
+    <div style="display:flex;gap:2px;height:10px"><i style="width:22%;background:#2f6fde;border-radius:4px 0 0 4px"></i><i style="width:41%;background:#c27c0e"></i><i style="width:3%;background:#7b61d9"></i><i style="width:34%;background:#9a9da2;border-radius:0 4px 4px 0"></i></div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;font-size:12.5px;color:#6f7277">
+      <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:3px;background:#2f6fde"></i>Agent 22%</span>
+      <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:3px;background:#c27c0e"></i>You 41%</span>
+      <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:3px;background:#7b61d9"></i>CI 3%</span>
+      <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:9px;height:9px;border-radius:3px;background:#9a9da2"></i>Review 34%</span>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

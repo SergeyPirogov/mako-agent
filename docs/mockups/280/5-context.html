@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stats: context</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+</style>
+
+<div style="width:1040px;height:1080px;box-sizing:border-box;padding:20px 28px 24px;display:flex;flex-direction:column;gap:18px;overflow:hidden;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa">
+
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1 style="margin:0;font-size:22px;font-weight:650;flex:1">Stats</h1>
+    <div style="display:flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px">
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)">7 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">30 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">90 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">All time</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6f7277">Project
+      <select style="font:inherit;font-size:13px;height:34px;padding:0 10px;border:1px solid #e7e7e4;border-radius:8px;background:#fff;color:#1c1d1f"><option>All projects</option></select>
+    </label>
+  </div>
+
+  <div style="display:flex;gap:24px;border-bottom:1px solid #e7e7e4;margin-top:-6px">
+    <a href="1-overview.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Overview</a>
+    <a href="2-time.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Time</a>
+    <a href="3-cost.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Cost</a>
+    <a href="4-quality.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Quality</a>
+    <a href="5-context.html" style="font-size:14px;padding:8px 2px;color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde">Context</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Start of the work</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">30k</div>
+      <div style="font-size:12.5px;color:#6f7277">median · task prompt ≈ 1.2k</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Peak</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">77k</div>
+      <div style="font-size:12.5px;color:#6f7277">median, 33% of the window · max 313k</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">From the cache</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">97%</div>
+      <div style="font-size:12.5px;color:#6f7277">of everything the model read</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Compactions</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">1</div>
+      <div style="font-size:12.5px;color:#6f7277">in 1 of 135 work runs</div>
+    </div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:0;overflow:hidden">
+    <div style="display:flex;align-items:baseline;gap:8px;padding:14px 18px 10px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">By phase</h2><span style="font-size:12.5px;color:#6f7277">bar: start → peak, of a 200k window</span></div>
+    <table style="border-collapse:collapse;width:100%;font-size:13px">
+      <thead><tr style="color:#6f7277;font-size:12px;text-align:left">
+        <th style="font-weight:600;padding:8px 18px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4">Phase</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Runs</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;width:320px">Context</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Max</th>
+        <th style="font-weight:600;padding:8px 18px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Cache</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Work</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">135</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:10px;border-radius:4px;background:#f0f0ee;display:flex"><i style="width:15%;background:#9ab8f2;border-radius:4px 0 0 4px"></i><i style="width:23.5%;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:76px;text-align:right">30k → 77k</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">313k</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">97%</td></tr>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Plan</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">20</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:10px;border-radius:4px;background:#f0f0ee;display:flex"><i style="width:16%;background:#9ab8f2;border-radius:4px 0 0 4px"></i><i style="width:20.5%;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:76px;text-align:right">32k → 73k</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">114k</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">92%</td></tr>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Agent review</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">4</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:10px;border-radius:4px;background:#f0f0ee;display:flex"><i style="width:28.5%;background:#9ab8f2;border-radius:4px 0 0 4px"></i><i style="width:10%;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:76px;text-align:right">57k → 77k</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">83k</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">88%</td></tr>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Retro</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">8</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:10px;border-radius:4px;background:#f0f0ee;display:flex"><i style="width:22%;background:#9ab8f2;border-radius:4px"></i></span><span style="width:76px;text-align:right">44k</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">59k</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right;color:#8a5a08;font-weight:600">29%</td></tr>
+        <tr><td style="padding:10px 18px">Estimate</td><td style="padding:10px;text-align:right">3</td>
+          <td style="padding:10px"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;height:10px;border-radius:4px;background:#f0f0ee;display:flex"><i style="width:20.5%;background:#9ab8f2;border-radius:4px"></i></span><span style="width:76px;text-align:right">41k</span></span></td>
+          <td style="padding:10px;text-align:right">41k</td><td style="padding:10px 18px;text-align:right;color:#8a5a08;font-weight:600">29%</td></tr>
+      </tbody>
+    </table>
+    <div style="display:flex;gap:16px;padding:10px 18px;font-size:12.5px;color:#6f7277;border-top:1px solid #e7e7e4">
+      <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:10px;height:10px;border-radius:3px;background:#9ab8f2"></i>Start: system prompt, tools, MCP, CLAUDE.md, memory, task</span>
+      <span style="display:inline-flex;align-items:center;gap:6px"><i style="width:10px;height:10px;border-radius:3px;background:#2f6fde"></i>Grew during the run</span>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;align-items:stretch">
+    <div style="flex:1;min-width:0;background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:8px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">What fills the work context</h2><span style="font-size:12.5px;color:#6f7277">≈ 8.0M added</span></div>
+      <div style="display:flex;gap:2px;height:14px">
+        <i style="width:63%;background:#2f6fde;border-radius:4px 0 0 4px"></i>
+        <i style="width:29%;background:#7b61d9"></i>
+        <i style="width:4%;background:#c27c0e"></i>
+        <i style="width:4%;background:#9a9da2;border-radius:0 4px 4px 0"></i>
+      </div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 60px 40px;gap:8px 12px;font-size:13px">
+        <span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#2f6fde"></i>Bash output</span><b style="font-weight:600;text-align:right">5.0M</b><span style="color:#6f7277;text-align:right">63%</span>
+        <span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#7b61d9"></i>Agent's own replies</span><b style="font-weight:600;text-align:right">2.3M</b><span style="color:#6f7277;text-align:right">29%</span>
+        <span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#c27c0e"></i>Read</span><b style="font-weight:600;text-align:right">342k</b><span style="color:#6f7277;text-align:right">4%</span>
+        <span style="display:inline-flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:3px;background:#9a9da2"></i>Other: messages, plan, Edit, Skill…</span><b style="font-weight:600;text-align:right">297k</b><span style="color:#6f7277;text-align:right">4%</span>
+      </div>
+    </div>
+
+    <div style="width:430px;flex:none;background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px 6px;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:8px;padding-bottom:8px">
+        <h2 style="margin:0;font-size:15px;font-weight:650;flex:1">Heaviest</h2>
+        <div style="display:flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px">
+          <button style="font:inherit;font-size:12.5px;height:26px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#6f7277">Files</button>
+          <button style="font:inherit;font-size:12.5px;height:26px;padding:0 10px;border:0;border-radius:7px;background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)">Commands</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 40px 50px;gap:12px;padding:8px 0;border-top:1px solid #f0f0ee;font-size:12.5px;align-items:center"><code style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">python3 - &lt;&lt;'EOF'</code><span style="color:#6f7277;text-align:right">397×</span><b style="font-weight:600;text-align:right">130k</b></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 40px 50px;gap:12px;padding:8px 0;border-top:1px solid #f0f0ee;font-size:12.5px;align-items:center"><code style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">ls; cat CLAUDE.md | head; git ls-files …</code><span style="color:#6f7277;text-align:right">6×</span><b style="font-weight:600;text-align:right">76k</b></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 40px 50px;gap:12px;padding:8px 0;border-top:1px solid #f0f0ee;font-size:12.5px;align-items:center"><code style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cat internal/dispatch/dispatch.go</code><span style="color:#6f7277;text-align:right">2×</span><b style="font-weight:600;text-align:right">26k</b></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 40px 50px;gap:12px;padding:8px 0;border-top:1px solid #f0f0ee;font-size:12.5px;align-items:center"><code style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cat internal/chat/chat.go</code><span style="color:#6f7277;text-align:right">2×</span><b style="font-weight:600;text-align:right">21k</b></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 40px 50px;gap:12px;padding:8px 0;border-top:1px solid #f0f0ee;font-size:12.5px;align-items:center"><code style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">cat chat_test.go</code><span style="color:#6f7277;text-align:right">1×</span><b style="font-weight:600;text-align:right">18k</b></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

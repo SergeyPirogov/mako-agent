@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stats: cost</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+</style>
+
+<div style="width:1040px;height:1080px;box-sizing:border-box;padding:20px 28px 24px;display:flex;flex-direction:column;gap:18px;overflow:hidden;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa">
+
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1 style="margin:0;font-size:22px;font-weight:650;flex:1">Stats</h1>
+    <div style="display:flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px">
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)">7 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">30 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">90 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">All time</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6f7277">Project
+      <select style="font:inherit;font-size:13px;height:34px;padding:0 10px;border:1px solid #e7e7e4;border-radius:8px;background:#fff;color:#1c1d1f"><option>All projects</option></select>
+    </label>
+  </div>
+
+  <div style="display:flex;gap:24px;border-bottom:1px solid #e7e7e4;margin-top:-6px">
+    <a href="1-overview.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Overview</a>
+    <a href="2-time.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Time</a>
+    <a href="3-cost.html" style="font-size:14px;padding:8px 2px;color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde">Cost</a>
+    <a href="4-quality.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Quality</a>
+    <a href="5-context.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Context</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px">
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Spent</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">$215.99</div>
+      <div style="font-size:12.5px;color:#6f7277">107 tasks with a price</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Per task</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">$2.02</div>
+      <div style="font-size:12.5px;color:#6f7277">average</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Tokens</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">109M</div>
+      <div style="font-size:12.5px;color:#6f7277">read and written, cache included</div>
+    </div>
+    <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:12.5px;color:#6f7277">Around the work</div>
+      <div style="font-size:28px;font-weight:650;line-height:1.2">$20.34</div>
+      <div style="font-size:12.5px;color:#6f7277">estimate, agent review, retro</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;align-items:stretch">
+    <div style="flex:1;min-width:0;background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:4px">
+      <div style="display:flex;align-items:baseline;gap:8px;padding-bottom:8px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">By phase</h2><span style="font-size:12.5px;color:#6f7277">$91.31 recorded by phase</span></div>
+      <div style="display:grid;grid-template-columns:110px minmax(0,1fr) 70px 60px;gap:10px;align-items:center;font-size:13px;padding:6px 0">
+        <span>Work</span><span style="display:flex"><i style="width:100%;height:12px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">$66.27</b><span style="color:#6f7277;text-align:right">89.7M</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px minmax(0,1fr) 70px 60px;gap:10px;align-items:center;font-size:13px;padding:6px 0">
+        <span>Agent review</span><span style="display:flex"><i style="width:16%;height:12px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">$10.80</b><span style="color:#6f7277;text-align:right">8.9M</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px minmax(0,1fr) 70px 60px;gap:10px;align-items:center;font-size:13px;padding:6px 0">
+        <span>Estimate</span><span style="display:flex"><i style="width:14%;height:12px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">$9.29</b><span style="color:#6f7277;text-align:right">1.6M</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px minmax(0,1fr) 70px 60px;gap:10px;align-items:center;font-size:13px;padding:6px 0">
+        <span>Plan</span><span style="display:flex"><i style="width:7%;height:12px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">$4.71</b><span style="color:#6f7277;text-align:right">6.7M</span>
+      </div>
+      <div style="display:grid;grid-template-columns:110px minmax(0,1fr) 70px 60px;gap:10px;align-items:center;font-size:13px;padding:6px 0">
+        <span>Retro</span><span style="display:flex"><i style="width:2px;height:12px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">$0.25</b><span style="color:#6f7277;text-align:right">1.7M</span>
+      </div>
+      <div style="font-size:12.5px;color:#6f7277;padding-top:6px">Phases are recorded since metrics came in (#232); older tasks count only in the total.</div>
+    </div>
+
+    <div style="width:330px;flex:none;background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">Per day</h2><span style="font-size:12.5px;color:#6f7277">most: $109</span></div>
+      <div style="display:flex;gap:8px;height:150px;align-items:flex-end;border-bottom:1px solid #e7e7e4">
+        <div style="flex:1"></div><div style="flex:1"></div><div style="flex:1"></div><div style="flex:1"></div><div style="flex:1"></div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px"><span style="font-size:11px;color:#6f7277">$107</span><i style="display:block;width:100%;height:120px;background:#2f6fde;border-radius:4px 4px 0 0"></i></div>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px"><span style="font-size:11px;color:#6f7277">$109</span><i style="display:block;width:100%;height:122px;background:#2f6fde;border-radius:4px 4px 0 0"></i></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#6f7277"><span>Oct 26</span><span>Nov 1</span></div>
+    </div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 18px">
+      <h2 style="margin:0;font-size:15px;font-weight:650;flex:1">By model</h2>
+      <div style="display:flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px">
+        <button style="font:inherit;font-size:12.5px;height:26px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#6f7277">Project</button>
+        <button style="font:inherit;font-size:12.5px;height:26px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#6f7277">Agent</button>
+        <button style="font:inherit;font-size:12.5px;height:26px;padding:0 10px;border:0;border-radius:7px;background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)">Model</button>
+      </div>
+    </div>
+    <table style="border-collapse:collapse;width:100%;font-size:13px">
+      <thead><tr style="color:#6f7277;font-size:12px;text-align:left">
+        <th style="font-weight:600;padding:8px 18px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4">Model</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Tasks</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Success</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;width:240px">Per task</th>
+        <th style="font-weight:600;padding:8px 10px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Spent</th>
+        <th style="font-weight:600;padding:8px 18px;border-top:1px solid #e7e7e4;border-bottom:1px solid #e7e7e4;text-align:right">Tokens</th>
+      </tr></thead>
+      <tbody>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Opus</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">9</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">100%</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;display:flex"><i style="width:100%;height:10px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:48px;text-align:right">$8.77</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">$78.96</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">82.5M</td></tr>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Sonnet</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">26</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">92%</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;display:flex"><i style="width:6%;height:10px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:48px;text-align:right">$0.56</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">$14.45</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">24.9M</td></tr>
+        <tr><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee">Haiku</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">1</td><td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">100%</td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;display:flex"><i style="width:2px;height:10px;background:#2f6fde;border-radius:0 4px 4px 0"></i></span><span style="width:48px;text-align:right">$0.03</span></span></td>
+          <td style="padding:10px;border-bottom:1px solid #f0f0ee;text-align:right">$0.03</td><td style="padding:10px 18px;border-bottom:1px solid #f0f0ee;text-align:right">1.2M</td></tr>
+        <tr style="color:#6f7277"><td style="padding:10px 18px">Not recorded</td><td style="padding:10px;text-align:right">99</td><td style="padding:10px;text-align:right">93%</td>
+          <td style="padding:10px"><span style="display:flex;align-items:center;gap:10px"><span style="flex:1;display:flex"><i style="width:14%;height:10px;background:#c9cbcf;border-radius:0 4px 4px 0"></i></span><span style="width:48px;text-align:right">$1.24</span></span></td>
+          <td style="padding:10px;text-align:right">$122.55</td><td style="padding:10px 18px;text-align:right">—</td></tr>
+      </tbody>
+    </table>
+    <div style="padding:10px 18px;font-size:12.5px;color:#6f7277;border-top:1px solid #e7e7e4">Only the agent in Mako reports its spend: 4 Orca tasks are not counted. A task counts under the model of its last attempt.</div>
+  </div>
+</div>
+
+</body>
+</html>

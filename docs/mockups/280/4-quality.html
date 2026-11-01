@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stats: quality</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+</style>
+
+<div style="width:1040px;height:1080px;box-sizing:border-box;padding:20px 28px 24px;display:flex;flex-direction:column;gap:18px;overflow:hidden;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa">
+
+  <div style="display:flex;align-items:center;gap:12px">
+    <h1 style="margin:0;font-size:22px;font-weight:650;flex:1">Stats</h1>
+    <div style="display:flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px">
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)">7 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">30 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">90 days</button>
+      <button style="font:inherit;font-size:13px;height:28px;padding:0 12px;border:0;border-radius:7px;background:transparent;color:#6f7277">All time</button>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6f7277">Project
+      <select style="font:inherit;font-size:13px;height:34px;padding:0 10px;border:1px solid #e7e7e4;border-radius:8px;background:#fff;color:#1c1d1f"><option>All projects</option></select>
+    </label>
+  </div>
+
+  <div style="display:flex;gap:24px;border-bottom:1px solid #e7e7e4;margin-top:-6px">
+    <a href="1-overview.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Overview</a>
+    <a href="2-time.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Time</a>
+    <a href="3-cost.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Cost</a>
+    <a href="4-quality.html" style="font-size:14px;padding:8px 2px;color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde">Quality</a>
+    <a href="5-context.html" style="font-size:14px;padding:8px 2px;color:#6f7277">Context</a>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:baseline;gap:8px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">Agent review</h2><span style="font-size:12.5px;color:#6f7277">39 rounds on 32 tasks · 1.3 rounds to a clean one</span></div>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;align-items:end">
+      <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;color:#6f7277">Remarks</span><b style="font-size:22px;font-weight:650">14</b><i style="display:block;height:40px;background:#2f6fde;border-radius:4px 0 0 4px"></i><span style="font-size:12.5px;color:#6f7277">0.4 per round · 3 «must»</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;color:#6f7277">Answered by the agent</span><b style="font-size:22px;font-weight:650">8</b><i style="display:block;height:23px;background:#2f6fde"></i><span style="font-size:12.5px;color:#6f7277">fixed 6 · partly 2 · declined 0</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;color:#6f7277">Closed next round</span><b style="font-size:22px;font-weight:650">8</b><i style="display:block;height:23px;background:#2f9e5b"></i><span style="font-size:12.5px;color:#6f7277">accepted explanations 0 · open 0</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;color:#6f7277">Converged</span><b style="font-size:22px;font-weight:650">3 <span style="font-size:13px;font-weight:400;color:#6f7277">of 32 tasks</span></b><i style="display:block;height:9px;background:#2f9e5b;border-radius:0 4px 4px 0"></i><span style="font-size:12.5px;color:#6f7277">escalated to you 0</span></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;background:#fdf1dc;color:#6b4606;font-size:13.5px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg>
+      <span style="flex:1"><b style="font-weight:600">25 rounds wait for «Fix»</b> — their remarks never reached the agent, so the numbers above miss them.</span>
+      <a href="#" style="color:#6b4606;font-weight:600;text-decoration:underline">Show the tasks</a>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;align-items:stretch">
+    <div style="flex:1;min-width:0;background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:8px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">Size estimate</h2><span style="font-size:12.5px;color:#6f7277">right 24 of 36 · 67%</span></div>
+      <div style="display:grid;grid-template-columns:96px repeat(3,minmax(0,1fr));gap:4px;font-size:13px;text-align:center">
+        <span></span><span style="font-size:12px;color:#6f7277">small</span><span style="font-size:12px;color:#6f7277">medium</span><span style="font-size:12px;color:#6f7277">big</span>
+        <span style="text-align:left;font-size:12px;color:#6f7277;align-self:center">small</span>
+        <b style="font-weight:600;padding:14px 0;border-radius:6px;background:#bcd0f6;box-shadow:inset 0 0 0 2px #2f6fde">5</b>
+        <b style="font-weight:600;padding:14px 0;border-radius:6px;background:#dde7fb">3</b>
+        <b style="font-weight:400;padding:14px 0;border-radius:6px;background:#f6f6f4;color:#6f7277">0</b>
+        <span style="text-align:left;font-size:12px;color:#6f7277;align-self:center">medium</span>
+        <b style="font-weight:600;padding:14px 0;border-radius:6px;background:#bcd0f6">5</b>
+        <b style="font-weight:600;padding:14px 0;border-radius:6px;background:#2f6fde;color:#fff;box-shadow:inset 0 0 0 2px #1f55b5">13</b>
+        <b style="font-weight:600;padding:14px 0;border-radius:6px;background:#eef3fd">1</b>
+        <span style="text-align:left;font-size:12px;color:#6f7277;align-self:center">big</span>
+        <b style="font-weight:400;padding:14px 0;border-radius:6px;background:#f6f6f4;color:#6f7277">0</b>
+        <b style="font-weight:600;padding:14px 0;border-radius:6px;background:#dde7fb">3</b>
+        <b style="font-weight:600;padding:14px 0;border-radius:6px;background:#9ab8f2;box-shadow:inset 0 0 0 2px #2f6fde">6</b>
+      </div>
+      <div style="font-size:12.5px;color:#6f7277">Rows: the estimate before the work · columns: the assessment after it. Outlined: the same size both times.</div>
+    </div>
+
+    <div style="width:380px;flex:none;background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:baseline;gap:8px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">Agent's assessment</h2><span style="font-size:12.5px;color:#6f7277">65 tasks</span></div>
+      <div style="display:grid;grid-template-columns:120px minmax(0,1fr) 40px;gap:10px;align-items:center;font-size:13px">
+        <span>Description clarity</span><span style="display:flex;height:8px;border-radius:4px;background:#f0f0ee"><i style="width:70%;background:#2f6fde;border-radius:4px"></i></span><b style="font-weight:600;text-align:right">3.5</b>
+        <span>Completeness</span><span style="display:flex;height:8px;border-radius:4px;background:#f0f0ee"><i style="width:80%;background:#2f6fde;border-radius:4px"></i></span><b style="font-weight:600;text-align:right">4.0</b>
+        <span>Complexity</span><span style="display:flex;height:8px;border-radius:4px;background:#f0f0ee"><i style="width:58%;background:#2f6fde;border-radius:4px"></i></span><b style="font-weight:600;text-align:right">2.9</b>
+        <span>Risk of the change</span><span style="display:flex;height:8px;border-radius:4px;background:#f0f0ee"><i style="width:55%;background:#2f6fde;border-radius:4px"></i></span><b style="font-weight:600;text-align:right">2.7</b>
+      </div>
+      <div style="font-size:12.5px;color:#6f7277;border-top:1px solid #f0f0ee;padding-top:10px">Out of 5. 8 tasks scored 2 or less on clarity · <a href="#">show them</a></div>
+    </div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e7e7e4;border-radius:12px;padding:16px 18px 8px;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:baseline;gap:8px;padding-bottom:6px"><h2 style="margin:0;font-size:15px;font-weight:650;flex:1">Why tasks failed</h2><span style="font-size:12.5px;color:#6f7277">8 of 135 · 6%</span></div>
+    <a href="#" style="display:grid;grid-template-columns:minmax(0,1fr) 160px 30px;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #f0f0ee;color:#1c1d1f;font-size:13.5px">
+      <span>Cancelled by you</span><span style="display:flex"><i style="width:100%;height:10px;background:#9a9da2;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">5</b>
+    </a>
+    <a href="#" style="display:grid;grid-template-columns:minmax(0,1fr) 160px 30px;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #f0f0ee;color:#1c1d1f;font-size:13.5px">
+      <span>MR closed without a merge</span><span style="display:flex"><i style="width:40%;height:10px;background:#d14343;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">2</b>
+    </a>
+    <a href="#" style="display:grid;grid-template-columns:minmax(0,1fr) 160px 30px;gap:12px;align-items:center;padding:10px 0;border-top:1px solid #f0f0ee;color:#1c1d1f;font-size:13.5px">
+      <span>Workspace removed before the MR <span style="color:#6f7277">· Orca</span></span><span style="display:flex"><i style="width:20%;height:10px;background:#d14343;border-radius:0 4px 4px 0"></i></span><b style="font-weight:600;text-align:right">1</b>
+    </a>
+  </div>
+</div>
+
+</body>
+</html>
