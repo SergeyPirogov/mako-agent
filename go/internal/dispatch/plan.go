@@ -98,6 +98,13 @@ func modelFor(cfg *config.Config, r core.Record) string {
 	return ""
 }
 
+// DefaultModel: the model the task's agent gets when none is picked for it: the estimate's advice when the
+// settings take it, else "" (the configured one).
+func (d *Dispatcher) DefaultModel(r core.Record) string {
+	r.Model = ""
+	return modelFor(d.Config(), r)
+}
+
 // Pick takes the estimate's advice for a task not started yet: model ("" the configured one) and «план спочатку».
 func (d *Dispatcher) Pick(id, model string, plan bool) error {
 	r, ok := d.Store.Get(id)

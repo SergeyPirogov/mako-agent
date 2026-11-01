@@ -59,7 +59,7 @@
     <textarea id="redo-note" rows="5" placeholder="Напр.: не чіпай API, виправ на фронтенді; спершу напиши тест, що відтворює баг"></textarea>
     <label for="redo-model">Модель</label>
     <input id="redo-model" list="redo-models" placeholder="як у налаштуваннях" autocomplete="off" spellcheck="false">
-    <datalist id="redo-models"><option value="opus"><option value="sonnet"><option value="haiku"></datalist>
+    <datalist id="redo-models"></datalist>
     <div class="redo-a">
       <button type="submit" class="primary" value="go">Повторити</button>
       <button type="submit" value="cancel" formnovalidate>Скасувати</button>
@@ -1267,6 +1267,7 @@ function openRedo(r) {
   dlg.dataset.id = r.id;
   note.value = "";
   model.value = r.model || "";
+  $("redo-models").innerHTML = (data?.models ?? []).map((m) => `<option value="${esc(m)}">`).join("");
   dlg.showModal();
   note.focus();
 }
@@ -1292,6 +1293,17 @@ function laterAt(kind) {
   if (kind === "monday") d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
   else d.setDate(d.getDate() + 1);
   return d;
+}
+// «Взяти в роботу» and, in its arrow, the same with a model of your choice for the task's agent. The button
+// names the model the agent will start with: picked for the task, else the estimate's when the settings take it.
+function takeButton(r) {
+  const model = r.model || "", def = r.defaultModel || "", start = model || def;
+  const item = (m, label) => `<button type="button" data-a="take" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}</button>`;
+  const title = model ? `Агент почне з моделлю ${model}` : def ? `Агент почне з моделлю ${def}, яку радить оцінка` : "Агент почне з моделлю з налаштувань";
+  const byDefault = def ? `Типова: <code>${esc(def)}</code> з оцінки` : "Як у налаштуваннях";
+  return `<span class="split"><button class="primary" data-a="take" data-x="" title="${esc(title)}">Взяти в роботу${start ? ` · <code>${esc(start)}</code>` : ""}</button>
+    <details class="menu"><summary class="primary" title="Взяти в роботу з іншою моделлю" aria-label="Вибрати модель">${ICON.chevron}</summary>
+    <div class="menu-pop"><div class="menu-h">Взяти в роботу з моделлю</div>${(data?.models ?? []).map((m) => item(m, `<code>${esc(m)}</code>`)).join("")}${item("", byDefault)}</div></details></span>`;
 }
 function laterMenu() {
   const item = (kind, label) => {
@@ -1871,7 +1883,7 @@ function renderDetail() {
   const agentOn = term && !r.archivedAt && r.reviewState !== "merged" && (r.column === "doing" || r.column === "review");
   // «Повторити інакше»: an icon in the agent's workspace bar, words elsewhere.
   const redo = term ? `<button class="icon" data-redo title="Повторити інакше" aria-label="Повторити інакше">${ICON.redo}</button>` : `<button data-redo>Повторити інакше</button>`;
-  if (r.column === "new") actions = b("take", "Взяти в роботу", "primary") + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
+  if (r.column === "new") actions = takeButton(r) + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
   // «Запустити зараз»: past the WIP limit and Claude's limits, the queue is yours to skip.
   else if (r.status === "queued") actions = `<button class="primary" data-a="push" title="Не чекати черги: передати агенту зараз, понад ліміт WIP і ліміти Claude">Запустити зараз</button>` + b("cancel", "Скасувати", "danger");
   else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + redo + ib("archive", "В архів", "archive");

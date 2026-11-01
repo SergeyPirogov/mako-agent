@@ -192,6 +192,9 @@ type Estimate struct {
 // Sizes a task can be, the smallest first: what the estimate expects and what the finished task came to.
 var Sizes = []string{"small", "medium", "big"}
 
+// Models: the agent's models to pick from (the estimate's advice, «Взяти в роботу», «Повторити інакше»).
+var Models = []string{"opus", "sonnet", "haiku"}
+
 // Retro is the agent's retrospective of a merged task, each part a few Markdown bullets in Ukrainian.
 type Retro struct {
 	At string `json:"at"`

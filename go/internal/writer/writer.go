@@ -498,7 +498,7 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 	if !slices.Contains(core.Sizes, e.Size) {
 		return core.Estimate{}, fmt.Errorf("невідомий розмір %q", in.Size)
 	}
-	if !slices.Contains([]string{"haiku", "sonnet", "opus"}, e.Model) {
+	if !slices.Contains(core.Models, e.Model) {
 		e.Model = ""
 	}
 	for _, s := range []struct {

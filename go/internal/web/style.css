@@ -726,6 +726,13 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
   border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
 .menu-pop button { border: 0; border-radius: 6px; text-align: left; padding: 7px 10px; background: none; }
 .menu-pop button:hover { background: var(--hover); }
+.menu-h { padding: 6px 10px 4px; font-size: 12px; color: var(--mute); }
+/* «Взяти в роботу» with its arrow: the models in the menu */
+.split { display: inline-flex; }
+.split > button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split details.menu > summary.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); padding: 6px 9px;
+  border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(255, 255, 255, .35); height: 100%; box-sizing: border-box; }
+.split details.menu > summary.primary:hover, .split details.menu[open] > summary.primary { opacity: .9; }
 .notice.later-note, .notice.auto-skip { display: flex; align-items: center; gap: 8px; border-color: var(--line); color: var(--mute); }
 
 /* «+ Задача»: the button over the list and the form where a card goes. */
