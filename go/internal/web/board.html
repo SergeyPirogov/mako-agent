@@ -931,6 +931,13 @@ function treeHTML(node, depth, prefix, ST) {
   return out;
 }
 
+// The right panel (changes, commits, MR) only when it has something: a worktree that is still there, or an open
+// MR. A finished task keeps its worktree's path after the worktree is gone: until the changes say, it has none.
+function showSide(r) {
+  if (r.column === "review") return true;
+  if (changes) return !changes.error;
+  return r.column === "doing";
+}
 // Next to the agent: what its branch changed. A file opens as a tab over the terminal.
 function workArea(r, term, taskPane = "") {
   const files = changes?.files ?? [];
@@ -948,7 +955,8 @@ function workArea(r, term, taskPane = "") {
   const chatView = r.view === "chat";
   const main = (term ? `<div id="term-slot" class="${fileTab || onTask ? "away" : ""}">${chatView ? "" : idle}</div>` : "") +
     (onTask ? taskPane : fileTab ? diffView(r, fileTab) : term ? "" : `<div class="files-empty pick">Pick a file on the right to see its changes</div>`);
-  return `<div class="split"><div class="split-main">${main}</div><div class="inspector">${branchCard(r, term)}${inspectorTabs(r, term, files.length, list)}</div></div>`;
+  const side = showSide(r) ? `<div class="inspector">${branchCard(r, term)}${inspectorTabs(r, term, files.length, list)}</div>` : "";
+  return `<div class="split${side ? "" : " solo"}"><div class="split-main">${main}</div>${side}</div>`;
 }
 
 // The commits as Orca draws them: a lane per line of history, a dot per commit, merges curving into it.
@@ -1157,13 +1165,6 @@ function checksBadge(r) {
   if (k.state === "failed") return `<span class="checks bad" title="${esc(checksTitle(k))}">✗ checks</span>`;
   return "";
 }
-function checksChip(r, chip) {
-  const k = r.checks;
-  if (!k) return "";
-  const text = k.state === "running" ? "running…" : checksLine(k);
-  return chip(`<span class="k">Checks</span><span class="v">${esc(text)}</span>`, k.state === "failed" ? "st bad" : k.state === "passed" ? "ok" : "",
-    checksTitle(k) || "Checks before the MR");
-}
 // What failed, as the agent got it: the last lines of each failed command.
 function checksHTML(r, card) {
   const k = r.checks;
@@ -1245,8 +1246,6 @@ function summaryHTML(text) {
 }
 // «PR #80», «MR !12»: what a link to a merge request is called on the card.
 const mrName = (url) => { const m = url.match(/\/pull\/(\d+)/) || url.match(/merge_requests\/(\d+)/); return m ? (url.includes("/pull/") ? `PR #${m[1]}` : `MR !${m[1]}`) : "MR"; };
-// The last folders of a long path: the whole one is in the tooltip and is what gets copied.
-const shortPath = (p) => { const s = p.split("/").filter(Boolean); return s.length > 3 ? "…/" + s.slice(-3).join("/") : p; };
 const initials = (name) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
 // The reviewer in the list: ✓ for a clean last round, ⏳ for remarks that wait for "Fix", 👤 when the rounds
 // ran out and the decision is yours.
@@ -1316,39 +1315,46 @@ function assessmentHTML(r, card) {
   return card("Agent assessment", `<div class="tcard-b scores">${rows}${sizes}</div>${missing}`, "assess", btn("Assess again"));
 }
 // One score from 1 to 5 as pips; way: "up" — more is better, "down" — less is, "" — neither.
+const scoreTone = (way, v) => !way ? "" : (way === "up" ? v : 6 - v) >= 4 ? "good" : (way === "up" ? v : 6 - v) <= 2 ? "bad" : "mid";
+const pips = (v) => [1, 2, 3, 4, 5].map((i) => `<i class="${i <= v ? "on" : ""}"></i>`).join("");
 function scoreRow(label, way, s = {}) {
   const v = s?.value || 0;
-  const tone = !way ? "" : (way === "up" ? v : 6 - v) >= 4 ? "good" : (way === "up" ? v : 6 - v) <= 2 ? "bad" : "mid";
-  const pips = [1, 2, 3, 4, 5].map((i) => `<i class="${i <= v ? "on" : ""}"></i>`).join("");
-  return `<div class="score ${tone}"><span class="k">${label}</span><span class="pips" title="${v} of 5">${pips}</span><b>${v}/5</b>${s?.why ? `<span class="score-why">${esc(s.why)}</span>` : ""}</div>`;
+  return `<div class="score ${scoreTone(way, v)}"><span class="k">${label}</span><span class="pips" title="${v} of 5">${pips(v)}</span><b>${v}/5</b>${s?.why ? `<span class="score-why">${esc(s.why)}</span>` : ""}</div>`;
 }
 
 // The estimate before the start: how clear the task is and what to ask, how big, how risky, how to take it.
 const SIZE_RANK = { small: 0, medium: 1, big: 2 };
 const sizeOfComplexity = (v) => (v <= 2 ? "small" : v === 3 ? "medium" : "big");
 const estimated = (r) => (r.estimate?.size && (r.estimate.state === "done" || r.estimate.state === "running") ? r.estimate : null);
+// The estimate as one line (clarity · size · risk, the why of each in its tooltip), its questions folded under
+// "N questions ▸" and the recommendation as a line of chips. A taken task shows it in its stage, read-only.
+const qOpen = {};
 function estimateHTML(r, card) {
-  if (r.column !== "new") return "";
-  const e = r.estimate;
-  const btn = (label) => `<button class="ghost" data-a="estimate" title="The agent will read the task and the repository structure: description clarity, size, risk, how to take it">${label}</button>`;
-  if (e?.state === "running" && !e.size) return card("Upfront estimate", `<div class="tcard-b muted">The agent is assessing the task…</div>`);
+  const e = r.estimate, fresh = r.column === "new";
+  const btn = (label) => fresh ? `<button class="ghost" data-a="estimate" title="The agent will read the task and the repository structure: description clarity, size, risk, how to take it">${label}</button>` : "";
+  if (e?.state === "running" && !e.size) return card("Estimate", `<div class="tcard-b muted">The agent is assessing the task…</div>`);
   // A failed estimate is quiet: the task is just without one.
-  if (!e || e.state !== "done" && !e.size) return card("Upfront estimate", `<div class="tcard-b muted">Not assessed yet.</div>`, "", btn("Assess"));
-  const size = `<div class="score"><span class="k">Size</span><span class="size ${esc(e.size)}">${SIZE_NAMES[e.size] ?? esc(e.size)}</span><span></span>${e.parts ? `<span class="score-why">${esc(e.parts)}</span>` : ""}</div>`;
+  if (!e || e.state !== "done" && !e.size) return fresh ? card("Estimate", `<div class="tcard-b muted">Not assessed yet.</div>`, "", btn("Assess")) : "";
+  const bit = (label, way, s) => `<span class="eb ${scoreTone(way, s?.value || 0)}" title="${esc(s?.why || "")}">${label}<span class="pips">${pips(s?.value || 0)}</span><b>${s?.value || 0}/5</b></span>`;
+  const size = `<span class="eb" title="${esc(e.parts || "")}">Size<span class="size ${esc(e.size)}">${SIZE_NAMES[e.size] ?? esc(e.size)}</span></span>`;
+  const line = `<div class="est-line">${bit("Clarity", "up", e.clarity)}${size}${bit("Risk", "down", e.risk)}</div>`;
   // "plan first" and the model are taken with a click, before "Start work"; a second click lets them go.
   // Splitting is the person's to do in the tracker: a plain chip.
   const plan = !!r.planFirst, model = r.model || "";
   const pick = (m, p) => `&model=${encodeURIComponent(m)}&plan=${p ? 1 : 0}`;
-  const chip = (on, label, x, title) => `<button type="button" class="tchip pick${on ? " on" : ""}" data-a="pick" data-x="${esc(x)}" title="${esc(title)}" aria-pressed="${on}">${on ? "✓ " : ""}${label}</button>`;
+  const chip = (on, label, x, title) => fresh ? `<button type="button" class="tchip pick${on ? " on" : ""}" data-a="pick" data-x="${esc(x)}" title="${esc(title)}" aria-pressed="${on}">${on ? "✓ " : ""}${label}</button>`
+    : `<span class="tchip">${label}</span>`;
   const advice = [
     e.plan ? chip(plan, "plan first", pick(model, !plan), plan ? "The agent will start with a plan. Click to cancel" : "The agent will start with a plan: it will change nothing until you approve it") : "",
     e.split ? `<span class="tchip">split into several tasks</span>` : "",
   ].filter(Boolean);
-  const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Recommendation</h4>${advice.length ? `<div class="tchips">${advice.join("")}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
+  const rec = advice.length || e.advice ? `<div class="rec-line"><span class="ic">→</span><b>Recommendation</b>${advice.join("")}${e.advice ? `<span class="rec-why" title="${esc(e.advice)}">${esc(e.advice)}</span>` : ""}</div>` : "";
   // While the estimate runs again (after the answers were sent) the old questions are answered: no empty form.
-  const questions = e.questions?.trim() ? (e.state === "running" ? `<div class="sec"><h4><span class="ic">?</span>Questions about the task</h4><p class="muted">Analysing the answers and estimating the task again…</p></div>` : questionsHTML(r, e)) : "";
+  const n = splitQuestions(e.questions).length;
+  const questions = !fresh || !n ? "" : e.state === "running" ? `<div class="sec"><h4><span class="ic">?</span>Questions about the task</h4><p class="muted">Analysing the answers and estimating the task again…</p></div>`
+    : `<details class="qs" data-qs ${qOpen[r.id] ? "open" : ""}><summary><span class="ic">?</span>${n} ${plural(n, "question", "questions")} for the tracker<span class="muted"> ▸</span></summary>${questionsHTML(r, e)}</details>`;
   const note = e.state === "running" ? `<span class="muted">estimating again…</span>` : btn("Assess again");
-  return card("Upfront estimate", `<div class="tcard-b scores">${scoreRow("Task description", "up", e.clarity)}${size}${scoreRow("Risk", "down", e.risk)}</div>${questions}${rec}`, "assess", note);
+  return card("Estimate", `<div class="tcard-b">${line}</div>${rec}${questions}`, "assess", note);
 }
 
 // The estimate's questions, each with a field for its answer; "Send to tracker" posts the filled ones as one
@@ -2280,6 +2286,175 @@ function digestHTML(d) {
   </div>`;
 }
 
+// The card's head: tracker · number · status, the title and one muted line of facts; on the right the main action
+// for the task's state (Mako picks it: r.card.primary) and the rest in "⋯".
+function headHTML(r, title = true) {
+  const t = r.task, st = state(r), [text, cls, tip] = cardStatus(r);
+  return `<div class="d-head">
+      <div class="d-main">
+        <div class="d-id">${trackerIcon(t)}<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span class="s ${st} ${cls}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(text)}</span></div>
+        ${title ? `<h1>${esc(t.title)}</h1>${metaLine(r)}` : ""}
+      </div>
+      <div class="actions">${primaryHTML(r)}${moreMenu(r)}</div>
+    </div>`;
+}
+
+// The task's facts in one muted line: repo · branch (copy) · model · assignees · priority · labels. The project is in
+// the number already, the worktree's path is in "⋯".
+function metaLine(r) {
+  const t = r.task, parts = [];
+  const branch = r.branch || r.branchName;
+  if (r.repo) parts.push(`<span title="Repository">${esc(r.repo)}</span>`);
+  if (branch && r.column !== "done") parts.push(`<span title="Branch"><code>${esc(branch)}</code><button type="button" class="icon" data-copy="${esc(branch)}" title="Copy branch name" aria-label="Copy branch name">${ICON.copy}</button></span>`);
+  if (r.agentModel && r.column !== "new") parts.push(`<span title="The model the agent worked with"><code>${esc(r.agentModel)}</code></span>`);
+  if (t.assignees?.length) parts.push(`<span title="Assignees">${esc(t.assignees.join(", "))}</span>`);
+  if (t.priority) parts.push(`<span title="Priority in the tracker" class="prio ${prioTone(t.priority)}">${esc(t.priority)}</span>`);
+  // Jira's meta carries the priority too, GitHub's and GitLab's the labels: both are shown on their own.
+  const meta = t.meta?.split(" | ").filter((p) => !(t.priority && p.startsWith("Priority:")) && !(t.labels?.length && p.startsWith("Labels:"))).join(" | ");
+  if (meta) parts.push(`<span title="Tracker">${esc(meta)}</span>`);
+  if (r.trackerStatus) parts.push(`<span class="${r.trackerStatus.ok ? "" : "bad"}" title="Tracker status">${esc(r.trackerStatus.text)}</span>`);
+  if (t.labels?.length) parts.push(`<span title="Labels">${t.labels.map(esc).join(", ")}</span>`);
+  return parts.length ? `<div class="d-meta">${parts.join(`<i>·</i>`)}</div>` : "";
+}
+
+const openMR = (r, cls = "") => r.prUrl ? `<a class="btn ${cls}" href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))} ↗</a>` : "";
+// The main action, as a button the card's handlers already know (data-a, data-ask, data-merge), and the one next
+// to it when the state has a pair (Start + Snooze, Merge + Open MR).
+function primaryHTML(r) {
+  const b = (a, label, cls = "", x = "", title = "") => `<button class="${cls}" data-a="${a}" data-x="${x}"${title ? ` title="${esc(title)}"` : ""}>${label}</button>`;
+  switch (r.card?.primary) {
+    case "take": return takeButton(r) + laterMenu();
+    case "restore": return takeButton(r) + b("later", "Restore", "", "&min=-1", "Bring it back from snoozed");
+    case "push": return `<button class="primary" data-a="push" title="Skip the queue: hand it to the agent now, past the WIP limit and Claude limits">Run now</button>`;
+    case "cancel": return b("cancel", "Cancel", "danger");
+    case "stop": return b("stop", `${ICON.stop}Stop`, "", "", "Stop the agent");
+    case "resume": return b("resume", `${ICON.play}Resume`, "primary", "", "Continue the conversation");
+    case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
+    case "fix-conflicts": return `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>` + openMR(r);
+    case "fix-ci": return `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>` + openMR(r);
+    case "merge": return `<button class="primary" data-merge>${ICON.merge}Merge</button>` + openMR(r);
+    case "retry": return b("retry", "Retry", "primary");
+    case "unarchive": return b("unarchive", `${ICON.unarchive}Restore from archive`);
+    default: return b("archive", `${ICON.archive}Archive`);
+  }
+}
+
+// "⋯": what is not the main action for this state.
+function moreMenu(r) {
+  const p = r.card?.primary, term = r.executor === "terminal" && r.worktree, items = [];
+  const it = (attrs, label, cls = "") => items.push(`<button type="button" class="${cls}" ${attrs}>${label}</button>`);
+  if (r.column === "doing" && p !== "stop" && term && r.live) it(`data-a="stop"`, "Stop the agent");
+  if (r.column === "review" && term && p !== "resume") it(`data-a="${r.live ? "stop" : "resume"}"`, r.live ? "Stop the agent" : "Continue the conversation");
+  if (r.reviewStep === "ready") it(`data-a="agentreview"`, "Run agent review");
+  if (["doing", "review", "failed"].includes(r.column) && r.status !== "queued") it("data-redo", "Retry differently");
+  if (r.column === "doing" && !term && r.worktree && p !== "focus") it(`data-a="focus"`, "Show in Orca");
+  if (r.prUrl && !["merge", "fix-conflicts", "fix-ci"].includes(p)) items.push(`<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))} ↗</a>`);
+  if (r.worktree && r.column !== "done") {
+    if (data.editor) it(`data-open="editor"`, `Open in ${esc(data.editor)}`);
+    it(`data-open="finder"`, "Show in Finder");
+    it(`data-copy="${esc(r.worktree)}" title="${esc(r.worktree)}"`, "Copy worktree path");
+  }
+  if (r.task.url) it(`data-copy="${esc(r.task.url)}"`, "Copy task link");
+  if (r.status === "queued" && p !== "cancel") it(`data-a="cancel"`, "Cancel", "danger");
+  if (r.column === "doing" && r.status !== "queued") it(`data-a="cancel"`, term ? "Stop watching" : "Stop watching the agent", "danger");
+  if (!r.archivedAt && p !== "archive" && r.column !== "new" && r.column !== "doing") it(`data-a="archive"`, "Archive");
+  if (!items.length) return "";
+  return `<details class="menu more"><summary class="btn icon" title="More actions" aria-label="More actions">⋯</summary><div class="menu-pop">${items.join("")}</div></details>`;
+}
+
+// The stage strip: Estimate → Plan → Work → Review → CI → Merge, each with its time and cost (r.card.stages, from
+// the record's metrics). A click on a stage opens what it holds under the strip.
+const STAGE_LABEL = { estimate: "Estimate", plan: "Plan", work: "Work", review: "Review", ci: "CI", merge: "Merge" };
+const STAGE_MARK = {
+  done: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>`,
+  fail: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+  now: `<i></i>`,
+};
+const STAGE_WORD = { done: "done", now: "current", fail: "failed", skip: "skipped", todo: "not yet" };
+const stageOpen = {};
+function stripHTML(r, card) {
+  const ss = r.card?.stages;
+  if (!ss?.length) return "";
+  const open = stageOpen[r.id];
+  const cells = ss.map((s) => {
+    const sub = [s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
+    return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}">
+      <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b></span><small>${esc(sub)}</small></button>`;
+  }).join(`<span class="sep"></span>`);
+  return `<div class="stage-strip" role="group" aria-label="Stages">${cells}</div>${open ? `<div class="stage-more">${stageMore(r, open, card) || `<div class="muted">Nothing here yet.</div>`}</div>` : ""}`;
+}
+// What a stage holds: the estimate, the reviewer's rounds, the checks and the MR's CI, the time and the cost.
+function stageMore(r, key, card) {
+  const term = r.executor === "terminal" && r.worktree;
+  if (key === "estimate") return estimateHTML(r, card);
+  if (key === "review") return `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
+  if (key === "ci") return checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`;
+  return cycleHTML(r, card);
+}
+
+// The description: the task's own text. Folded to its first line once the task is taken; opened, it stays open
+// over the board's reloads.
+const descOpen = {};
+function descHTML(r, folded) {
+  const t = r.task, has = !!t.description?.trim();
+  const body = `<div class="tcard-b md">${has ? md(t.description) : `<span style="color:var(--mute)">No description</span>`}</div>`;
+  if (!folded || !has) return `<div class="tcard"><div class="tcard-h">Description<span class="r">from ${esc(trackerName(t))}</span></div>${body}</div>`;
+  const peek = t.description.replace(/[#*_`>\[\]()!-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+  return `<details class="tcard desc" data-desc ${descOpen[r.id] ? "open" : ""}><summary class="tcard-h">Description<span class="peek">${esc(peek)}</span><span class="r">Expand ▾</span></summary>${body}</details>`;
+}
+
+// In work: what the agent is doing now, and the way to its tab.
+function nowHTML(r, card, bar) {
+  const a = agentOf(r), term = r.executor === "terminal";
+  const lines = [];
+  if (r.status === "queued") return "";
+  if (r.planning) lines.push(["now", "The agent is writing a plan: it changes nothing until you approve it"]);
+  if (a?.state === "waiting") lines.push(["wait", `Waiting for you${a.reason ? `: ${a.reason}` : ""}`]);
+  else if (a?.state === "working") lines.push(["now", a.tool ? `Working: ${a.tool}` : "The agent is working"]);
+  else if (term && r.live) lines.push(["now", "The agent is working"]);
+  else if (term || a?.state === "stopped") lines.push(["bad", `The agent is stopped${a?.reason ? `: ${a.reason}` : ""}`]);
+  else if (a?.state === "done") lines.push(["ok", "The agent has finished its turn"]);
+  if (r.checks?.state === "running") lines.push(["now", "Mako runs the checks before the MR"]);
+  if (!lines.length) return "";
+  const link = bar ? `<button type="button" class="link" data-tab="orca">${term ? "Agent" : "Orca"} tab →</button>` : "";
+  const msg = a?.message ? `<div class="now-msg md">${md(a.message)}</div>` : "";
+  return card("Now", `<div class="tcard-b now">${lines.map(([cls, text]) => `<div class="now-l ${cls}"><span class="dot"></span><span>${esc(text)}</span></div>`).join("")}${msg}</div>`, "", link);
+}
+
+// An MR waiting for the merge: what holds it up, on top.
+function blockersHTML(r) {
+  const c = review?.review, lines = [];
+  if (r.blocked) lines.push(`<div><b>${esc(r.blocked.charAt(0).toUpperCase() + r.blocked.slice(1))}</b></div>`);
+  if (c?.conflicts || r.baseConflict?.files?.length) {
+    const files = r.baseConflict?.files ?? [];
+    lines.push(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
+      + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : ""));
+  }
+  if (c?.ci === "failed" && c.failed?.length) lines.push(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>`);
+  if (c?.threads?.length) lines.push(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>`);
+  if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
+  return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
+}
+
+// A finished task: how long it took, what it cost, how much rework, and where its time went.
+function doneHTML(r, card) {
+  const m = r.metrics, kv = [];
+  const start = Date.parse(r.startedAt), end = Date.parse(r.mergedAt || r.finishedAt);
+  if (start && end > start) kv.push([r.mergedAt ? "Taken to merge" : "Taken", durText((end - start) / 1000)]);
+  const spent = (r.cost || 0) + Object.entries(m?.cost || {}).filter(([k]) => k !== "plan" && k !== "work").reduce((a, [, v]) => a + v, 0);
+  if (spent) kv.push(["Spent", `$${spent.toFixed(2)}`]);
+  const tokens = Object.values(m?.tokens || {}).reduce((a, b) => a + b, 0);
+  if (tokens) kv.push(["Tokens", tok(tokens)]);
+  const rework = (r.ciFixes || 0) + (r.reviewFixes || 0);
+  kv.push(["Rework", rework ? `${rework}` : "none", [r.ciFixes ? `CI ${r.ciFixes}` : "", r.reviewFixes ? `comments ${r.reviewFixes}` : ""].filter(Boolean).join(" · ")]);
+  if (r.agentReviews?.length) kv.push(["Agent review", `${r.agentReviews.length} ${plural(r.agentReviews.length, "round", "rounds")}`]);
+  const seconds = { ...(m?.seconds || {}) };
+  const bar = stageBar(seconds, durText);
+  const grid = `<div class="sum-grid">${kv.map(([k, v, s]) => `<div class="kv"><span>${k}</span><b>${esc(v)}</b>${s ? `<span>${esc(s)}</span>` : ""}</div>`).join("")}</div>`;
+  const link = r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${esc(mrName(r.prUrl))} ↗</a>` : "";
+  return card("Summary", `<div class="tcard-b">${grid}${bar}</div>`, "sum-card", link);
+}
+
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
   const ask = !r && !statsOpen && !newOpen && !digest && (data.reviewRequests || []).find((x) => x.id === selected);
@@ -2312,7 +2487,7 @@ function renderDetail() {
     bindFaults();
     return;
   }
-  const t = r.task, st = state(r);
+  const t = r.task;
   const b = (action, label, cls = "", extra = "") => `<button class="${cls}" data-a="${action}" data-x="${extra}">${label}</button>`;
   // Icon buttons leave the room to the work; the name is in the tooltip.
   const ib = (action, label, icon, cls = "") => `<button class="icon ${cls}" data-a="${action}" title="${label}" aria-label="${label}">${ICON[icon]}</button>`;
@@ -2335,40 +2510,19 @@ function renderDetail() {
   else actions = ib("archive", "Archive", "archive");
   if (r.archivedAt) actions = ib("unarchive", "Restore from archive", "unarchive");
 
-  // The task's facts as chips: they wrap, so the narrow pane next to the agent and a phone fit them too.
-  const chip = (body, cls = "", title = "") => `<span class="tchip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${body}</span>`;
-  const copy = (v, what) => `<button type="button" class="icon" data-copy="${esc(v)}" title="Copy ${what}" aria-label="Copy ${what}">${ICON.copy}</button>`;
-  const chips = [];
-  if (r.trackerStatus) chips.push(chip(`<span class="dot"></span><span class="v">${esc(r.trackerStatus.text)}</span>`, r.trackerStatus.ok ? "st" : "st bad", r.trackerStatus.ok ? "Tracker status" : r.trackerStatus.text));
-  if (t.priority) chips.push(chip(`<span class="k">Priority</span><span class="prio ${prioTone(t.priority)}">${esc(t.priority)}</span>`, "", "Priority in the tracker"));
-  // Jira's meta carries the priority too: the chip above shows it, so the meta drops it.
-  const meta = t.priority ? t.meta?.split(" | ").filter((p) => !p.startsWith("Priority:")).join(" | ") : t.meta;
-  if (meta) chips.push(chip(esc(meta), "", "Tracker"));
-  if (t.assignees?.length) chips.push(chip(`<span class="k">Assignees</span>${esc(t.assignees.join(", "))}`));
-  if (r.repo) chips.push(chip(`<span class="k">Repo</span>${esc(r.repo)}`));
-  if (r.agentModel && r.column !== "new") chips.push(chip(`<span class="k">Model</span><code>${esc(r.agentModel)}</code>`, "", "The model the agent worked with"));
-  const branch = r.branch || r.branchName;
-  if (branch) chips.push(chip(`${ICON.pr}<code>${esc(branch)}</code>${copy(branch, "branch name")}`, "", "Branch"));
-  if (r.worktree) chips.push(chip(`${ICON.folder}<code>${esc(shortPath(r.worktree))}</code>${copy(r.worktree, "worktree path")}`, "wt", r.worktree));
-  if (r.checks) chips.push(checksChip(r, chip));
-  if (r.prUrl) {
-    const rs = r.reviewState === "merged" ? ["merged", "merged"] : r.reviewState === "closed" ? ["closed", "closed"] : ["open", ""];
-    chips.push(`<a class="tchip mr ${rs[1]}" href="${esc(r.prUrl)}" target="_blank" rel="noopener" title="${esc(r.prUrl)}"><span class="dot"></span>${esc(mrName(r.prUrl))} · ${rs[0]} ↗</a>`);
-  }
   const card = (title, body, cls = "", note = "") => `<div class="tcard ${cls}"><div class="tcard-h">${title}${note ? `<span class="r">${note}</span>` : ""}</div>${body}</div>`;
 
-  // The task itself first; what the agent does in Orca and Mako's log in their own tab.
+  // The content follows the task's state: what matters now on top, the description folded once the task is taken.
+  const col = r.column;
+  const agentSummary = r.summary && col !== "doing" ? card("Agent summary", summaryHTML(r.summary), "sum") : "";
+  const byState = col === "new" ? descHTML(r, false) + estimateHTML(r, card)
+    : col === "doing" ? nowHTML(r, card, !!(term || r.worktree || agentOf(r))) + checksHTML(r, card) + descHTML(r, true)
+    : col === "review" ? blockersHTML(r) + reviewerHTML(r) + agentSummary + descHTML(r, true)
+    : (col === "done" ? doneHTML(r, card) : "") + agentSummary + assessmentHTML(r, card) + retroHTML(r, card) + descHTML(r, col !== "failed");
+  const stages = stripHTML(r, card);
   const task = `
-    ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
-    ${estimateHTML(r, card)}
-    ${checksHTML(r, card)}
-    ${cycleHTML(r, card)}
-    ${assessmentHTML(r, card)}
-    ${r.summary && r.column !== "doing" ? card("Agent summary", summaryHTML(r.summary), "sum") : ""}
-    ${retroHTML(r, card)}
-    ${reviewerHTML(r)}
+    ${byState}
     ${r.retryNote ? card(`Attempt ${r.attempt || 2}: what to do differently`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
-    ${card("Description", `<div class="tcard-b md">${t.description?.trim() ? md(t.description) : `<span style="color:var(--mute)">No description</span>`}</div>`, "", `from ${esc(trackerName(t))}`)}
     ${t.comments?.length ? card(`Comments · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="md">${md(c.body)}</div></div></div>`).join("")) : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Journal · ${logs.length} ${plural(logs.length, "entry", "entries")}</summary>
       <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString(LANG)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
@@ -2387,34 +2541,6 @@ function renderDetail() {
     loadWork().then(renderDetail);
   }
   workStarted = started;
-  // A task of Mako's own agent is one workspace: the tabs only change the centre, the right panel stays.
-  const taskPane = term ? `<div class="task-pane">
-      <div class="d-id">${trackerIcon(t)}${kind(r)}<span class="s ${st}">${LABEL[st]}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span>${esc(t.project)}</span></div>
-      <h1>${esc(t.title)}</h1>
-      ${t.labels?.length ? `<div class="labels">${t.labels.map((l) => `<span class="label">${esc(l)}</span>`).join("")}</div>` : ""}
-      ${task}</div>` : "";
-  const orca = (r.worktree ? workArea(r, term, taskPane) : "") + (term ? "" : agentBlock(r));
-  if (!orca.trim()) tab = "task";
-  // "Changes" is a tab of its own only on a phone; a window grown wide shows the panel next to the agent again.
-  if (tab === "side" && !(term && narrow.matches)) tab = "orca";
-  const waiting = agentOf(r)?.state === "waiting";
-  // One bar: the task, the agent's terminal (or Orca), and the files opened from the changes.
-  const bar = orca.trim() ? `<div class="tabs">
-      <button class="tab ${tab === "task" ? "on" : ""}" data-tab="task">Task</button>
-      <button class="tab ${tab === "orca" && !fileTab ? "on" : ""}" data-tab="orca">${term ? "Agent" : "Orca"}${waiting ? ` <span class="wait">· waiting for you</span>` : ""}</button>
-      ${term ? `<button class="tab tab-phone ${tab === "side" ? "on" : ""}" data-tab="side">Changes${changes?.files?.length ? ` <span class="ibadge">${changes.files.length}</span>` : ""}</button>` : ""}
-      ${openFiles.map((p) => `<button class="tab ${tab === "orca" && p === fileTab ? "on" : ""}" data-ftab="${esc(p)}" title="${esc(p)}"><span class="tn">${esc(p.split("/").pop())}</span><span class="x" data-close="${esc(p)}" title="Close">×</span></button>`).join("")}
-    </div>` : "";
-  const ws = !!term;
-  const body = ws ? orca : bar && tab === "orca" ? orca : task;
-  // How the agent is shown: its chat or its terminal; the same conversation either way.
-  const view = r.view === "chat" ? "chat" : "terminal";
-  const views = agentOn ? `<span class="seg" role="group" aria-label="Agent view">
-      <button type="button" class="${view === "chat" ? "on" : ""}" data-view="chat">Chat</button><button type="button" class="${view === "terminal" ? "on" : ""}" data-view="terminal">Terminal</button></span>` : "";
-  $("detail").classList.toggle("ws", ws);
-  $("detail").dataset.tab = ws ? (fileTab && tab === "orca" ? "file" : tab) : "";
-  if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
-
   const notices = `
     ${r.status === "queued" && r.starting ? `<!--st--><div id="starting-slot">${startingHTML(r)}</div><!--/st-->` : ""}
     ${r.status === "queued" && !r.starting ? `<div class="notice later-note">${ICON.clock}Queued${r.queueWhy ? `: ${esc(r.queueWhy)}` : ""}. Mako will start it on its own</div>` : ""}
@@ -2428,21 +2554,40 @@ function renderDetail() {
     ${r.worktreeKept ? `<div class="notice warn kept">The task is finished, but its worktree was not removed: ${r.worktreeKept} ${plural(r.worktreeKept, "uncommitted change or unpushed commit", "uncommitted changes or unpushed commits")}.
       <span class="kept-a"><button type="button" class="danger" data-kept="clean">Remove anyway</button><button type="button" class="ghost" data-kept="keepworktree">Keep</button></span></div>` : ""}
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">The task was ${r.gone === "deleted" ? "deleted" : "closed"} in the tracker, but the agent is still working on it ${term ? "in the terminal" : "in Orca"}.</div>` : ""}`;
+  // A task of Mako's own agent is one workspace: the tabs only change the centre, the right panel stays. Its
+  // "Task" tab has the card's own head, stages and notices; the bar's buttons are the "Agent" tab's.
+  const taskPane = term ? `<div class="task-pane">${headHTML(r)}${stages}${notices}${task}</div>` : "";
+  const orca = (r.worktree && (term || showSide(r)) ? workArea(r, term, taskPane) : "") + (term ? "" : agentBlock(r));
+  if (!orca.trim()) tab = "task";
+  // "Changes" is a tab of its own only on a phone; a window grown wide shows the panel next to the agent again.
+  if (tab === "side" && !(term && narrow.matches)) tab = "orca";
+  const waiting = agentOf(r)?.state === "waiting";
+  // One bar: the task, the agent's terminal (or Orca), and the files opened from the changes.
+  const bar = orca.trim() ? `<div class="tabs">
+      <button class="tab ${tab === "task" ? "on" : ""}" data-tab="task">Task</button>
+      <button class="tab ${tab === "orca" && !fileTab ? "on" : ""}" data-tab="orca">${term ? "Agent" : "Orca"}${waiting ? ` <span class="wait">· waiting for you</span>` : ""}</button>
+      ${term && showSide(r) ? `<button class="tab tab-phone ${tab === "side" ? "on" : ""}" data-tab="side">Changes${changes?.files?.length ? ` <span class="ibadge">${changes.files.length}</span>` : ""}</button>` : ""}
+      ${openFiles.map((p) => `<button class="tab ${tab === "orca" && p === fileTab ? "on" : ""}" data-ftab="${esc(p)}" title="${esc(p)}"><span class="tn">${esc(p.split("/").pop())}</span><span class="x" data-close="${esc(p)}" title="Close">×</span></button>`).join("")}
+    </div>` : "";
+  const ws = !!term;
+  const body = ws ? orca : bar && tab === "orca" ? orca : task;
+  // How the agent is shown: its chat or its terminal; the same conversation either way.
+  const view = r.view === "chat" ? "chat" : "terminal";
+  const views = agentOn ? `<span class="seg" role="group" aria-label="Agent view">
+      <button type="button" class="${view === "chat" ? "on" : ""}" data-view="chat">Chat</button><button type="button" class="${view === "terminal" ? "on" : ""}" data-view="terminal">Terminal</button></span>` : "";
+  $("detail").classList.toggle("ws", ws);
+  $("detail").dataset.tab = ws ? (fileTab && tab === "orca" ? "file" : tab) : "";
+  if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
+
   // In the workspace the tabs, the task's id and the buttons share one thin bar: the rest is the terminal's.
   const html = ws ? `
     <button class="ghost back" id="back">← Tasks</button>
     <div class="ws-bar">${bar}${views}
-      <div class="actions">${actions}</div>
-    </div>${notices}${body}` : `
+      <div class="actions">${tab === "task" ? "" : actions}</div>
+    </div>${tab === "task" ? "" : notices}${body}` : `
     <button class="ghost back" id="back">← Tasks</button>
-    <div class="d-head">
-      <div class="d-main">
-        <div class="d-id">${trackerIcon(t)}${kind(r)}<span class="s ${st}">${LABEL[st]}</span><a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span>${esc(t.project)}</span></div>
-        ${tab === "task" ? `<h1>${esc(t.title)}</h1>` : ""}
-      </div>
-      <div class="actions">${actions}</div>
-    </div>
-    ${t.labels?.length && !ws ? `<div class="labels">${t.labels.map((l) => `<span class="label">${esc(l)}</span>`).join("")}</div>` : ""}
+    ${headHTML(r, tab === "task")}
+    ${tab === "task" ? stages : ""}
     ${notices}
     ${bar}${body}`;
   if (!term) { closeTerminal(); closeChat(); }
@@ -2523,6 +2668,15 @@ function renderDetail() {
     requestAnimationFrame(() => { v.resize(); if (typing) v.term.focus(); });
   }
   for (const j of $("detail").querySelectorAll("details.journal")) j.ontoggle = () => { journalOpen = j.open; };
+  // The folded description and questions stay as you left them over the reloads.
+  for (const d of $("detail").querySelectorAll("details[data-desc]")) d.ontoggle = () => { descOpen[r.id] = d.open; };
+  for (const d of $("detail").querySelectorAll("details[data-qs]")) d.ontoggle = () => { qOpen[r.id] = d.open; };
+  for (const btn of $("detail").querySelectorAll("[data-stage]")) btn.onclick = () => {
+    stageOpen[r.id] = stageOpen[r.id] === btn.dataset.stage ? "" : btn.dataset.stage;
+    renderDetail();
+  };
+  // A pick in "⋯" closes it.
+  for (const m of $("detail").querySelectorAll("details.more")) m.querySelector(".menu-pop").addEventListener("click", (e) => { if (e.target.closest("button, a")) m.open = false; });
   for (const c of $("detail").querySelectorAll("details.convo")) {
     // Stays at the end while the agent writes, unless the reader scrolled up.
     const body = c.querySelector(".convo-body");

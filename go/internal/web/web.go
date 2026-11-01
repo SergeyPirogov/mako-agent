@@ -116,6 +116,8 @@ type recordView struct {
 	// not being started waits.
 	Starting *dispatch.StartProgress `json:"starting,omitempty"`
 	QueueWhy string                  `json:"queueWhy,omitempty"`
+	// Card: the card's main action and its stages for the task's state.
+	Card cardView `json:"card"`
 }
 
 type trackerView struct {
@@ -202,6 +204,7 @@ func (s *Server) Handler() http.Handler {
 					v.QueueWhy = queueWhy
 				}
 			}
+			v.Card = cardOf(v, time.Now())
 			reply.Records = append(reply.Records, v)
 		}
 		projects := s.D.NewTaskProjects()
