@@ -203,7 +203,7 @@ var webStrings = map[string][2]string{
 	"s.o.reviewCommentsIssue": {"In the issue", "У задачі"},
 	"s.o.reviewCommentsMR":    {"In the MR (the issue until there is one)", "У MR (у задачі, поки MR немає)"},
 	"s.o.reviewCommentsBoth":  {"In the issue and the MR", "У задачі й у MR"},
-	"s.o.reviewCommentsHint":  {"The numbered remarks of each round and the agent's answer on each go to the tracker as comments (GitHub, GitLab, Jira).", "Пронумеровані зауваження кожного раунду й відповідь агента по кожному пункту йдуть у трекер коментарями (GitHub, GitLab, Jira)."},
+	"s.o.reviewCommentsHint":  {"The numbered remarks of each round and the agent's answer on each go to the tracker as comments: to the issue in GitHub, GitLab or Jira; to the MR through the repository's code host (GitHub or GitLab, Jira tasks too). Until the MR is opened, «In the MR» writes to the issue.", "Пронумеровані зауваження кожного раунду й відповідь агента по кожному пункту йдуть у трекер коментарями: у задачу — в GitHub, GitLab чи Jira; у MR — через код-хост репозиторію (GitHub чи GitLab, і для задач з Jira теж). Поки MR немає, «У MR» пише в задачу."},
 	"s.o.orcaSetup":           {"Worktree setup", "Підготовка worktree"},
 	"s.o.orcaSetupInherit":    {"as set up in Orca", "як налаштовано в Orca"},
 	"s.o.orcaSetupRun":        {"run", "запускати"},

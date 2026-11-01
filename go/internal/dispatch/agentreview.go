@@ -86,9 +86,6 @@ func (d *Dispatcher) ReviewNow(id string) error {
 	if seen(r.AgentReviews, head) {
 		return errors.New("рецензент уже бачив цей коміт: агент не змінив гілку після останнього рев'ю")
 	}
-	if outOfRounds(r) {
-		return errors.New("раунди рев'ю агентом скінчились, а зауваження лишились: рішення за людиною")
-	}
 	d.mu.Lock()
 	busy := d.reviewing[id]
 	d.reviewing[id] = true
@@ -173,16 +170,24 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	if a.Structured() || a.State == "clean" {
 		rounds++
 	}
-	a.Escalated = a.State == "notes" && a.Structured() && rounds >= core.ReviewRounds
+	// The rounds ran out with remarks open: a person decides, told once; another round is theirs to start.
+	a.Escalated = a.State == "notes" && a.Structured() && rounds >= core.ReviewRounds && !escalated(r.AgentReviews)
 	d.setReview(id, a)
-	d.publishReview(ctx, id, rounds)
+	pctx, pcancel := context.WithTimeout(context.Background(), time.Minute)
+	defer pcancel()
+	d.publishReview(pctx, id, rounds)
 }
 
 // judge: the round from the reviewer's answer: its numbered remarks (numbered from next), its verdicts on the
 // earlier ones, and whether it is clean. An answer out of the format stays as it is, a round with remarks.
 func judge(notes string, prior []core.Remark, next int) core.AgentReview {
 	if notes == "" {
-		return core.AgentReview{State: "clean"}
+		// LGTM over earlier remarks: the reviewer was asked for it only when each of them is closed or accepted.
+		a := core.AgentReview{State: "clean"}
+		for _, p := range prior {
+			a.Checks = append(a.Checks, core.Check{ID: p.ID, Verdict: core.Closed})
+		}
+		return a
 	}
 	known, byID := map[string]bool{}, map[string]core.Remark{}
 	for _, p := range prior {
@@ -193,15 +198,31 @@ func judge(notes string, prior []core.Remark, next int) core.AgentReview {
 		Remarks: writer.Numbered(writer.ParseRemarks(notes), next),
 		Checks:  writer.ParseChecks(notes, known),
 	}
-	// What it found still open goes to the agent again, under its number.
+	// What it found still open goes to the agent again, under its number; so does a «must» it gave no verdict
+	// on, when it kept to the format: it is not closed until a round says so.
+	again := func(p core.Remark, why string) {
+		p.Reply, p.ReplyNote, p.Again = "", "", true
+		if why != "" {
+			p.Text += "\n" + why
+		}
+		a.Remarks = append(a.Remarks, p)
+	}
+	checked := map[string]bool{}
 	for _, c := range a.Checks {
+		checked[c.ID] = true
 		if c.Verdict == core.Open {
-			p := byID[c.ID]
-			p.Reply, p.ReplyNote, p.Again = "", "", true
+			why := ""
 			if c.Note != "" {
-				p.Text += "\n" + i18n.T("review.open") + ": " + c.Note
+				why = i18n.T("review.open") + ": " + c.Note
 			}
-			a.Remarks = append(a.Remarks, p)
+			again(byID[c.ID], why)
+		}
+	}
+	if a.Structured() {
+		for _, p := range prior {
+			if !checked[p.ID] && p.Weight == core.Must {
+				again(p, i18n.T("review.unchecked"))
+			}
 		}
 	}
 	a.State = "notes"
@@ -211,10 +232,14 @@ func judge(notes string, prior []core.Remark, next int) core.AgentReview {
 	return a
 }
 
-// outOfRounds: the task's rounds ran out with remarks still open: the reviewer starts no more.
-func outOfRounds(r core.Record) bool {
-	last := lastReview(r)
-	return last.State == "notes" && last.Escalated
+// escalated: a round has already left the task to a person.
+func escalated(rounds []core.AgentReview) bool {
+	for _, a := range rounds {
+		if a.Escalated {
+			return true
+		}
+	}
+	return false
 }
 
 // FixReview is the board's «Виправити»: the reviewer's last remarks go to the agent, once.
@@ -294,9 +319,8 @@ func markSent(list []core.AgentReview, sent bool) []core.AgentReview {
 
 // ReviewStep: what the board offers about the reviewer: "running" (it reads the branch); "notes" (its remarks
 // wait for your «Виправити»); "fixing" (the agent works on them); "ready" (the button can start a round: the
-// agent is idle and the branch is ready and not read at this commit); "human" (the rounds ran out with remarks
-// open: a person decides); "idle" (the agent is idle, with nothing new for the reviewer); "" (the task is not
-// for it).
+// agent is idle and the branch is ready and not read at this commit; after the rounds ran out, a person's
+// choice); "idle" (the agent is idle, with nothing new for the reviewer); "" (the task is not for it).
 func (d *Dispatcher) ReviewStep(r core.Record) string {
 	if !reviewable(r) {
 		return ""
@@ -317,9 +341,6 @@ func (d *Dispatcher) ReviewStep(r core.Record) string {
 	}
 	if last.State == "notes" && !last.Sent {
 		return "notes"
-	}
-	if outOfRounds(r) {
-		return "human"
 	}
 	head, ready := d.lookBranch(r)
 	if !ready || seen(r.AgentReviews, head) {

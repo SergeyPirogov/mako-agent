@@ -1214,11 +1214,12 @@ function reviewerRow(r, need) {
     case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Спробувати ще") : "");
     case "notes": {
       const n = last.remarks?.length, what = n ? `${n} ${plural(n, "зауваження", "зауваження", "зауважень")}` : "зауваження";
-      if (step === "notes") return row("talk", `Рецензент залишив ${what}: вони в задачі` + (last.escalated ? ". Це останній раунд" : ""), "", reviewFixBtn());
+      if (step === "notes") return row("talk", `Рецензент залишив ${what}: вони в задачі` + (last.escalated ? ". Раунди скінчились: рішення за вами" : ""), "", reviewFixBtn());
       if (!last.sent) return row("talk", `Рецензент залишив ${what}: передасте агенту, коли він закінчить`, "");
       if (step === "fixing") return row("run", "Агент виправляє зауваження рецензента", "");
-      if (step === "human") return row("bad", "Раунди рев'ю агентом не зійшлись: рішення за вами", "");
       const tally = replyTally(last);
+      if (r.agentReviews.some((a) => a.escalated)) return row("bad", "Раунди рев'ю агентом не зійшлись: рішення за вами" + (last.replyAt ? ` · агент відповів${tally}` : ""), "",
+        ready ? reviewBtn("Ще раунд", "ghost", "Ліміт раундів вичерпано: ще один раунд — ваше рішення") : "");
       return row(last.unverified ? "bad" : "talk", (last.replyAt ? "Агент відповів на зауваження" + tally : "Агент працював над зауваженнями")
         + (last.unverified ? " · ⚠ пише «виправлено», але нових комітів немає" : "") + (ready ? "" : ": нових запушених змін у гілці ще немає"), "", ready ? reviewBtn("Рев'ю ще раз") : "");
     }
@@ -1286,7 +1287,7 @@ function reviewerHTML(r) {
   };
   return `<h3>Рев'ю агентом</h3>` + r.agentReviews.map((a, i) => {
     const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1] + (a.sent ? ", передано агенту" : "");
-    const links = [extLink(a.commentUrl, "коментар у задачі"), extLink(a.mrCommentUrl, "коментар у MR"), extLink(a.replyUrl, "відповідь агента")].filter(Boolean).join(" · ");
+    const links = [extLink(a.commentUrl, "коментар у задачі"), extLink(a.mrCommentUrl, "коментар у MR"), extLink(a.replyUrl, "відповідь агента"), extLink(a.mrReplyUrl, "відповідь агента в MR")].filter(Boolean).join(" · ");
     const structured = a.remarks?.length || a.checks?.length;
     const checks = a.checks?.length ? `<div class="muted">Попередні: ${a.checks.map((c) => `<b>${esc(c.id)}</b> ${mark(VERDICT[c.verdict], c.note)}`).join(" · ")}</div>` : "";
     const body = structured ? checks + (a.remarks?.length ? remarksTable(a, verdictsAfter(i), !!a.replyAt) : "")

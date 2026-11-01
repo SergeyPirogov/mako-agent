@@ -35,6 +35,8 @@ func TestCommentLinks(t *testing.T) {
 			w.Write([]byte(`{"id":42}`))
 		case "/rest/api/3/issue/PAY-7/comment":
 			w.Write([]byte(`{"id":"10001"}`))
+		case "/rest/api/3/issue/PAY-8/comment":
+			w.Write([]byte(`{}`))
 		default:
 			t.Errorf("unexpected %s", r.URL.Path)
 			w.WriteHeader(404)
@@ -66,7 +68,11 @@ func TestCommentLinks(t *testing.T) {
 	if u, err := j.CommentLink(ctx, core.Task{ID: "PAY-7"}, "R1"); err != nil || u != srv.URL+"/browse/PAY-7?focusedCommentId=10001" {
 		t.Errorf("jira: %q %v", u, err)
 	}
-	if len(posted) != 5 {
+	// Jira gave no comment ID: posted, with no link.
+	if u, err := j.CommentLink(ctx, core.Task{ID: "PAY-8"}, "R1"); err != nil || u != "" {
+		t.Errorf("jira, no id: %q %v", u, err)
+	}
+	if len(posted) != 6 {
 		t.Errorf("posted %v", posted)
 	}
 }

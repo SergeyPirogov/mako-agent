@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -121,12 +122,7 @@ func (d *Dispatcher) collectReply(id string, ask bool) {
 	for _, a := range report {
 		fixed = fixed || a.Reply == core.Fixed || a.Reply == core.Partly
 	}
-	unverified := false
-	if fixed && last.SentHead != "" {
-		if head, err := gitx.Run(ctx, r.Worktree, "rev-parse", "HEAD"); err == nil && strings.TrimSpace(head) == last.SentHead {
-			unverified = true
-		}
-	}
+	unverified := fixed && last.SentHead != "" && !landed(ctx, r.Worktree, branchOf(r), last.SentHead, d.pushes(r))
 	d.Store.Update(id, func(r *core.Record) {
 		if !awaitsReply(*r) {
 			return
@@ -147,6 +143,19 @@ func (d *Dispatcher) collectReply(id string, ask bool) {
 		d.Log(id, "агент пише «виправлено», але в гілці немає нових комітів після зауважень")
 	}
 	d.publishReply(ctx, id)
+}
+
+// landed: the branch has a new commit since sent, and with pushed the remote branch has it too.
+func landed(ctx context.Context, wt, branch, sent string, pushed bool) bool {
+	head, err := gitx.Run(ctx, wt, "rev-parse", "HEAD")
+	if head = strings.TrimSpace(head); err != nil || head == "" || head == sent {
+		return false
+	}
+	if !pushed {
+		return true
+	}
+	remote, err := gitx.Run(ctx, wt, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch)
+	return err == nil && strings.TrimSpace(remote) == head
 }
 
 // lastWords: the agent's last message as it is now: its chat's, else its transcript's; the board's view of it
@@ -219,6 +228,8 @@ func (d *Dispatcher) sayReview(ctx context.Context, r core.Record, text string, 
 		if err == nil {
 			if c, ok := host.(trackers.ReviewCommenter); ok {
 				mrURL, err = c.CommentReview(ctx, r.PRURL, text)
+			} else {
+				err = errors.New("код-хост репозиторію не вміє коментувати MR")
 			}
 		}
 		if err != nil {
@@ -271,15 +282,18 @@ func (d *Dispatcher) publishReply(ctx context.Context, id string) {
 	if !issue && !mr {
 		return
 	}
+	// Each after the reviewer's comment in the same place, linked to it.
 	last := lastReview(r)
-	link := last.CommentURL
-	if link == "" {
-		link = last.MRCommentURL
+	var issueURL, mrURL string
+	if issue {
+		issueURL, _ = d.sayReview(ctx, r, writer.ReplyComment(last, last.CommentURL), true, false)
 	}
-	issueURL, mrURL := d.sayReview(ctx, r, writer.ReplyComment(last, link), issue, mr)
+	if mr {
+		_, mrURL = d.sayReview(ctx, r, writer.ReplyComment(last, last.MRCommentURL), false, true)
+	}
 	d.Store.Update(id, func(r *core.Record) {
 		if n := len(r.AgentReviews); n > 0 && r.AgentReviews[n-1].Commit == last.Commit {
-			r.AgentReviews = withLast(r.AgentReviews, func(a *core.AgentReview) { a.ReplyURL = firstOf(issueURL, mrURL) })
+			r.AgentReviews = withLast(r.AgentReviews, func(a *core.AgentReview) { a.ReplyURL, a.MRReplyURL = issueURL, mrURL })
 		}
 	})
 }

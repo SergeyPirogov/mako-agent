@@ -292,6 +292,7 @@ type AgentReview struct {
 	CommentURL   string `json:"commentUrl,omitempty"`
 	MRCommentURL string `json:"mrCommentUrl,omitempty"`
 	ReplyURL     string `json:"replyUrl,omitempty"`
+	MRReplyURL   string `json:"mrReplyUrl,omitempty"`
 	// Escalated: the rounds ran out with remarks still open: the decision is a person's now.
 	Escalated bool `json:"escalated,omitempty"`
 }

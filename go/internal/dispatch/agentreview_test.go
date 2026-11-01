@@ -63,14 +63,15 @@ func reviewSetup(t *testing.T, prep ...func(*config.Config)) (d *Dispatcher, cfg
 	git(t, repo, "worktree", "add", "-q", "-b", "fix/5-pay", wt, "main")
 
 	// A stand-in for the agent's claude: one turn for the task, one for each message after it; it answers with
-	// reply.json (a JSON string) when there is one, else «Готово»; with commit.flag it commits and pushes first.
+	// reply.json (a JSON string) when there is one, else «Готово»; with commit.flag it commits and pushes first
+	// (only commits with nopush.flag).
 	bin := t.TempDir()
 	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
 read init
 while read msg; do
   echo "$msg" >> said.json
   case "$msg" in *повільно*) sleep 1;; esac
-  if [ -f commit.flag ]; then git commit -q --allow-empty -m Fixes; git push -q origin HEAD; fi
+  if [ -f commit.flag ]; then git commit -q --allow-empty -m Fixes; [ -f nopush.flag ] || git push -q origin HEAD; fi
   text='"Готово"'
   if [ -f reply.json ]; then text=$(cat reply.json); fi
   printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":'"$text"'}]},"parent_tool_use_id":null}'
@@ -473,7 +474,8 @@ func TestReviewEscalates(t *testing.T) {
 	if notesWith(f, "Рішення за людиною") != 1 || notesWith(f, "Рев'ю агентом, раунд 2") != 1 {
 		t.Fatalf("no comment for a person: %q", f.notes)
 	}
-	// «Виправити» still hands this round's remarks over; after it, no third round.
+	// «Виправити» still hands this round's remarks over; another round is then the person's choice, and it
+	// does not leave them to a person again.
 	if err := d.FixReview(id); err != nil {
 		t.Fatal(err)
 	}
@@ -482,10 +484,53 @@ func TestReviewEscalates(t *testing.T) {
 	d.mu.Lock()
 	delete(d.branches, id)
 	d.mu.Unlock()
-	if r, _ := d.Store.Get(id); d.ReviewStep(r) != "human" {
+	if r, _ := d.Store.Get(id); d.ReviewStep(r) != "ready" {
 		t.Fatalf("step %q", d.ReviewStep(r))
 	}
-	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "людиною") {
+	if err := d.ReviewNow(id); err != nil {
 		t.Fatalf("a third round: %v", err)
+	}
+	if r := reviewEnd(t, d, id, "notes"); len(r.AgentReviews) != 3 || r.AgentReviews[2].Escalated {
+		t.Fatalf("third round %+v", r.AgentReviews)
+	}
+	if notesWith(f, "Рішення за людиною") != 1 {
+		t.Fatalf("a person told twice: %q", f.notes)
+	}
+}
+
+// LGTM over earlier remarks closes them; a «must» the reviewer gave no verdict on stays open and goes on.
+func TestJudgeVerdicts(t *testing.T) {
+	prior := []core.Remark{{ID: "R1", Weight: core.Must, Reply: core.Fixed}, {ID: "R2", Weight: core.Should}}
+	a := judge("", prior, 3)
+	if a.State != "clean" || len(a.Checks) != 2 || !a.Checks[0].Resolved() || !a.Checks[1].Resolved() {
+		t.Fatalf("LGTM %+v", a)
+	}
+	rounds := []core.AgentReview{{State: "notes", Remarks: prior}, a}
+	if open := core.OpenRemarks(rounds); len(open) != 0 {
+		t.Fatalf("still open after LGTM: %+v", open)
+	}
+	// A verdict on the «should» only: the «must» is not closed, the round is not clean.
+	a = judge("R2: закрито\nR3 [варто] a.go — дрібниця", prior, 3)
+	if a.State != "notes" || len(a.Remarks) != 2 || a.Remarks[1].ID != "R1" || !a.Remarks[1].Again || !strings.Contains(a.Remarks[1].Text, "не дав по ньому вердикту") {
+		t.Fatalf("no verdict on R1: %+v", a)
+	}
+	// Free text with no verdicts at all is a round of remarks as before, nothing carried over.
+	if a = judge("- щось не так", prior, 3); a.State != "notes" || len(a.Remarks) != 0 {
+		t.Fatalf("free text %+v", a)
+	}
+}
+
+// «Fixed» committed but not pushed, where the branch is to be pushed, is not a fix the reviewer can see.
+func TestReviewUnpushed(t *testing.T) {
+	d, id, wt, idle, _ := numberedReview(t, "", func([]core.Remark) string { return "" })
+	agentSays(t, wt, "R1 — виправлено\nR2 — виправлено")
+	os.WriteFile(filepath.Join(wt, "commit.flag"), nil, 0o644)
+	os.WriteFile(filepath.Join(wt, "nopush.flag"), nil, 0o644)
+	if err := d.FixReview(id); err != nil {
+		t.Fatal(err)
+	}
+	idle()
+	if last := replied(t, d, id); !last.Unverified || last.SentHead == "" {
+		t.Fatalf("unpushed fix: %+v", last)
 	}
 }
