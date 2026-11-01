@@ -179,6 +179,7 @@ const cardStatus = (r) => {
   if (st === "later") return ["відкладена", "", `Відкладена ${untilText(r.snoozedUntil)}`];
   // Left in «Нові» by auto-take: why, in the row («велика», «є питання до опису»).
   if (r.column === "new" && r.autoSkip) return [r.autoSkip, "", `Не взято автоматично: ${r.autoSkip}`];
+  if (st === "review" && r.ciWait) return ["MR · CI біжить", "warn", "MR відкрито, CI ще виконується: на рев'ю він піде, коли CI пройде"];
   if (st === "review") return !r.agentReviews?.length && highRisk(r) ? ["MR на рев'ю · високий ризик", "warn", HIGH_RISK] : ["MR на рев'ю", ""];
   if (st === "starting") return [LABEL[st], "", `Запускаю: ${startStep(r)?.label ?? "готую старт"}`];
   if (st === "queued") return [LABEL[st], "", r.queueWhy ? `У черзі: ${r.queueWhy}` : ""];
