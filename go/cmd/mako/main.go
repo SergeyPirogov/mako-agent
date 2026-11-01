@@ -178,6 +178,13 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 					return reportToMako(ctx, d, src, title, body)
 				}}
 			go updater.Watch(ctx, 30*time.Minute)
+			// While the update waits for the agents, no new one starts: it would keep it waiting.
+			d.Hold = func() string {
+				if updater.Waiting() {
+					return "стартує після оновлення Mako"
+				}
+				return ""
+			}
 		}
 	}
 	// Mako installed from a release has no clone: it only tells that a newer release is out.
