@@ -160,7 +160,8 @@ const cardStatus = (r) => {
   if (r.status === "cancelled") return ["скасовано", ""];
   if (r.error) return ["не вдалося", "err"];
   // «агент чекає на вас: агент питає»: the head in the narrow row, the whole of it in the tooltip.
-  if (r.blocked) return [r.blocked.split(": ")[0], "warn", r.blocked];
+  // A stopped agent fixes nothing in its MR: red, so it does not pass for just a conflict.
+  if (r.blocked) return [r.blocked.split(": ")[0], r.blocked.startsWith("агент зупинився") ? "err" : "warn", r.blocked];
   if (r.checks?.attention && r.status === "handed-off") return ["потребує уваги", "warn", `Перевірка перед MR не пройшла: ${checksLine(r.checks)}`];
   if (r.reviewState === "closed") return ["MR закрито", "err"];
   if (r.reviewState === "merged") return ["змерджено", ""];
