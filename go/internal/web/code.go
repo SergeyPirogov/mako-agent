@@ -102,7 +102,7 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 		}
 		c := s.D.Chats.Get(id)
 		if c == nil {
-			writeJSON(w, map[string]any{"ok": false, "error": "агент не запущений"})
+			writeJSON(w, map[string]any{"ok": false, "error": "the agent is not running"})
 			return
 		}
 		var answers map[string]string

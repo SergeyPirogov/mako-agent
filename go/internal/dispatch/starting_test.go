@@ -91,10 +91,10 @@ func TestQueuedOnlyOverWip(t *testing.T) {
 	if d.Starting("grp/app#12") != nil {
 		t.Fatal("a task over the WIP limit is shown as starting")
 	}
-	if why := d.QueueReason(); why != "WIP-ліміт: 2 з 2 в роботі" {
+	if why := d.QueueReason(); why != "WIP limit: 2 of 2 in work" {
 		t.Fatalf("reason %q", why)
 	}
-	if lines := strings.Join(logged(d, "grp/app#12"), "\n"); !strings.Contains(lines, "у черзі: WIP-ліміт: 2 з 2 в роботі") {
+	if lines := strings.Join(logged(d, "grp/app#12"), "\n"); !strings.Contains(lines, "in the queue: WIP limit: 2 of 2 in work") {
 		t.Fatalf("journal:\n%s", lines)
 	}
 	if lines := strings.Join(logged(d, "grp/app#10"), "\n"); strings.Contains(lines, "у черзі") {

@@ -101,8 +101,8 @@ func (s *Server) guard(next http.Handler) http.Handler {
 				http.Error(w, "phone not paired", http.StatusUnauthorized)
 				return
 			}
-			page(w, http.StatusUnauthorized, "Телефон не підключено",
-				"Відкрийте на Mac: Mako → Налаштування → Телефон, і відскануйте QR-код камерою iPhone.")
+			page(w, http.StatusUnauthorized, "Phone not connected",
+				"Open on the Mac: Mako → Settings → Phone, and scan the QR code with the iPhone camera.")
 			return
 		}
 		if macOnly(r.URL.Path) {
@@ -110,7 +110,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 				http.Error(w, "only on the Mac", http.StatusForbidden)
 				return
 			}
-			page(w, http.StatusForbidden, "Налаштування — на Mac", "Змінити налаштування Mako можна лише на Mac.")
+			page(w, http.StatusForbidden, "Settings are on the Mac", "Mako's settings can only be changed on the Mac.")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -120,28 +120,28 @@ func (s *Server) guard(next http.Handler) http.Handler {
 func page(w http.ResponseWriter, status int, title, text string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+	fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mako</title><link rel="stylesheet" href="/style.css"></head><body style="display:block">
 <div style="max-width:420px;margin:15vh auto;padding:0 20px;text-align:center"><div style="font-size:48px">🦈</div>
 <h1 style="font-size:20px">%s</h1><p style="color:var(--mute)">%s</p></div></body></html>`, html.EscapeString(title), html.EscapeString(text))
 }
 
-const pairPage = `<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+const pairPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mako</title><link rel="stylesheet" href="/style.css"></head><body style="display:block">
 <div style="max-width:420px;margin:15vh auto;padding:0 20px;text-align:center"><div style="font-size:48px">🦈</div>
-<h1 id="t" style="font-size:20px">Підключаю…</h1><p id="m" style="color:var(--mute)"></p></div>
+<h1 id="t" style="font-size:20px">Connecting…</h1><p id="m" style="color:var(--mute)"></p></div>
 <script>
 (function () {
   var code = new URLSearchParams(location.hash.slice(1)).get("code") || "";
   history.replaceState(null, "", "/pair");
   function fail(text) {
-    document.getElementById("t").textContent = "Не вдалося підключити";
+    document.getElementById("t").textContent = "Could not connect";
     document.getElementById("m").textContent = text;
   }
-  if (!code) return fail("Відскануйте QR-код з Mako на Mac ще раз.");
+  if (!code) return fail("Scan the QR code from Mako on the Mac again.");
   fetch("/pair", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"}, body: "code=" + encodeURIComponent(code)})
     .then(function (r) { return r.ok ? location.replace("/?paired=1") : r.text().then(fail); })
-    .catch(function () { fail("Немає зв'язку з Mako."); });
+    .catch(function () { fail("Cannot reach Mako."); });
 })();
 </script></body></html>`
 
@@ -213,7 +213,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /pair/d/{token}", func(w http.ResponseWriter, r *http.Request) {
 		if s.Phones == nil || s.Phones.ByToken(r.PathValue("token")) == nil {
-			page(w, http.StatusUnauthorized, "Телефон відключено", "Підключіть його знову: Mako на Mac → Налаштування → Телефон.")
+			page(w, http.StatusUnauthorized, "Phone disconnected", "Connect it again: Mako on the Mac → Settings → Phone.")
 			return
 		}
 		setDeviceCookie(w, r, r.PathValue("token"))
@@ -246,7 +246,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 
-	// The «Телефон» section of the settings, on the Mac.
+	// The «Phone» section of the settings, on the Mac.
 	mux.HandleFunc("GET /api/phone", func(w http.ResponseWriter, r *http.Request) {
 		if s.Phones == nil {
 			http.NotFound(w, r)
@@ -275,7 +275,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		case "pairing":
 			t := phone.TailscaleState(r.Context(), port)
 			if !t.Serving || t.Host == "" {
-				err = fmt.Errorf("спершу відкрийте Mako для телефона через Tailscale")
+				err = fmt.Errorf("first open Mako for the phone through Tailscale")
 				break
 			}
 			link := "https://" + t.Host + "/pair#code=" + url.QueryEscape(s.Phones.NewPairing())

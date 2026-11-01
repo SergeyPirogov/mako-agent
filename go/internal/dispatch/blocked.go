@@ -8,7 +8,7 @@ import (
 )
 
 // Blocked: why a task in work or in review cannot go on by itself, in words, or "" when nothing holds it.
-// The board shows such tasks under «Заблоковані»: an agent waiting for your answer or permission, an MR whose
+// The board shows such tasks under “Blocked”: an agent waiting for your answer or permission, an MR whose
 // CI failed or that conflicts with its target. It reads only what Mako already looked at, never the network.
 // When such an MR's own agent has stopped, that is said first: nothing fixes the MR until it is continued.
 func (d *Dispatcher) Blocked(r core.Record) string {
@@ -18,7 +18,7 @@ func (d *Dispatcher) Blocked(r core.Record) string {
 	switch r.Column(0) {
 	case "doing":
 		if a := d.agents[r.ID]; a != nil && a.State == "waiting" {
-			return "агент чекає на вас" + orBlank(": ", a.Reason)
+			return "the agent is waiting for you" + orBlank(": ", a.Reason)
 		}
 	case "review":
 		l, ok := d.reviews[r.ID]
@@ -28,19 +28,19 @@ func (d *Dispatcher) Blocked(r core.Record) string {
 		why := ""
 		switch {
 		case l.check.Conflicts:
-			why = "конфлікти в MR"
+			why = "the MR has conflicts"
 		case l.check.CI == "failed":
-			why = "CI не пройшов"
+			why = "CI failed"
 		}
 		if why != "" && stopped {
-			return "агент зупинився: " + why + ", продовжіть його в чаті"
+			return "agent stopped: " + why + ", continue it in the chat"
 		}
 		return why
 	}
 	return ""
 }
 
-// CIWait: "CI біжить" for a task in review whose MR is open and whose CI is still running, else "".
+// CIWait: "CI is running" for a task in review whose MR is open and whose CI is still running, else "".
 // Like Blocked it reads only what Mako already looked at.
 func (d *Dispatcher) CIWait(r core.Record) string {
 	if r.Column(0) != "review" {
@@ -49,7 +49,7 @@ func (d *Dispatcher) CIWait(r core.Record) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if l, ok := d.reviews[r.ID]; ok && l.err == nil && l.check != nil && l.check.State == "open" && trackers.CIRunning(l.check.CI) {
-		return "CI біжить"
+		return "CI is running"
 	}
 	return ""
 }

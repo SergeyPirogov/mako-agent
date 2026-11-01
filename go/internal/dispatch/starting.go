@@ -98,9 +98,9 @@ func (d *Dispatcher) finishStep(p *StartProgress, at time.Time) string {
 
 func seconds(d time.Duration) string {
 	if d < 10*time.Second {
-		return fmt.Sprintf("%.1f с", d.Seconds())
+		return fmt.Sprintf("%.1f s", d.Seconds())
 	}
-	return fmt.Sprintf("%.0f с", d.Seconds())
+	return fmt.Sprintf("%.0f s", d.Seconds())
 }
 
 // Starting: how far the start of id has got, nil when it is not being started. A start the scheduler has just
@@ -116,7 +116,7 @@ func (d *Dispatcher) Starting(id string) *StartProgress {
 		c.Steps = slices.Clone(p.Steps)
 		return &c
 	}
-	return &StartProgress{Since: time.Now().UnixMilli(), Steps: []StartStep{{Key: "prepare", Label: "готую старт", At: time.Now().UnixMilli()}}}
+	return &StartProgress{Since: time.Now().UnixMilli(), Steps: []StartStep{{Key: "prepare", Label: "preparing the start", At: time.Now().UnixMilli()}}}
 }
 
 // stopStart: «Скасувати» while the task is being started stops its start; false when none goes on.
@@ -178,7 +178,7 @@ func (d *Dispatcher) QueueReason() string {
 		return why
 	}
 	if h := d.LimitHold(); h != nil {
-		return fmt.Sprintf("ліміт Claude (%s) використано на %d%%, до %s", h.Window, h.Used, time.Unix(h.ResetsAt, 0).Format("15:04"))
+		return fmt.Sprintf("Claude limit (%s) used up to %d%%, until %s", h.Window, h.Used, time.Unix(h.ResetsAt, 0).Format("15:04"))
 	}
 	limit := d.Config().WipLimit
 	if limit <= 0 {
@@ -193,7 +193,7 @@ func (d *Dispatcher) QueueReason() string {
 		}
 	}
 	if active >= limit {
-		return fmt.Sprintf("WIP-ліміт: %d з %d в роботі", active, limit)
+		return fmt.Sprintf("WIP limit: %d of %d in work", active, limit)
 	}
 	return ""
 }

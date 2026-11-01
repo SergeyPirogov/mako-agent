@@ -309,7 +309,7 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		if s.Update == nil {
-			writeJSON(w, map[string]any{"ok": false, "error": "Mako зібраний не з репозиторію"})
+			writeJSON(w, map[string]any{"ok": false, "error": "Mako was not built from the repository"})
 			return
 		}
 		writeJSON(w, map[string]bool{"ok": s.Update.Start()})
@@ -325,7 +325,7 @@ func (s *Server) Handler() http.Handler {
 				return
 			}
 			if s.Update == nil {
-				writeJSON(w, map[string]any{"ok": false, "error": "Mako зібраний не з репозиторію"})
+				writeJSON(w, map[string]any{"ok": false, "error": "Mako was not built from the repository"})
 				return
 			}
 			ok := act(s.Update)
@@ -427,7 +427,7 @@ func (s *Server) Handler() http.Handler {
 			rec, _ := s.D.Store.Get(id)
 			// Taken already (another tab, the phone): the model is not changed for a task that is going.
 			if !dispatch.CanTake(rec) {
-				writeJSON(w, map[string]any{"ok": false, "error": "задачу вже взято в роботу"})
+				writeJSON(w, map[string]any{"ok": false, "error": "the task is already taken"})
 				return
 			}
 			q := r.URL.Query()
@@ -477,7 +477,7 @@ func (s *Server) Handler() http.Handler {
 					err = s.D.RevisePlan(id, r.URL.Query().Get("req"), string(body))
 				}
 			case c == nil:
-				err = fmt.Errorf("агент не запущений")
+				err = fmt.Errorf("the agent is not running")
 			case action == "answer":
 				var answers map[string]string
 				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
@@ -552,7 +552,7 @@ func (s *Server) Handler() http.Handler {
 				Answers []dispatch.Answer `json:"answers"`
 			}
 			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
-				writeJSON(w, map[string]any{"ok": false, "error": "не вдалось прочитати відповіді: " + err.Error()})
+				writeJSON(w, map[string]any{"ok": false, "error": "could not read the answers: " + err.Error()})
 				return
 			}
 			if err := s.D.AnswerQuestions(ctx, id, in.Answers); err != nil {

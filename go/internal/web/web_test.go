@@ -176,14 +176,14 @@ func TestBoardQueueWhy(t *testing.T) {
 	var st stateReply
 	json.NewDecoder(res.Body).Decode(&st)
 	for _, r := range st.Records {
-		want := map[string]string{"grp/app#2": "WIP-ліміт: 1 з 1 в роботі"}[r.ID]
+		want := map[string]string{"grp/app#2": "WIP limit: 1 of 1 in work"}[r.ID]
 		if r.QueueWhy != want || r.Starting != nil {
 			t.Fatalf("%s: queueWhy %q, starting %+v", r.ID, r.QueueWhy, r.Starting)
 		}
 	}
 	res, _ = http.Get(srv.URL + "/")
-	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `"queued", "starting"`) || i18n.In(i18n.UK, "b.label.starting") != "запускаю…" {
-		t.Fatal("no «запускаю» on the board")
+	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `"queued", "starting"`) || i18n.T("b.label.starting") == "b.label.starting" {
+		t.Fatal("no \"starting\" state on the board")
 	}
 }
 
@@ -603,7 +603,7 @@ func TestAnswersBadBody(t *testing.T) {
 		Error string `json:"error"`
 	}
 	json.NewDecoder(res.Body).Decode(&reply)
-	if reply.OK || !strings.Contains(reply.Error, "не вдалось прочитати відповіді") {
+	if reply.OK || !strings.Contains(reply.Error, "could not read the answers") {
 		t.Fatalf("reply %+v", reply)
 	}
 }
@@ -634,5 +634,24 @@ func TestBoardFunctionsOnce(t *testing.T) {
 			t.Errorf("function %s is declared twice in board.html", m[1])
 		}
 		seen[m[1]] = true
+	}
+}
+
+// The pages are English only: no Cyrillic in the board, the settings or the phone pages, except the Ukrainian
+// examples of what the agent writes (the agentLanguage choice and its comment templates).
+func TestPagesHaveNoCyrillic(t *testing.T) {
+	cyr := regexp.MustCompile(`[А-Яа-яІіЇїЄєҐґ]`)
+	example := regexp.MustCompile(`uk: "[^"]*"|\["uk", "[^"]*"\]`)
+	for _, f := range []string{"board.html", "settings.html", "theme.js", "sw.js", "phone.go"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			line = example.ReplaceAllString(line, "")
+			if cyr.MatchString(line) {
+				t.Errorf("%s:%d has Cyrillic: %s", f, i+1, strings.TrimSpace(line))
+			}
+		}
 	}
 }

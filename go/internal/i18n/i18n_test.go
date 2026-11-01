@@ -46,7 +46,7 @@ func TestT(t *testing.T) {
 	if got := T("no.such.key"); got != "no.such.key" {
 		t.Fatalf("missing key: %q", got)
 	}
-	if Strings(UK)["s.save"] != "Зберегти" || Strings(EN)["s.save"] != "Save" {
+	if Strings(UK)["s.save"] != "Save" || Strings(EN)["s.save"] != "Save" {
 		t.Fatal("Strings")
 	}
 }

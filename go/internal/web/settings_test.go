@@ -35,7 +35,7 @@ func TestAssigneeProblems(t *testing.T) {
 		t.Errorf("known: %q", got)
 	}
 	got := assigneeProblems(context.Background(), []trackers.Tracker{tracker("SergeyPirgov")})
-	if len(got) != 1 || !strings.Contains(got[0], "«SergeyPirgov» немає") {
+	if len(got) != 1 || !strings.Contains(got[0], "«SergeyPirgov» does not exist") {
 		t.Errorf("unknown: %q", got)
 	}
 }

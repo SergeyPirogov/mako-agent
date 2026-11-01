@@ -488,7 +488,7 @@ func (d *Dispatcher) take(ctx context.Context, id, said string) {
 	if d.Starting(id) == nil {
 		if r, _ := d.Store.Get(id); r.Status == core.Queued {
 			if why := d.QueueReason(); why != "" {
-				d.Log(id, "у черзі: "+why)
+				d.Log(id, "in the queue: "+why)
 			}
 		}
 	}

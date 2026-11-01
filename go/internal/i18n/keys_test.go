@@ -17,7 +17,7 @@ func TestEveryKeyUsedExists(t *testing.T) {
 		"b.label.":       {"new", "later", "queued", "starting", "doing", "review", "done", "failed", "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"},
 		"b.agent.":       {"waiting", "done", "idle", "unknown"},
 		"s.n.kind.":      {"waiting", "finished", "stopped", "review", "agentReview", "secrets", "merged", "newTask", "reviewAsked", "reminder", "gone", "limits"},
-		"s.nav.projects": {".one", ".few", ".many"},
+		"s.nav.projects": {".one", ".many"},
 		"tray.col.":      {"new", "doing", "review"},
 		"theme.":         {"auto", "light", "dark"},
 	}

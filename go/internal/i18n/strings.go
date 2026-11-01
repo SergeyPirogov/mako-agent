@@ -4,10 +4,12 @@ package i18n
 var dict = map[string][2]string{}
 
 func init() {
-	for _, part := range []map[string][2]string{goStrings, webStrings} {
-		for k, v := range part {
-			dict[k] = v
-		}
+	for k, v := range goStrings {
+		dict[k] = v
+	}
+	// The pages are English only: the Ukrainian slot of their words is the English text.
+	for k, v := range webStrings {
+		dict[k] = [2]string{v, v}
 	}
 }
 

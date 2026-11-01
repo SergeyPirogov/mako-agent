@@ -28,14 +28,14 @@ func TestAutoTakeGate(t *testing.T) {
 	}{
 		{config.AutoTakeAll, nil, ""},
 		{config.AutoTakeAll, est("big", 1, "- що?"), ""},
-		{config.AutoTakeSmall, nil, "ще не оцінена"},
+		{config.AutoTakeSmall, nil, "not estimated yet"},
 		{config.AutoTakeSmall, &core.Estimate{State: "running"}, "ще оцінюється"},
 		{config.AutoTakeSmall, &core.Estimate{State: "failed", Error: "timeout"}, "оцінка не вдалась"},
 		{config.AutoTakeSmall, small, ""},
 		{config.AutoTakeSmall, est("small", 2, "- який трекер?"), ""},
 		{config.AutoTakeSmall, est("big", 5, ""), "велика"},
 		{config.AutoTakeSmall, est("medium", 5, ""), "середня"},
-		{config.AutoTakeSmallClear, nil, "ще не оцінена"},
+		{config.AutoTakeSmallClear, nil, "not estimated yet"},
 		{config.AutoTakeSmallClear, small, ""},
 		{config.AutoTakeSmallClear, est("small", 5, "- який трекер?"), "є питання до опису"},
 		{config.AutoTakeSmallClear, est("small", 3, ""), "опис неясний"},
@@ -69,7 +69,7 @@ func TestAutoTakeWaitsForTheEstimate(t *testing.T) {
 	d.Poll(ctx)
 	d.Wait()
 	r, _ := d.Store.Get(id)
-	if r.Column(0) != "new" || r.AutoSkip != "ще не оцінена" || len(*jobs) != 0 {
+	if r.Column(0) != "new" || r.AutoSkip != "not estimated yet" || len(*jobs) != 0 {
 		t.Fatalf("taken with no estimate: %s %q, %d jobs", r.Status, r.AutoSkip, len(*jobs))
 	}
 

@@ -30,7 +30,7 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 			Take        bool   `json:"take"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": "не вдалося прочитати задачу: " + err.Error()})
+			writeJSON(w, map[string]any{"ok": false, "error": "could not read the task: " + err.Error()})
 			return
 		}
 		n := trackers.NewIssue{Project: in.Project, Title: in.Title, Description: in.Description, Bug: in.Type == "bug"}
@@ -51,7 +51,7 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 			URL string `json:"url"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": "не вдалося прочитати посилання: " + err.Error()})
+			writeJSON(w, map[string]any{"ok": false, "error": "could not read the link: " + err.Error()})
 			return
 		}
 		why, err := s.D.WhyNot(r.Context(), in.URL)
@@ -68,7 +68,7 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 		}
 		data, err := io.ReadAll(io.LimitReader(r.Body, maxImage+1))
 		if err == nil && len(data) > maxImage {
-			writeJSON(w, map[string]any{"ok": false, "error": "зображення більше 10 МБ"})
+			writeJSON(w, map[string]any{"ok": false, "error": "the image is larger than 10 MB"})
 			return
 		}
 		q := r.URL.Query()
@@ -90,7 +90,7 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 		}
 		data, err := io.ReadAll(io.LimitReader(r.Body, maxImage+1))
 		if err == nil && len(data) > maxImage {
-			writeJSON(w, map[string]any{"ok": false, "error": "зображення більше 10 МБ"})
+			writeJSON(w, map[string]any{"ok": false, "error": "the image is larger than 10 MB"})
 			return
 		}
 		if err != nil {

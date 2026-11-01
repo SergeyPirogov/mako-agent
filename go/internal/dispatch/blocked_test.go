@@ -25,7 +25,7 @@ func TestBlocked(t *testing.T) {
 		t.Fatalf("working agent: %q", got)
 	}
 	d.agents[doing.ID] = &Agent{State: "waiting", Reason: "питання"}
-	if got := d.Blocked(doing); got != "агент чекає на вас: питання" {
+	if got := d.Blocked(doing); got != "the agent is waiting for you: питання" {
 		t.Fatalf("waiting agent: %q", got)
 	}
 
@@ -38,11 +38,11 @@ func TestBlocked(t *testing.T) {
 		t.Fatalf("green MR: %q", got)
 	}
 	d.reviews[review.ID] = look(trackers.ReviewCheck{State: "open", CI: "failed"})
-	if got := d.Blocked(review); got != "CI не пройшов" {
+	if got := d.Blocked(review); got != "CI failed" {
 		t.Fatalf("failed CI: %q", got)
 	}
 	d.reviews[review.ID] = look(trackers.ReviewCheck{State: "open", CI: "failed", Conflicts: true})
-	if got := d.Blocked(review); got != "конфлікти в MR" {
+	if got := d.Blocked(review); got != "the MR has conflicts" {
 		t.Fatalf("conflicts: %q", got)
 	}
 	d.reviews[merged.ID] = look(trackers.ReviewCheck{State: "open", Conflicts: true})
@@ -51,7 +51,7 @@ func TestBlocked(t *testing.T) {
 	}
 }
 
-// An MR whose own agent stopped says so: «конфлікти в MR» alone reads as if the agent were on it.
+// An MR whose own agent stopped says so: “the MR has conflicts” alone reads as if the agent were on it.
 func TestBlockedAgentStopped(t *testing.T) {
 	d := &Dispatcher{agents: map[string]*Agent{}, reviews: map[string]reviewLook{}}
 	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
@@ -61,11 +61,11 @@ func TestBlockedAgentStopped(t *testing.T) {
 	look := func(c trackers.ReviewCheck) reviewLook { return reviewLook{at: time.Now(), check: &c} }
 
 	d.reviews[mine.ID] = look(trackers.ReviewCheck{State: "open", Conflicts: true})
-	if got := d.Blocked(mine); got != "агент зупинився: конфлікти в MR, продовжіть його в чаті" {
+	if got := d.Blocked(mine); got != "agent stopped: the MR has conflicts, continue it in the chat" {
 		t.Fatalf("conflicts, no agent running: %q", got)
 	}
 	d.reviews[mine.ID] = look(trackers.ReviewCheck{State: "open", CI: "failed"})
-	if got := d.Blocked(mine); got != "агент зупинився: CI не пройшов, продовжіть його в чаті" {
+	if got := d.Blocked(mine); got != "agent stopped: CI failed, continue it in the chat" {
 		t.Fatalf("failed CI, no agent running: %q", got)
 	}
 	d.reviews[mine.ID] = look(trackers.ReviewCheck{State: "open", CI: "success"})
@@ -73,7 +73,7 @@ func TestBlockedAgentStopped(t *testing.T) {
 		t.Fatalf("green MR needs no agent: %q", got)
 	}
 	d.reviews[orca.ID] = look(trackers.ReviewCheck{State: "open", Conflicts: true})
-	if got := d.Blocked(orca); got != "конфлікти в MR" {
+	if got := d.Blocked(orca); got != "the MR has conflicts" {
 		t.Fatalf("an agent in Orca is not Mako's to look at: %q", got)
 	}
 }
