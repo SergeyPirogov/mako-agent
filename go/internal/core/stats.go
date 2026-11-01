@@ -85,6 +85,24 @@ type Group struct {
 	Unclear int `json:"unclear"`
 }
 
+// ModelFamily: the model by its family, so Claude Code's own name of it and the alias Mako asked for count as
+// one ("claude-opus-4-7[1m]" and "opus" are "opus"); another name without "claude-" and "[…]"; "—" unknown.
+func ModelFamily(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.Index(m, "["); i >= 0 {
+		m = m[:i]
+	}
+	for _, f := range []string{"opus", "sonnet", "haiku", "fable"} {
+		if strings.Contains(m, f) {
+			return f
+		}
+	}
+	if m = strings.TrimPrefix(m, "claude-"); m == "" {
+		return "—"
+	}
+	return m
+}
+
 // unclear: the highest clarity of a task the agent hardly understood.
 const unclear = 2
 
@@ -129,10 +147,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		if executor == "" {
 			executor = "—"
 		}
-		model := r.AgentModel
-		if model == "" {
-			model = "—"
-		}
+		model := ModelFamily(r.AgentModel)
 		groups := []*Group{group(projects, project), group(executors, executor), group(models, model)}
 		if r.Task.Author != "" {
 			groups = append(groups, group(authors, r.Task.Author))

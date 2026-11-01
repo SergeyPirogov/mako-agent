@@ -546,6 +546,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	branch := gitx.BranchName(repo.BranchPattern, r.Task, attempt)
 	d.Store.Update(id, func(r *core.Record) {
 		r.Repo, r.Executor, r.BranchName, r.StartedAt, r.Attempt = repo.Name, executor, branch, now(), attempt
+		r.AgentModel = "" // this attempt's agent names its own
 	})
 
 	if t.Config().AssignOnTake {

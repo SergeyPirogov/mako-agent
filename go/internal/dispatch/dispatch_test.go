@@ -502,3 +502,24 @@ func TestPausedTrackerNotSearched(t *testing.T) {
 		t.Fatal("the tracker taken off pause was not searched")
 	}
 }
+
+// Orca's agent does not report its model: the task keeps the one it was asked for, and a new attempt with
+// none forgets the last attempt's.
+func TestOrcaAgentModel(t *testing.T) {
+	d, _, jobs := setup(t)
+	ctx := context.Background()
+	d.Poll(ctx)
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Model = "sonnet" })
+	d.Take(ctx, "grp/app#5")
+	d.Wait()
+	if r, _ := d.Store.Get("grp/app#5"); len(*jobs) != 1 || (*jobs)[0].Model != "sonnet" || r.AgentModel != "sonnet" {
+		t.Fatalf("jobs %+v, agent model %q, error %q", *jobs, r.AgentModel, r.Error)
+	}
+
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status, r.Model, r.Worktree = core.Queued, "", "" })
+	d.Push(ctx, "grp/app#5")
+	d.Wait()
+	if r, _ := d.Store.Get("grp/app#5"); len(*jobs) != 2 || r.AgentModel != "" {
+		t.Fatalf("jobs %d, agent model %q, error %q", len(*jobs), r.AgentModel, r.Error)
+	}
+}

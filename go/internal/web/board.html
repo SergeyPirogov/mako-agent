@@ -1639,10 +1639,10 @@ function statsHTML(s) {
     ${clarityHTML(s)}
     ${groupsHTML("За проєктами", s.projects, "Проєкт")}
     ${groupsHTML("За агентами", s.executors, "Агент", (n) => n === "terminal" ? "Агент у Mako" : n === "—" ? "—" : `Orca · ${n}`)}
-    ${groupsHTML("За моделями", s.models, "Модель", (n) => n === "—" ? "Невідома" : n.replace(/^claude-/, ""), 1)}
+    ${groupsHTML("За моделями", s.models, "Модель", (n) => n === "—" ? "Невідома" : n[0].toUpperCase() + n.slice(1), 1)}
     <h3>Причини невдач</h3>
     ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
-    <p class="stats-note">Час — від передачі агенту до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє.</p>
+    <p class="stats-note">Час — від передачі агенту до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
   </div>`;
 }
 
