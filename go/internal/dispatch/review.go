@@ -8,6 +8,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
+	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
 // The MR card: the MR's CI, review threads and conflicts; the agent in Mako's terminal fixes them on request.
@@ -103,12 +104,25 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	return nil
 }
 
-// asked: the agent got the request for kind; a review's comments count, for the statistics, as rework.
+// asked: the agent got the request for kind; a review's comments and CI fixes count, for the statistics, as rework.
 func (d *Dispatcher) asked(id, kind string) {
 	d.forgetReview(id)
-	if kind == "comments" {
+	switch kind {
+	case "comments":
 		d.Store.Update(id, func(rec *core.Record) { rec.ReviewFixes++ })
+	case "ci":
+		d.Store.Update(id, func(rec *core.Record) { rec.CIFixes++ })
 	}
+}
+
+// spending: ctx whose Claude Code calls add what they cost to the task's phase.
+func (d *Dispatcher) spending(ctx context.Context, id, phase string) context.Context {
+	return writer.WithSpend(ctx, func(s writer.Spend) {
+		if _, ok := d.Store.Get(id); !ok { // gone meanwhile: Update would make it again
+			return
+		}
+		d.Store.Update(id, func(r *core.Record) { r.AddSpend(phase, s.USD, s.Tokens) })
+	})
 }
 
 var askedLog = map[string]string{"push": "агента попрошено запушити зміни", "open": "агента попрошено відкрити MR",

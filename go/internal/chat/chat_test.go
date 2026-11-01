@@ -25,13 +25,14 @@ const fakeClaude = `#!/bin/sh
 read init
 read msg
 echo '{"type":"system","subtype":"init","session_id":"s-1","model":"claude-opus-5-5"}'
-echo '{"type":"assistant","message":{"usage":{"input_tokens":2,"cache_read_input_tokens":90000,"cache_creation_input_tokens":10000},"content":[{"type":"text","text":"Пишу файл"},{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"a.txt","content":"hi"}}]},"parent_tool_use_id":null}'
+echo '{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":2,"output_tokens":5,"cache_read_input_tokens":90000,"cache_creation_input_tokens":10000},"content":[{"type":"text","text":"Пишу файл"},{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"a.txt","content":"hi"}}]},"parent_tool_use_id":null}'
 echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"a.txt","content":"hi"},"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}'
 read answer
 echo "$answer" > answer.json
 echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"written","is_error":false}]},"parent_tool_use_id":null}'
 echo '{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.3,"resetsAt":100},"seven_day":{"utilization":0.07,"resetsAt":200}}}}'
-echo '{"type":"assistant","message":{"content":[{"type":"text","text":"DONE"}]},"parent_tool_use_id":null}'
+echo '{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":2,"output_tokens":5,"cache_read_input_tokens":90000,"cache_creation_input_tokens":10000},"content":[]},"parent_tool_use_id":"t9"}'
+echo '{"type":"assistant","message":{"id":"m2","usage":{"output_tokens":4},"content":[{"type":"text","text":"DONE"}]},"parent_tool_use_id":null}'
 echo '{"type":"result","subtype":"success","duration_ms":1500,"total_cost_usd":0.01,"modelUsage":{"claude-opus-5-5":{"contextWindow":1000000}}}'
 read more
 echo "$more" > more.json
@@ -44,8 +45,9 @@ func TestChat(t *testing.T) {
 	var limits Limits
 	var session string
 	var cost float64
+	var tokens int
 	s := Start(Options{ID: "a#1", Worktree: dir, Command: bin, SetupDone: &SetupResult{Command: "echo prepared", Output: "prepared\n"}, Prompt: "Зроби задачу",
-		OnLimits: func(l Limits) { limits = l }, OnSession: func(id, _ string) { session = id }, OnCost: func(usd float64) { cost += usd }})
+		OnLimits: func(l Limits) { limits = l }, OnSession: func(id, _ string) { session = id }, OnCost: func(usd float64, n int) { cost += usd; tokens += n }})
 	defer s.Stop()
 	wait := func(state string) {
 		t.Helper()
@@ -73,8 +75,8 @@ func TestChat(t *testing.T) {
 	if snap.Items[1].Output != "prepared\n" || snap.Items[3].Output != "written" || s.LastText() != "DONE" {
 		t.Fatalf("outputs %+v", snap.Items)
 	}
-	if cost != 0.01 {
-		t.Fatalf("cost %v", cost)
+	if cost != 0.01 || tokens != 100011 { // m1 once, though it came twice
+		t.Fatalf("cost %v, tokens %d", cost, tokens)
 	}
 	if session != "s-1" || limits.FiveHour == nil || limits.FiveHour.Used != 0.3 || limits.Week.ResetsAt != 200 {
 		t.Fatalf("session %q limits %+v", session, limits)

@@ -127,6 +127,10 @@ type Record struct {
 	BaseConflict *BaseConflict `json:"baseConflict,omitempty"`
 	// ReviewFixes: how many times the agent was asked to fix the MR's review comments, by you or by itself.
 	ReviewFixes int `json:"reviewFixes,omitempty"`
+	// CIFixes: how many times the agent was asked to fix the MR's CI, by you or by itself.
+	CIFixes int `json:"ciFixes,omitempty"`
+	// Metrics: where the task's time went, by stage, and what each phase of it cost; kept as it goes.
+	Metrics *Metrics `json:"metrics,omitempty"`
 	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.
 	AgentReviews []AgentReview `json:"agentReviews,omitempty"`
 	// Assessment: how the agent rates the finished task: its description, how hard it was, how much of it is

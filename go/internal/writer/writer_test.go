@@ -1,6 +1,9 @@
 package writer
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestReviewNotes(t *testing.T) {
 	for in, want := range map[string]string{
@@ -75,5 +78,25 @@ func TestParseEstimate(t *testing.T) {
 		if _, err := ParseEstimate(bad); err == nil {
 			t.Errorf("%s: no error", bad)
 		}
+	}
+}
+
+func TestParseResult(t *testing.T) {
+	out := []byte(`{"type":"result","subtype":"success","is_error":false,"result":"LGTM","total_cost_usd":0.12,` +
+		`"usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":300,"cache_creation_input_tokens":40}}` + "\n")
+	text, spend, ok := ParseResult(out)
+	if !ok || text != "LGTM" || spend.USD != 0.12 || spend.Tokens != 370 {
+		t.Fatalf("%q %+v %v", text, spend, ok)
+	}
+	if _, _, ok := ParseResult([]byte("## Що зроблено\n- кнопка")); ok {
+		t.Fatal("plain text read as a result")
+	}
+	var got Spend
+	ctx := WithSpend(context.Background(), func(s Spend) { got = s })
+	if answer(ctx, out) != "LGTM" || got != spend {
+		t.Fatalf("spend %+v", got)
+	}
+	if answer(ctx, []byte("plain")) != "plain" {
+		t.Fatal("plain text lost")
 	}
 }

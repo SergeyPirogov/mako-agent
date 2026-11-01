@@ -2,6 +2,7 @@
 package writer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,6 +64,52 @@ var (
 	fences      = regexp.MustCompile("^```\\w*\\n?|```\\s*$")
 )
 
+// Spend is what one call of Claude Code cost: USD and the tokens it read and wrote (cache included).
+type Spend struct {
+	USD    float64
+	Tokens int
+}
+
+type spendKey struct{}
+
+// WithSpend: a context whose Claude Code calls tell f what each cost, so the caller can add it to its task.
+func WithSpend(ctx context.Context, f func(Spend)) context.Context {
+	return context.WithValue(ctx, spendKey{}, f)
+}
+
+// answer: the text of `claude -p --output-format json`'s result, telling its spend to the context's WithSpend;
+// output that is not that JSON is the text itself.
+func answer(ctx context.Context, out []byte) string {
+	text, spend, ok := ParseResult(out)
+	if !ok {
+		return string(out)
+	}
+	if f, _ := ctx.Value(spendKey{}).(func(Spend)); f != nil && (spend.USD > 0 || spend.Tokens > 0) {
+		f(spend)
+	}
+	return text
+}
+
+// ParseResult reads the result `claude -p --output-format json` prints: its text and what it cost.
+func ParseResult(out []byte) (text string, spend Spend, ok bool) {
+	var r struct {
+		Type   string  `json:"type"`
+		Result *string `json:"result"`
+		Cost   float64 `json:"total_cost_usd"`
+		Usage  struct {
+			Input       int `json:"input_tokens"`
+			Output      int `json:"output_tokens"`
+			CacheRead   int `json:"cache_read_input_tokens"`
+			CacheCreate int `json:"cache_creation_input_tokens"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(out), &r) != nil || r.Type != "result" || r.Result == nil {
+		return "", Spend{}, false
+	}
+	u := r.Usage
+	return *r.Result, Spend{USD: r.Cost, Tokens: u.Input + u.Output + u.CacheRead + u.CacheCreate}, true
+}
+
 // Ask runs `claude -p --model haiku` with the prompt on stdin, for up to two minutes.
 func Ask(ctx context.Context, dir, prompt string) (string, error) {
 	return AskModel(ctx, dir, "haiku", prompt, 2*time.Minute)
@@ -76,7 +123,7 @@ func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Durat
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "-p", "--model", model, "--output-format", "text")
+	cmd := exec.CommandContext(ctx, path, "-p", "--model", model, "--output-format", "json")
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr strings.Builder
@@ -88,7 +135,7 @@ func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Durat
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
-	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(string(out)), ""))
+	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out)), ""))
 	if text == "" || len(text) > 6000 {
 		return "", errors.New("Claude не дав відповіді")
 	}
@@ -247,7 +294,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
-	args := []string{"-p", "--output-format", "text", "--no-session-persistence", "--permission-mode", "default",
+	args := []string{"-p", "--output-format", "json", "--no-session-persistence", "--permission-mode", "default",
 		"--disallowedTools", "Edit", "Write", "NotebookEdit", "--allowedTools"}
 	args = append(args, ReviewerTools...)
 	if model != "" {
@@ -266,7 +313,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
-	return ReviewNotes(string(out))
+	return ReviewNotes(answer(ctx, out))
 }
 
 // ReviewNotes: the reviewer's remarks from its answer, "" when it found nothing to fix.

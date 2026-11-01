@@ -260,12 +260,14 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// Tick is one round: new tasks, branches to check before their MR, hand-offs that got an MR, merges, MRs to fix, issues closed meanwhile, the archive.
+// Tick is one round: new tasks, branches to check before their MR, hand-offs that got an MR, merges, where the
+// tasks' time goes, MRs to fix, issues closed meanwhile, the archive.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	d.Poll(ctx)
 	d.CheckGates()
 	d.CheckHandoffs(ctx)
 	d.CheckMerges(ctx)
+	d.TrackStages(ctx, time.Now())
 	d.AutoRebase(ctx, time.Now())
 	d.AutoFix(ctx, time.Now())
 	d.CheckBlocked(ctx)
@@ -914,7 +916,7 @@ func (d *Dispatcher) describeIfBare(ctx context.Context, host trackers.CodeHost,
 	if len(body) >= 120 || (len(body) >= 40 && structured.MatchString(body)) {
 		return nil
 	}
-	newTitle, summary, err := writer.ReviewText(ctx, r.Worktree, repo.BaseBranch, r.Task)
+	newTitle, summary, err := writer.ReviewText(d.spending(ctx, r.ID, core.PhaseWork), r.Worktree, repo.BaseBranch, r.Task)
 	if err != nil || summary == "" {
 		return err
 	}

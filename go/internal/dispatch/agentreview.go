@@ -111,7 +111,7 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	d.Log(id, "рецензент переглядає гілку")
 	cfg := d.Config()
 	model := firstOf(cfg.Reviewer.Model, r.Model, cfg.Terminal.Model)
-	notes, err := ReviewBranch(ctx, wt, base, r.Task, model)
+	notes, err := ReviewBranch(d.spending(ctx, r.ID, core.PhaseReview), wt, base, r.Task, model)
 	link := d.BoardURL + "/#" + id
 	switch {
 	case err != nil:

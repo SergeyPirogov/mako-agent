@@ -84,7 +84,7 @@ func (d *Dispatcher) dropAttempt(ctx context.Context, r core.Record, note string
 		if base == "" {
 			base = gitx.DetectBaseBranch(r.Worktree)
 		}
-		s, err := writer.AttemptSummary(ctx, r.Worktree, base, r.Task, words, note)
+		s, err := writer.AttemptSummary(d.spending(ctx, r.ID, core.PhaseWork), r.Worktree, base, r.Task, words, note)
 		if err != nil {
 			d.Fault(r.ID, "підсумок минулої спроби не написано", err)
 		} else {

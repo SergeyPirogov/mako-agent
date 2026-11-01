@@ -195,6 +195,14 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--faint); }
 .legend i.merged { background: var(--ok); }
 .legend i.failed { background: var(--err); }
+.stage-bar { display: flex; gap: 2px; height: 14px; margin-top: 10px; border-radius: 4px; overflow: hidden; }
+.stage-bar i { display: block; min-width: 3px; }
+.stage-bar i.s-agent, .legend i.s-agent { background: var(--accent); }
+.stage-bar i.s-you, .legend i.s-you { background: var(--warn); }
+.stage-bar i.s-ci, .legend i.s-ci { background: var(--purple); }
+.stage-bar i.s-review, .legend i.s-review { background: var(--faint); }
+.legend.stage-legend { margin-top: 8px; }
+.legend.stage-legend b { color: var(--fg); font-weight: 600; }
 .stats .facts dt { font-variant-numeric: tabular-nums; text-align: right; }
 .digest-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .digest-list { list-style: none; margin: 0; padding: 0; }
