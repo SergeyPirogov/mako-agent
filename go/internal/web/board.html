@@ -72,14 +72,14 @@
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
 <script>
-const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
+const COLUMNS = [["new", "Нові"], ["later", "Відкладені"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
 const LABEL = { new: "нова", later: "відкладена", queued: "у черзі", starting: "запускаю…", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ci": "чекає на CI", "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
-// The list's groups folded by a click on their heading (column → folded); «Готово» and «Не виконано» start folded.
-let folded = (() => { try { return { done: true, failed: true, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { done: true, failed: true }; } })();
+// The list's groups folded by a click on their heading (column → folded); «Відкладені», «Готово» and «Не виконано» start folded.
+let folded = (() => { try { return { done: true, failed: true, later: true, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { done: true, failed: true, later: true }; } })();
 // The list's filter, shown once there are more tasks than fit at a glance.
 let query = "";
 const FILTER_FROM = 15;
@@ -510,7 +510,7 @@ function render() {
     // «Нові»: the clear and small ones first, the not estimated last.
     const newRank = (r) => { const e = estimated(r); return e ? SIZE_RANK[e.size] * 5 + (5 - (e.clarity?.value || 0)) : 99; };
     // A held-up task keeps its column for its actions, but is listed under «Заблоковані».
-    const items = rows.filter((r) => (r.blocked ? "blocked" : r.column) === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed || newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
+    const items = rows.filter((r) => (r.blocked ? "blocked" : r.column === "new" && r.postponed ? "later" : r.column) === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed || newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
     // Others' MRs where I am a reviewer: open ones in «Рев'ю для мене», finished ones in «Готово».
     const asks = col === "forme" || col === "done" ? reviewAsks(words).filter((q) => (q.state === "open") === (col === "forme")) : [];
     if (!items.length && !asks.length) continue;
