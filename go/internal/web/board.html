@@ -1292,6 +1292,16 @@ function laterAt(kind) {
   else d.setDate(d.getDate() + 1);
   return d;
 }
+// «Взяти в роботу» and, in its arrow, the same with a model of your choice for the task's agent.
+const TAKE_MODELS = ["opus", "sonnet", "haiku"];
+function takeButton(r) {
+  const model = r.model || "";
+  const item = (m, label) => `<button type="button" data-a="take" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}</button>`;
+  const title = model ? `Агент почне з моделлю ${model}` : "Агент почне з моделлю з налаштувань";
+  return `<span class="split"><button class="primary" data-a="take" data-x="" title="${esc(title)}">Взяти в роботу${model ? ` · <code>${esc(model)}</code>` : ""}</button>
+    <details class="menu"><summary class="primary" title="Взяти в роботу з іншою моделлю" aria-label="Вибрати модель">${ICON.chevron}</summary>
+    <div class="menu-pop"><div class="menu-h">Взяти в роботу з моделлю</div>${TAKE_MODELS.map((m) => item(m, `<code>${m}</code>`)).join("")}${item("", "Як у налаштуваннях")}</div></details></span>`;
+}
 function laterMenu() {
   const item = (kind, label) => {
     const min = Math.max(1, Math.round((laterAt(kind) - Date.now()) / 60000));
@@ -1868,7 +1878,7 @@ function renderDetail() {
   const agentOn = term && !r.archivedAt && r.reviewState !== "merged" && (r.column === "doing" || r.column === "review");
   // «Повторити інакше»: an icon in the agent's workspace bar, words elsewhere.
   const redo = term ? `<button class="icon" data-redo title="Повторити інакше" aria-label="Повторити інакше">${ICON.redo}</button>` : `<button data-redo>Повторити інакше</button>`;
-  if (r.column === "new") actions = b("take", "Взяти в роботу", "primary") + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
+  if (r.column === "new") actions = takeButton(r) + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
   // «Запустити зараз»: past the WIP limit and Claude's limits, the queue is yours to skip.
   else if (r.status === "queued") actions = `<button class="primary" data-a="push" title="Не чекати черги: передати агенту зараз, понад ліміт WIP і ліміти Claude">Запустити зараз</button>` + b("cancel", "Скасувати", "danger");
   else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + redo + ib("archive", "В архів", "archive");

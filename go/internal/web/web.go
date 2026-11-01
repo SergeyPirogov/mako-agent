@@ -364,6 +364,14 @@ func (s *Server) Handler() http.Handler {
 		}
 		switch action {
 		case "take":
+			// The arrow's model: ?model=sonnet (empty: as the settings say); «план спочатку» stays as picked.
+			if q := r.URL.Query(); q.Has("model") {
+				rec, _ := s.D.Store.Get(id)
+				if err := s.D.Pick(id, strings.TrimSpace(q.Get("model")), rec.PlanFirst); err != nil {
+					writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+					return
+				}
+			}
 			s.D.Take(ctx, id)
 		case "push":
 			s.D.Push(ctx, id)
