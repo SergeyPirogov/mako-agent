@@ -444,7 +444,7 @@ section.ws .files { max-height: none; flex: 1; min-height: 0; }
 .limit b { width: 32px; text-align: right; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
 .limit.warn .lbar > span { background: var(--warn); } .limit.warn b { color: var(--warn); }
 .limit .ls { display: none; }
-.limit .lr { font-size: 11px; }
+.limit .lr { font-size: 11px; min-width: 64px; font-variant-numeric: tabular-nums; }
 .limit.bad .lbar > span { background: var(--err); } .limit.bad b { color: var(--err); }
 
 /* The right panel: the branch, then one tab at a time; the card keeps its size, only the tab scrolls. */
@@ -630,7 +630,8 @@ details.journal .log { margin-top: 8px; }
   #waiting { flex: none; } /* who waits for you: never cut */
   .waiting-chip .wt { display: none; }
   .limits { gap: 8px; min-width: 0; overflow: hidden; }
-  .limit .lbar, .limit .lr { display: none; }
+  .limit .lbar { display: none; }
+  .limit .lr { min-width: 0; }
   .limit { gap: 3px; }
   .limit .lk { font-size: 11px; }
   .limit b { width: auto; }
