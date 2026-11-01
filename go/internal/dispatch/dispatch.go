@@ -571,6 +571,9 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.Worktree, r.Branch = core.HandedOff, res.Worktree, res.Branch
+		if executor != terminalExecutor && job.Model != "" {
+			r.AgentModel = job.Model // Orca's agent does not report its model: the one it was asked for
+		}
 	})
 	d.Log(id, map[string]string{"orca": "передано в Orca: ", terminalExecutor: "агент працює в терміналі: "}[executor]+res.Note)
 	d.comment(ctx, t, r.Task, d.Config().Comments.OnStart, map[string]string{"branch": res.Branch})

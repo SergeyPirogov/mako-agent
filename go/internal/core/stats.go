@@ -31,6 +31,8 @@ type Stats struct {
 	Projects []Group `json:"projects"`
 	// Executors: by who did the work: Mako's own agent or an executor in Orca.
 	Executors []Group `json:"executors"`
+	// Models: by the model the agent worked with ("—" unknown), the busiest first.
+	Models []Group `json:"models"`
 	// Assessed: the tasks the agent rated; the rest are the average scores over them.
 	Assessed     int     `json:"assessed"`
 	Clarity      float64 `json:"clarity"`
@@ -100,7 +102,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		st.BySize[i].Size = size
 	}
 	reasons := map[string]int{}
-	projects, executors, authors := map[string]*Group{}, map[string]*Group{}, map[string]*Group{}
+	projects, executors, authors, models := map[string]*Group{}, map[string]*Group{}, map[string]*Group{}, map[string]*Group{}
 	var took []float64
 	var review time.Duration
 	reviewed := 0
@@ -127,7 +129,11 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		if executor == "" {
 			executor = "—"
 		}
-		groups := []*Group{group(projects, project), group(executors, executor)}
+		model := r.AgentModel
+		if model == "" {
+			model = "—"
+		}
+		groups := []*Group{group(projects, project), group(executors, executor), group(models, model)}
 		if r.Task.Author != "" {
 			groups = append(groups, group(authors, r.Task.Author))
 		}
@@ -208,7 +214,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 			g.Cost /= float64(g.Priced)
 		}
 	}
-	st.Projects, st.Executors, st.Authors = sorted(projects), sorted(executors), sorted(authors)
+	st.Projects, st.Executors, st.Authors, st.Models = sorted(projects), sorted(executors), sorted(authors), sorted(models)
 	for text, n := range reasons {
 		st.Reasons = append(st.Reasons, Reason{Text: text, Count: n})
 	}

@@ -173,3 +173,21 @@ func TestSummarizeSince(t *testing.T) {
 		t.Fatalf("%+v", st)
 	}
 }
+
+func TestSummarizeByModel(t *testing.T) {
+	st := Summarize([]Record{
+		{Status: Done, AgentModel: "claude-opus-4-7", StartedAt: "2026-10-01T10:00:00Z", FinishedAt: "2026-10-01T10:30:00Z", Cost: 3},
+		{Status: Failed, AgentModel: "claude-opus-4-7", StartedAt: "2026-10-01T10:00:00Z", Error: "x", Cost: 1},
+		{Status: Done, AgentModel: "sonnet", StartedAt: "2026-10-01T10:00:00Z", FinishedAt: "2026-10-01T10:30:00Z", Cost: 0.5},
+		{Status: HandedOff, StartedAt: "2026-10-02T10:00:00Z"},
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	want := []Group{{"claude-opus-4-7", 2, 1, 1, 4, 0, 0, 0}, {"sonnet", 1, 1, 0, 0.5, 0, 0, 0}, {"—", 1, 0, 0, 0, 0, 0, 0}}
+	if len(st.Models) != len(want) {
+		t.Fatalf("models %+v", st.Models)
+	}
+	for i := range want {
+		if st.Models[i] != want[i] {
+			t.Fatalf("models %+v", st.Models)
+		}
+	}
+}

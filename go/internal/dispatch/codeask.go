@@ -224,7 +224,7 @@ func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string) err
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: t.ID, Worktree: p.Path, Command: command, Args: args, Prompt: text, History: history, Tools: CodeTools,
 		OnLimits:  d.limitsReported,
-		OnSession: func(sid string) { d.touchThread(t.ID, sid) },
+		OnSession: func(sid, _ string) { d.touchThread(t.ID, sid) },
 	}))
 	return nil
 }
