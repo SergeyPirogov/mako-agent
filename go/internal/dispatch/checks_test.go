@@ -75,13 +75,13 @@ func TestChecksFailThenPassOpenMR(t *testing.T) {
 	d, _, repo, id, wt, origin, idle := checksSetup(t, nil, "echo vet fine", "test -f pay_test.go || { echo FAIL: TestPay; exit 1; }")
 
 	// Nothing committed yet: nothing to check.
-	d.maybeCheck(id)
+	checkNow(t, d, id)
 	if r, _ := d.Store.Get(id); r.Checks != nil {
 		t.Fatalf("checked a branch with no commits: %+v", r.Checks)
 	}
 
 	commit(t, wt, "pay.go")
-	d.maybeCheck(id)
+	checkNow(t, d, id)
 	r, _ := d.Store.Get(id)
 	c := r.Checks
 	if c == nil || c.State != "failed" || c.Fails != 1 || c.Attention || len(c.Results) != 2 || !c.Results[0].OK || c.Results[1].OK {
@@ -105,14 +105,14 @@ func TestChecksFailThenPassOpenMR(t *testing.T) {
 
 	// The same commit is not checked again.
 	at := c.At
-	d.maybeCheck(id)
+	checkNow(t, d, id)
 	if r, _ := d.Store.Get(id); r.Checks.At != at {
 		t.Fatal("checked the same commit twice")
 	}
 
 	// Fixed: the checks pass, Mako pushes the branch and opens the MR.
 	commit(t, wt, "pay_test.go")
-	d.maybeCheck(id)
+	checkNow(t, d, id)
 	r, _ = d.Store.Get(id)
 	if r.Checks.State != "passed" || r.Checks.Fails != 0 || r.Checks.Error != "" {
 		t.Fatalf("checks %+v", r.Checks)
@@ -136,7 +136,7 @@ func TestChecksFailThenPassOpenMR(t *testing.T) {
 func TestChecksTimeoutNeedsAttention(t *testing.T) {
 	d, _, _, id, wt, _, idle := checksSetup(t, func(c *config.Config) { c.Terminal.CheckTimeoutSec, c.Terminal.CheckAttempts = 1, 1 }, "sleep 5")
 	commit(t, wt, "pay.go")
-	d.maybeCheck(id)
+	checkNow(t, d, id)
 	r, _ := d.Store.Get(id)
 	c := r.Checks
 	if c == nil || c.State != "failed" || !c.Results[0].TimedOut || !c.Attention || c.Fails != 1 {
@@ -159,7 +159,7 @@ func TestNoChecksAsBefore(t *testing.T) {
 	if d.checksFor(r) != nil {
 		t.Fatal("a repo without checks is gated")
 	}
-	d.maybeCheck(id)
+	checkNow(t, d, id)
 	if r, _ := d.Store.Get(id); r.Checks != nil {
 		t.Fatalf("checks ran: %+v", r.Checks)
 	}
@@ -179,7 +179,7 @@ func TestChecksPassedButSecretsStopPush(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, "conf.go"), []byte("package app\n\nconst tok = \""+token+"\"\n"), 0o644)
 	git(t, wt, "add", "conf.go")
 	git(t, wt, "commit", "-q", "-m", "Add conf")
-	d.maybeCheck(id)
+	checkNow(t, d, id)
 	r, _ := d.Store.Get(id)
 	if r.Checks.State != "passed" || !strings.Contains(r.Checks.Error, "секрети") || len(r.Secrets) == 0 {
 		t.Fatalf("checks %+v secrets %+v", r.Checks, r.Secrets)

@@ -54,11 +54,12 @@ func TestTerminalHandOff(t *testing.T) {
 	}
 	defer d.StopTerminal(r.ID)
 	var args string
-	for i := 0; i < 200 && !strings.HasSuffix(args, "haiku\n"); i++ { // the stand-in may still be writing it
+	// The stand-in may still be writing it.
+	waitFor(t, func() bool {
 		b, _ := os.ReadFile(argsFile)
 		args = string(b)
-		time.Sleep(20 * time.Millisecond)
-	}
+		return strings.HasSuffix(args, "haiku\n")
+	}, "the agent's args were not written")
 	if !strings.HasPrefix(args, "--settings\n") || !strings.Contains(args, "Кнопка оплати не працює") ||
 		!strings.HasSuffix(args, "--permission-mode\nauto\n--model\nhaiku\n") {
 		t.Fatalf("args %q", args)
@@ -83,9 +84,7 @@ func TestTerminalHandOff(t *testing.T) {
 
 	// Cancel stops the agent, the worktree stays.
 	d.Cancel(r.ID)
-	for i := 0; i < 200 && s.Running(); i++ {
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitFor(t, func() bool { return !s.Running() }, "the agent did not stop")
 	if s.Running() || !exists(r.Worktree) {
 		t.Fatalf("running %v, worktree %v", s.Running(), exists(r.Worktree))
 	}
@@ -132,12 +131,7 @@ echo "$more" > more.json
 	}
 	defer d.StopTerminal(r.ID)
 	s := d.Chats.Get(r.ID)
-	for i := 0; i < 300; i++ {
-		if st, _, _ := s.State(); st == "waiting" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitFor(t, func() bool { st, _, _ := s.State(); return st == "waiting" }, "the chat is not waiting")
 	d.watchTerminals(time.Now())
 	if a := d.Agents()[r.ID]; a.State != "waiting" || a.Reason != "дозвіл на Bash: npm test" || !a.Live {
 		t.Fatalf("agent %+v", a)
@@ -160,12 +154,7 @@ echo "$more" > more.json
 		t.Fatalf("waiting push %q", asked)
 	}
 	s.Permit("r1", "allow")
-	for i := 0; i < 300; i++ {
-		if st, _, _ := s.State(); st == "done" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitFor(t, func() bool { st, _, _ := s.State(); return st == "done" }, "the chat is not done")
 	d.watchTerminals(time.Now())
 	// Answered elsewhere (here, as on the board): the notification goes away.
 	if p := strings.Join(pushed(), "\n"); !strings.Contains(p, "withdraw wait:grp/app#5") {
@@ -196,12 +185,7 @@ echo "$more" > more.json
 	if err := d.Say(r.ID, "Ще раз тести"); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 300; i++ {
-		if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); len(b) > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return len(b) > 0 }, "the agent was not resumed")
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Ще раз тести") {
 		t.Fatalf("resumed with %s", b)
 	}

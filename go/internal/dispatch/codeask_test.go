@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
+	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 )
 
 func waitFor(t *testing.T, ok func() bool, why string) {
@@ -20,6 +21,42 @@ func waitFor(t *testing.T, ok func() bool, why string) {
 			t.Fatal(why)
 		}
 	}
+}
+
+// settle waits for the task's reviewer and checks to end, the ones the agent's turn started in the background too.
+func settle(t *testing.T, d *Dispatcher, id string) {
+	t.Helper()
+	waitFor(t, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return !d.reviewing[id] && !d.checking[id]
+	}, "the reviewer or the checks did not end")
+}
+
+// reviewNow is maybeReview from the test, after and with the one the agent's turn may have started: whichever
+// runs it, the round is over when it returns.
+func reviewNow(t *testing.T, d *Dispatcher, id string) {
+	t.Helper()
+	settle(t, d, id)
+	d.maybeReview(id)
+	settle(t, d, id)
+}
+
+// checkNow is reviewNow for the checks.
+func checkNow(t *testing.T, d *Dispatcher, id string) {
+	t.Helper()
+	settle(t, d, id)
+	d.maybeCheck(id)
+	settle(t, d, id)
+}
+
+// setConfig changes the settings as Mako's reload does, in a copy: the agent's goroutines read the old ones.
+func setConfig(d *Dispatcher, change func(*config.Config)) {
+	c := *d.Config()
+	change(&c)
+	d.cfgMu.Lock()
+	d.Cfg = &c
+	d.cfgMu.Unlock()
 }
 
 func TestAskCodeReadOnly(t *testing.T) {
