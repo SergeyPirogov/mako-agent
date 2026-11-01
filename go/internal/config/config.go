@@ -25,7 +25,9 @@ const (
 
 type Config struct {
 	// Language: what Mako speaks and asks its agents to write in, i18n.EN (default) or i18n.UK.
-	Language        string
+	Language string
+	// UnknownLanguage: the config's "language" Mako does not speak (English is used instead); "" when fine.
+	UnknownLanguage string
 	Path            string
 	Home            string // the folder of mako.config.json and .env
 	StateDir        string
@@ -287,11 +289,13 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	if lang == "" {
 		lang = i18n.Default
 	}
+	unknown := ""
 	if !i18n.Supported(lang) {
-		return nil, fmt.Errorf("language %q: потрібна «en» або «uk»", lang)
+		unknown, lang = lang, i18n.Default // a wrong language does not cost the trackers: English, with a problem
 	}
 	c := &Config{
 		Language:         lang,
+		UnknownLanguage:  unknown,
 		StateDir:         Expand(raw.StateDir),
 		PollIntervalSec:  orInt(raw.PollIntervalSec, 60),
 		WipLimit:         orInt(raw.WipLimit, 0),

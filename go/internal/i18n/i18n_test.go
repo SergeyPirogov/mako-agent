@@ -78,7 +78,8 @@ func TestIsRussian(t *testing.T) {
 		"Кнопка оплати не працює. Якщо натиснути на кнопку, нічого не відбувається.": false,
 		"Додай налаштування яке скаже якою мовою має бути спілкування":               false,
 		"The payment button does not work when clicked": false,
-		"Помилка в логах: «Объект не найден» — треба розібратися, звідки вона береться і що її викликає": false,
+		"The «Купить сыр» button on the Russian page does nothing: «Выбрать товар» neither, nor «Отмена»": false,
+		"Помилка в логах: «Объект не найден» — треба розібратися, звідки вона береться і що її викликає":  false,
 		"":   false,
 		"ёы": false, // too short to tell
 	}

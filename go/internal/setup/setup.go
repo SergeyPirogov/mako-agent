@@ -22,6 +22,9 @@ func Build(home string) (*config.Config, []trackers.Tracker, []string) {
 	case err != nil:
 		problems = append(problems, "mako.config.json: "+err.Error())
 	}
+	if cfg.UnknownLanguage != "" {
+		problems = append(problems, i18n.T("problem.language", cfg.UnknownLanguage))
+	}
 	var ts []trackers.Tracker
 	for _, tc := range cfg.Trackers {
 		t, err := trackers.New(tc, cfg)

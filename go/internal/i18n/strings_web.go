@@ -207,7 +207,7 @@ var webStrings = map[string][2]string{
 
 	// Comments in the task.
 	"s.c.onStart":      {"When the task is taken", "Коли задачу взято"},
-	"s.c.onStartHint":  {"{branch} {taskId} {title} {url} are filled in. «-» — no comment. Empty — the built-in text, in grey", "Підставляються {branch} {taskId} {title} {url}. «-» — без коментаря. Порожньо — вбудований текст, сірим"},
+	"s.c.onStartHint":  {"{branch} {taskId} {title} {url} are filled in. «-» in either language — no comment. Empty — the built-in text, in grey", "Підставляються {branch} {taskId} {title} {url}. «-» будь-якою мовою — без коментаря. Порожньо — вбудований текст, сірим"},
 	"s.c.onReview":     {"When the MR is open", "Коли є MR"},
 	"s.c.onReviewHint": {"{mr} — the link to the MR", "{mr} — посилання на MR"},
 

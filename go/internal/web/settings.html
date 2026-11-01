@@ -226,11 +226,10 @@ function secret(key, label, hint) {
   return el;
 }
 // A text the developer writes in both languages ({"en": …, "uk": …}): a field for each. An older config's plain
-// string is the version in its own language, as Mako reads it.
+// string is both versions, as Mako reads it.
 const LANGS = [["en", "English"], ["uk", "Українська"]];
-const cyrillic = (s) => /[Ѐ-ӿ]/.test(s);
 function localized(obj, key, label, { hint = "", placeholders = {}, area = false } = {}) {
-  if (typeof obj[key] === "string") obj[key] = cyrillic(obj[key]) ? { uk: obj[key] } : { en: obj[key] };
+  if (typeof obj[key] === "string") obj[key] = { en: obj[key], uk: obj[key] };
   const el = document.createElement("div");
   el.className = "field";
   el.innerHTML = `<label>${label}</label><div>${LANGS.map(([l, name]) => `<div style="margin-bottom:6px"><div class="hint" style="margin:0 0 2px">${name}</div>${area

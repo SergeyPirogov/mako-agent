@@ -99,12 +99,15 @@ var goStrings = map[string][2]string{
 	// The issue, the merge request, the commits.
 	"comment.summary": {"What was done:", "Що зроблено:"},
 	"comment.answers": {"Answers to the task's questions:", "Відповіді на питання до задачі:"},
-	"comment.rewrite": {"This task is written in Russian. Mako does not take tasks in Russian: please rewrite it in English or Ukrainian, and it will be taken again.",
-		"Задачу написано російською. Mako не бере задачі російською: перепишіть її, будь ласка, англійською або українською, і її візьмуть знову."},
-	"task.russian":   {"The task is written in Russian: asked in the issue to rewrite it in English or Ukrainian", "Задачу написано російською: у задачі попрошено переписати її англійською або українською"},
-	"mr.whatChanged": {"## What changed", "## Що змінено"},
-	"mr.howChecked":  {"## How it was checked\nMako ran the project's checks in the agent's worktree before opening this merge request:", "## Як перевірено\nMako прогнав перевірки проєкту у worktree агента, перш ніж відкрити цей merge request:"},
-	"commit.lesson":  {"%s: Add a review lesson to CLAUDE.md\n\n- %s", "%s: Додати урок з рев'ю в CLAUDE.md\n\n- %s"},
+	"comment.rewrite": {"This task is written in Russian. Mako does not take tasks in Russian: please rewrite it in English or Ukrainian, then take it again from Mako's board.",
+		"Задачу написано російською. Mako не бере задачі російською: перепишіть її, будь ласка, англійською або українською, а тоді візьміть її знову з дошки Mako."},
+	"task.russian":       {"The task is written in Russian: asked in the issue to rewrite it in English or Ukrainian. Once it is rewritten, take it again", "Задачу написано російською: у задачі попрошено переписати її англійською або українською. Коли перепишуть — візьміть її знову"},
+	"summary.howChecked": {"## How it was checked", "## Як перевірено"},
+	"summary.lookAt":     {"## Worth a look", "## На що звернути увагу"},
+	"problem.language":   {"language %q: Mako speaks «en» or «uk»; English for now", "language %q: Mako знає «en» або «uk»; поки що англійська"},
+	"mr.whatChanged":     {"## What changed", "## Що змінено"},
+	"mr.howChecked":      {"## How it was checked\nMako ran the project's checks in the agent's worktree before opening this merge request:", "## Як перевірено\nMako прогнав перевірки проєкту у worktree агента, перш ніж відкрити цей merge request:"},
+	"commit.lesson":      {"%s: Add a review lesson to CLAUDE.md\n\n- %s", "%s: Додати урок з рев'ю в CLAUDE.md\n\n- %s"},
 
 	// What the settings page and the board show as problems.
 	"problem.notSetUp":   {"Mako is not set up yet: add a tracker in the Settings", "Mako ще не налаштований: додайте трекер у Налаштуваннях"},
