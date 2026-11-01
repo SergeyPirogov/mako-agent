@@ -16,7 +16,7 @@
 </head>
 <body>
 <header>
-  <span class="logo">🦈<span class="logo-t"> Mako</span></span>
+  <span class="logo">🦈<span class="logo-t"> Mako</span> <span class="ver" id="ver"></span></span>
   <span class="wip" id="wip"></span>
   <span id="waiting"></span>
   <span id="restart-note"></span>
@@ -253,6 +253,8 @@ async function load() {
     $("search").className = "search err";
     return;
   }
+  // The running version, so it is clear which Mako is on screen.
+  if (data.version) $("ver").textContent = data.version;
   if (data.digest) return openDigest(data.digest);
   await Promise.all([loadCard(), loadWork()]);
   render();
