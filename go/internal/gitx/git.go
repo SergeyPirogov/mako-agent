@@ -200,11 +200,15 @@ func DetectBaseBranch(repo string) string {
 	return "main"
 }
 
-// OriginURL of a clone, "" when it has none.
-func OriginURL(ctx context.Context, repo string) string {
+// OriginURL of a clone, "" when it has none. The error is only the context's: git was cut short, so "" says
+// nothing about the clone.
+func OriginURL(ctx context.Context, repo string) (string, error) {
 	// As configured: where the code lives, not how git reaches it (url.*.insteadOf).
 	out, _ := Run(ctx, repo, "config", "--get", "remote.origin.url")
-	return out
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return out, nil
 }
 
 var remotePath = regexp.MustCompile(`^(?:[a-z+]+://)?(?:[^@/]+@)?[^:/]+(?::\d+)?[:/](.+?)(?:\.git)?/?$`)

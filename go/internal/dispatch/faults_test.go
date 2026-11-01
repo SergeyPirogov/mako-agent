@@ -3,10 +3,15 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/url"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
 // Mako's own errors: one entry per kind across restarts, sent once to Mako's repository as an issue.
@@ -81,4 +86,39 @@ func fmtLogs(ls []LogLine) string {
 		b.WriteString(l.Text + "\n")
 	}
 	return b.String()
+}
+
+// The network, the VPN or the service failing is not Mako's error: it is journaled, not kept.
+func TestFaultsSkipTransient(t *testing.T) {
+	d, _, _ := setup(t)
+	dnsErr := &url.Error{Op: "Get", URL: "https://git.example.com/api", Err: &net.OpError{Op: "dial", Err: &net.DNSError{Err: "no such host", Name: "git.example.com", IsNotFound: true}}}
+	outside := []error{
+		dnsErr,
+		fmt.Errorf("Get x: %w", syscall.ECONNRESET),
+		fmt.Errorf("Get x: %w", syscall.EADDRNOTAVAIL),
+		fmt.Errorf("claude: %w", context.Canceled),
+		&trackers.HTTPError{Status: 502},
+	}
+	for _, err := range outside {
+		d.Fault("gitlab", "пошук не вдався", err)
+	}
+	if fs := d.Faults(); len(fs) != 0 {
+		t.Fatalf("kept %+v", fs)
+	}
+	if !strings.Contains(fmtLogs(d.Logs("gitlab")), "no such host") {
+		t.Errorf("not in the journal: %v", d.Logs("gitlab"))
+	}
+	// Mako's own deadlines and kills, a bad token, a bad setting-free failure stay: they are for an agent to look at.
+	d.Fault("a#1", "підсумок не написано", errors.New("claude: signal: killed: "))
+	d.Fault("a#2", "рецензент не впорався", fmt.Errorf("claude: %w", context.DeadlineExceeded))
+	d.Fault("gitlab", "пошук не вдався", &trackers.HTTPError{Status: 401})
+	d.Fault("gitlab", "пошук не вдався", errors.New("немає токена"))
+	if fs := d.Faults(); len(fs) != 4 {
+		t.Fatalf("faults %+v", fs)
+	}
+	// A setting, not Mako: an unknown assignee is said on the board.
+	d.Fault("github", "пошук не вдався", &trackers.HTTPError{Status: 422, Body: `{"field":"assignee"}`})
+	if fs := d.Faults(); len(fs) != 4 {
+		t.Fatalf("assignee kept: %+v", fs)
+	}
 }

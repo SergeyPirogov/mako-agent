@@ -137,6 +137,9 @@ func (d *Dispatcher) FixReview(id string) error {
 	if !reviewable(r) {
 		return errors.New("зауваження рецензента передаються лише агентам Mako, що в роботі чи у відкритому MR")
 	}
+	if !exists(r.Worktree) {
+		return errors.New("worktree агента видалено: зауваження нікому передати")
+	}
 	if !d.agentIdle(id) {
 		return errors.New("агент ще працює: передайте зауваження, коли він закінчить")
 	}
