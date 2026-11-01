@@ -133,8 +133,14 @@ func TestParseDigest(t *testing.T) {
 func TestParseReviewer(t *testing.T) {
 	// The settings of older versions (the reviewer on by itself, its rounds, by risk) are ignored.
 	c, _ := Parse([]byte(`{"agentReview":{"enabled":true,"maxRounds":3,"when":"high","model":" opus "}}`), nil)
-	if c.Reviewer.Model != "opus" {
+	if c.Reviewer.Model != "opus" || c.Reviewer.Comments != "" {
 		t.Fatalf("reviewer %+v", c.Reviewer)
+	}
+	// Its comments in the tracker: off unless asked for, and only where they can go.
+	for v, want := range map[string]string{"issue": "issue", " mr ": "mr", "both": "both", "jira": "", "": ""} {
+		if c, _ := Parse([]byte(`{"agentReview":{"comments":"`+v+`"}}`), nil); c.Reviewer.Comments != want {
+			t.Errorf("comments %q: %q", v, c.Reviewer.Comments)
+		}
 	}
 }
 

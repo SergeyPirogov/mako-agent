@@ -345,7 +345,8 @@ var ReviewerTools = []string{"Read", "Grep", "Glob", "Bash(ls:*)", "Bash(git dif
 // AgentReview: a second agent, with a context of its own, reads the task and the branch's changes (and the
 // repo's files as it needs them) and writes its remarks for the agent who did the work; "" when there are
 // none. It runs with read-only tools and keeps no session, so the worktree's conversation stays the agent's.
-func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, model string) (string, error) {
+// prior: the earlier rounds' remarks still open, with the agent's answers: the round checks them first.
+func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, model string, prior []core.Remark) (string, error) {
 	commits, stat, diff := BranchWork(ctx, worktree, baseBranch)
 	if strings.TrimSpace(diff) == "" {
 		return "", errors.New("немає змін")
@@ -361,8 +362,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 		"Look for what a careful reviewer would point out first: bugs, parts of the task not done, broken edge cases,",
 		"missing or wrong tests, leftovers (debug output, commented-out code, unrelated changes), security problems,",
 		"and what goes against the repository's conventions (CLAUDE.md, the code around it). Skip style nitpicks and matters of taste.",
-		"Answer in " + lang() + " with a Markdown list only, one remark per item, each naming the file (and line) and what to change.",
-		"If there is nothing worth fixing, answer exactly " + Reviewed + ".",
+	}, "\n") + "\n" + reviewFormat(prior) + "\n" + strings.Join([]string{
 		"", "Task: " + t.ID + " — " + t.Title, orNone(description),
 		"", "Commits:", orNone(commits), stat, clip(diff),
 	}, "\n")
@@ -392,6 +392,32 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
 	return ReviewNotes(answer(ctx, out, model))
+}
+
+// reviewFormat: how the reviewer writes its answer, so that Mako can number and track the remarks; with prior,
+// the earlier remarks it checks first.
+func reviewFormat(prior []core.Remark) string {
+	lines := []string{
+		"Write in " + lang() + ", but keep these markers in English exactly as shown. One line per remark, nothing else:",
+		"R<n> [must] path/to/file.go:42 — what to change and why",
+		"R<n> [should] path/to/file.go — what to change and why",
+		"[must]: a bug, a part of the task not done, a broken case, a security problem — it has to be fixed before the merge.",
+		"[should]: worth fixing, but the merge does not depend on it. Number your remarks from R1; Mako renumbers them.",
+	}
+	if len(prior) == 0 {
+		return strings.Join(append(lines, "If there is nothing worth fixing, answer exactly "+Reviewed+"."), "\n")
+	}
+	return strings.Join(append(lines,
+		"",
+		"This is not the first round. The earlier rounds left the remarks below; the agent has worked on them since and answered.",
+		"Check each of them first against the code as it is now, one line each, before any new remark:",
+		"R<n>: closed — it is fixed",
+		"R<n>: open — why it is still a problem",
+		"R<n>: accepted — the agent's explanation is good enough",
+		"New remarks only about what changed since, or real problems ([must]): do not bring up new matters of taste, so that the review converges.",
+		"If every earlier remark is closed or accepted and there is nothing new, answer exactly "+Reviewed+".",
+		"", "Earlier remarks and the agent's answers:", PriorText(prior),
+	), "\n")
 }
 
 // ReviewNotes: the reviewer's remarks from its answer, "" when it found nothing to fix.

@@ -995,3 +995,8 @@ a.tchip:hover { text-decoration: none; background: var(--hover); }
 .prio.hot { color: var(--err); }
 .prio.high { color: var(--warn); }
 .prio.low, .prio.mid { color: var(--mute); }
+.item .remarks { font-size: 11px; color: var(--warn); white-space: nowrap; }
+.item .remarks.human { color: var(--err); }
+.remarks-table td:nth-child(3) { min-width: 220px; }
+.remarks-table .rm-must { color: var(--err); font-weight: 600; }
+.rm-warn { color: var(--warn); font-size: 12px; white-space: nowrap; }

@@ -31,7 +31,7 @@ func TestCheckName(t *testing.T) {
 // checksSetup: Mako's agent on grp/app#5 with its worktree, the repo's checks, and the origin behind the fake
 // GitLab's address, so Mako can push the branch and open the MR there.
 func checksSetup(t *testing.T, prep func(*config.Config), checks ...string) (d *Dispatcher, cfg *config.Config, repo *config.Repo, id, wt, origin string, idle func()) {
-	d, cfg, id, wt, idle = reviewSetup(t, func(c *config.Config) {
+	d, cfg, id, wt, idle, _ = reviewSetup(t, func(c *config.Config) {
 		for _, r := range c.Trackers[0].Projects["grp/app"].Repos {
 			r.Checks = checks
 		}
