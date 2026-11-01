@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -14,13 +15,32 @@ import (
 
 // The estimate: a new task, as it appears in «Нові», gets a quick look from the agent (haiku, the task's text
 // and the repository's layout, not its code): how clear it is and what to ask in the tracker, how big, how
-// risky, and how to take it. Once per task; again only when its title or description changes, or on
+// risky, and how to take it. Once per task; again only when its title, description or comments change, or on
 // «Оцінити ще раз». A failure leaves the task without an estimate, quietly.
 
-// EstimateKey: what the estimate of a task was made for; a changed title or description makes another.
+// EstimateKey: what the estimate of a task was made for; a changed title, description or comments (answers to
+// its questions among them) make another. Comments count by their words (core.Plain), as a tracker may give
+// back the Markdown of one Mako wrote otherwise. "2:" tells it from a key made before comments counted.
 func EstimateKey(t core.Task) string {
-	h := sha1.Sum([]byte(t.Title + "\n" + t.Description))
+	text := t.Title + "\n" + t.Description
+	for _, c := range t.Comments {
+		text += "\n\x00" + core.Plain(c.Body)
+	}
+	return "2:" + key(text)
+}
+
+// textKey: a key as made before comments counted, of the title and description only.
+func textKey(t core.Task) string { return key(t.Title + "\n" + t.Description) }
+
+func key(text string) string {
+	h := sha1.Sum([]byte(text))
 	return hex.EncodeToString(h[:6])
+}
+
+// estimateFits: the estimate was made for the task as it is. One made before comments counted still fits while
+// the title and description stay: an update does not send every commented task in «Нові» to Opus again.
+func estimateFits(e *core.Estimate, t core.Task) bool {
+	return e != nil && (e.For == EstimateKey(t) || !strings.HasPrefix(e.For, "2:") && e.For == textKey(t))
 }
 
 // isNew: the task waits for «Взяти в роботу».
@@ -35,7 +55,7 @@ func (d *Dispatcher) maybeEstimate(id string) {
 	if !ok || !isNew(r) {
 		return
 	}
-	if e := r.Estimate; e != nil && (e.For == EstimateKey(r.Task) || (e.State == "running" && !stale(e.At))) {
+	if e := r.Estimate; e != nil && (estimateFits(e, r.Task) || (e.State == "running" && !stale(e.At))) {
 		return
 	}
 	if d.startEstimate(id) == nil {

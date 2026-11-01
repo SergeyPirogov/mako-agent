@@ -298,6 +298,15 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .files-h-t { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); }
 .mr-none { margin-top: 6px; font-size: 12.5px; }
 .mr-err { color: var(--err); overflow-wrap: anywhere; }
+/* The estimate's questions with a field for each answer: full width, on a phone too. */
+.qa-list { margin: 4px 0 0; padding-left: 20px; }
+.qa-item + .qa-item { margin-top: 10px; }
+.qa-q > :first-child { margin-top: 0; }
+.qa-q > :last-child { margin-bottom: 4px; }
+textarea.qa { display: block; width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+textarea.qa:focus { outline: none; border-color: var(--accent); }
+.qa-bar { display: flex; justify-content: flex-end; margin-top: 8px; }
 .mr-row { display: flex; align-items: flex-start; gap: 8px; min-height: 30px; }
 .mr-row > a, .mr-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--fg); line-height: 20px; padding: 5px 0; }
 .mr-row > svg, .mr-row > .mi { margin-top: 7px; }

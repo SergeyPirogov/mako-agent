@@ -136,6 +136,8 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 						t.Comments = append(t.Comments, core.Comment{Author: n.Author.Name, Body: n.Body})
 					}
 				}
+			} else {
+				t.CommentsUnread = true
 			}
 		}
 		tasks = append(tasks, t)

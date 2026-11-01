@@ -1,7 +1,12 @@
 // Package core holds what every part of Mako talks about: a tracker's task and Mako's record of it.
 package core
 
-import "github.com/SergeyPirogov/mako-agent/go/internal/secrets"
+import (
+	"strings"
+	"unicode"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/secrets"
+)
 
 // Task is an issue as Mako sees it, whatever tracker it came from. The JSON names match the TypeScript
 // Mako's state.json, so both read the same file.
@@ -25,6 +30,16 @@ type Task struct {
 	Attachments []Attachment `json:"attachments,omitempty"`
 	// Author: who wrote the issue in the tracker ("" unknown).
 	Author string `json:"author,omitempty"`
+	// CommentsUnread: the tracker failed to give its comments this time; the ones Mako has stay.
+	CommentsUnread bool `json:"-"`
+}
+
+// Plain: the words of a text, lowercased, without the Markdown and the spacing a tracker may change on its way
+// back (Jira's ADF): to tell whether two texts say the same.
+func Plain(text string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}), " ")
 }
 
 type Comment struct {
