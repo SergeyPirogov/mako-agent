@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -105,6 +106,25 @@ func page(w http.ResponseWriter, status int, title, text string) {
 <h1 style="font-size:20px">%s</h1><p style="color:var(--mute)">%s</p></div></body></html>`, html.EscapeString(title), html.EscapeString(text))
 }
 
+const pairPage = `<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mako</title><link rel="stylesheet" href="/style.css"></head><body style="display:block">
+<div style="max-width:420px;margin:15vh auto;padding:0 20px;text-align:center"><div style="font-size:48px">🦈</div>
+<h1 id="t" style="font-size:20px">Підключаю…</h1><p id="m" style="color:var(--mute)"></p></div>
+<script>
+(function () {
+  var code = new URLSearchParams(location.hash.slice(1)).get("code") || "";
+  history.replaceState(null, "", "/pair");
+  function fail(text) {
+    document.getElementById("t").textContent = "Не вдалося підключити";
+    document.getElementById("m").textContent = text;
+  }
+  if (!code) return fail("Відскануйте QR-код з Mako на Mac ще раз.");
+  fetch("/pair", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"}, body: "code=" + encodeURIComponent(code)})
+    .then(function (r) { return r.ok ? location.replace("/?paired=1") : r.text().then(fail); })
+    .catch(function () { fail("Немає зв'язку з Mako."); });
+})();
+</script></body></html>`
+
 func setDeviceCookie(w http.ResponseWriter, r *http.Request, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: deviceCookie, Value: token, Path: "/", MaxAge: 400 * 24 * 3600, HttpOnly: true,
@@ -146,18 +166,30 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 			},
 		})
 	})
+	// The code rides in the link's #fragment, which a browser never sends: no history, server log or proxy
+	// log (tailscale serve) sees it. This page hands it to POST /pair and clears it from the address bar.
 	mux.HandleFunc("GET /pair", func(w http.ResponseWriter, r *http.Request) {
 		if s.Phones == nil {
 			http.NotFound(w, r)
 			return
 		}
-		d, err := s.Phones.Pair(r.URL.Query().Get("code"), phone.DeviceName(r.UserAgent()))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		io.WriteString(w, pairPage)
+	})
+	mux.HandleFunc("POST /pair", func(w http.ResponseWriter, r *http.Request) {
+		if s.Phones == nil || !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		d, err := s.Phones.Pair(r.PostFormValue("code"), phone.DeviceName(r.UserAgent()))
 		if err != nil {
-			page(w, http.StatusUnauthorized, "Не вдалося підключити", err.Error())
+			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
 		setDeviceCookie(w, r, d.Token)
-		http.Redirect(w, r, "/?paired=1", http.StatusFound)
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /pair/d/{token}", func(w http.ResponseWriter, r *http.Request) {
 		if s.Phones == nil || s.Phones.ByToken(r.PathValue("token")) == nil {
@@ -226,7 +258,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 				err = fmt.Errorf("спершу відкрийте Mako для телефона через Tailscale")
 				break
 			}
-			link := "https://" + t.Host + "/pair?code=" + url.QueryEscape(s.Phones.NewPairing())
+			link := "https://" + t.Host + "/pair#code=" + url.QueryEscape(s.Phones.NewPairing())
 			png, qerr := qrcode.Encode(link, qrcode.Medium, 512)
 			if qerr != nil {
 				err = qerr

@@ -259,12 +259,30 @@ func TestPhone(t *testing.T) {
 			t.Fatalf("%s: %d", p, res.StatusCode)
 		}
 	}
-	if res := get("/pair?code=guess"); res.StatusCode != 401 {
+	post := func(code string) *http.Response {
+		req, _ := http.NewRequest("POST", srv.URL+"/pair", strings.NewReader("code="+code))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-Forwarded-For", "100.101.102.103")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := get("/pair"); res.StatusCode != 200 {
+		t.Fatalf("pair page: %d", res.StatusCode)
+	}
+	// A code in the query is not read any more: it must travel in the fragment.
+	if res := get("/pair?code=" + phones.NewPairing()); res.StatusCode != 200 || len(res.Cookies()) != 0 {
+		t.Fatalf("a query code paired: %d", res.StatusCode)
+	}
+	if res := post("guess"); res.StatusCode != 401 {
 		t.Fatalf("a made-up code paired: %d", res.StatusCode)
 	}
 	// The QR's code pairs the phone once.
-	res := get("/pair?code=" + phones.NewPairing())
-	if res.StatusCode != 302 {
+	res := post(phones.NewPairing())
+	if res.StatusCode != 200 {
 		t.Fatalf("pair: %d", res.StatusCode)
 	}
 	var cookie *http.Cookie
