@@ -82,6 +82,8 @@ type Dispatcher struct {
 	guardTokens map[string]string
 	// estimates: the estimates of new tasks running in the background.
 	estimates sync.WaitGroup
+	// questionsMu: the questions about code kept in questions.json (see codeask.go).
+	questionsMu sync.Mutex
 	// checking: the tasks whose checks before the MR run now.
 	checking map[string]bool
 	wake     chan struct{}

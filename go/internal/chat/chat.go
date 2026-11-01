@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -80,6 +81,9 @@ type Options struct {
 	OnSession    func(sessionID string)
 	// OnCost: what a turn cost (USD), so the task can add up its budget.
 	OnCost func(usd float64)
+	// Tools: when set, the only tools the agent may use; a request for any other is denied at once, nobody is
+	// asked (the read-only «Запитати про код»: Read, Grep, Glob).
+	Tools []string
 }
 
 // Session is one agent in a conversation.
@@ -232,6 +236,16 @@ func (s *Session) replay(path string) {
 	s.mu.Unlock()
 }
 
+// Replay: a finished conversation from its Claude Code transcript, without an agent: what the board shows of it
+// until a message resumes it.
+func Replay(id, path string) Snapshot {
+	s := &Session{ID: id, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}}
+	s.replay(path)
+	snap := s.Snapshot()
+	snap.Version = len(snap.Items) // the same file, the same version: the board redraws only what changed
+	return snap
+}
+
 // handle is one line from claude.
 func (s *Session) handle(line []byte) {
 	var e struct {
@@ -344,6 +358,15 @@ func (s *Session) handle(line []byte) {
 			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": e.RequestID, "error": "Mako не підтримує " + r.Subtype}})
 			return
 		}
+		if len(s.o.Tools) > 0 {
+			resp := map[string]any{"behavior": "allow", "updatedInput": r.Input}
+			if !slices.Contains(s.o.Tools, r.ToolName) {
+				resp = map[string]any{"behavior": "deny", "message": ReadOnlyDenied}
+				s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "denied"})
+			}
+			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": e.RequestID, "response": resp}})
+			return
+		}
 		s.mu.Lock()
 		s.pending[e.RequestID] = r.Input
 		s.mu.Unlock()
@@ -433,7 +456,7 @@ func (s *Session) finishTool(id, output string, failed bool) {
 			it.Output, it.Status = output, "ok"
 			if failed {
 				it.Status = "error"
-				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) {
+				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) || strings.Contains(output, ReadOnlyDenied) {
 					it.Status = "denied"
 				}
 			}
@@ -583,6 +606,9 @@ func (s *Session) RevisePlan(requestID, notes string) error {
 }
 
 const planRevision = "Розробник просить поправити план:"
+
+// ReadOnlyDenied: what an agent limited to Options.Tools hears when it asks for another tool.
+const ReadOnlyDenied = "Тут можна лише читати код (Read, Grep, Glob): нічого не змінюй і не запускай."
 
 // Asked: the request the agent waits on (a permission or AskUserQuestion), nil when there is none.
 func (s *Session) Asked() *Item {
