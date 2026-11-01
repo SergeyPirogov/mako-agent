@@ -692,13 +692,37 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 			}
 			continue
 		}
+		// Review only once CI has finished: while it runs the task stays in work.
+		var ci *trackers.ReviewCheck
+		if desk, ok := host.(trackers.ReviewDesk); ok && review.State == "open" {
+			if c, err := desk.CheckReview(ctx, review.URL); err == nil {
+				ci = c
+			}
+		}
+		if ci != nil && trackers.CIRunning(ci.CI) {
+			d.Log(r.ID, "є MR, чекаю на CI: "+review.URL)
+			continue
+		}
+		failed := ci != nil && ci.CI == "failed"
 		d.Log(r.ID, "є MR: "+review.URL)
 		if err := d.describeIfBare(ctx, host, r, repo, review.URL); err != nil {
 			d.Fault(r.ID, "опис MR не написано", err)
 		}
-		d.comment(ctx, t, r.Task, d.Config().Comments.OnReview, map[string]string{"branch": branch, "mr": review.URL})
-		d.move(ctx, t, r.Task, trackers.AtReview)
-		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.PRURL, r.FinishedAt = core.Done, review.URL, now() })
+		if failed {
+			d.Log(r.ID, "CI не пройшов: у трекері на рев'ю — коли пройде")
+		} else {
+			d.comment(ctx, t, r.Task, d.Config().Comments.OnReview, map[string]string{"branch": branch, "mr": review.URL})
+			d.move(ctx, t, r.Task, trackers.AtReview)
+		}
+		d.Store.Update(r.ID, func(r *core.Record) {
+			r.Status, r.PRURL, r.FinishedAt, r.AwaitingCI = core.Done, review.URL, now(), failed
+		})
+		if ci != nil {
+			// The board shows a failed CI under «Заблоковані» at once.
+			d.mu.Lock()
+			d.reviews[r.ID] = reviewLook{at: time.Now(), check: ci}
+			d.mu.Unlock()
+		}
 		d.summarize(ctx, r, repo.BaseBranch, review.URL)
 		if d.startAssess(r.ID) == nil {
 			d.assess(ctx, r.ID)
