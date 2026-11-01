@@ -84,12 +84,17 @@ func WithSpend(ctx context.Context, f func(Spend)) context.Context {
 	return context.WithValue(ctx, spendKey{}, f)
 }
 
-// answer: the text of `claude -p`'s result, telling its spend to the context's WithSpend;
-// output that is not that JSON is the text itself.
-func answer(ctx context.Context, out []byte) string {
+// answer: the text of `claude -p`'s result, telling its spend to the context's WithSpend; output that is not that
+// JSON is the text itself. model: the one asked for, the window of its context when the stream did not tell it.
+func answer(ctx context.Context, out []byte, model string) string {
 	text, spend, ok := ParseResult(out)
 	if !ok {
 		return string(out)
+	}
+	for i := range spend.Context {
+		if c := &spend.Context[i]; c.Window == 0 {
+			c.Window = core.ContextWindow(model, c.Peak)
+		}
 	}
 	if f, _ := ctx.Value(spendKey{}).(func(Spend)); f != nil && (spend.USD > 0 || spend.Tokens > 0) {
 		f(spend)
@@ -125,9 +130,7 @@ func ParseResult(out []byte) (text string, spend Spend, ok bool) {
 	if len(lines) > 1 {
 		res := contextstat.Analyze(bytes.NewReader(out), "")
 		for _, run := range res.Runs {
-			if run.Window = res.Window; run.Window == 0 {
-				run.Window = core.ContextWindow("", run.Peak)
-			}
+			run.Window = res.Window // 0 when the stream did not tell it: answer knows the model
 			spend.Context = append(spend.Context, run)
 		}
 	}
@@ -159,7 +162,7 @@ func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Durat
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
-	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out)), ""))
+	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, model)), ""))
 	if text == "" || len(text) > 6000 {
 		return "", errors.New("Claude не дав відповіді")
 	}
@@ -337,7 +340,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
-	return ReviewNotes(answer(ctx, out))
+	return ReviewNotes(answer(ctx, out, model))
 }
 
 // ReviewNotes: the reviewer's remarks from its answer, "" when it found nothing to fix.

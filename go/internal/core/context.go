@@ -3,6 +3,7 @@ package core
 import (
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // ContextRun is how one agent session filled its context in one phase: from the usage of each model call
@@ -19,7 +20,8 @@ type ContextRun struct {
 	Peak        int `json:"peak"`
 	Calls       int `json:"calls"`
 	Compactions int `json:"compactions,omitempty"`
-	// Input, CacheRead, CacheCreate: the input tokens of all calls, subagents' too.
+	// Input, CacheRead, CacheCreate: the input tokens of all calls, subagents' too (in a transcript, from their
+	// own files next to it).
 	Input       int `json:"input"`
 	CacheRead   int `json:"cacheRead"`
 	CacheCreate int `json:"cacheCreate"`
@@ -69,6 +71,16 @@ func (r *Record) SetContext(run ContextRun) {
 		m.Context = m.Context[n-maxContextRuns:]
 	}
 }
+
+// SetPrompt keeps the size of the prompt Mako handed the agent.
+func (r *Record) SetPrompt(text string) {
+	m := r.Metrics.clone()
+	r.Metrics = m
+	m.Prompt = PromptTokens(text)
+}
+
+// PromptTokens: ≈ the tokens of a prompt, from its length: Mako knows the text, not how the model counts it.
+func PromptTokens(text string) int { return (utf8.RuneCountInString(text) + 2) / 3 }
 
 // ContextWindow: the model's window when the stream did not tell it: 1M for a "[1m]" model or a context that
 // grew past 200k, else 200k.

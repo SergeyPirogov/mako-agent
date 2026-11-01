@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -93,10 +94,10 @@ func TestParseResult(t *testing.T) {
 	}
 	var got Spend
 	ctx := WithSpend(context.Background(), func(s Spend) { got = s })
-	if answer(ctx, out) != "LGTM" || got.USD != spend.USD || got.Tokens != spend.Tokens {
+	if answer(ctx, out, "") != "LGTM" || got.USD != spend.USD || got.Tokens != spend.Tokens {
 		t.Fatalf("spend %+v", got)
 	}
-	if answer(ctx, []byte("plain")) != "plain" {
+	if answer(ctx, []byte("plain"), "") != "plain" {
 		t.Fatal("plain text lost")
 	}
 }
@@ -115,5 +116,17 @@ func TestParseStreamResult(t *testing.T) {
 	c := spend.Context[0]
 	if c.Session != "s-9" || c.Start != 15005 || c.Peak != 15505 || c.Window != 1_000_000 || c.Calls != 2 || c.Tools["Read"] != 470 {
 		t.Fatalf("%+v", c)
+	}
+	// No window in the stream: the model asked for tells it.
+	noWindow := []byte(strings.Replace(string(out), `,"modelUsage":{"claude-sonnet-5-5":{"contextWindow":1000000}}`, "", 1))
+	var got Spend
+	ctx := WithSpend(context.Background(), func(s Spend) { got = s })
+	answer(ctx, noWindow, "sonnet[1m]")
+	if len(got.Context) != 1 || got.Context[0].Window != 1_000_000 {
+		t.Fatalf("%+v", got.Context)
+	}
+	answer(ctx, noWindow, "haiku")
+	if got.Context[0].Window != 200_000 {
+		t.Fatalf("%+v", got.Context)
 	}
 }

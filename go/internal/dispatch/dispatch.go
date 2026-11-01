@@ -89,6 +89,9 @@ type Dispatcher struct {
 	guardTokens map[string]string
 	// estimates: the estimates of new tasks running in the background.
 	estimates sync.WaitGroup
+	// contexts: the tasks whose context is being read, true when a turn ended meanwhile and it is read again.
+	ctxMu    sync.Mutex
+	contexts map[string]bool
 	// questionsMu: the questions about code kept in questions.json (see codeask.go).
 	questionsMu sync.Mutex
 	// reviewsAt: when each tracker was last searched for MRs to review; reviewsEvery: how often it may be.
@@ -669,6 +672,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		res, err = d.handTerminal(ctx, job, logf)
 	} else {
 		d.step(id, "orca", "Orca створює worktree і запускає агента")
+		d.notePrompt(id, orca.FullPrompt(job, d.Config().Orca)) // what Hand gives the agent
 		// Not stopped halfway: a workspace Orca made is known only from its reply, and «Скасувати» removes it.
 		res, err = d.Hand(context.WithoutCancel(ctx), d.Config().Orca, job, logf)
 	}

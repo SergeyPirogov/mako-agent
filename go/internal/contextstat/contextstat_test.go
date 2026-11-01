@@ -2,6 +2,8 @@ package contextstat
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -139,5 +141,29 @@ func TestTopAndDownsample(t *testing.T) {
 	}
 	if len(x.Steps) > maxSteps || x.Steps[len(x.Steps)-1] != 1000+299*100 || x.Calls != 300 {
 		t.Fatalf("steps %d, last %d", len(x.Steps), x.Steps[len(x.Steps)-1])
+	}
+}
+
+func TestSubagentFilesAddToTheirRun(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "s-1.jsonl")
+	at := func(line, ts string) string { return line[:len(line)-1] + `,"timestamp":"` + ts + `"}` }
+	os.WriteFile(main, []byte(strings.Join([]string{
+		at(call("m1", 0, 10000, 0, 0, use("p", "ExitPlanMode", `{}`)), "2026-10-01T10:00:00Z"),
+		at(result("p", 10, false), "2026-10-01T10:05:00Z"),
+		at(call("m2", 0, 11000, 0, 0, ""), "2026-10-01T10:06:00Z"),
+	}, "\n")), 0o600)
+	subs := filepath.Join(dir, "s-1", "subagents")
+	os.MkdirAll(subs, 0o700)
+	sub := func(name, ts string, read int) {
+		os.WriteFile(filepath.Join(subs, name), []byte(fmt.Sprintf(`{"type":"user","timestamp":%q,"message":{"content":"look"}}`+"\n"+
+			`{"type":"assistant","timestamp":%q,"message":{"id":%q,"usage":{"input_tokens":1,"cache_read_input_tokens":%d,"cache_creation_input_tokens":0}}}`,
+			ts, ts, name, read)), 0o600)
+	}
+	sub("agent-a.jsonl", "2026-10-01T10:01:00Z", 500) // during the plan
+	sub("agent-b.jsonl", "2026-10-01T10:07:00Z", 700) // during the work
+	r := AnalyzeFile(main, core.PhaseWork)
+	if len(r.Runs) != 2 || r.Runs[0].CacheRead != 10000+500 || r.Runs[1].CacheRead != 11000+700 || r.Runs[0].Input != 1 {
+		t.Fatalf("%+v", r.Runs)
 	}
 }

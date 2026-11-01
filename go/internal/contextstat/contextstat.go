@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,17 +27,26 @@ const imageChars = 6000
 type Result struct {
 	Runs    []core.ContextRun
 	Session string
-	Window  int // the model's context window, when a result line told it
+	Window  int    // the model's context window, when a result line told it
+	Model   string // the model of the first main call
+	First   string // the start of the first message of the user's side: whose session it is
 }
 
-// AnalyzeFile reads a transcript; Result is empty when it cannot be read.
+// AnalyzeFile reads a transcript and its subagents' ones (<session>/subagents/*.jsonl), whose calls add to the
+// cache of the run they ran in; Result is empty when it cannot be read.
 func AnalyzeFile(path, defaultPhase string) Result {
 	f, err := os.Open(path)
 	if err != nil {
 		return Result{}
 	}
 	defer f.Close()
-	return Analyze(f, defaultPhase)
+	a := newAnalyzer()
+	a.feed(f)
+	subs, _ := filepath.Glob(filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents", "*.jsonl"))
+	for _, sub := range subs {
+		a.subagent(sub)
+	}
+	return a.finish(defaultPhase)
 }
 
 type tool struct{ name, kind, key string }
@@ -64,18 +74,79 @@ type analyzer struct {
 	compacted bool
 	prompted  bool
 	res       Result
+	at        time.Time   // the time of the line read, when it tells one
+	splits    []time.Time // when each run but the last ended: the plan's approval
 }
 
 // Analyze reads the JSON lines; the runs are in order, a plan's one (until ExitPlanMode was approved) before
 // the work's; a run whose phase the lines do not tell gets defaultPhase.
 func Analyze(r io.Reader, defaultPhase string) Result {
+	a := newAnalyzer()
+	a.feed(r)
+	return a.finish(defaultPhase)
+}
+
+func newAnalyzer() *analyzer {
 	a := &analyzer{seen: map[string]bool{}, outOf: map[string]int{}, tools: map[string]tool{}}
 	a.next()
+	return a
+}
+
+func (a *analyzer) feed(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
 	for sc.Scan() {
 		a.line(sc.Bytes())
 	}
+}
+
+// subagent adds the calls of a subagent's transcript to the cache of the run it started in.
+func (a *analyzer) subagent(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	x := a.runs[len(a.runs)-1]
+	placed := false
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	for sc.Scan() {
+		var e struct {
+			Type      string    `json:"type"`
+			Timestamp time.Time `json:"timestamp"`
+			Message   struct {
+				ID    string `json:"id"`
+				Usage struct {
+					Input       int `json:"input_tokens"`
+					CacheRead   int `json:"cache_read_input_tokens"`
+					CacheCreate int `json:"cache_creation_input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(sc.Bytes(), &e) != nil {
+			continue
+		}
+		if !placed && !e.Timestamp.IsZero() {
+			placed = true
+			i := 0
+			for i < len(a.splits) && !e.Timestamp.Before(a.splits[i]) {
+				i++
+			}
+			x = a.runs[i]
+		}
+		if e.Type != "assistant" || e.Message.ID == "" || a.seen[e.Message.ID] {
+			continue
+		}
+		a.seen[e.Message.ID] = true
+		u := e.Message.Usage
+		x.Input += u.Input
+		x.CacheRead += u.CacheRead
+		x.CacheCreate += u.CacheCreate
+	}
+}
+
+func (a *analyzer) finish(defaultPhase string) Result {
 	at := time.Now().UTC().Format(time.RFC3339)
 	for _, x := range a.runs {
 		if x.Calls == 0 {
@@ -100,6 +171,7 @@ func (a *analyzer) line(line []byte) {
 	var e struct {
 		Type       string          `json:"type"`
 		Subtype    string          `json:"subtype"`
+		Timestamp  time.Time       `json:"timestamp"`
 		SessionID  string          `json:"session_id"`
 		Session2   string          `json:"sessionId"`
 		Parent     *string         `json:"parent_tool_use_id"`
@@ -112,6 +184,9 @@ func (a *analyzer) line(line []byte) {
 	}
 	if json.Unmarshal(line, &e) != nil {
 		return
+	}
+	if !e.Timestamp.IsZero() {
+		a.at = e.Timestamp
 	}
 	if s := e.SessionID + e.Session2; s != "" && a.res.Session == "" {
 		a.res.Session = s
@@ -147,6 +222,7 @@ func (a *analyzer) compact() {
 func (a *analyzer) assistant(raw json.RawMessage, main bool) {
 	var m struct {
 		ID    string `json:"id"`
+		Model string `json:"model"`
 		Usage struct {
 			Input       int `json:"input_tokens"`
 			Output      int `json:"output_tokens"`
@@ -188,6 +264,9 @@ func (a *analyzer) assistant(raw json.RawMessage, main bool) {
 	x.CacheCreate += u.CacheCreate
 	if !main {
 		return
+	}
+	if a.res.Model == "" {
+		a.res.Model = m.Model
 	}
 	if a.lastCtx > 0 && !a.compacted && ctx < a.lastCtx/2 {
 		a.compact()
@@ -310,6 +389,7 @@ func (a *analyzer) user(raw json.RawMessage) {
 	if approved && a.cur.Calls > 0 {
 		// The plan is approved: what follows is the work. What came in with the approval is the work's growth.
 		a.cur.Phase = core.PhasePlan
+		a.splits = append(a.splits, a.at)
 		a.next()
 	}
 }
@@ -321,7 +401,11 @@ func (a *analyzer) message(text string) {
 	}
 	if !a.prompted && a.cur.Calls == 0 && !strings.HasPrefix(strings.TrimSpace(text), "<") {
 		a.prompted = true
-		a.cur.Prompt = (utf8.RuneCountInString(text) + 2) / 3
+		a.cur.Prompt = core.PromptTokens(text)
+		a.res.First = text
+		if r := []rune(text); len(r) > 300 {
+			a.res.First = string(r[:300])
+		}
 	}
 	a.pending = append(a.pending, source{category: core.SourceMessages, size: utf8.RuneCountInString(text)})
 }

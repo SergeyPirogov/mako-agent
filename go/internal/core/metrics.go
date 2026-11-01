@@ -42,6 +42,8 @@ type Metrics struct {
 	Tokens map[string]int     `json:"tokens,omitempty"`
 	// Context: how the agents' sessions filled their context, one run per session and phase.
 	Context []ContextRun `json:"context,omitempty"`
+	// Prompt: ≈ tokens of the prompt Mako handed the agent, the task's own part of its start.
+	Prompt int `json:"prompt,omitempty"`
 }
 
 // clone: a copy to change: the store hands out shallow copies of a record, so its maps are never changed in place.
