@@ -61,7 +61,7 @@ func TestAskCodeNoEdits(t *testing.T) {
 	os.WriteFile(filepath.Join(repo, "pay", "pay.go"), []byte("package pay\n\nfunc Charge() {}\n"), 0o644)
 	// The project's remote: the shared worktree starts from its main.
 	remote := filepath.Join(t.TempDir(), "app.git")
-	git(t, repo, "init", "-q", "--bare", remote)
+	git(t, repo, "init", "-q", "--bare", "-b", "main", remote)
 	git(t, repo, "remote", "set-url", "origin", remote)
 	git(t, repo, "add", "pay")
 	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "pay")
@@ -203,7 +203,7 @@ func TestAskWorkspace(t *testing.T) {
 		repo = r.Path
 	}
 	remote := filepath.Join(t.TempDir(), "app.git")
-	git(t, repo, "init", "-q", "--bare", remote)
+	git(t, repo, "init", "-q", "--bare", "-b", "main", remote)
 	git(t, repo, "remote", "set-url", "origin", remote)
 	commit := func(dir, file string) {
 		os.WriteFile(filepath.Join(dir, file), []byte(file), 0o644)
@@ -223,7 +223,7 @@ func TestAskWorkspace(t *testing.T) {
 
 	// Main moved on (pushed from elsewhere): a new conversation starts from it.
 	other := t.TempDir()
-	git(t, other, "clone", "-q", remote, ".")
+	git(t, other, "clone", "-q", "-b", "main", remote, ".")
 	commit(other, "b.txt")
 	if _, dirty, err := d.prepareAsk(p, true); err != nil || dirty != 0 || !exists(filepath.Join(dir, "b.txt")) {
 		t.Fatalf("not updated: %d %v", dirty, err)
