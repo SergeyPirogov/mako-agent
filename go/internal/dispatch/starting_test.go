@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -61,8 +63,13 @@ func TestStartingSteps(t *testing.T) {
 	if r, _ := d.Store.Get(id); r.Status != core.HandedOff || d.Starting(id) != nil {
 		t.Fatalf("after the start: %s, %+v", r.Status, d.Starting(id))
 	}
-	lines := strings.Join(logged(d, id), "\n")
-	if !strings.HasPrefix(logged(d, id)[1], "взято в роботу") || strings.Contains(lines, "у черзі") ||
+	all := logged(d, id)
+	lines := strings.Join(all, "\n")
+	taken, tracker := slices.Index(all, "взято в роботу"), slices.IndexFunc(all, func(l string) bool { return strings.HasPrefix(l, "оновлюю задачу в трекері · ") })
+	if taken < 0 || tracker < taken {
+		t.Fatalf("«взято в роботу» not before the start's steps:\n%s", lines)
+	}
+	if strings.Contains(lines, "у черзі") ||
 		!strings.Contains(lines, "оновлюю задачу в трекері · ") || !strings.Contains(lines, "Orca створює worktree і запускає агента · ") {
 		t.Fatalf("journal:\n%s", lines)
 	}
@@ -168,8 +175,85 @@ func TestCancelWhileSetup(t *testing.T) {
 	if r.Status != core.Cancelled || exists(wt) || d.Sessions.Get(id) != nil {
 		t.Fatalf("status %s, worktree there %v, agent %v", r.Status, exists(wt), d.Sessions.Get(id) != nil)
 	}
+	// The branch this start made goes with it.
+	if out, _ := exec.Command("git", "-C", repo, "branch", "--list", r.BranchName).Output(); r.BranchName == "" || len(out) != 0 {
+		t.Fatalf("branch %q left: %s", r.BranchName, out)
+	}
 	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "оновлюю main · ") || !strings.Contains(lines, "створюю worktree · ") ||
 		!strings.Contains(lines, "запуск скасовано, worktree прибрано") {
 		t.Fatalf("journal:\n%s", lines)
 	}
+}
+
+// terminalStart: grp/app#5 for Mako's own agent in the terminal, its repo with a commit; claude only waits.
+func terminalStart(t *testing.T, setupCmd string) (d *Dispatcher, repo string) {
+	d, _, _ = setup(t)
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		repo = r.Path
+	}
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nexec sleep 30\n"), 0o755)
+	cfg := *d.Config()
+	cfg.Executor, cfg.Terminal.Command, cfg.StateDir, cfg.Terminal.View = "terminal", filepath.Join(bin, "claude"), t.TempDir(), "terminal"
+	cfg.Terminal.SetupCommand = setupCmd
+	d.Cfg = &cfg
+	d.Sessions = term.NewManager(t.TempDir())
+	d.BoardURL = "http://127.0.0.1:1"
+	d.Poll(context.Background())
+	return d, repo
+}
+
+// «Скасувати» while the base branch is fetched: no worktree, no branch, the task cancelled.
+func TestCancelWhileFetching(t *testing.T) {
+	ssh := filepath.Join(t.TempDir(), "ssh")
+	os.WriteFile(ssh, []byte("#!/bin/sh\nexec sleep 30\n"), 0o755) // origin never answers
+	t.Setenv("GIT_SSH_COMMAND", ssh)
+	d, repo := terminalStart(t, "-")
+	id := "grp/app#5"
+	d.Take(context.Background(), id)
+	waitFor(t, func() bool {
+		p := d.Starting(id)
+		return p != nil && len(p.Steps) > 0 && p.Steps[len(p.Steps)-1].Key == "main"
+	}, "the fetch did not begin")
+	if p := d.Starting(id); p.Base != "main" {
+		t.Fatalf("plan %+v", p)
+	}
+	began := time.Now()
+	d.Cancel(id)
+	d.Wait()
+	if time.Since(began) > 10*time.Second {
+		t.Fatal("the fetch was not stopped")
+	}
+	r, _ := d.Store.Get(id)
+	wts, _ := filepath.Glob(filepath.Join(filepath.Dir(repo), ".worktrees", "app", "*"))
+	if r.Status != core.Cancelled || len(wts) != 0 || d.Sessions.Get(id) != nil {
+		t.Fatalf("status %s, worktrees %v", r.Status, wts)
+	}
+	if out, _ := exec.Command("git", "-C", repo, "branch", "--list", r.BranchName).Output(); len(out) != 0 {
+		t.Fatalf("branch left: %s", out)
+	}
+	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "запуск скасовано") || !strings.Contains(lines, "скасовано під час запуску") {
+		t.Fatalf("journal:\n%s", lines)
+	}
+}
+
+// A setup that leaves something running in the background does not hold the start; its output reaches the
+// terminal before the agent.
+func TestSetupInBackgroundDoesNotHang(t *testing.T) {
+	d, _ := terminalStart(t, "echo prepared; sleep 30 &")
+	id := "grp/app#5"
+	done := make(chan struct{})
+	go func() { d.Take(context.Background(), id); d.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the start waits for the setup's background process")
+	}
+	r, _ := d.Store.Get(id)
+	if r.Status != core.HandedOff {
+		t.Fatalf("status %s, error %q", r.Status, r.Error)
+	}
+	defer d.StopTerminal(id)
+	waitFor(t, func() bool { return strings.Contains(d.Sessions.Get(id).Output(4000), "prepared") }, "the setup's output is not in the terminal")
 }

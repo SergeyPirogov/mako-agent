@@ -451,13 +451,18 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 // Take: «Взяти в роботу». Within the WIP limit and below Claude's limits it starts now, otherwise it waits in
 // the queue.
 func (d *Dispatcher) Take(ctx context.Context, id string) {
+	d.take(ctx, id, "взято в роботу")
+}
+
+// take: Take with what the journal says of it (auto-take says it took the task itself).
+func (d *Dispatcher) take(ctx context.Context, id, said string) {
 	if r, ok := d.Store.Get(id); !ok || !CanTake(r) {
 		return
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.Error, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt, r.AutoSkip = core.Queued, "", 0, false, 0, ""
 	})
-	d.Log(id, "взято в роботу")
+	d.Log(id, said)
 	d.schedule(ctx)
 	// Not started at once: it really waits, and the journal says for what.
 	if d.Starting(id) == nil {
@@ -490,10 +495,10 @@ func (d *Dispatcher) Push(ctx context.Context, id string) {
 		d.mu.Unlock()
 		return
 	}
-	d.starting[id] = true
+	sctx := d.begin(ctx, id)
 	d.mu.Unlock()
 	d.Log(id, "запущено поза чергою")
-	go d.launch(ctx, id)
+	go d.launch(sctx, id)
 }
 
 func (d *Dispatcher) schedule(ctx context.Context) { d.release(ctx, "") }
@@ -538,29 +543,34 @@ func (d *Dispatcher) release(ctx context.Context, id string) {
 			active++
 		}
 	}
-	var start []string
+	start := map[string]context.Context{}
 	for _, r := range d.Store.All() {
 		if r.Status == core.Queued && !d.starting[r.ID] && (d.Config().WipLimit <= 0 || active < d.Config().WipLimit) {
-			d.starting[r.ID] = true
-			start = append(start, r.ID)
+			start[r.ID] = d.begin(ctx, r.ID)
 			active++
 		}
 	}
 	d.mu.Unlock()
-	for _, id := range start {
-		go d.launch(ctx, id)
+	for id, sctx := range start {
+		go d.launch(sctx, id)
 	}
 }
 
-// launch starts a task already marked in d.starting and lets the mark go once it is handed off (or failed).
-func (d *Dispatcher) launch(ctx context.Context, id string) {
+// begin marks id as starting, with the context «Скасувати» stops its start by. Under d.mu, so a cancel never
+// finds a start it cannot stop.
+func (d *Dispatcher) begin(ctx context.Context, id string) context.Context {
 	ctx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	d.mu.Lock()
-	d.stops[id] = stop
-	d.mu.Unlock()
+	d.starting[id], d.stops[id] = true, stop
+	return ctx
+}
+
+// launch starts a task marked by begin and lets the mark go once it is handed off (or failed).
+func (d *Dispatcher) launch(ctx context.Context, id string) {
 	defer func() {
-		stop()
 		d.mu.Lock()
+		if stop := d.stops[id]; stop != nil {
+			stop()
+		}
 		delete(d.starting, id)
 		delete(d.progress, id)
 		delete(d.stops, id)
@@ -590,7 +600,11 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	fail := func(err error) {
 		d.Fault(id, "не передано", err)
-		d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now() })
+		d.Store.Update(id, func(r *core.Record) {
+			if r.Status == core.Queued { // not one cancelled meanwhile
+				r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now()
+			}
+		})
 		notify.Inform(notify.Stopped, "❌ "+id+": не передано "+map[string]string{"orca": "в Orca", terminalExecutor: "агенту"}[executor], err.Error(), d.BoardURL)
 	}
 	t := d.tracker(r.Task.TrackerID)
@@ -604,7 +618,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		return
 	}
 	logf := func(s string) { d.Log(id, s) }
-	d.startPlan(id, executor, executor == terminalExecutor && setupOf(repo, d.Config().Terminal, repo.Path) != "")
+	d.startPlan(id, executor, repo.BaseBranch, executor == terminalExecutor && setupOf(repo, d.Config().Terminal, repo.Path) != "")
 	if !exists(filepath.Join(repo.Path, ".git")) {
 		d.step(id, "clone", "клоную репозиторій")
 	}
@@ -656,6 +670,10 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		return
 	}
 	if err != nil {
+		if cur, _ := d.Store.Get(id); cur.Status != core.Queued {
+			abort() // cancelled meanwhile: not a failure
+			return
+		}
 		d.move(ctx, t, r.Task, trackers.AtFailed)
 		fail(err)
 		return
@@ -1054,7 +1072,7 @@ func (d *Dispatcher) remind(now time.Time) {
 // Cancel: Mako stops following the task (the work in Orca stays). An agent in Mako's terminal is stopped; its
 // worktree stays.
 func (d *Dispatcher) Cancel(id string) {
-	if d.stopStart(id) {
+	if r, _ := d.Store.Get(id); r.Status == core.Queued && d.stopStart(id) {
 		d.Log(id, "скасовано під час запуску")
 	}
 	d.StopTerminal(id)

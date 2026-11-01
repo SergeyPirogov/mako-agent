@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"time"
 
@@ -23,11 +24,15 @@ type StartStep struct {
 
 // StartProgress: a task being started. Executor: "orca" or "terminal", for the steps still to come; Setup: the
 // setup the start runs ("" none).
+// Base: the branch the worktree starts from, for the step that brings it up to date.
 type StartProgress struct {
 	Since    int64       `json:"since"`
 	Executor string      `json:"executor,omitempty"`
 	Setup    bool        `json:"setup,omitempty"`
+	Base     string      `json:"base,omitempty"`
 	Steps    []StartStep `json:"steps"`
+	// branchMade: the start created the task's branch, so a cancelled start deletes it.
+	branchMade bool
 }
 
 // step: the start of id goes on to the next step; the one before is done and the journal gets its time.
@@ -48,7 +53,7 @@ func (d *Dispatcher) step(id, key, label string) {
 }
 
 // startPlan: what the start of id will go through, for the steps the board shows ahead.
-func (d *Dispatcher) startPlan(id, executor string, setup bool) {
+func (d *Dispatcher) startPlan(id, executor, base string, setup bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	p := d.progress[id]
@@ -56,7 +61,16 @@ func (d *Dispatcher) startPlan(id, executor string, setup bool) {
 		p = &StartProgress{Since: time.Now().UnixMilli()}
 		d.progress[id] = p
 	}
-	p.Executor, p.Setup = executor, setup
+	p.Executor, p.Base, p.Setup = executor, base, setup
+}
+
+// madeBranch: the start of id created its branch.
+func (d *Dispatcher) madeBranch(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if p := d.progress[id]; p != nil {
+		p.branchMade = true
+	}
 }
 
 // endSteps: the last step of the start is done (its time to the journal); the progress goes with the start.
@@ -129,8 +143,23 @@ func (d *Dispatcher) cancelled(ctx context.Context, id, repoPath, worktree, bran
 	var err error
 	if terminal {
 		time.Sleep(200 * time.Millisecond) // the agent lets go of the folder
-		// The branch stays: it may be one an earlier attempt left with work on it.
-		err = gitx.DropWorktree(ctx, repoPath, worktree, "")
+		// The branch goes only if this start made it: one an earlier attempt left may have work on it.
+		d.mu.Lock()
+		made := d.progress[id] != nil && d.progress[id].branchMade
+		d.mu.Unlock()
+		if !made {
+			branch = ""
+		}
+		if err = gitx.DropWorktree(ctx, repoPath, worktree, branch); err != nil {
+			// Cancelled halfway through `git worktree add`: git may not know the folder yet.
+			if rmErr := os.RemoveAll(worktree); rmErr == nil {
+				gitx.Run(ctx, repoPath, "worktree", "prune")
+				if branch != "" {
+					gitx.Run(ctx, repoPath, "branch", "-D", branch)
+				}
+				err = nil
+			}
+		}
 	} else {
 		err = d.RemoveWorkspace(ctx, repoPath, worktree, branch)
 	}

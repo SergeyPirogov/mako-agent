@@ -183,7 +183,7 @@ const cardStatus = (r) => {
 };
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
 // The start of a task taken: the steps done (with their time), the one going on, and those still to come.
-const START_STEPS = { tracker: "оновлюю задачу в трекері", main: "оновлюю основну гілку", worktree: "створюю worktree", setup: "підготовка (setup)",
+const START_STEPS = { tracker: "оновлюю задачу в трекері", main: "оновлюю базову гілку", worktree: "створюю worktree", setup: "підготовка (setup)",
   agent: "агент стартує", orca: "Orca створює worktree і запускає агента" };
 const startStep = (r) => r.starting?.steps?.at(-1);
 const secs = (ms) => {
@@ -194,7 +194,7 @@ function startingHTML(r) {
   const p = r.starting, now = Date.now() - skew;
   const plan = p.executor === "orca" ? ["tracker", "orca"] : p.executor ? ["tracker", "main", "worktree", ...(p.setup ? ["setup"] : []), "agent"] : [];
   const seen = new Set(p.steps.map((s) => s.key));
-  const rows = [...p.steps.map((s) => [s.label, s.done ? "done" : "now", (s.done || now) - s.at]), ...plan.filter((k) => !seen.has(k)).map((k) => [START_STEPS[k], "next", 0])];
+  const rows = [...p.steps.map((s) => [s.label, s.done ? "done" : "now", (s.done || now) - s.at]), ...plan.filter((k) => !seen.has(k)).map((k) => [k === "main" && p.base ? `оновлюю ${p.base}` : START_STEPS[k], "next", 0])];
   return `<div class="notice starting"><div><b>Запускаю агента</b> · ${secs(now - p.since)}</div>
     <ol class="start-steps">${rows.map(([label, cls, ms]) => `<li class="${cls}">${esc(label)}${cls === "next" ? "" : `<span class="t">${secs(ms)}</span>`}</li>`).join("")}</ol></div>`;
 }

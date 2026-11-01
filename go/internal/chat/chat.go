@@ -72,8 +72,7 @@ type Options struct {
 	Command      string   // claude
 	Args         []string // more flags: --permission-mode, --allowedTools, --continue, --settings
 	Env          []string
-	Setup        string // runs in the worktree before the agent: "pnpm install"
-	// SetupDone: a setup Mako has already run before starting the agent; shown as finished, not run again.
+	// SetupDone: the worktree's setup Mako ran before starting the agent ("pnpm install"), shown as finished.
 	SetupDone *SetupResult
 	Prompt    string // the first message; "" when the conversation continues
 	Mode      string // the permission mode it starts in
@@ -150,12 +149,6 @@ func (s *Session) run() {
 	if r := s.o.SetupDone; r != nil {
 		s.add(Item{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: mustJSON(map[string]string{"command": r.Command}), Status: "running"})
 		s.finishTool("setup", tail(r.Output, maxOutput), r.Failed)
-	} else if s.o.Setup != "" {
-		s.add(Item{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: mustJSON(map[string]string{"command": s.o.Setup}), Status: "running"})
-		cmd := exec.Command("/bin/sh", "-c", s.o.Setup)
-		cmd.Dir, cmd.Env = s.Worktree, append(environ(), s.o.Env...)
-		out, err := cmd.CombinedOutput()
-		s.finishTool("setup", tail(string(out), maxOutput), err != nil)
 	}
 	args := append([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--permission-prompt-tool", "stdio"}, s.o.Args...)
