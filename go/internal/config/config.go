@@ -24,9 +24,10 @@ const (
 )
 
 type Config struct {
-	// Language: what Mako speaks and asks its agents to write in, i18n.EN (default) or i18n.UK.
-	Language string
-	// UnknownLanguage: the config's "language" Mako does not speak (English is used instead); "" when fine.
+	// AgentLanguage: what the agents write in (chat, questions, commits, merge requests, review reports, tracker
+	// comments), i18n.EN (default) or i18n.UK. Mako's own interface is always English.
+	AgentLanguage string
+	// UnknownLanguage: the config's "agentLanguage" Mako does not speak (English is used instead); "" when fine.
 	UnknownLanguage string
 	Path            string
 	Home            string // the folder of mako.config.json and .env
@@ -297,7 +298,10 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("mako.config.json: %w", err)
 	}
-	lang := strings.TrimSpace(raw.Language)
+	lang := strings.TrimSpace(raw.AgentLanguage)
+	if lang == "" {
+		lang = strings.TrimSpace(raw.Language) // an older config: "language" is what became "agentLanguage"
+	}
 	if lang == "" {
 		lang = i18n.Default
 	}
@@ -306,7 +310,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		unknown, lang = lang, i18n.Default // a wrong language does not cost the trackers: English, with a problem
 	}
 	c := &Config{
-		Language:         lang,
+		AgentLanguage:    lang,
 		UnknownLanguage:  unknown,
 		StateDir:         Expand(raw.StateDir),
 		PollIntervalSec:  orInt(raw.PollIntervalSec, 60),
@@ -585,7 +589,8 @@ func orInt(v *int, def int) int {
 }
 
 type rawConfig struct {
-	Language         string                 `json:"language"`
+	AgentLanguage    string                 `json:"agentLanguage"`
+	Language         string                 `json:"language"` // older configs: read as agentLanguage
 	StateDir         string                 `json:"stateDir"`
 	PollIntervalSec  *int                   `json:"pollIntervalSec"`
 	WipLimit         *int                   `json:"wipLimit"`
@@ -762,4 +767,27 @@ func autoRebase(v string) string {
 		return v
 	}
 	return ""
+}
+
+// MigrateRaw gives an older config's "language" its new name, "agentLanguage": the choice is kept and the old key
+// goes. A config that already has "agentLanguage" only loses "language". Anything that is not a JSON object is
+// returned as it is.
+func MigrateRaw(data []byte) []byte {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(data, &m) != nil || m == nil {
+		return data
+	}
+	old, ok := m["language"]
+	if !ok {
+		return data
+	}
+	delete(m, "language")
+	if _, has := m["agentLanguage"]; !has {
+		m["agentLanguage"] = old
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return data
+	}
+	return out
 }

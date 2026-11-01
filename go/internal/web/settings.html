@@ -558,9 +558,9 @@ const DEFAULT_COMMENTS = {
   onReview: { en: "Opened an MR: {mr}", uk: "Відкрив MR: {mr}" },
 };
 
-// The language of Mako's pages, notifications, comments and of what the agents write: one for all.
+// The language the agents write in; Mako's own pages are always English.
 function languageSelect() {
-  return select(cfg, "language", t("s.lang.label"), LANGS, { def: "en", hint: t("s.lang.hint") });
+  return select(cfg, "agentLanguage", t("s.lang.label"), LANGS, { def: "en", hint: t("s.lang.hint") });
 }
 function renderLanguage() {
   $("language").innerHTML = "";
@@ -635,7 +635,7 @@ function renderNav() {
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">${t("s.nav.add")}</button>` +
     `<div class="group">${t("s.nav.work")}</div>` + item("orca", t("s.orca.title"), (onTerminal() ? t("s.nav.terminal") : "Orca · ") + t((orcaExecutor().mrBy ?? "agent") === "me" ? "s.nav.mrByMe" : "s.nav.mrByAgent")) +
     item("comments", t("s.comments.title")) + item("limits", t("s.limits.title")) + item("disk", t("s.disk.title"), diskNote) + item("notifications", t("s.notif.title")) + item("phone", t("s.phone.title"), phoneNote) +
-    item("language", t("s.lang.title"), LANGS.find(([l]) => l === (cfg.language ?? "en"))?.[1]);
+    item("language", t("s.lang.title"), LANGS.find(([l]) => l === (cfg.agentLanguage ?? "en"))?.[1]);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
   const on = $("side").querySelector(".on");
@@ -834,8 +834,6 @@ $("save").onclick = async () => {
     dirty = false;
     for (const k of Object.keys(env)) envSet[k] = true;
     env = {};
-    // A new language: the page's words change at once, like everything else in Mako.
-    if ((cfg.language ?? "en") !== LANG) await loadI18n();
     showProblems(r.problems);
     $("msg").className = "msg ok";
     $("msg").textContent = r.problems?.length ? t("s.savedProblems") : t("s.saved");

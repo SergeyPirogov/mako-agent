@@ -24,14 +24,14 @@ func TestSnapshot(t *testing.T) {
 	store.Update("a#4", func(r *core.Record) { r.Status, r.PRURL, r.Task = core.Done, "u", core.Task{Title: "На рев'ю"} })
 	d := dispatch.New(&config.Config{WipLimit: 2}, store, nil)
 	v := Snapshot(d, now)
-	if v.NewCount != 1 || v.Title != "1" || !v.Attention || v.Headline != "Mako · в роботі 1 з 2" {
+	if v.NewCount != 1 || v.Title != "1" || !v.Attention || v.Headline != "Mako · 1 of 2 at work" {
 		t.Fatalf("%+v", v)
 	}
-	if len(v.Items) != 3 || v.Items[0].ID != "a#1" || !strings.HasSuffix(v.Items[0].Label, "… — нова") {
+	if len(v.Items) != 3 || v.Items[0].ID != "a#1" || !strings.HasSuffix(v.Items[0].Label, "… — new") {
 		t.Fatalf("items %+v", v.Items)
 	}
 	d.SetPaused(true)
-	if v := Snapshot(d, now); !strings.Contains(v.Line, "паузі") {
+	if v := Snapshot(d, now); !strings.Contains(v.Line, "paused") {
 		t.Fatalf("paused line %q", v.Line)
 	}
 }

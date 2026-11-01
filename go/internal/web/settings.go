@@ -50,7 +50,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		if err != nil || !json.Valid(raw) {
 			raw = []byte("{}")
 		}
-		reply := settingsReply{Config: raw, Env: map[string]bool{}, JiraBase: cfg.Env["JIRA_BASE_URL"], Home: s.Home, AutoWip: config.AutoWip()}
+		reply := settingsReply{Config: config.MigrateRaw(raw), Env: map[string]bool{}, JiraBase: cfg.Env["JIRA_BASE_URL"], Home: s.Home, AutoWip: config.AutoWip()}
 		for _, k := range secretKeys {
 			reply.Env[k] = cfg.Get(k) != ""
 		}
@@ -67,6 +67,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		in.Config = config.MigrateRaw(in.Config)
 		env := s.envWith(in.Env)
 		// Refuse what Mako could not read back, before anything is written.
 		if _, err := config.Parse(in.Config, env); err != nil {

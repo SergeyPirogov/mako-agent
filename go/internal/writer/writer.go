@@ -246,9 +246,9 @@ func TaskSummary(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	return Ask(ctx, worktree, strings.Join([]string{
 		"Summarize, in " + lang() + ", what was done for this task, for the developer who will read it later on a task board.",
 		"Use Markdown with these sections, each short (bullets, at most ~6 per section), skipping a section that has nothing:",
-		i18n.T("summary.whatDone"),
-		i18n.T("summary.howChecked"),
-		i18n.T("summary.lookAt") + " (open questions, risks, follow-ups, anything left undone)",
+		i18n.TA("summary.whatDone"),
+		i18n.TA("summary.howChecked"),
+		i18n.TA("summary.lookAt") + " (open questions, risks, follow-ups, anything left undone)",
 		"Base it on the end of the agent's terminal session and the actual changes below. Do not invent checks that are not mentioned. Answer with the summary only.",
 		"", fmt.Sprintf("Task: %s — %s", t.ID, t.Title), review,
 		"", "End of the agent's terminal session:", orNone(agentText),
@@ -685,5 +685,7 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 	return e, nil
 }
 
-// lang: the language Mako speaks, as the agent is asked to write in it.
-func lang() string { return i18n.EnglishName(i18n.Lang()) }
+// lang: the agent language, as the agent is asked to write in it.
+func lang() string {
+	return i18n.EnglishName(i18n.AgentLanguage())
+}

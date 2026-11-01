@@ -179,7 +179,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		w.Header().Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(map[string]any{
 			"name": "Mako", "short_name": "Mako", "start_url": start, "scope": "/", "display": "standalone",
-			"background_color": "#111214", "theme_color": "#111214", "lang": i18n.Lang(),
+			"background_color": "#111214", "theme_color": "#111214", "lang": "en",
 			"icons": []map[string]string{
 				{"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
 				{"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},

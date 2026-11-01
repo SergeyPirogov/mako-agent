@@ -90,13 +90,13 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 	systray.AddSeparator()
 	exit := systray.AddMenuItem("", "")
 
-	// The menu's own words, again whenever the settings change the language.
-	lang := ""
+	// The menu's own words, set once.
+	wordsSet := false
 	words := func() {
-		if lang == i18n.Lang() {
+		if wordsSet {
 			return
 		}
-		lang = i18n.Lang()
+		wordsSet = true
 		newTasks.SetTooltip(i18n.T("tray.openBoard"))
 		board.SetTitle(i18n.T("tray.openBoard"))
 		browser.SetTitle(i18n.T("tray.openBrowser"))

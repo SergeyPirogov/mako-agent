@@ -213,7 +213,7 @@ func judge(notes string, prior []core.Remark, next int) core.AgentReview {
 		if c.Verdict == core.Open {
 			why := ""
 			if c.Note != "" {
-				why = i18n.T("review.open") + ": " + c.Note
+				why = i18n.TA("review.open") + ": " + c.Note
 			}
 			again(byID[c.ID], why)
 		}
@@ -221,7 +221,7 @@ func judge(notes string, prior []core.Remark, next int) core.AgentReview {
 	if a.Structured() {
 		for _, p := range prior {
 			if !checked[p.ID] && p.Weight == core.Must {
-				again(p, i18n.T("review.unchecked"))
+				again(p, i18n.TA("review.unchecked"))
 			}
 		}
 	}
@@ -444,12 +444,12 @@ func readyBranch(ctx context.Context, wt, base, branch string, pushed bool) (str
 // reviewRequest: the reviewer's remarks, as Mako hands them to the agent: numbered, with the report it ends
 // with; a round out of the format as the reviewer wrote it.
 func reviewRequest(a core.AgentReview, branch string, push bool) string {
-	end := i18n.T("agent.reviewCommit")
+	end := i18n.TA("agent.reviewCommit")
 	if push {
-		end = i18n.T("agent.reviewCommitPush", branch)
+		end = i18n.TA("agent.reviewCommitPush", branch)
 	}
 	if len(a.Remarks) == 0 {
-		return i18n.T("agent.reviewNotes", branch) + "\n\n" + strings.TrimSpace(a.Notes) + "\n\n" + i18n.T("agent.reviewFix", end)
+		return i18n.TA("agent.reviewNotes", branch) + "\n\n" + strings.TrimSpace(a.Notes) + "\n\n" + i18n.TA("agent.reviewFix", end)
 	}
-	return i18n.T("agent.reviewNotes", branch) + "\n\n" + writer.RemarksList(a.Remarks) + "\n\n" + i18n.T("agent.reviewFix", end) + "\n\n" + i18n.T("agent.reviewReport")
+	return i18n.TA("agent.reviewNotes", branch) + "\n\n" + writer.RemarksList(a.Remarks) + "\n\n" + i18n.TA("agent.reviewFix", end) + "\n\n" + i18n.TA("agent.reviewReport")
 }

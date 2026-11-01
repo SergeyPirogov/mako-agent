@@ -91,7 +91,7 @@ func TestMorningDigest(t *testing.T) {
 	}
 	d.morning(nine.Add(5 * time.Minute))
 	p := got()
-	if len(p) != 1 || !strings.Contains(p[0], "змерджено: 1") || !strings.HasSuffix(p[0], "/#digest:"+strconv.FormatInt(nine.Add(-11*time.Hour).UnixMilli(), 10)) {
+	if len(p) != 1 || !strings.Contains(p[0], "merged: 1") || !strings.HasSuffix(p[0], "/#digest:"+strconv.FormatInt(nine.Add(-11*time.Hour).UnixMilli(), 10)) {
 		t.Fatalf("morning push: %v", p)
 	}
 	d.morning(nine.Add(time.Hour))

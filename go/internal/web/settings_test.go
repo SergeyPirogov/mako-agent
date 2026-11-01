@@ -68,47 +68,29 @@ func TestAwakeToggle(t *testing.T) {
 	}
 }
 
-// The pages get their words in Mako's language, and the board learns the language from /api/state.
+// The pages get their words in English, whatever the agent language.
 func TestI18n(t *testing.T) {
-	defer i18n.SetLang(i18n.Lang())
-	i18n.SetLang(i18n.UK)
 	store, _ := state.Open(t.TempDir())
-	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), AgentLanguage: "uk"}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Home: t.TempDir()}).Handler())
 	defer srv.Close()
-	get := func(path string, v any) {
-		res, err := http.Get(srv.URL + path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer res.Body.Close()
-		json.NewDecoder(res.Body).Decode(v)
+	res, err := http.Get(srv.URL + "/api/i18n?lang=uk")
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer res.Body.Close()
 	var words struct {
 		Lang    string            `json:"lang"`
 		Strings map[string]string `json:"strings"`
 	}
-	get("/api/i18n", &words)
-	if words.Lang != "uk" || words.Strings["s.save"] != "Зберегти" {
-		t.Fatalf("uk: %s %q", words.Lang, words.Strings["s.save"])
-	}
-	get("/api/i18n?lang=en", &words)
+	json.NewDecoder(res.Body).Decode(&words)
 	if words.Lang != "en" || words.Strings["s.save"] != "Save" {
 		t.Fatalf("en: %s %q", words.Lang, words.Strings["s.save"])
 	}
-	var st struct {
-		Language string `json:"language"`
-	}
-	get("/api/state", &st)
-	if st.Language != "uk" {
-		t.Fatalf("state language %q", st.Language)
-	}
 }
 
-// Saving «language» switches Mako at once.
-func TestSaveLanguage(t *testing.T) {
-	defer i18n.SetLang(i18n.Lang())
-	i18n.SetLang(i18n.EN)
+// An older config's «language» is saved as «agentLanguage», and settings read it back that way.
+func TestSaveAgentLanguage(t *testing.T) {
 	home := t.TempDir()
 	store, _ := state.Open(t.TempDir())
 	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
@@ -121,7 +103,11 @@ func TestSaveLanguage(t *testing.T) {
 	if err != nil || res.StatusCode != 200 {
 		t.Fatalf("save: %v %v", err, res)
 	}
-	if i18n.Lang() != i18n.UK || d.Config().Language != "uk" {
-		t.Fatalf("language %q, config %q", i18n.Lang(), d.Config().Language)
+	if d.Config().AgentLanguage != "uk" || i18n.AgentLanguage() != i18n.UK {
+		t.Fatalf("agent language %q / %q", d.Config().AgentLanguage, i18n.AgentLanguage())
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "mako.config.json"))
+	if !strings.Contains(string(b), `"agentLanguage": "uk"`) || strings.Contains(string(b), `"language"`) {
+		t.Fatalf("saved: %s", b)
 	}
 }

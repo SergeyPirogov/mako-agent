@@ -61,7 +61,7 @@ func AnswersComment(questions []string, answers map[string]string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return "**" + i18n.T("comment.answers") + "**\n\n" + strings.Join(lines, "\n")
+	return "**" + i18n.TA("comment.answers") + "**\n\n" + strings.Join(lines, "\n")
 }
 
 // AnswerQuestions: «Надіслати в трекер». The answers go to the issue as one comment, the task keeps it among its

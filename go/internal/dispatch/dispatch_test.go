@@ -184,7 +184,7 @@ func git(t *testing.T, dir string, args ...string) {
 func TestMain(m *testing.M) {
 	// Once, before any test: the goroutines a test leaves behind read it.
 	notify.Enabled = false
-	i18n.SetLang(i18n.UK) // the tests' tasks and what they expect Mako to say are Ukrainian
+	i18n.SetAgentLanguage(i18n.UK) // the tests' tasks and what the agent writes are Ukrainian
 	os.Exit(m.Run())
 }
 

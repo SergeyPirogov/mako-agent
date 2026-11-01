@@ -677,7 +677,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.move(ctx, t, r.Task, trackers.AtStart)
 
-	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch, Model: modelFor(d.Config(), r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt}
+	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch, Model: modelFor(d.Config(), r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Language: d.Config().AgentLanguage}
 	var res *orca.Result
 	if executor == terminalExecutor {
 		res, err = d.handTerminal(ctx, job, logf)

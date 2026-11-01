@@ -36,18 +36,12 @@ func TestDictionaryComplete(t *testing.T) {
 }
 
 func TestT(t *testing.T) {
-	defer SetLang(Lang())
-	SetLang(UK)
-	if got := T("notify.waiting", "a#1"); got != "✋ a#1: агент чекає на вас" {
-		t.Fatalf("uk: %q", got)
-	}
-	SetLang(EN)
+	// The interface is English only; In picks the agent's language.
 	if got := T("notify.waiting", "a#1"); got != "✋ a#1: the agent is waiting for you" {
-		t.Fatalf("en: %q", got)
+		t.Fatalf("T: %q", got)
 	}
-	SetLang("ru")
-	if Lang() != EN {
-		t.Fatalf("an unknown language: %q", Lang())
+	if got := In(UK, "notify.waiting", "a#1"); got != "✋ a#1: агент чекає на вас" {
+		t.Fatalf("In uk: %q", got)
 	}
 	if got := T("no.such.key"); got != "no.such.key" {
 		t.Fatalf("missing key: %q", got)
@@ -57,15 +51,19 @@ func TestT(t *testing.T) {
 	}
 }
 
-func TestPlural(t *testing.T) {
-	defer SetLang(Lang())
-	SetLang(UK)
-	for n, want := range map[int]string{1: "вид", 2: "види", 5: "видів", 11: "видів", 21: "вид", 24: "види"} {
-		if got := Plural(n, "вид", "види", "видів"); got != want {
-			t.Errorf("uk %d: %q", n, got)
-		}
+func TestAgentLanguage(t *testing.T) {
+	defer SetAgentLanguage(AgentLanguage())
+	SetAgentLanguage(UK)
+	if AgentLanguage() != UK || TA("notify.waiting", "a#1") != "✋ a#1: агент чекає на вас" {
+		t.Fatalf("uk: %q", TA("notify.waiting", "a#1"))
 	}
-	SetLang(EN)
+	SetAgentLanguage("ru")
+	if AgentLanguage() != EN {
+		t.Fatalf("an unknown language: %q", AgentLanguage())
+	}
+}
+
+func TestPlural(t *testing.T) {
 	if Plural(1, "kind", "kinds", "kinds") != "kind" || Plural(3, "kind", "kinds", "kinds") != "kinds" {
 		t.Error("en")
 	}

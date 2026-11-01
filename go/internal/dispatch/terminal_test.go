@@ -196,11 +196,11 @@ echo "$more" > more.json
 	// The notification answers the permission itself: «Дозволити» / «Ні».
 	asked := ""
 	for _, p := range pushed() {
-		if strings.Contains(p, "агент чекає на вас") {
+		if strings.Contains(p, "the agent is waiting for you") {
 			asked = p
 		}
 	}
-	if !strings.Contains(asked, "Дозволити → /api/permit?id=grp%2Fapp%235&req=r1&decision=allow") || !strings.Contains(asked, "Ні → /api/permit?id=grp%2Fapp%235&req=r1&decision=deny") {
+	if !strings.Contains(asked, "Allow → /api/permit?id=grp%2Fapp%235&req=r1&decision=allow") || !strings.Contains(asked, "No → /api/permit?id=grp%2Fapp%235&req=r1&decision=deny") {
 		t.Fatalf("waiting push %q", asked)
 	}
 	s.Permit("r1", "allow")

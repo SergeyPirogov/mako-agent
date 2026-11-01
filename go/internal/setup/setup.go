@@ -14,7 +14,7 @@ import (
 // missing or wrong) and the trackers that could be made; problems say what to fix in the settings.
 func Build(home string) (*config.Config, []trackers.Tracker, []string) {
 	cfg, err := config.Load(home)
-	i18n.SetLang(cfg.Language)
+	i18n.SetAgentLanguage(cfg.AgentLanguage)
 	var problems []string
 	switch {
 	case errors.Is(err, config.ErrMissing):
