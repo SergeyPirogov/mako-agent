@@ -2,11 +2,13 @@
 package writer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,12 +86,65 @@ func WithSpend(ctx context.Context, f func(Spend)) context.Context {
 	return context.WithValue(ctx, spendKey{}, f)
 }
 
+// maxPlain: the most of what `claude -p` printed besides its JSON lines kept, the answer when there is no result.
+const maxPlain = 1 << 20
+
+// output is what `claude -p` printed, read as it came: the result line, the context its calls filled, and any
+// text that was no JSON line. The stream itself (each tool result the agent read) is not kept.
+type output struct {
+	result []byte
+	plain  bytes.Buffer
+	ctx    contextstat.Result
+}
+
+func readOutput(r io.Reader) *output {
+	o := &output{}
+	stream := contextstat.NewStream()
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 1<<20), 64<<20)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		var e struct {
+			Type   string  `json:"type"`
+			Result *string `json:"result"`
+		}
+		switch {
+		case json.Unmarshal(line, &e) != nil || e.Type == "":
+			if o.plain.Len() < maxPlain {
+				o.plain.Write(sc.Bytes())
+				o.plain.WriteByte('\n')
+			}
+		case e.Type == "result" && e.Result != nil:
+			o.result = bytes.Clone(line)
+			stream.Line(line)
+		default:
+			stream.Line(line)
+		}
+	}
+	io.Copy(io.Discard, r) // a line too long to read: the rest is not waited on
+	o.ctx = stream.Finish("")
+	return o
+}
+
+// run runs a `claude -p` and reads what it prints as it goes.
+func run(cmd *exec.Cmd) (*output, error) {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	o := readOutput(stdout)
+	return o, cmd.Wait()
+}
+
 // answer: the text of `claude -p`'s result, telling its spend to the context's WithSpend; output that is not that
 // JSON is the text itself. model: the one asked for, the window of its context when the stream did not tell it.
-func answer(ctx context.Context, out []byte, model string) string {
-	text, spend, ok := ParseResult(out)
+func answer(ctx context.Context, o *output, model string) string {
+	text, spend, ok := o.parse()
 	if !ok {
-		return string(out)
+		return strings.TrimRight(o.plain.String(), "\n")
 	}
 	for i := range spend.Context {
 		if c := &spend.Context[i]; c.Window == 0 {
@@ -105,9 +160,12 @@ func answer(ctx context.Context, out []byte, model string) string {
 // ParseResult reads the result `claude -p` prints, its last line with --output-format stream-json: its text and
 // what it cost; the stream's model calls tell how the context filled.
 func ParseResult(out []byte) (text string, spend Spend, ok bool) {
+	return readOutput(bytes.NewReader(out)).parse()
+}
+
+func (o *output) parse() (text string, spend Spend, ok bool) {
 	var r struct {
-		Type   string  `json:"type"`
-		Result *string `json:"result"`
+		Result string  `json:"result"`
 		Cost   float64 `json:"total_cost_usd"`
 		Usage  struct {
 			Input       int `json:"input_tokens"`
@@ -116,25 +174,16 @@ func ParseResult(out []byte) (text string, spend Spend, ok bool) {
 			CacheCreate int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	}
-	lines := bytes.Split(bytes.TrimSpace(out), []byte("\n"))
-	found := false
-	for i := len(lines) - 1; i >= 0 && !found; i-- {
-		r.Type, r.Result = "", nil
-		found = json.Unmarshal(bytes.TrimSpace(lines[i]), &r) == nil && r.Type == "result" && r.Result != nil
-	}
-	if !found {
+	if o.result == nil || json.Unmarshal(o.result, &r) != nil {
 		return "", Spend{}, false
 	}
 	u := r.Usage
 	spend = Spend{USD: r.Cost, Tokens: u.Input + u.Output + u.CacheRead + u.CacheCreate}
-	if len(lines) > 1 {
-		res := contextstat.Analyze(bytes.NewReader(out), "")
-		for _, run := range res.Runs {
-			run.Window = res.Window // 0 when the stream did not tell it: answer knows the model
-			spend.Context = append(spend.Context, run)
-		}
+	for _, run := range o.ctx.Runs {
+		run.Window = o.ctx.Window // 0 when the stream did not tell it: answer knows the model
+		spend.Context = append(spend.Context, run)
 	}
-	return *r.Result, spend, true
+	return r.Result, spend, true
 }
 
 // Ask runs `claude -p --model haiku` with the prompt on stdin, for up to two minutes.
@@ -155,7 +204,7 @@ func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Durat
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := run(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("Claude не відповів за %d хв", int(timeout.Minutes()))
 	}
@@ -333,7 +382,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	cmd.Env = append(os.Environ(), "MAKO_REVIEWER=1")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := run(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
 		return "", errors.New("рецензент не відповів за 15 хв")
 	}

@@ -2076,14 +2076,16 @@ function contextCardHTML(r, card) {
 }
 
 // The context over the model's calls of the agent's runs, one after another, a dashed line at each compaction and
-// at the plan's approval; each point tells its numbers on hover.
+// where a run follows another (the plan's approval, a new session); each point tells its numbers on hover.
 function contextChart(runs) {
   const steps = [], marks = [], bounds = [];
-  for (const x of runs) {
-    if (steps.length) bounds.push(steps.length);
+  runs.forEach((x, i) => {
+    // Where one run follows another: the plan approved in the same session, else a new session (a retry, a restart).
+    const prev = runs[i - 1];
+    if (prev) bounds.push([steps.length, prev.phase === "plan" && x.phase === "work" && prev.session && prev.session === x.session]);
     for (const i of x.compacted || []) marks.push(steps.length + i);
     steps.push(...(x.steps || []));
-  }
+  });
   if (steps.length < 2) return "";
   const win = Math.max(...runs.map((x) => x.window || 0));
   const top = Math.max(...steps) * 1.08 || 1, W = 600, H = 120, n = steps.length;
@@ -2092,7 +2094,7 @@ function contextChart(runs) {
   const vline = (i, cls, tip) => `<line class="${cls}" x1="${X(i)}" x2="${X(i)}" y1="0" y2="${H}"><title>${tip}</title></line>`;
   const hits = steps.map((v, i) => `<rect x="${(X(i) - W / n / 2).toFixed(1)}" y="0" width="${(W / n).toFixed(1)}" height="${H}"><title>крок ${i + 1}: ${tok(v)}${win ? ` · ${pctText(v / win)} вікна` : ""}</title></rect>`).join("");
   return `<svg class="ctx-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Контекст по кроках: найбільше ${tok(Math.max(...steps))}">`
-    + bounds.map((i) => vline(i, "bound", "план затверджено")).join("") + marks.map((i) => vline(i, "compact", "компакція")).join("")
+    + bounds.map(([i, plan]) => vline(i, "bound", plan ? "план затверджено" : "нова сесія")).join("") + marks.map((i) => vline(i, "compact", "компакція")).join("")
     + `<polyline points="${line}" vector-effect="non-scaling-stroke"/><g class="hits">${hits}</g></svg>`
     + `<div class="ctx-axis"><span>крок 1</span><span>${tok(Math.max(...steps))} найбільше${marks.length ? " · ┆ компакція" : ""}</span><span>крок ${n}</span></div>`;
 }

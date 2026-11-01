@@ -21,6 +21,10 @@ func TestSetContext(t *testing.T) {
 	if n := len(r.Metrics.Context); n != maxContextRuns || r.Metrics.Context[n-1].Peak != 139 {
 		t.Fatalf("%d runs", n)
 	}
+	// Mako's own runs went first: the agent's plan and work stayed.
+	if c := r.Metrics.Context; c[0].Phase != PhasePlan || c[1].Phase != PhaseWork || c[2].Peak != 112 {
+		t.Fatalf("%+v", c[:3])
+	}
 	if ContextWindow("opus", 150_000) != 200_000 || ContextWindow("claude-opus-4-7[1m]", 1) != 1_000_000 || ContextWindow("", 300_000) != 1_000_000 {
 		t.Fatal("window")
 	}

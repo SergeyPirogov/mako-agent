@@ -107,7 +107,7 @@ func (a *analyzer) subagent(path string) {
 		return
 	}
 	defer f.Close()
-	x := a.runs[len(a.runs)-1]
+	x := a.lastWithCalls(len(a.runs) - 1)
 	placed := false
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
@@ -133,7 +133,7 @@ func (a *analyzer) subagent(path string) {
 			for i < len(a.splits) && !e.Timestamp.Before(a.splits[i]) {
 				i++
 			}
-			x = a.runs[i]
+			x = a.lastWithCalls(i)
 		}
 		if e.Type != "assistant" || e.Message.ID == "" || a.seen[e.Message.ID] {
 			continue
@@ -145,6 +145,22 @@ func (a *analyzer) subagent(path string) {
 		x.CacheCreate += u.CacheCreate
 	}
 }
+
+// lastWithCalls: run i, or the one before it when it has no main call yet: a run without calls is not kept, and
+// a subagent's cache must not go with it.
+func (a *analyzer) lastWithCalls(i int) *run {
+	for i > 0 && a.runs[i].Calls == 0 {
+		i--
+	}
+	return a.runs[i]
+}
+
+// Stream reads JSON lines one at a time, as they come: Line each, then Finish.
+type Stream struct{ a *analyzer }
+
+func NewStream() *Stream                            { return &Stream{newAnalyzer()} }
+func (s *Stream) Line(line []byte)                  { s.a.line(line) }
+func (s *Stream) Finish(defaultPhase string) Result { return s.a.finish(defaultPhase) }
 
 func (a *analyzer) finish(defaultPhase string) Result {
 	at := time.Now().UTC().Format(time.RFC3339)

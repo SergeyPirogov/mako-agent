@@ -1,6 +1,7 @@
 package writer
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -94,10 +95,10 @@ func TestParseResult(t *testing.T) {
 	}
 	var got Spend
 	ctx := WithSpend(context.Background(), func(s Spend) { got = s })
-	if answer(ctx, out, "") != "LGTM" || got.USD != spend.USD || got.Tokens != spend.Tokens {
+	if answer(ctx, readOutput(bytes.NewReader(out)), "") != "LGTM" || got.USD != spend.USD || got.Tokens != spend.Tokens {
 		t.Fatalf("spend %+v", got)
 	}
-	if answer(ctx, []byte("plain"), "") != "plain" {
+	if answer(ctx, readOutput(strings.NewReader("plain")), "") != "plain" {
 		t.Fatal("plain text lost")
 	}
 }
@@ -121,11 +122,11 @@ func TestParseStreamResult(t *testing.T) {
 	noWindow := []byte(strings.Replace(string(out), `,"modelUsage":{"claude-sonnet-5-5":{"contextWindow":1000000}}`, "", 1))
 	var got Spend
 	ctx := WithSpend(context.Background(), func(s Spend) { got = s })
-	answer(ctx, noWindow, "sonnet[1m]")
+	answer(ctx, readOutput(bytes.NewReader(noWindow)), "sonnet[1m]")
 	if len(got.Context) != 1 || got.Context[0].Window != 1_000_000 {
 		t.Fatalf("%+v", got.Context)
 	}
-	answer(ctx, noWindow, "haiku")
+	answer(ctx, readOutput(bytes.NewReader(noWindow)), "haiku")
 	if got.Context[0].Window != 200_000 {
 		t.Fatalf("%+v", got.Context)
 	}

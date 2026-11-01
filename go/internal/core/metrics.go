@@ -44,6 +44,8 @@ type Metrics struct {
 	Context []ContextRun `json:"context,omitempty"`
 	// Prompt: ≈ tokens of the prompt Mako handed the agent, the task's own part of its start.
 	Prompt int `json:"prompt,omitempty"`
+	// ContextRead: the transcripts were read for Context once at least, found or not: no need to look back.
+	ContextRead bool `json:"contextRead,omitempty"`
 }
 
 // clone: a copy to change: the store hands out shallow copies of a record, so its maps are never changed in place.

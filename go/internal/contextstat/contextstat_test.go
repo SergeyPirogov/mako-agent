@@ -167,3 +167,21 @@ func TestSubagentFilesAddToTheirRun(t *testing.T) {
 		t.Fatalf("%+v", r.Runs)
 	}
 }
+
+// A subagent that ran after the plan's approval, before the work's first call: its cache goes to the plan's run,
+// not to a run with no call that is not kept.
+func TestSubagentBeforeTheWorksFirstCall(t *testing.T) {
+	dir := t.TempDir()
+	main := filepath.Join(dir, "s-1.jsonl")
+	os.WriteFile(main, []byte(strings.Join([]string{
+		call("m1", 0, 10000, 0, 0, use("p", "ExitPlanMode", `{}`)),
+		strings.TrimSuffix(result("p", 10, false), "}") + `,"timestamp":"2026-10-01T10:05:00Z"}`,
+	}, "\n")), 0o600)
+	os.MkdirAll(filepath.Join(dir, "s-1", "subagents"), 0o700)
+	os.WriteFile(filepath.Join(dir, "s-1", "subagents", "agent-a.jsonl"), []byte(
+		`{"type":"assistant","timestamp":"2026-10-01T10:06:00Z","message":{"id":"x","usage":{"input_tokens":1,"cache_read_input_tokens":800}}}`), 0o600)
+	r := AnalyzeFile(main, core.PhaseWork)
+	if len(r.Runs) != 1 || r.Runs[0].Phase != core.PhasePlan || r.Runs[0].CacheRead != 10800 {
+		t.Fatalf("%+v", r.Runs)
+	}
+}

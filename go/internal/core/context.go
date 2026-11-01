@@ -1,6 +1,7 @@
 package core
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -56,7 +57,8 @@ const TopHeavy = 10
 // maxContextRuns: the runs a record keeps, the newest.
 const maxContextRuns = 30
 
-// SetContext keeps run: in place of the one of the same session and phase, else added.
+// SetContext keeps run: in place of the one of the same session and phase, else added; past maxContextRuns the
+// oldest of Mako's own runs go first.
 func (r *Record) SetContext(run ContextRun) {
 	m := r.Metrics.clone()
 	r.Metrics = m
@@ -67,9 +69,30 @@ func (r *Record) SetContext(run ContextRun) {
 		}
 	}
 	m.Context = append(m.Context, run)
-	if n := len(m.Context); n > maxContextRuns {
-		m.Context = m.Context[n-maxContextRuns:]
+	for len(m.Context) > maxContextRuns {
+		m.Context = slices.Delete(m.Context, oldestToDrop(m.Context), oldestToDrop(m.Context)+1)
 	}
+}
+
+// oldestToDrop: the oldest run of Mako's own (an estimate, a review, an assessment: each its own session), so the
+// agent's plan and work, which the card's line and the start stand on, stay; the oldest of all when there is none.
+func oldestToDrop(runs []ContextRun) int {
+	for i, x := range runs {
+		if x.Phase != PhasePlan && x.Phase != PhaseWork {
+			return i
+		}
+	}
+	return 0
+}
+
+// ContextWasRead marks that the transcripts were read for Context.
+func (r *Record) ContextWasRead() {
+	if r.Metrics != nil && r.Metrics.ContextRead {
+		return
+	}
+	m := r.Metrics.clone()
+	r.Metrics = m
+	m.ContextRead = true
 }
 
 // SetPrompt keeps the size of the prompt Mako handed the agent.

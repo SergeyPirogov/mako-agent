@@ -15,14 +15,15 @@ const agentPrompt = "You are working on "
 // recordContext reads how the task's agent filled its context from its Claude Code transcripts and keeps it, by
 // session and phase, in place of what it read before. The agent's own session when Mako knows it; else (an
 // agent in Orca or a terminal) the worktree's sessions that are the agent's, not Mako's own notes on its work.
+// Two reads of one task at once (a chat turn's in the background, the MR's) are harmless: each keeps a whole read.
 func (d *Dispatcher) recordContext(id string) {
 	r, ok := d.Store.Get(id)
 	if !ok || r.Worktree == "" {
 		return
 	}
-	paths := orca.Transcripts(r.Worktree)
+	paths, known := orca.Transcripts(r.Worktree), false
 	if p := orca.SessionFile(r.Worktree, r.SessionID); p != "" {
-		paths = []string{p}
+		paths, known = []string{p}, true
 	}
 	phase := core.PhaseWork
 	if r.Planning {
@@ -33,25 +34,30 @@ func (d *Dispatcher) recordContext(id string) {
 		window = s.Snapshot().Window
 	}
 	var runs []core.ContextRun
+	newest := -1 // the first run of the newest session: the one the last prompt Mako handed was for
 	for _, path := range paths {
 		res := contextstat.AnalyzeFile(path, phase)
-		if len(paths) > 1 && !agentSession(res, r.Task.ID) {
+		if !known && !agentSession(res, r.Task.ID) {
 			continue
 		}
-		for i, run := range res.Runs {
+		if len(res.Runs) > 0 {
+			newest = len(runs)
+		}
+		for _, run := range res.Runs {
 			if run.Window = max(res.Window, window); run.Window == 0 {
 				run.Window = core.ContextWindow(r.AgentModel, run.Peak)
-			}
-			if i == 0 && len(runs) == 0 && r.Metrics != nil && r.Metrics.Prompt > 0 {
-				run.Prompt = r.Metrics.Prompt // the prompt Mako handed it, rather than a guess from the transcript
 			}
 			runs = append(runs, run)
 		}
 	}
-	if len(runs) == 0 {
+	if newest >= 0 && r.Metrics != nil && r.Metrics.Prompt > 0 {
+		runs[newest].Prompt = r.Metrics.Prompt // the prompt Mako handed it, rather than a guess from the transcript
+	}
+	if _, ok := d.Store.Get(id); !ok { // gone meanwhile: Update would make it again
 		return
 	}
 	d.Store.Update(id, func(r *core.Record) {
+		r.ContextWasRead()
 		for _, run := range runs {
 			r.SetContext(run)
 		}
@@ -71,6 +77,9 @@ func agentSession(res contextstat.Result, taskID string) bool {
 	return calls >= 2 && !strings.Contains(strings.ToLower(res.Model), "haiku")
 }
 
+// readContext: recordContext; a test makes it slow.
+var readContext = (*Dispatcher).recordContext
+
 // recordContextLater reads the context in the background, once at a time per task: the turns that end
 // meanwhile make it read once more, after.
 func (d *Dispatcher) recordContextLater(id string) {
@@ -87,7 +96,7 @@ func (d *Dispatcher) recordContextLater(id string) {
 	d.ctxMu.Unlock()
 	go func() {
 		for {
-			d.recordContext(id)
+			readContext(d, id)
 			d.ctxMu.Lock()
 			if !d.contexts[id] {
 				delete(d.contexts, id)
@@ -108,13 +117,14 @@ func (d *Dispatcher) notePrompt(id, prompt string) {
 	d.Store.Update(id, func(r *core.Record) { r.SetPrompt(prompt) })
 }
 
-// backfillContext reads the context of the tasks taken before it was kept, from the transcripts still there.
+// backfillContext reads the context of the tasks taken before it was kept, from the transcripts still there; a
+// task read once, found or not, is not read again on the next start.
 func (d *Dispatcher) backfillContext(ctx context.Context) {
 	for _, r := range d.Store.All() {
 		if ctx.Err() != nil {
 			return
 		}
-		if r.StartedAt == "" || r.Worktree == "" || r.Metrics != nil && len(r.Metrics.Context) > 0 {
+		if r.StartedAt == "" || r.Worktree == "" || r.Metrics != nil && (r.Metrics.ContextRead || len(r.Metrics.Context) > 0) {
 			continue
 		}
 		d.recordContext(r.ID)

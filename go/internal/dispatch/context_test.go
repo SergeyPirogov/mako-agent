@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -103,5 +104,98 @@ func TestRecordContextOfAnOrcaAgent(t *testing.T) {
 	r, _ = d.Store.Get("t#3")
 	if c := r.Metrics.Context; len(c) != 1 || c[0].Phase != core.PhasePlan || c[0].Peak != 9001 {
 		t.Fatalf("%+v", c)
+	}
+}
+
+// Mako does not know the session and the worktree has a single transcript, Mako's own old haiku call: it is not
+// the agent's. The task is read once: the next start does not read it again.
+func TestRecordContextSkipsMakosOwnLoneSession(t *testing.T) {
+	d, _, _ := setup(t)
+	conf, wt := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", conf)
+	dir := filepath.Join(conf, "projects", regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(wt, "-"))
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "mako.jsonl"), []byte(
+		`{"type":"user","sessionId":"mako","message":{"content":"Write the title of a merge request"}}`+"\n"+
+			`{"type":"assistant","message":{"id":"h1","model":"claude-haiku-5-5","usage":{"input_tokens":1,"cache_read_input_tokens":3000}}}`), 0o600)
+	d.Store.Update("t#4", func(r *core.Record) { r.Worktree, r.StartedAt = wt, "2026-10-01T10:00:00Z" })
+
+	d.backfillContext(context.Background())
+	r, _ := d.Store.Get("t#4")
+	if r.Metrics == nil || !r.Metrics.ContextRead || len(r.Metrics.Context) != 0 {
+		t.Fatalf("%+v", r.Metrics)
+	}
+	// Read once: a later start leaves it alone even when a transcript turns up.
+	os.WriteFile(filepath.Join(dir, "agent.jsonl"), []byte(
+		`{"type":"user","sessionId":"agent","message":{"content":"You are working on GitHub issue t#4."}}`+"\n"+
+			`{"type":"assistant","message":{"id":"a1","model":"claude-opus-5-5","usage":{"input_tokens":1,"cache_read_input_tokens":9000}}}`), 0o600)
+	d.backfillContext(context.Background())
+	if r, _ := d.Store.Get("t#4"); len(r.Metrics.Context) != 0 {
+		t.Fatalf("read again: %+v", r.Metrics.Context)
+	}
+}
+
+// Two sessions of the agent (a retry): the prompt Mako handed last is the newest session's, not the first's.
+func TestRecordContextPromptGoesToTheNewestSession(t *testing.T) {
+	d, _, _ := setup(t)
+	conf, wt := t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", conf)
+	dir := filepath.Join(conf, "projects", regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(wt, "-"))
+	os.MkdirAll(dir, 0o700)
+	for i, name := range []string{"first", "second"} {
+		p := filepath.Join(dir, name+".jsonl")
+		os.WriteFile(p, []byte(`{"type":"user","sessionId":"`+name+`","message":{"content":"You are working on GitHub issue t#5."}}`+"\n"+
+			`{"type":"assistant","message":{"id":"`+name+`","model":"claude-opus-5-5","usage":{"input_tokens":1,"cache_read_input_tokens":9000}}}`), 0o600)
+		at := time.Now().Add(time.Duration(i-2) * time.Hour)
+		os.Chtimes(p, at, at)
+	}
+	d.Store.Update("t#5", func(r *core.Record) { r.Worktree = wt; r.SetPrompt(strings.Repeat("я", 600)) })
+	d.recordContext("t#5")
+	r, _ := d.Store.Get("t#5")
+	c := r.Metrics.Context
+	if len(c) != 2 || c[0].Session != "first" || c[1].Session != "second" || c[1].Prompt != 200 || c[0].Prompt == 200 {
+		t.Fatalf("%+v", c)
+	}
+}
+
+// Turns that end while the context is read make it read once more, after; then the task is let go.
+func TestRecordContextLaterCoalesces(t *testing.T) {
+	d, _, _ := setup(t)
+	started, release := make(chan struct{}, 10), make(chan struct{})
+	var mu sync.Mutex
+	reads := 0
+	old := readContext
+	readContext = func(_ *Dispatcher, id string) {
+		mu.Lock()
+		reads++
+		mu.Unlock()
+		started <- struct{}{}
+		<-release
+	}
+	t.Cleanup(func() { readContext = old })
+
+	d.recordContextLater("t#6")
+	<-started
+	d.recordContextLater("t#6") // meanwhile: three turns, one read more
+	d.recordContextLater("t#6")
+	d.recordContextLater("t#6")
+	release <- struct{}{}
+	<-started
+	release <- struct{}{}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		d.ctxMu.Lock()
+		_, busy := d.contexts["t#6"]
+		d.ctxMu.Unlock()
+		if !busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("still busy")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if reads != 2 {
+		t.Fatalf("%d reads", reads)
 	}
 }
