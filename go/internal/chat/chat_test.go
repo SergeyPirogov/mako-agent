@@ -101,7 +101,11 @@ func TestSetupDone(t *testing.T) {
 	os.WriteFile(bin, []byte(fakeClaude), 0o755)
 	s := Start(Options{ID: "a#2", Worktree: dir, Command: bin, Prompt: "Зроби задачу",
 		SetupDone: &SetupResult{Command: "pnpm install", Output: "installed\n", Failed: true}})
-	defer s.Stop()
+	// The fake agent writes into dir as it ends: wait for it, or TempDir's cleanup races it («directory not empty»).
+	defer func() {
+		s.Stop()
+		eventually(t, func() bool { return !s.Running() }, func() string { return "agent still running" })
+	}()
 	eventually(t, func() bool { return len(s.Snapshot().Items) > 1 }, func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
 	it := s.Snapshot().Items[1]
 	if it.Tool != "Підготовка" || it.Status != "error" || it.Output != "installed\n" || !strings.Contains(string(it.Input), "pnpm install") {

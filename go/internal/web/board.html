@@ -306,10 +306,11 @@ async function loadCard() {
 }
 
 // Claude's usage limits, the account's: how much of each window is used, when it resets in the tooltip (the 5h one also beside the meter).
-const resetTime = (sec) => {
+// Bare=true is the compact form beside the meter: «12:20» today, «пт, 12:20» later; otherwise «о 12:20» for prose.
+const resetTime = (sec, bare) => {
   const d = new Date(sec * 1000), today = new Date().toDateString() === d.toDateString();
-  return today ? `о ${d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}`
-    : d.toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const hm = d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" });
+  return today ? (bare ? hm : `о ${hm}`) : d.toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
 };
 function limitsHTML(l) {
   const bad = data.limitPausePct || 85;
@@ -318,7 +319,7 @@ function limitsHTML(l) {
     const pct = Math.round(w.used * 100), cls = pct >= bad ? "bad" : pct >= 60 ? "warn" : "";
     // A reset time in the past: the window is fresh again, though no agent has reported it yet.
     const live = w.resetsAt * 1000 > Date.now(), at = live ? resetTime(w.resetsAt) : "";
-    return `<span class="limit ${cls}" title="${what}: використано ${pct}%${live ? `, оновиться ${at}` : ""}"><span class="lk">${label}</span><span class="ls">${short}</span><span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b>${showReset && live ? `<span class="lr">↻ ${at}</span>` : ""}</span>`;
+    return `<span class="limit ${cls}" title="${what}: використано ${pct}%${live ? `, оновиться ${at}` : ""}"><span class="lk">${label}</span><span class="ls">${short}</span><span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b>${showReset && live ? `<span class="lr">↻ ${resetTime(w.resetsAt, true)}</span>` : ""}</span>`;
   };
   return meter("5 год", "5г", l?.fiveHour, "Ліміт Claude на 5 годин", true) + meter("Тиждень", "тиж", l?.week, "Ліміт Claude на тиждень");
 }
