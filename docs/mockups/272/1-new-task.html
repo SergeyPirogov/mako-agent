@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>New task</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.btn{font:inherit;font-size:13.5px;height:34px;padding:0 14px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;cursor:pointer}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:34px;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:10px;background:#f3f3f1;color:#6f7277}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.h{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6f7277}
+.stages{display:flex;align-items:flex-start;gap:0}
+.st{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;padding:12px 14px;position:relative}
+.st .row{display:flex;align-items:center;gap:8px}
+.st .c{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none;border:1.5px solid #c9cbcf;color:#fff;background:#fff}
+.st b{font-size:13px;font-weight:600}
+.st small{font-size:12px;color:#6f7277;padding-left:28px}
+.st.done .c{background:#2f9e5b;border-color:#2f9e5b}
+.st.now{background:#eef3fd;border-radius:10px}
+.st.now .c{border-color:#2f6fde;box-shadow:0 0 0 3px #d6e3fb}
+.st.now .c i{width:8px;height:8px;border-radius:50%;background:#2f6fde}
+.st.todo b{color:#6f7277}
+.st.fail .c{background:#d14343;border-color:#d14343}
+.st.skip .c{border-style:dashed}
+.st.skip b{color:#9a9da2}
+.sep{flex:none;width:18px;height:1.5px;background:#e7e7e4;margin-top:22px}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;color:#6f7277;font-size:12.5px}
+.meta span{display:inline-flex;align-items:center;gap:5px}
+</style>
+
+<div class="b" style="width:1040px;height:1080px;box-sizing:border-box;padding:24px 28px;display:flex;flex-direction:column;gap:16px;overflow:hidden">
+  <div style="display:flex;align-items:flex-start;gap:16px">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path fill="#1c1d1f" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
+        <a href="#" class="mono">mako-agent#233</a>
+        <span class="pill"><span class="dot" style="background:#9a9da2"></span>snoozed until tomorrow 09:00</span>
+      </div>
+      <h1 style="margin:0;font-size:21px;line-height:1.3;font-weight:650">From idea to tasks: the agent writes a spec and splits it into tasks</h1>
+      <div class="meta">
+        <span>mako-agent</span><span>·</span><span>enhancement</span><span>·</span><span>author SergeyPirogov</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex:none;padding-top:4px">
+      <button class="btn pri">Start · opus ▾</button>
+      <button class="btn">Return</button>
+      <button class="btn icon" aria-label="More actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+    </div>
+  </div>
+
+  <div class="card stages" style="padding:4px">
+    <div class="st done"><div class="row"><span class="c"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span><b>Estimate</b></div><small>4 questions · $0.24</small></div>
+    <div class="sep"></div>
+    <div class="st now"><div class="row"><span class="c"><i></i></span><b>Waiting for you</b></div><small>start it</small></div>
+    <div class="sep"></div>
+    <div class="st todo"><div class="row"><span class="c"></span><b>Plan</b></div><small>recommended</small></div>
+    <div class="sep"></div>
+    <div class="st todo"><div class="row"><span class="c"></span><b>Work</b></div><small>—</small></div>
+    <div class="sep"></div>
+    <div class="st todo"><div class="row"><span class="c"></span><b>Review</b></div><small>—</small></div>
+    <div class="sep"></div>
+    <div class="st todo"><div class="row"><span class="c"></span><b>MR · merge</b></div><small>—</small></div>
+  </div>
+
+  <div class="card" style="padding:14px 20px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;align-items:center"><span class="h" style="flex:1">Description</span><span style="font-size:12.5px;color:#6f7277">from GitHub</span></div>
+    <div><b style="font-weight:600">Why.</b> Today the cycle starts with a task a person writes. In an AI-native flow the agent turns a short idea into a spec and splits it into tasks Mako then takes itself.</div>
+    <div><b style="font-weight:600">How it should work.</b> A «New idea» button → the agent writes a spec → questions right in Mako → a split into tasks with dependencies → once confirmed, Mako creates them in the tracker.</div>
+    <a href="#" style="font-size:13px">Show full description ▾</a>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 20px 4px">
+      <span class="h" style="flex:1">Estimate</span>
+      <a href="#" style="font-size:13px">Estimate again</a>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;padding:8px 20px 14px">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:#6f7277;flex:1">Task clarity</span><span style="display:flex;gap:3px"><i style="width:14px;height:6px;border-radius:3px;background:#2f9e5b"></i><i style="width:14px;height:6px;border-radius:3px;background:#2f9e5b"></i><i style="width:14px;height:6px;border-radius:3px;background:#2f9e5b"></i><i style="width:14px;height:6px;border-radius:3px;background:#2f9e5b"></i><i style="width:14px;height:6px;border-radius:3px;background:#e7e7e4"></i></span><b>4/5</b></div>
+        <div style="font-size:12.5px;color:#6f7277">Flow and criteria are well described; unclear where dependencies live and whether Jira is in.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:#6f7277;flex:1">Size</span><span style="font-size:12px;font-weight:600;padding:1px 8px;border-radius:8px;background:#fbe9e9;color:#b03030">big</span></div>
+        <div style="font-size:12.5px;color:#6f7277">web, trackers, dispatch, state, runner — 5 packages.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;color:#6f7277;flex:1">Risk</span><span style="display:flex;gap:3px"><i style="width:14px;height:6px;border-radius:3px;background:#d14343"></i><i style="width:14px;height:6px;border-radius:3px;background:#d14343"></i><i style="width:14px;height:6px;border-radius:3px;background:#d14343"></i><i style="width:14px;height:6px;border-radius:3px;background:#d14343"></i><i style="width:14px;height:6px;border-radius:3px;background:#e7e7e4"></i></span><b>4/5</b></div>
+        <div style="font-size:12.5px;color:#6f7277">Creates tasks in real trackers and changes how tasks are taken.</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 20px;border-top:1px solid #e7e7e4">
+      <span style="width:20px;height:20px;border-radius:6px;background:#e3ecfc;color:#2f6fde;font-weight:700;font-size:12px;display:inline-flex;align-items:center;justify-content:center">→</span>
+      <span style="font-weight:600">Recommendation</span>
+      <span class="pill">plan first</span><span class="pill">split into 3 tasks</span>
+      <span style="font-size:13px;color:#6f7277;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">trackers with a fake tracker → dependencies → «New idea» UI</span>
+    </div>
+    <div style="padding:12px 20px 14px;border-top:1px solid #f0d9a8;background:#fdf8ee;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:20px;height:20px;border-radius:6px;background:#f6e3bd;color:#8a5a08;font-weight:700;font-size:12px;display:inline-flex;align-items:center;justify-content:center">?</span>
+        <span style="flex:1;font-weight:600">Questions for the tracker</span>
+        <span style="font-size:12.5px;color:#6f7277">0 of 4 · may stay empty</span>
+      </div>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">1. How to mark dependencies: «blocked by» in the text, native GitHub/GitLab links, or only in Mako's state?<input style="font:inherit;font-size:13px;height:32px;border:1px solid #e7e7e4;border-radius:8px;padding:0 10px;background:#fff" placeholder="Answer"></label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">2. Is Jira in too, or only GitHub and GitLab for now?<input style="font:inherit;font-size:13px;height:32px;border:1px solid #e7e7e4;border-radius:8px;padding:0 10px;background:#fff" placeholder="Answer"></label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">3. Does the agent write the spec in the background or in Mako's terminal?<input style="font:inherit;font-size:13px;height:32px;border:1px solid #e7e7e4;border-radius:8px;padding:0 10px;background:#fff" placeholder="Answer"></label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">4. Where does the spec live: in the epic, a file in the repo, or Mako's state?<input style="font:inherit;font-size:13px;height:32px;border:1px solid #e7e7e4;border-radius:8px;padding:0 10px;background:#fff" placeholder="Answer"></label>
+      <div style="display:flex;justify-content:flex-end"><button class="btn" style="height:30px">Send to tracker</button></div>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>

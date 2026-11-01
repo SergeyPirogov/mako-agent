@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Phone: MR</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.btn{font:inherit;font-size:15px;height:44px;padding:0 14px;border-radius:10px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:44px;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:10px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.h{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6f7277}
+.chip{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:6px 10px;border-radius:16px;border:1px solid #e7e7e4;background:#fff;white-space:nowrap}
+.chip .c{width:14px;height:14px;border-radius:50%;background:#2f9e5b;display:inline-flex;align-items:center;justify-content:center}
+.chip.now{background:#eef3fd;border-color:#bcd0f6;font-weight:600}
+.chip.now .c{background:#fff;border:1.5px solid #2f6fde}
+.r{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #f0f0ee;font-size:13.5px}
+.tag{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:8px;white-space:nowrap}
+.ok{background:#e6f4ec;color:#1f7a44}
+.acc{background:#efecfb;color:#5b45b5}
+.tab{flex:1;text-align:center;font-size:14px;padding:10px 0;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+</style>
+
+<div class="b" style="width:390px;height:844px;box-sizing:border-box;padding:0 16px 16px;display:flex;flex-direction:column;gap:14px;overflow:hidden">
+  <div style="display:flex;align-items:center;gap:10px;height:52px;border-bottom:1px solid #e7e7e4;margin:0 -16px;padding:0 16px">
+    <a href="#" style="font-size:15px">← Tasks</a>
+    <span style="flex:1"></span>
+    <span class="tab on" style="flex:none;padding:14px 4px">Task</span>
+    <span class="tab" style="flex:none;padding:14px 4px">Agent</span>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap">
+      <a href="#" class="mono">mako-agent#264</a>
+      <span class="pill" style="background:#efecfb;color:#5b45b5"><span class="dot" style="background:#7b61d9"></span>waiting for merge</span>
+    </div>
+    <h1 style="margin:0;font-size:19px;line-height:1.3;font-weight:650">Context stats: start, peak, cache, what fills the context</h1>
+    <div style="font-size:12.5px;color:#6f7277">opus 5.5 · agent in Mako · enhancement</div>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <button class="btn pri" style="flex:1">Merge</button>
+    <button class="btn" style="flex:1">MR ↗</button>
+    <button class="btn icon" aria-label="More actions"><svg width="18" height="18" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+  </div>
+
+  <div style="display:flex;gap:6px;overflow:hidden;margin-right:-16px">
+    <span class="chip"><span class="c"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span>Work 24 min</span>
+    <span class="chip"><span class="c"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span>Review ×2</span>
+    <span class="chip"><span class="c"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="4" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span>CI</span>
+    <span class="chip now"><span class="c"></span>Merge · 18 min</span>
+  </div>
+
+  <div class="card" style="padding:14px 16px 4px">
+    <div style="display:flex;align-items:center;gap:8px;padding-bottom:6px">
+      <span class="h" style="flex:1">Review · round 2</span>
+      <span class="tag ok">«must» closed</span>
+    </div>
+    <div class="r"><span class="mono" style="width:22px">R1</span><span style="flex:1">peak per plan and work</span><span class="tag ok">closed</span></div>
+    <div class="r"><span class="mono" style="width:22px">R2</span><span style="flex:1">compaction via compact_boundary</span><span class="tag ok">closed</span></div>
+    <div class="r"><span class="mono" style="width:22px">R3</span><span style="flex:1">noise in «heaviest files» → #270</span><span class="tag acc">accepted</span></div>
+  </div>
+
+  <div class="card" style="padding:12px 16px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;align-items:center"><span class="h" style="flex:1">MR #268</span><span style="font-size:12.5px;color:#2f9e5b">CI green · no conflicts</span></div>
+    <div style="font-size:13px;color:#6f7277">9 files · <span style="color:#2f9e5b">+512</span> <span style="color:#d14343">−38</span> · 4 commits · $15.52</div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;border-bottom:1px solid #e7e7e4"><span class="tab on">Description</span><span class="tab">Changes</span><span class="tab">Commits</span></div>
+    <div style="padding:12px 16px;font-size:14px;color:#1c1d1f">The agent's context is both cost and quality: a bloated start (CLAUDE.md, memory, MCP), big test outputs or repeated reads…</div>
+  </div>
+</div>
+
+
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>In progress</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.btn{font:inherit;font-size:13.5px;height:34px;padding:0 14px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;cursor:pointer}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:34px;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:10px;background:#f3f3f1;color:#6f7277}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.h{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6f7277}
+.stages{display:flex;align-items:flex-start}
+.st{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;padding:12px 12px}
+.st .row{display:flex;align-items:center;gap:8px}
+.st .c{width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:none;border:1.5px solid #c9cbcf;background:#fff}
+.st b{font-size:13px;font-weight:600;white-space:nowrap}
+.st small{font-size:12px;color:#6f7277;padding-left:28px;white-space:nowrap}
+.st.done .c{background:#2f9e5b;border-color:#2f9e5b}
+.st.now{background:#eef3fd;border-radius:10px}
+.st.now .c{border-color:#2f6fde;box-shadow:0 0 0 3px #d6e3fb}
+.st.now .c i{width:8px;height:8px;border-radius:50%;background:#2f6fde}
+.st.todo b{color:#6f7277}
+.st.skip .c{border-style:dashed}
+.st.skip b{color:#9a9da2}
+.sep{flex:none;width:10px;height:1.5px;background:#e7e7e4;margin-top:22px}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;color:#6f7277;font-size:12.5px}
+.meta span{display:inline-flex;align-items:center;gap:5px}
+.tab{font-size:14px;padding:8px 2px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.f{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0}
+.f .m{width:14px;font-size:11px;font-weight:700;color:#2f6fde}
+.f .a{width:14px;font-size:13px;font-weight:700;color:#2f9e5b}
+.f .n{margin-left:auto;font-size:12px}
+.f .n em{font-style:normal;color:#2f9e5b}
+.f .n s{text-decoration:none;color:#d14343;margin-left:4px}
+</style>
+
+<div class="b" style="width:1040px;height:900px;box-sizing:border-box;padding:0 28px 24px;display:flex;flex-direction:column;gap:16px;overflow:hidden">
+  <div style="display:flex;gap:24px;border-bottom:1px solid #e7e7e4;padding-top:10px">
+    <span class="tab on">Task</span><span class="tab">Agent</span>
+  </div>
+  <div style="display:flex;align-items:flex-start;gap:16px">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path fill="#1c1d1f" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
+        <a href="#" class="mono">mako-agent#269</a>
+        <span class="pill" style="background:#eef3fd;color:#2f6fde"><span class="dot" style="background:#2f6fde"></span>agent working · 34 min</span>
+      </div>
+      <h1 style="margin:0;font-size:21px;line-height:1.3;font-weight:650">Agent review: numbered remarks, the agent's answer to each</h1>
+      <div class="meta">
+        <span class="mono" style="font-size:12px">feature/269-rev-yu-ahentom</span>
+        <span aria-label="Copy branch"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6f7277" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></span>
+        <span>·</span><span>opus 5.5</span><span>·</span><span>agent in Mako</span><span>·</span><span>enhancement</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex:none;padding-top:4px">
+      <button class="btn">Open agent</button>
+      <button class="btn">Stop</button>
+      <button class="btn icon" aria-label="More actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+    </div>
+  </div>
+
+  <div class="card stages" style="padding:4px">
+    <div class="st done"><div class="row"><span class="c"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span><b>Estimate</b></div><small>1 min · $0.21</small></div>
+    <div class="sep"></div>
+    <div class="st done"><div class="row"><span class="c"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span><b>Plan</b></div><small>6 min · $1.10</small></div>
+    <div class="sep"></div>
+    <div class="st now"><div class="row"><span class="c"><i></i></span><b>Work</b></div><small>28 min · $9.40</small></div>
+    <div class="sep"></div>
+    <div class="st todo"><div class="row"><span class="c"></span><b>Review</b></div><small>—</small></div>
+    <div class="sep"></div>
+    <div class="st todo"><div class="row"><span class="c"></span><b>MR · merge</b></div><small>—</small></div>
+  </div>
+
+  <div style="display:flex;gap:16px;align-items:flex-start;flex:1;min-height:0">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:16px">
+      <div class="card" style="padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px"><span class="h" style="flex:1">Now</span><a href="#" style="font-size:13px">Agent tab →</a></div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span class="dot" style="background:#2f6fde;margin-top:8px;flex:none"></span>
+          <div>Writing the tests for parsing the agent's report: <span class="mono">writer/remarks_test.go</span></div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start;color:#6f7277;font-size:13px">
+          <span class="dot" style="background:#c9cbcf;margin-top:7px;flex:none"></span>
+          <div>before that: built the dispatcher, updated tests for the new ReviewBranch signature</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;border-top:1px solid #e7e7e4;padding-top:10px;font-size:13px;color:#6f7277">
+          <span>Plan approved at 16:42</span><span>·</span><a href="#">Show plan</a>
+        </div>
+      </div>
+      <div class="card" style="padding:14px 20px;display:flex;align-items:center;gap:12px">
+        <span class="h" style="flex:1">Description</span>
+        <span style="font-size:13px;color:#6f7277">The reviewer reviews and leaves remarks, «Fix» hands them…</span>
+        <a href="#" style="font-size:13px;flex:none">Expand ▾</a>
+      </div>
+    </div>
+
+    <div class="card" style="width:300px;flex:none;padding:0;overflow:hidden">
+      <div style="display:flex;gap:18px;padding:0 16px;border-bottom:1px solid #e7e7e4">
+        <span class="tab on">Changes <span class="pill" style="padding:0 6px">13</span></span><span class="tab">Commits 0</span>
+      </div>
+      <div style="padding:10px 16px;display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#2f9e5b;padding-bottom:6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>up to date with main · 13 uncommitted</div>
+        <div class="f"><span class="a">+</span><span>core/agentreview.go</span><span class="n"><em>+166</em></span></div>
+        <div class="f"><span class="m">M</span><span>core/task.go</span><span class="n"><em>+57</em></span></div>
+        <div class="f"><span class="m">M</span><span>dispatch/agentreview.go</span><span class="n"><em>+100</em><s>−16</s></span></div>
+        <div class="f"><span class="a">+</span><span>dispatch/reviewreply.go</span><span class="n"><em>+256</em></span></div>
+        <div class="f"><span class="a">+</span><span>trackers/remark.go</span><span class="n"><em>+71</em></span></div>
+        <div class="f"><span class="a">+</span><span>writer/remarks.go</span><span class="n"><em>+274</em></span></div>
+        <div class="f"><span class="m">M</span><span>i18n/strings.go</span><span class="n"><em>+43</em><s>−24</s></span></div>
+        <div class="f" style="color:#6f7277"><span class="m"></span><span>6 more files</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent: MR tab</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.btn{font:inherit;font-size:13px;height:30px;padding:0 11px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;cursor:pointer;white-space:nowrap}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.dis{background:#f3f3f1;color:#9a9da2;border-color:#e7e7e4}
+.btn.icon{width:30px;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:10px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.h{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6f7277}
+.tab{font-size:14px;padding:8px 2px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.seg{display:inline-flex;background:#f3f3f1;border-radius:8px;padding:2px}
+.seg span{font-size:13px;padding:4px 10px;border-radius:6px;color:#6f7277}
+.seg span.on{background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.mini{display:flex;align-items:center;gap:4px}
+.mini i{height:4px;border-radius:2px;flex:1;background:#e7e7e4}
+.mini i.d{background:#2f9e5b}
+.mini i.n{background:#2f6fde}
+.mini i.f{background:#d14343}
+.who{font-size:12px;color:#6f7277;font-weight:600}
+.step{display:flex;align-items:center;gap:10px;padding:9px 14px;border:1px solid #e7e7e4;border-radius:10px;background:#fff;font-size:13px}
+.sec{padding:12px 16px;border-top:1px solid #e7e7e4;display:flex;flex-direction:column;gap:8px}
+.job{display:flex;align-items:center;gap:8px;font-size:13px}
+.log{font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfbfa;border:1px solid #e7e7e4;border-radius:8px;padding:8px 10px;color:#5a5d62;white-space:pre-wrap}
+.th{display:flex;flex-direction:column;gap:3px;font-size:13px;padding:8px 10px;border:1px solid #e7e7e4;border-radius:8px}
+</style>
+
+<div class="b" style="width:1040px;height:900px;box-sizing:border-box;padding:0 28px 20px;display:flex;flex-direction:column;gap:12px;overflow:hidden">
+  <div style="display:flex;gap:24px;align-items:center;border-bottom:1px solid #e7e7e4;padding-top:10px">
+    <span class="tab">Task</span><span class="tab on">Agent</span>
+    <span style="flex:1"></span>
+    <span class="seg"><span class="on">Chat</span><span>Terminal</span></span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px;min-width:0">
+        <a href="#" class="mono" style="flex:none">mako-agent#264</a>
+        <span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Context stats: start, peak, cache, what fills the context</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="mini" style="width:220px"><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i class="f"></i><i></i></div>
+        <span style="font-size:12.5px;color:#6f7277"><b style="color:#b03030;font-weight:600">CI failed</b> · agent idle · $13.80 · opus 5.5</span>
+      </div>
+    </div>
+    <span class="pill" style="background:#fbefef;color:#b03030;flex:none;border:1px solid #f0caca"><span class="dot" style="background:#d14343"></span>MR #268 · CI ✕</span>
+    <span class="pill" style="background:#f3f3f1;color:#6f7277;flex:none"><span class="dot" style="background:#9a9da2"></span>idle</span>
+    <button class="btn icon" aria-label="More actions" style="flex:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+  </div>
+
+  <div style="display:flex;gap:16px;flex:1;min-height:0">
+    <div class="card" style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+      <div style="flex:1;min-height:0;padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow:hidden">
+        <div style="font-size:13px;color:#6f7277">✓ Work · 64 actions · 24 min · <a href="#">expand</a></div>
+        <div class="who">Claude</div>
+        <div>Committed and pushed <span class="mono">feature/264-statystyka-kontekstu</span>, opened PR #268. Tests pass locally.</div>
+        <div class="step"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><b style="font-weight:600">git push</b><span style="color:#6f7277">+ gh pr create</span><span style="margin-left:auto;color:#9a9da2;font-size:12px">17:58</span></div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#6f7277;padding:6px 0">
+          <span style="flex:1;height:1px;background:#e7e7e4"></span>
+          <span>the agent finished its turn · 18:02 CI failed on <span class="mono">test</span></span>
+          <span style="flex:1;height:1px;background:#e7e7e4"></span>
+        </div>
+      </div>
+      <div style="border-top:1px solid #e7e7e4;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+        <div style="border:1px solid #e7e7e4;border-radius:10px;padding:10px 12px;color:#9a9da2;min-height:40px;display:flex;align-items:flex-start;justify-content:space-between">Message the agent…
+          <span style="width:30px;height:30px;border-radius:8px;background:#1c1d1f;display:inline-flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="width:360px;flex:none;padding:0;overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:flex;gap:16px;padding:0 16px;border-bottom:1px solid #e7e7e4"><span class="tab">Changes 9</span><span class="tab">Commits 4</span><span class="tab on">MR <span class="dot" style="background:#d14343;margin-left:2px"></span></span></div>
+
+      <div style="padding:12px 16px;display:flex;flex-direction:column;gap:4px">
+        <a href="#" style="font-weight:600;font-size:14px">#268 Context stats ↗</a>
+        <div style="font-size:12.5px;color:#6f7277"><span class="mono" style="font-size:11.5px">feature/264-…</span> → <span class="mono" style="font-size:11.5px">main</span> · <span style="color:#2f9e5b">+512</span> <span style="color:#d14343">−38</span></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:4px">
+          <span class="pill" style="background:#fbefef;color:#b03030">CI ✕ 1 of 3</span>
+          <span class="pill" style="background:#e6f4ec;color:#1f7a44">no conflicts</span>
+          <span class="pill" style="background:#fdf1dc;color:#8a5a08">2 comments</span>
+        </div>
+      </div>
+
+      <div class="sec">
+        <div style="display:flex;align-items:center"><span class="h" style="flex:1">CI</span><a href="#" style="font-size:12.5px">all jobs ↗</a></div>
+        <div class="job"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d14343" stroke-width="3" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg><b style="font-weight:600">test</b><span style="color:#6f7277;margin-left:auto">2 min</span></div>
+        <div class="log">--- FAIL: TestSummarizeContext (0.00s)
+    stats_test.go:241: peak 227000, want 106000
+FAIL internal/core</div>
+        <div class="job"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>build · mac<span style="color:#6f7277;margin-left:auto">3 min</span></div>
+        <div class="job"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>vet<span style="color:#6f7277;margin-left:auto">40 s</span></div>
+        <button class="btn pri" style="align-self:flex-start">Fix</button>
+      </div>
+
+      <div class="sec">
+        <div style="display:flex;align-items:center"><span class="h" style="flex:1">Review comments · 2 open</span><span style="font-size:12px;color:#6f7277">1 resolved</span></div>
+        <div class="th"><div><b style="font-weight:600">SergeyPirogov</b> <span class="mono" style="font-size:11.5px;color:#6f7277">board.html:1840</span></div><div style="color:#5a5d62">better collapse the context table by default</div></div>
+        <div class="th"><div><b style="font-weight:600">SergeyPirogov</b> <span class="mono" style="font-size:11.5px;color:#6f7277">core/metrics.go:96</span></div><div style="color:#5a5d62">the field name Peak is unclear — PeakTokens?</div></div>
+        <button class="btn" style="align-self:flex-start">Send</button>
+      </div>
+
+      <div class="sec" style="flex-direction:row;align-items:center;gap:8px">
+        <span style="font-size:13px;flex:1">Agent review · round 2</span>
+        <span class="pill" style="background:#e6f4ec;color:#1f7a44">«must» closed</span>
+      </div>
+
+      <div style="margin-top:auto;padding:12px 16px;border-top:1px solid #e7e7e4;background:#fafaf8;display:flex;align-items:center;gap:8px">
+        <button class="btn dis" title="CI failed">Merge</button>
+        <span style="font-size:12px;color:#6f7277;flex:1">after green CI</span>
+        <button class="btn" style="color:#b03030">Close MR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>
