@@ -38,12 +38,12 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		id, dirty, err := s.D.AskCode(in.Project, in.Thread, in.Text)
+		id, err := s.D.AskCode(in.Project, in.Thread, in.Text)
 		if err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "id": id, "dirty": dirty})
+		writeJSON(w, map[string]any{"ok": true, "id": id})
 	})
 	// The project's shared worktree: whether it is there and what is changed in it.
 	mux.HandleFunc("GET /api/code/workspace", func(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +88,26 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 			return
 		}
 		if err := s.setCodeModel(r.Context(), strings.TrimSpace(in.Model)); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	// The developer's answer to the agent's AskUserQuestion: ?id=<question>&req=<request>, the body {question: answer}.
+	mux.HandleFunc("POST /api/code/answer", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if !sameOrigin(r) || !dispatch.IsQuestion(id) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		c := s.D.Chats.Get(id)
+		if c == nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "агент не запущений"})
+			return
+		}
+		var answers map[string]string
+		json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
+		if err := c.Answer(r.URL.Query().Get("req"), answers); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}

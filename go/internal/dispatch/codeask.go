@@ -39,7 +39,8 @@ const TicketFence = "mako-ticket"
 
 const codePrompt = "You help the developer explore the code in this repository: answer questions, look for problems, " +
 	"come up with ideas. You may read, search and run commands (tests, builds, git log, scripts), but never change, " +
-	"create or delete files: the tools that edit files are refused, and do not change files through the shell either. " +
+	"create or delete files, and never change the repository (no git commit, push, checkout, reset, branch changes): " +
+	"those tools and commands are refused, and do not work around it through the shell either. " +
 	"Look the answer up in the code, then answer briefly, in the language of the question. Cite every place you rely " +
 	"on as path:line (or path:start-end), the path relative to the repository root, in backticks, e.g. " +
 	"`internal/web/web.go:120`. You cannot create tickets yourself. When the conversation finds a problem, a remark or " +
@@ -165,47 +166,46 @@ func (d *Dispatcher) thread(id string) (CodeThread, bool) {
 func IsQuestion(id string) bool { return strings.HasPrefix(id, "ask-") }
 
 // AskCode asks about the project's code: a new question without thread, else one more in that conversation (a
-// closed agent resumes it). It returns the question's id, its chat on the board, and the uncommitted changes of the
-// shared worktree, which kept it from being brought up to date.
-func (d *Dispatcher) AskCode(project, thread, text string) (string, int, error) {
+// closed agent resumes it). It returns the question's id, its chat on the board.
+func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return "", 0, errors.New("напишіть питання")
+		return "", errors.New("напишіть питання")
 	}
 	p, err := d.codeProject(project)
 	if err != nil {
-		return "", 0, err
+		return "", err
 	}
 	if thread != "" {
 		t, ok := d.thread(thread)
 		if !ok || t.Project != project {
-			return "", 0, errors.New("немає такого питання")
+			return "", errors.New("немає такого питання")
 		}
 		d.touchThread(thread, "")
 		if s := d.Chats.Get(thread); s != nil && s.Running() {
 			err := s.Send(text)
 			if !errors.Is(err, chat.ErrClosed) {
-				return thread, 0, err
+				return thread, err
 			}
 			if err := d.awaitClosed(s); err != nil {
-				return thread, 0, err
+				return thread, err
 			}
 		}
 		// The worktree is made again when it was removed, as it is otherwise: the conversation goes on in it.
-		dir, dirty, err := d.prepareAsk(p, false)
+		dir, err := d.prepareAsk(p, false)
 		if err != nil {
-			return thread, 0, err
+			return thread, err
 		}
 		if t.Dir != dir {
 			// A question from before the shared worktree: its conversation was in the clone, a new one starts.
 			t.Dir, t.Session = dir, ""
 			d.setThreadDir(t.ID, dir)
 		}
-		return thread, dirty, d.startQuestion(p, t, text)
+		return thread, d.startQuestion(p, t, text)
 	}
-	dir, dirty, err := d.prepareAsk(p, true)
+	dir, err := d.prepareAsk(p, true)
 	if err != nil {
-		return "", 0, err
+		return "", err
 	}
 	b := make([]byte, 6)
 	rand.Read(b)
@@ -224,9 +224,9 @@ func (d *Dispatcher) AskCode(project, thread, text string) (string, int, error) 
 		}
 		return all
 	}); err != nil {
-		return "", 0, err
+		return "", err
 	}
-	return t.ID, dirty, d.startQuestion(p, t, text)
+	return t.ID, d.startQuestion(p, t, text)
 }
 
 // setThreadDir: the question's conversation runs in dir from now on, a new one.
@@ -265,12 +265,14 @@ func (d *Dispatcher) touchThread(id, session string) {
 	})
 }
 
-// CodeArgs: how claude runs for a question: the model picked in the settings, everything but the tools that edit.
+// CodeArgs: how claude runs for a question: the model picked in the settings, without MCP servers or the tools that
+// edit; codeGate refuses the rest of what changes things.
 func CodeArgs(model string) []string {
 	if model == "" {
 		model = config.DefaultCodeModel
 	}
-	return append(append([]string{"--model", model, "--disallowedTools"}, CodeDeny...), "--append-system-prompt", codePrompt)
+	// No MCP servers: yours may create tickets or deploy, and the gate would let them through unasked.
+	return append(append([]string{"--model", model, "--strict-mcp-config", "--disallowedTools"}, CodeDeny...), "--append-system-prompt", codePrompt)
 }
 
 // startQuestion runs the agent in the clone with the question; a question asked before goes on with its
@@ -288,7 +290,7 @@ func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string) err
 		history = orca.Transcript(dir, t.Session)
 	}
 	d.Chats.Put(chat.Start(chat.Options{
-		ID: t.ID, Worktree: dir, Command: command, Args: args, Prompt: text, History: history, Deny: CodeDeny,
+		ID: t.ID, Worktree: dir, Command: command, Args: args, Prompt: text, History: history, Gate: codeGate,
 		OnLimits:  d.limitsReported,
 		OnSession: func(sid, _ string) { d.touchThread(t.ID, sid) },
 	}))

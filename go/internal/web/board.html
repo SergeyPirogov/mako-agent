@@ -1658,7 +1658,7 @@ async function showCode() {
       <select id="ca-project" aria-label="Проєкт"></select>
       <select id="ca-model" aria-label="Модель" title="Модель агента для «Запитати про код», для всіх проєктів"></select>
       <button type="button" id="ca-new">Нове питання</button></div>
-    <p class="muted ca-sub">Агент працює в окремому worktree проєкту на main: читає, шукає й запускає команди, але код не змінює. Зауваження чи ідею може оформити чернеткою тікета.</p>
+    <p class="muted ca-sub">Агент працює в окремому worktree проєкту на main: читає, шукає, запускає тести й збірку без питань. Mako не дає йому змінювати файли й репозиторій (Edit/Write, git commit/push/checkout/reset, rm…) і не підключає MCP-сервери. Зауваження чи ідею може оформити чернеткою тікета.</p>
     <div class="ca-body">
       <aside class="ca-history"><div class="ca-h">Історія питань</div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
@@ -1730,6 +1730,27 @@ async function showCode() {
   code.list.onclick = (e) => {
     const tk = e.target.closest("[data-ticket]");
     if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d); return; }
+    // The agent's question: an option, or your own words.
+    const ans = e.target.closest("[data-ans]");
+    if (ans) {
+      const box = ans.closest("[data-question]"), answers = {};
+      for (const q of box.querySelectorAll("[data-q]")) {
+        const a = q.querySelector("input")?.value.trim() || [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label).join(", ");
+        if (a) answers[q.dataset.q] = a;
+      }
+      if (!Object.keys(answers).length) return;
+      ans.disabled = true;
+      fetch(`/api/code/answer?id=${encodeURIComponent(code.thread)}&req=${encodeURIComponent(box.dataset.question)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => pollCode());
+      return;
+    }
+    const opt = e.target.closest(".opt");
+    if (opt) {
+      const q = opt.closest("[data-q]");
+      if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
+      opt.classList.toggle("on");
+      if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
+      return;
+    }
     const src = e.target.closest("[data-src]");
     if (src) { e.preventDefault(); openSource(src.dataset.src, +src.dataset.line, +(src.dataset.end || src.dataset.line)); return; }
     const t = e.target.closest("[data-toggle]");
@@ -1750,6 +1771,7 @@ async function loadWorkspace() {
   $("ca-ws").innerHTML = ws.error ? "" : !ws.exists ? `<span class="muted" title="${esc(ws.dir)}">worktree з'явиться з першим питанням</span>`
     : ws.dirty ? `<span class="ca-ws-warn" title="${esc((ws.files || []).join("\n"))}">⚠ У worktree ${ws.dirty} ${plural(ws.dirty, "незбережена зміна", "незбережені зміни", "незбережених змін")}: його не оновлено з ${esc(ws.base)}</span>
         <button type="button" data-ws="reset">Скинути й оновити</button>${remove}`
+    : ws.behind ? `<span class="muted" title="${esc(ws.dir)}">worktree відстає від ${esc(ws.base)} на ${ws.behind} ${plural(ws.behind, "коміт", "коміти", "комітів")}: оновиться з новим питанням, коли інше не працює</span>${remove}`
     : `<span class="muted" title="${esc(ws.dir)}">worktree · ${esc(ws.base)}</span>${remove}`;
 }
 

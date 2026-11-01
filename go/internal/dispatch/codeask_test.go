@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -96,12 +97,12 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	if len(ps) != 1 || ps[0].Project != "grp/app" || ps[0].Path != repo {
 		t.Fatalf("projects %+v", ps)
 	}
-	if _, _, err := d.AskCode("nope", "", "де оплата?"); err == nil {
+	if _, err := d.AskCode("nope", "", "де оплата?"); err == nil {
 		t.Fatal("asked a project without a clone")
 	}
-	id, dirty, err := d.AskCode(ps[0].Key, "", "Де в нас обробка оплат?")
-	if err != nil || !IsQuestion(id) || dirty != 0 {
-		t.Fatalf("ask %q %d %v", id, dirty, err)
+	id, err := d.AskCode(ps[0].Key, "", "Де в нас обробка оплат?")
+	if err != nil || !IsQuestion(id) {
+		t.Fatalf("ask %q %v", id, err)
 	}
 	s := d.Chats.Get(id)
 	defer s.Stop()
@@ -110,7 +111,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	// The model of the settings; the tools that edit are disallowed, the rest (Bash too) is not.
 	b, _ := os.ReadFile(filepath.Join(out, "args.txt"))
 	args := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if args[slices.Index(args, "--model")+1] != "opus" || slices.Contains(args, "--tools") {
+	if args[slices.Index(args, "--model")+1] != "opus" || slices.Contains(args, "--tools") || !slices.Contains(args, "--strict-mcp-config") {
 		t.Fatalf("args %q", args)
 	}
 	for _, w := range []string{"Edit", "Write", "NotebookEdit"} {
@@ -148,7 +149,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	if len(th) != 1 || th[0].ID != id || th[0].Title != "Де в нас обробка оплат?" || th[0].Session != "sess-q" || th[0].Dir != wt {
 		t.Fatalf("threads %+v", th)
 	}
-	if again, _, err := d.AskCode(ps[0].Key, id, "А повернення?"); err != nil || again != id {
+	if again, err := d.AskCode(ps[0].Key, id, "А повернення?"); err != nil || again != id {
 		t.Fatalf("again %q %v", again, err)
 	}
 	waitFor(t, func() bool {
@@ -216,25 +217,48 @@ func TestAskWorkspace(t *testing.T) {
 	if ws, _ := d.AskStatus(p.Key); ws.Exists {
 		t.Fatalf("made before a question: %+v", ws)
 	}
-	dir, dirty, err := d.prepareAsk(p, true)
-	if err != nil || dirty != 0 || !exists(filepath.Join(dir, "a.txt")) {
-		t.Fatalf("made %q %d %v", dir, dirty, err)
+	dir, err := d.prepareAsk(p, true)
+	if err != nil || !exists(filepath.Join(dir, "a.txt")) {
+		t.Fatalf("made %q %v", dir, err)
 	}
 
 	// Main moved on (pushed from elsewhere): a new conversation starts from it.
 	other := t.TempDir()
 	git(t, other, "clone", "-q", "-b", "main", remote, ".")
 	commit(other, "b.txt")
-	if _, dirty, err := d.prepareAsk(p, true); err != nil || dirty != 0 || !exists(filepath.Join(dir, "b.txt")) {
-		t.Fatalf("not updated: %d %v", dirty, err)
+	if _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "b.txt")) {
+		t.Fatalf("not updated: %v", err)
+	}
+
+	// The agent of another question is at work in it: the code does not change under its feet.
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\nsleep 30\n"), 0o755)
+	cfg := *d.Config()
+	cfg.Terminal.Command, cfg.StateDir = bin, t.TempDir()
+	d.Cfg = &cfg
+	busy, err := d.AskCode(p.Key, "", "Довге питання")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit(other, "late.txt")
+	if _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "late.txt")) {
+		t.Fatalf("updated under a working agent: %v", err)
+	}
+	if ws, _ := d.AskStatus(p.Key); ws.Behind != 1 || ws.Dirty != 0 {
+		t.Fatalf("status %+v", ws)
+	}
+	// It stopped: the next question brings it up to date.
+	stopChat(d.Chats.Get(busy))
+	if _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "late.txt")) {
+		t.Fatalf("not updated after: %v", err)
 	}
 
 	// Changed: it stays as it is and says so.
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("changed"), 0o644)
 	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
 	commit(other, "c.txt")
-	if _, dirty, err := d.prepareAsk(p, true); err != nil || dirty != 2 || exists(filepath.Join(dir, "c.txt")) {
-		t.Fatalf("changed one updated: %d %v", dirty, err)
+	if _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "c.txt")) {
+		t.Fatalf("changed one updated: %v", err)
 	}
 	ws, err := d.AskStatus(p.Key)
 	if err != nil || !ws.Exists || ws.Dirty != 2 || !slices.Contains(ws.Files, "a.txt") || !slices.Contains(ws.Files, "new.txt") {
@@ -256,5 +280,35 @@ func TestAskWorkspace(t *testing.T) {
 	}
 	if ws, _ := d.AskStatus(p.Key); ws.Exists {
 		t.Fatalf("still there: %+v", ws)
+	}
+}
+
+// The gate of a question: the tools that edit, the plan mode and the commands that change the repository or delete
+// files are refused; reading, searching, tests and git's listings go through.
+func TestCodeGate(t *testing.T) {
+	bash := func(c string) string { return codeGate("Bash", []byte(`{"command":`+strconv.Quote(c)+`}`)) }
+	for _, tool := range []string{"Edit", "Write", "MultiEdit", "NotebookEdit", "ExitPlanMode", "EnterPlanMode"} {
+		if codeGate(tool, []byte(`{}`)) == "" {
+			t.Errorf("%s allowed", tool)
+		}
+	}
+	for _, tool := range []string{"Read", "Grep", "Glob", "WebSearch", "TodoWrite"} {
+		if why := codeGate(tool, []byte(`{}`)); why != "" {
+			t.Errorf("%s refused: %s", tool, why)
+		}
+	}
+	for _, c := range []string{"git push origin main", "go test ./... && git commit -am x", "git -C .. reset --hard", "cd .. && rm -rf app",
+		"git branch -D main", "git branch new-one", "git checkout main", "FOO=1 git stash", "echo $(git push)", "find . -name x -delete",
+		"/bin/rm a", "sudo ls", "git tag v1", "git worktree remove x", "git remote add x y", "git config user.name x", "ls | xargs rm"} {
+		if bash(c) == "" {
+			t.Errorf("%q allowed", c)
+		}
+	}
+	for _, c := range []string{"go test ./...", "git log --oneline -20", "git status", "git diff HEAD~1", "git branch", "git branch -a",
+		"git branch --list 'fix/*'", "git tag --list", "git stash list", "git remote -v", "grep -rn pay . | head", "npm run build",
+		"git show HEAD:go.mod", "git blame main.go", "git config --get remote.origin.url", "cat go.mod", "git fetch origin"} {
+		if why := bash(c); why != "" {
+			t.Errorf("%q refused: %s", c, why)
+		}
 	}
 }
