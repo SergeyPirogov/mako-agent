@@ -1773,10 +1773,7 @@ function statsHTML(s) {
   if (!s?.taken && statsDays) return `<div class="stats">${head}<div class="text" style="color:var(--mute)">За цей період агент не брав задач</div></div>`;
   if (!s?.taken) return `<div class="empty">Виберіть задачу зліва. Статистика з'явиться, коли агент візьме першу задачу.</div>`;
   const pct = (n) => s.taken ? Math.round((n / s.taken) * 100) : 0;
-  const dur = (sec) => {
-    const m = Math.round(sec / 60);
-    return m < 60 ? `${m} хв` : m < 1440 ? `${Math.floor(m / 60)} год ${m % 60} хв` : `${Math.floor(m / 1440)} д ${Math.floor((m % 1440) / 60)} год`;
-  };
+  const dur = durText;
   const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
   const share = (n, of) => of ? `${Math.round((n / of) * 100)}%` : "—";
   const failedNote = s.cancelled ? `${pct(s.failed)}% · з них скасовано ${s.cancelled}` : `${pct(s.failed)}%`;
@@ -1788,15 +1785,19 @@ function statsHTML(s) {
       ${tile("Без переробок", share(s.clean, s.ended), s.ended ? `${s.clean} з ${s.ended} завершених` : "ще жодна не завершилась")}
       ${tile("Від взяття до мерджу", s.leadSeconds ? dur(s.leadSeconds) : "—", "медіана")}
       ${tile("Не успішно", s.failed, failedNote)}
-      ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу` : "лише агент у Mako")}
+      ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу${s.tokens ? ` · ${tok(s.tokens)} токенів` : ""}` : "лише агент у Mako")}
     </div>
     ${trendHTML(s.days)}
+    ${stagesHTML(s.stages, s.staged, dur)}
     <h3>Час і спроби</h3>
     <div class="stat-row small">
       ${tile("Агент до MR", s.medianSeconds ? dur(s.medianSeconds) : "—", s.avgSeconds ? `медіана · в середньому ${dur(s.avgSeconds)}` : "")}
       ${tile("Рев'ю до мерджу", s.reviewSeconds ? dur(s.reviewSeconds) : "—", "в середньому")}
       ${tile("Повторні спроби", s.retried || 0, `${pct(s.retried || 0)}% задач`)}
+      ${s.merged ? tile("Фікси CI", (s.ciFixes || 0).toFixed(1), "раундів на змерджену") : ""}
+      ${s.merged ? tile("Правки коментарів", (s.reviewFixes || 0).toFixed(1), "раундів на змерджену") : ""}
     </div>
+    ${phasesHTML(s)}
     ${s.assessed ? `<h3>Оцінка агента <span class="muted">· ${s.assessed} ${plural(s.assessed, "задача", "задачі", "задач")}</span></h3>
     <div class="stat-row">
       ${tile("Опис задач", `${s.clarity.toFixed(1)}/5`, "наскільки добре описано")}
@@ -1812,7 +1813,7 @@ function statsHTML(s) {
     ${groupsHTML("За моделями", [...(s.models || []).filter((g) => g.name !== "—"), ...(s.models || []).filter((g) => g.name === "—")], "Модель", (n) => n === "—" ? "Невідома" : n[0].toUpperCase() + n.slice(1), 1)}
     <h3>Причини невдач</h3>
     ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
-    <p class="stats-note">«Без переробок» — змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось. «Від взяття до мерджу» — від передачі агенту до мерджу MR; «Агент до MR» — до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
+    <p class="stats-note">«Без переробок» — змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось. «Від взяття до мерджу» — від передачі агенту до мерджу MR; «Агент до MR» — до відкриття MR, рев'ю — від MR до мерджу. «Де йде час» — у середньому на змерджену задачу: агент працює, чекає на вас (питання, дозвіл, план, його хід закінчено), MR чекає на CI, MR чекає на рев'ю й мердж. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє; токени — усе, що модель прочитала й написала, з кешем. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
   </div>`;
 }
 
@@ -1877,12 +1878,64 @@ function bindFaults() {
 // min: the fewest groups worth a table; a known model is worth one even alone.
 function groupsHTML(title, groups, col, name = (n) => n, min = 2) {
   if (!groups || groups.length < min || groups.every((g) => g.name === "—")) return "";
-  const rated = groups.some((g) => g.assessed);
-  const row = (g) => `<tr><td>${esc(name(g.name))}</td><td>${g.taken}</td><td>${g.succeeded}</td><td>${g.failed}</td><td>${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td><td>${g.cost ? `$${g.cost.toFixed(2)}` : "—"}</td>${rated ? `<td>${g.assessed ? `${g.clarity.toFixed(1)}/5` : "—"}</td>` : ""}</tr>`;
-  return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th>${rated ? `<th title="Як добре описано задачі, за оцінкою агента">Опис</th>` : ""}</tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
+  const rated = groups.some((g) => g.assessed), tokened = groups.some((g) => g.tokens);
+  const row = (g) => `<tr><td>${esc(name(g.name))}</td><td>${g.taken}</td><td>${g.succeeded}</td><td>${g.failed}</td><td>${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td><td>${g.cost ? `$${g.cost.toFixed(2)}` : "—"}</td>${tokened ? `<td>${g.tokens ? tok(g.tokens) : "—"}</td>` : ""}${rated ? `<td>${g.assessed ? `${g.clarity.toFixed(1)}/5` : "—"}</td>` : ""}</tr>`;
+  return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th>${tokened ? "<th>Токени</th>" : ""}${rated ? `<th title="Як добре описано задачі, за оцінкою агента">Опис</th>` : ""}</tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
 }
 
 const SIZE_NAMES = { small: "мала", medium: "середня", big: "велика" };
+const STAGE_NAMES = { agent: "агент працює", you: "чекає на вас", ci: "чекає на CI", review: "чекає на рев'ю" };
+const PHASE_NAMES = { estimate: "оцінка", plan: "план", work: "робота", review: "рев'ю агента", assess: "оцінка й ретро" };
+
+// A time in seconds, short: 42 хв, 3 год 5 хв, 2 д 4 год.
+function durText(sec) {
+  const m = Math.round(sec / 60);
+  return m < 60 ? `${m} хв` : m < 1440 ? `${Math.floor(m / 60)} год ${m % 60} хв` : `${Math.floor(m / 1440)} д ${Math.floor((m % 1440) / 60)} год`;
+}
+
+// The task's own cycle: where its time went by stage (the current one up to now) and what each phase cost.
+function cycleHTML(r, card) {
+  const m = r.metrics;
+  if (!m) return "";
+  const seconds = { ...(m.seconds || {}) };
+  if (m.stage && m.stageSince) seconds[m.stage] = (seconds[m.stage] || 0) + Math.max(0, (Date.now() - Date.parse(m.stageSince)) / 1000);
+  const bar = stageBar(seconds, durText);
+  const phases = Object.keys(PHASE_NAMES).filter((k) => m.cost?.[k] || m.tokens?.[k]);
+  const tokens = Object.values(m.tokens || {}).reduce((a, b) => a + b, 0);
+  const spend = phases.length ? `<div class="legend stage-legend">${phases.map((k) => `<span>${PHASE_NAMES[k]} <b>${m.cost?.[k] ? `$${m.cost[k].toFixed(2)}` : "—"}</b>${m.tokens?.[k] ? ` <span class="muted">· ${tok(m.tokens[k])}</span>` : ""}</span>`).join("")}</div>` : "";
+  if (!bar && !spend) return "";
+  const note = [r.cost ? `$${r.cost.toFixed(2)}` : "", tokens ? `${tok(tokens)} токенів` : "",
+    r.ciFixes ? `фіксів CI ${r.ciFixes}` : "", r.reviewFixes ? `правок коментарів ${r.reviewFixes}` : ""].filter(Boolean).join(" · ");
+  return card("Час і витрати", `<div class="tcard-b">${bar}${spend}</div>`, "cycle", note);
+}
+
+// Tokens, short: 950, 12k, 1.4M.
+function tok(n) {
+  return n < 1000 ? `${n}` : n < 1e6 ? `${Math.round(n / 1000)}k` : `${(n / 1e6).toFixed(1)}M`;
+}
+
+// Where the time of a task goes, by stage: one bar of their shares and the times under it. seconds: stage → s.
+function stageBar(seconds, dur) {
+  const stages = Object.keys(STAGE_NAMES).filter((k) => seconds?.[k] >= 1);
+  const total = stages.reduce((n, k) => n + seconds[k], 0);
+  if (!total) return "";
+  return `<div class="stage-bar">${stages.map((k) => `<i class="s-${k}" style="width:${(seconds[k] / total) * 100}%" title="${esc(`${STAGE_NAMES[k]}: ${dur(seconds[k])}`)}"></i>`).join("")}</div>
+    <div class="legend stage-legend">${stages.map((k) => `<span><i class="s-${k}"></i>${STAGE_NAMES[k]} <b>${dur(seconds[k])}</b> <span class="muted">· ${Math.round((seconds[k] / total) * 100)}%</span></span>`).join("")}</div>`;
+}
+
+function stagesHTML(stages, staged, dur) {
+  const bar = staged ? stageBar(stages, dur) : "";
+  return bar ? `<h3>Де йде час <span class="muted">· у середньому на змерджену задачу, ${staged} ${plural(staged, "задача", "задачі", "задач")}</span></h3>${bar}` : "";
+}
+
+// What each phase of the work cost over the period: $ and tokens.
+function phasesHTML(s) {
+  const phases = Object.keys(PHASE_NAMES).filter((k) => s.phases?.[k] || s.phaseTokens?.[k]);
+  if (!phases.length) return "";
+  const tile = (k) => `<div class="stat"><span>${PHASE_NAMES[k]}</span><b>${s.phases[k] ? `$${s.phases[k].toFixed(2)}` : "—"}</b>`
+    + `<small>${s.phaseTokens?.[k] ? `${tok(s.phaseTokens[k])} токенів` : ""}${s.cost && s.phases[k] ? ` · ${Math.round((s.phases[k] / s.cost) * 100)}%` : ""}</small></div>`;
+  return `<h3>На що витрачено</h3><div class="stat-row small">${phases.map(tile).join("")}</div>`;
+}
 
 // The size the estimate expected before the start against the one the finished task came to.
 function forecastHTML(f) {
@@ -1897,12 +1950,13 @@ function forecastHTML(f) {
 // How the tasks of each expected size went: merged with no rework, and what the agent spent on them.
 function bySizeHTML(groups, dur) {
   if (!groups?.some((g) => g.taken)) return "";
+  const tokened = groups.some((g) => g.tokened);
   const row = (g) => `<tr><td>${SIZE_NAMES[g.size] || esc(g.size)}</td><td>${g.taken}</td>`
     + `<td>${g.ended ? `${Math.round((g.clean / g.ended) * 100)}% <span class="muted">· ${g.clean} з ${g.ended}</span>` : "—"}</td>`
-    + `<td>${g.timed ? dur(g.seconds) : "—"}</td><td>${g.priced ? `$${g.cost.toFixed(2)}` : "—"}</td></tr>`;
+    + `<td>${g.timed ? dur(g.seconds) : "—"}</td><td>${g.priced ? `$${g.cost.toFixed(2)}` : "—"}</td>${tokened ? `<td>${g.tokened ? tok(g.tokens) : "—"}</td>` : ""}</tr>`;
   return `<h3>За очікуваним розміром</h3><div class="table"><table><thead><tr><th>Розмір</th><th>Взято</th>`
     + `<th title="Змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось">Без переробок</th>`
-    + `<th title="Від передачі агенту до MR">Час агента</th><th title="Лише агент у Mako">Витрати</th></tr></thead><tbody>${groups.filter((g) => g.taken).map(row).join("")}</tbody></table></div>`;
+    + `<th title="Від передачі агенту до MR">Час агента</th><th title="Лише агент у Mako, в середньому на задачу">Витрати</th>${tokened ? `<th title="В середньому на задачу">Токени</th>` : ""}</tr></thead><tbody>${groups.filter((g) => g.taken).map(row).join("")}</tbody></table></div>`;
 }
 
 // Where the agents most often did not understand the task: clarity 1–2 in the final assessment.
@@ -2017,6 +2071,7 @@ function renderDetail() {
     ${chips.length ? `<div class="tchips">${chips.join("")}</div>` : ""}
     ${estimateHTML(r, card)}
     ${checksHTML(r, card)}
+    ${cycleHTML(r, card)}
     ${assessmentHTML(r, card)}
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${retroHTML(r, card)}
@@ -2757,6 +2812,8 @@ const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
 else if (location.hash === "#code") newOpen = "code";
+// #stats: straight to «Статистика».
+else if (location.hash === "#stats") statsOpen = true;
 // On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
 else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
