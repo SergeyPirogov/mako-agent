@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
@@ -179,13 +180,13 @@ func (d *Dispatcher) request(ctx context.Context, id, kind string) (string, erro
 	branch := branchOf(r)
 	switch kind {
 	case "push":
-		return fmt.Sprintf("Закоміть зроблене (нормальне повідомлення, як в інструкції) і запуш гілку %s, щоб MR її мав.", branch), nil
+		return i18n.T("agent.push", branch), nil
 	case "open":
-		return fmt.Sprintf("Закоміть зроблене, запуш гілку %s і відкрий MR у %s, як описано в інструкції до задачі.", branch, base), nil
+		return i18n.T("agent.open", branch, base), nil
 	case "rebase":
-		return fmt.Sprintf("Онови гілку %s з %s: git fetch origin %s, rebase на origin/%s, розвʼяжи конфлікти, якщо будуть, прожени тести. Якщо гілка вже запушена, запуш з --force-with-lease.", branch, base, base, base), nil
+		return i18n.T("agent.rebase", branch, base, base, base), nil
 	case "conflicts":
-		return fmt.Sprintf("MR %s конфліктує з %s. Зроби rebase гілки %s на origin/%s, розвʼяжи конфлікти, прожени тести й запуш з --force-with-lease.", r.PRURL, base, branch, base), nil
+		return i18n.T("agent.conflicts", r.PRURL, base, branch, base), nil
 	case "ci", "comments":
 		c, err := d.Review(ctx, id)
 		if err != nil {
@@ -211,14 +212,14 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 		return "", err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "CI на MR %s впав. Знайди причину, полагодь, прожени локально те, що впало, закоміть і запуш.\n", url)
+	b.WriteString(i18n.T("agent.ci", url) + "\n")
 	for i, j := range c.Failed {
-		fmt.Fprintf(&b, "\nДжоба %s: %s\n", j.Name, j.URL)
+		b.WriteString("\n" + i18n.T("agent.ciJob", j.Name, j.URL) + "\n")
 		if i >= 2 {
 			continue // the first ones' logs are enough to start with
 		}
 		if log, err := desk.JobLog(ctx, url, j, 60); err == nil && log != "" {
-			b.WriteString("Кінець логу:\n```\n" + log + "\n```\n")
+			b.WriteString(i18n.T("agent.ciLog") + "\n```\n" + log + "\n```\n")
 		}
 	}
 	return b.String(), nil
@@ -226,7 +227,7 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 
 func commentsRequest(url, branch string, threads []trackers.Thread) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "На MR %s є нерозвʼязані коментарі рев'ю. Виправ кожен (або поясни, чому ні), закоміть і запуш гілку %s.\n", url, branch)
+	b.WriteString(i18n.T("agent.comments", url, branch) + "\n")
 	for i, t := range threads {
 		where := ""
 		if t.Path != "" {

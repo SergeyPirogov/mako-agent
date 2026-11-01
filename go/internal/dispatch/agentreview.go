@@ -9,6 +9,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
@@ -157,11 +158,11 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	case notes == "":
 		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "clean"})
 		d.Log(id, "рецензент не має зауважень: рев'ю агентом пройдено")
-		notify.Inform(notify.AgentReview, "🔍 "+id+": рев'ю агентом пройдено", r.Task.Title, link)
+		notify.Inform(notify.AgentReview, i18n.T("notify.reviewPassed", id), r.Task.Title, link)
 	default:
 		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "notes", Notes: notes})
 		d.Log(id, "рецензент залишив зауваження: вони в задачі, «Виправити» передасть їх агенту")
-		notify.Inform(notify.AgentReview, "🔍 "+id+": є зауваження рецензента", clipText(firstLine(notes), 140), link)
+		notify.Inform(notify.AgentReview, i18n.T("notify.reviewNotes", id), clipText(firstLine(notes), 140), link)
 	}
 }
 
@@ -341,11 +342,9 @@ func readyBranch(ctx context.Context, wt, base, branch string, pushed bool) (str
 
 // reviewRequest: the reviewer's remarks, as Mako hands them to the agent.
 func reviewRequest(notes, branch string, push bool) string {
-	end := "закоміть"
+	end := i18n.T("agent.reviewCommit")
 	if push {
-		end = "закоміть і запуш гілку " + branch
+		end = i18n.T("agent.reviewCommitPush", branch)
 	}
-	return "Рецензент (окремий агент, з чистим контекстом) переглянув задачу й diff гілки " + branch + " і має зауваження:\n\n" +
-		strings.TrimSpace(notes) + "\n\n" +
-		"Виправ те, що справді є проблемою; з чим не згоден — коротко поясни чому. Прожени тести, " + end + "."
+	return i18n.T("agent.reviewNotes", branch) + "\n\n" + strings.TrimSpace(notes) + "\n\n" + i18n.T("agent.reviewFix", end)
 }

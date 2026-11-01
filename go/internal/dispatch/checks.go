@@ -15,6 +15,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
@@ -144,7 +145,7 @@ func (d *Dispatcher) maybeCheck(id string) {
 		d.openMR(ctx, id, repo, base)
 	case attention:
 		d.Log(id, fmt.Sprintf("перевірка не пройшла %d раз(и) поспіль: MR не відкрито, задача потребує уваги", fails))
-		notify.Inform(notify.Stopped, "⚠️ "+id+": потребує уваги", "Перевірка перед MR не пройшла: "+checksLine(results), link)
+		notify.Inform(notify.Stopped, i18n.T("notify.attention", id), i18n.T("notify.checksFailed", checksLine(results)), link)
 	default:
 		if err := d.tellAgent(id, checksRequest(results, fails, term.CheckTries())); err != nil {
 			d.Fault(id, "результат перевірки не передано агенту", err)
@@ -222,10 +223,10 @@ func (d *Dispatcher) openMR(ctx context.Context, id string, repo *config.Repo, b
 func mrDescription(r core.Record, summary string) string {
 	var b strings.Builder
 	if summary = strings.TrimSpace(summary); summary != "" {
-		b.WriteString("## What changed\n" + summary + "\n\n")
+		b.WriteString(i18n.T("mr.whatChanged") + "\n" + summary + "\n\n")
 	}
 	if r.Checks != nil && len(r.Checks.Results) > 0 {
-		b.WriteString("## How it was checked\nMako ran the project's checks in the agent's worktree before opening this merge request:\n")
+		b.WriteString(i18n.T("mr.howChecked") + "\n")
 		for _, c := range r.Checks.Results {
 			b.WriteString(fmt.Sprintf("- ✓ `%s`\n", c.Command))
 		}
@@ -242,18 +243,18 @@ func mrDescription(r core.Record, summary string) string {
 // checksRequest: the failed checks, as Mako hands them to the agent.
 func checksRequest(results []core.CheckResult, fails, tries int) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Mako прогнав перевірку перед MR (спроба %d з %d), і вона не пройшла: %s. MR не відкрито.\n", fails, tries, checksLine(results)))
+	b.WriteString(i18n.T("agent.checksFailed", fails, tries, checksLine(results)) + "\n")
 	for _, c := range results {
 		if c.OK {
 			continue
 		}
-		what := "впала"
+		what := i18n.T("agent.checkFell")
 		if c.TimedOut {
-			what = fmt.Sprintf("не вклалась у час (%d с)", c.Seconds)
+			what = i18n.T("agent.checkTimedOut", c.Seconds)
 		}
-		b.WriteString(fmt.Sprintf("\n`%s` %s, останні рядки:\n```\n%s\n```\n", c.Command, what, c.Tail))
+		b.WriteString("\n" + i18n.T("agent.checkTail", c.Command, what) + "\n```\n" + c.Tail + "\n```\n")
 	}
-	b.WriteString("\nВиправ причину (не саму перевірку), прожени її сам і закоміть. Не пушить і не відкривай MR: коли закінчиш хід, Mako перевірить ще раз і відкриє MR.")
+	b.WriteString("\n" + i18n.T("agent.checksFix"))
 	return b.String()
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 )
 
@@ -131,5 +132,5 @@ func (d *Dispatcher) morning(now time.Time) {
 	if dg.Count() == 0 {
 		return
 	}
-	notify.Inform("", "☀️ Підсумок за ніч", dg.Line(), d.BoardURL+"/#digest:"+strconv.FormatInt(since, 10))
+	notify.Inform("", i18n.T("notify.digest"), dg.Line(), d.BoardURL+"/#digest:"+strconv.FormatInt(since, 10))
 }

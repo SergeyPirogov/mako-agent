@@ -1,11 +1,11 @@
 package dispatch
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 )
 
@@ -61,15 +61,15 @@ func (d *Dispatcher) checkLimits(now time.Time) *LimitHold {
 	switch {
 	case hold != nil && !was:
 		when := time.Unix(hold.ResetsAt, 0).Format("02.01 15:04")
-		text := fmt.Sprintf("Ліміт Claude (%s) використано на %d%%: нові задачі чекають у черзі до %s.", hold.Window, hold.Used, when)
+		text := i18n.T("notify.limitText", hold.Window, hold.Used, when)
 		if n := d.working(); n > 0 {
-			text += fmt.Sprintf(" Агенти в роботі (%d) продовжують, але можуть зупинитися на ліміті.", n)
+			text += i18n.T("notify.limitWorking", n)
 		}
 		d.Log("mako", text)
-		notify.Inform(notify.Limits, "⏳ Черга на паузі: ліміт Claude", text, d.BoardURL)
+		notify.Inform(notify.Limits, i18n.T("notify.limitTitle"), text, d.BoardURL)
 	case hold == nil && was:
 		d.Log("mako", "ліміт Claude оновився, черга продовжується")
-		notify.Inform(notify.Limits, "▶️ Ліміт Claude оновився", "Черга продовжується.", d.BoardURL)
+		notify.Inform(notify.Limits, i18n.T("notify.limitResetTitle"), i18n.T("notify.limitResetText"), d.BoardURL)
 	}
 	return hold
 }

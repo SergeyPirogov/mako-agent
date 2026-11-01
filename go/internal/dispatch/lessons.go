@@ -12,6 +12,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
@@ -21,8 +22,9 @@ import (
 // LessonFrom draws the rule from your message; tests replace it.
 var LessonFrom = writer.Lesson
 
-// LessonsHeading: the section of CLAUDE.md the saved rules go under.
-const LessonsHeading = "## Уроки з рев'ю"
+// LessonsHeading: the section of CLAUDE.md the saved rules go under, in each language; a CLAUDE.md that has one
+// keeps adding to it.
+var LessonsHeading = map[string]string{i18n.EN: "## Review lessons", i18n.UK: "## Уроки з рев'ю"}
 
 // A message this short is a «carry on» or a quick reply, not a correction.
 const lessonMin = 15
@@ -84,7 +86,7 @@ func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error 
 	if err != nil {
 		return err
 	}
-	msg := fmt.Sprintf("%s: Add a review lesson to CLAUDE.md\n\n- %s", r.Task.ID, clipText(rule, 200))
+	msg := i18n.T("commit.lesson", r.Task.ID, clipText(rule, 200))
 	var branch, hash string
 	switch to {
 	case "branch":
@@ -168,19 +170,20 @@ func commitLesson(ctx context.Context, wt, rule, msg string) (string, error) {
 func AddRule(md, rule string) string {
 	item := "- " + rule
 	body := strings.TrimRight(md, "\n")
+	heading := LessonsHeading[i18n.Lang()]
 	if strings.TrimSpace(body) == "" {
-		return LessonsHeading + "\n\n" + item + "\n"
+		return heading + "\n\n" + item + "\n"
 	}
 	lines := strings.Split(body, "\n")
 	at := -1
 	for i, l := range lines {
-		if strings.TrimSpace(l) == LessonsHeading {
+		if l = strings.TrimSpace(l); l == LessonsHeading[i18n.EN] || l == LessonsHeading[i18n.UK] {
 			at = i
 			break
 		}
 	}
 	if at < 0 {
-		return body + "\n\n" + LessonsHeading + "\n\n" + item + "\n"
+		return body + "\n\n" + heading + "\n\n" + item + "\n"
 	}
 	end := len(lines)
 	for i := at + 1; i < len(lines); i++ {

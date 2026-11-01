@@ -15,6 +15,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 // App is what the menu shows and acts on.
@@ -74,15 +75,15 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 	}
 	v.NewCount = len(news)
 	if cfg.WipLimit > 0 {
-		v.Headline = fmt.Sprintf("Mako · в роботі %d з %d", doing, cfg.WipLimit)
+		v.Headline = i18n.T("tray.headlineOf", doing, cfg.WipLimit)
 	} else {
-		v.Headline = fmt.Sprintf("Mako · в роботі %d", doing)
+		v.Headline = i18n.T("tray.headline", doing)
 	}
 	switch {
 	case len(problems) > 0:
 		v.Line = "⚠ " + problems[0]
 	case paused:
-		v.Line = "⏸ Пошук задач на паузі"
+		v.Line = i18n.T("tray.paused")
 	default:
 		var last time.Time
 		failed := ""
@@ -100,9 +101,9 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 		case failed != "":
 			v.Line = "⚠ " + failed
 		case last.IsZero():
-			v.Line = "Шукаю задачі…"
+			v.Line = i18n.T("tray.searching")
 		default:
-			v.Line = "Перевірено о " + last.Format("15:04")
+			v.Line = i18n.T("tray.checkedAt", last.Format("15:04"))
 		}
 	}
 	v.Attention = v.NewCount > 0 || len(problems) > 0 || strings.HasPrefix(v.Line, "⚠")
@@ -116,20 +117,20 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 		return agents[active[i].ID].State == "waiting" && agents[active[j].ID].State != "waiting"
 	})
 	for _, r := range append(news, active...) {
-		status := map[string]string{"new": "нова", "doing": "в роботі", "review": "на рев'ю"}[r.Column(now.UnixMilli())]
+		status := i18n.T("tray.col." + r.Column(now.UnixMilli()))
 		mark := ""
 		switch {
 		case r.Status == core.Queued && d.Starting(r.ID) != nil:
-			status = "запускаю…"
+			status = i18n.T("tray.starting")
 		case r.Status == core.Queued:
-			status = "у черзі"
+			status = i18n.T("tray.queued")
 		case agents[r.ID].State == "waiting":
-			status, mark = "чекає на вас", "● "
+			status, mark = i18n.T("tray.waiting"), "● "
 			waiting++
 		case agents[r.ID].State == "done":
-			status = "агент закінчив"
+			status = i18n.T("tray.finished")
 		case agents[r.ID].State == "stopped":
-			status = "агент зупинився"
+			status = i18n.T("tray.stopped")
 		}
 		if len(v.Items) < maxItems {
 			v.Items = append(v.Items, Item{ID: r.ID, Label: fmt.Sprintf("%s%s  %s — %s", mark, r.ID, clip(r.Task.Title, 40), status)})

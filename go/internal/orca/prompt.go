@@ -7,6 +7,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 // Prompt: the task as the agent in Orca sees it. A developer follows the session in Orca.
@@ -103,8 +104,8 @@ const checksNote = "## Mako opens the merge request\n" +
 	"If they pass, Mako pushes the branch and opens the merge request into {baseBranch}. If one fails, you get the\n" +
 	"last lines of its output here: fix the cause, commit, and end your turn again."
 
-// FullPrompt: the task, what to do differently when it is a new attempt, screenshots for UI changes and how to
-// finish.
+// FullPrompt: the task, what to do differently when it is a new attempt, screenshots for UI changes, the
+// language to write in and how to finish.
 func FullPrompt(j Job, o config.Orca) string {
 	parts := []string{Prompt(j.Task, j.TrackerName)}
 	if again := Again(j.RetryNote, j.LastAttempt); again != "" {
@@ -113,6 +114,7 @@ func FullPrompt(j Job, o config.Orca) string {
 	if shots := Screenshots(j); shots != "" {
 		parts = append(parts, shots)
 	}
+	parts = append(parts, i18n.AgentNote(i18n.Lang()))
 	return strings.Join(append(parts, Instructions(o.Instructions, o.MRBy, j)), "\n\n")
 }
 

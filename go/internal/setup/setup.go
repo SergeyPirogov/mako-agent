@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
@@ -13,12 +14,16 @@ import (
 // missing or wrong) and the trackers that could be made; problems say what to fix in the settings.
 func Build(home string) (*config.Config, []trackers.Tracker, []string) {
 	cfg, err := config.Load(home)
+	i18n.SetLang(cfg.Language)
 	var problems []string
 	switch {
 	case errors.Is(err, config.ErrMissing):
-		problems = append(problems, "Mako ще не налаштований: додайте трекер у Налаштуваннях")
+		problems = append(problems, i18n.T("problem.notSetUp"))
 	case err != nil:
 		problems = append(problems, "mako.config.json: "+err.Error())
+	}
+	if cfg.UnknownLanguage != "" {
+		problems = append(problems, i18n.T("problem.language", cfg.UnknownLanguage))
 	}
 	var ts []trackers.Tracker
 	for _, tc := range cfg.Trackers {
@@ -30,7 +35,7 @@ func Build(home string) (*config.Config, []trackers.Tracker, []string) {
 		ts = append(ts, t)
 	}
 	if err == nil && len(cfg.Trackers) == 0 {
-		problems = append(problems, "Немає жодного трекера: додайте GitLab, GitHub або Jira в Налаштуваннях")
+		problems = append(problems, i18n.T("problem.noTrackers"))
 	}
 	return cfg, ts, problems
 }

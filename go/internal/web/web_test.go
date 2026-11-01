@@ -20,6 +20,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/update"
@@ -181,7 +182,7 @@ func TestBoardQueueWhy(t *testing.T) {
 		}
 	}
 	res, _ = http.Get(srv.URL + "/")
-	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `starting: "запускаю…"`) {
+	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `"queued", "starting"`) || i18n.In(i18n.UK, "b.label.starting") != "запускаю…" {
 		t.Fatal("no «запускаю» on the board")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
@@ -154,14 +155,14 @@ func (d *Dispatcher) tell(r core.Record, a Agent) {
 		if a.Asked != nil {
 			question, _, _ = chat.Choices(*a.Asked)
 		}
-		notify.Show(notify.Notice{Kind: notify.Waiting, Title: "✋ " + r.ID + ": агент чекає на вас", Message: firstOf(question, a.Reason, lastLine(a.Screen, ""), r.Task.Title),
+		notify.Show(notify.Notice{Kind: notify.Waiting, Title: i18n.T("notify.waiting", r.ID), Message: firstOf(question, a.Reason, lastLine(a.Screen, ""), r.Task.Title),
 			URL: link, Tag: waitTag(r.ID), Actions: askActions(r.ID, a.Asked)})
 	case "done":
 		d.Log(r.ID, "агент закінчив")
-		notify.Inform(notify.Finished, "✅ "+r.ID+": агент закінчив", firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
+		notify.Inform(notify.Finished, i18n.T("notify.finished", r.ID), firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
 	case "stopped":
 		d.Log(r.ID, "агент зупинився"+orBlank(": ", a.Reason))
-		notify.Inform(notify.Stopped, "⏹ "+r.ID+": агент зупинився", firstOf(a.Reason, r.Task.Title), link)
+		notify.Inform(notify.Stopped, i18n.T("notify.stopped", r.ID), firstOf(a.Reason, r.Task.Title), link)
 	}
 }
 
@@ -195,11 +196,11 @@ func askActions(id string, it *chat.Item) []notify.Action {
 	}
 	if it.Tool == chat.PlanTool {
 		// Notes on the plan need the board.
-		return []notify.Action{{Title: "Затвердити й робити", URL: "/api/plan?" + q + "&do=approve"}}
+		return []notify.Action{{Title: i18n.T("action.approvePlan"), URL: "/api/plan?" + q + "&do=approve"}}
 	}
 	return []notify.Action{
-		{Title: "Дозволити", URL: "/api/permit?" + q + "&decision=allow"},
-		{Title: "Ні", URL: "/api/permit?" + q + "&decision=deny", Destructive: true},
+		{Title: i18n.T("action.allow"), URL: "/api/permit?" + q + "&decision=allow"},
+		{Title: i18n.T("action.deny"), URL: "/api/permit?" + q + "&decision=deny", Destructive: true},
 	}
 }
 
@@ -308,7 +309,7 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		return
 	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
-		if err := t.Comment(ctx, r.Task, "Що зроблено:\n\n"+text); err != nil {
+		if err := t.Comment(ctx, r.Task, i18n.T("comment.summary")+"\n\n"+text); err != nil {
 			d.Fault(r.ID, "підсумок у задачу не додано", err)
 		}
 	}

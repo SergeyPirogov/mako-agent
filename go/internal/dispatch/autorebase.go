@@ -9,6 +9,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 // Auto-rebase: with Terminal.AutoRebase, the branch of an MR in review is kept up to its base branch. Behind
@@ -132,14 +133,13 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 
 // conflictRequest: what the agent is told when its branch conflicts with the base branch.
 func conflictRequest(url, branch, base, mode string, files []string) string {
-	push := "запуш з --force-with-lease"
-	how := fmt.Sprintf("Зроби rebase гілки %s на origin/%s", branch, base)
+	push := i18n.T("agent.pushForce")
+	how := i18n.T("agent.howRebase", branch, base)
 	if mode == "merge" {
-		push = "запуш"
-		how = fmt.Sprintf("Змерджи origin/%s у гілку %s", base, branch)
+		push = i18n.T("agent.pushPlain")
+		how = i18n.T("agent.howMerge", base, branch)
 	}
-	return fmt.Sprintf("Гілка %s MR %s відстала від %s і конфліктує з нею у файлах: %s. git fetch origin %s. %s, розвʼяжи конфлікти, прожени тести й перевірки проєкту і %s.",
-		branch, url, base, strings.Join(files, ", "), base, how, push)
+	return i18n.T("agent.conflictBehind", branch, url, base, strings.Join(files, ", "), base, how, push)
 }
 
 func commits(n int) string {

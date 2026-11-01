@@ -14,6 +14,13 @@ package desktop
 static NSWindow *makoWindow;
 static WKWebView *makoView;
 static NSString *makoHost;
+static NSDictionary *makoWords;
+
+// L: the window's word for key in Mako's language (makoSetWords), else the key.
+static NSString *L(NSString *key) {
+	NSString *w = makoWords[key];
+	return w ?: key;
+}
 
 // The board's own pages stay in the window; links elsewhere (the MR, the issue) open in the browser.
 // JavaScript's alert/confirm/prompt get native dialogs: WKWebView drops them otherwise.
@@ -52,14 +59,14 @@ static NSString *makoHost;
 	NSAlert *alert = [NSAlert new];
 	alert.messageText = message;
 	[alert addButtonWithTitle:@"OK"];
-	[alert addButtonWithTitle:@"Скасувати"];
+	[alert addButtonWithTitle:L(@"menu.cancel")];
 	[alert beginSheetModalForWindow:makoWindow completionHandler:^(NSModalResponse r) { done(r == NSAlertFirstButtonReturn); }];
 }
 - (void)webView:(WKWebView *)wv runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(NSString *)text initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSString *))done {
 	NSAlert *alert = [NSAlert new];
 	alert.messageText = prompt;
 	[alert addButtonWithTitle:@"OK"];
-	[alert addButtonWithTitle:@"Скасувати"];
+	[alert addButtonWithTitle:L(@"menu.cancel")];
 	NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
 	field.stringValue = text ?: @"";
 	alert.accessoryView = field;
@@ -88,42 +95,54 @@ static void makoMainMenu(void) {
 	NSMenu *bar = [NSMenu new];
 
 	NSMenu *app = [[NSMenu alloc] initWithTitle:@"Mako"];
-	[app addItem:menuItem(@"Сховати Mako", @selector(hide:), @"h")];
+	[app addItem:menuItem(L(@"menu.hide"), @selector(hide:), @"h")];
 	[app addItem:[NSMenuItem separatorItem]];
-	[app addItem:menuItem(@"Вийти з Mako", @selector(terminate:), @"q")];
+	[app addItem:menuItem(L(@"tray.quit"), @selector(terminate:), @"q")];
 	NSMenuItem *appItem = [NSMenuItem new];
 	appItem.submenu = app;
 	[bar addItem:appItem];
 
-	NSMenu *edit = [[NSMenu alloc] initWithTitle:@"Редагування"];
-	[edit addItem:menuItem(@"Скасувати", @selector(undo:), @"z")];
-	NSMenuItem *redo = menuItem(@"Повторити", @selector(redo:), @"z");
+	NSMenu *edit = [[NSMenu alloc] initWithTitle:L(@"menu.edit")];
+	[edit addItem:menuItem(L(@"menu.undo"), @selector(undo:), @"z")];
+	NSMenuItem *redo = menuItem(L(@"menu.redo"), @selector(redo:), @"z");
 	redo.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
 	[edit addItem:redo];
 	[edit addItem:[NSMenuItem separatorItem]];
-	[edit addItem:menuItem(@"Вирізати", @selector(cut:), @"x")];
-	[edit addItem:menuItem(@"Копіювати", @selector(copy:), @"c")];
-	[edit addItem:menuItem(@"Вставити", @selector(paste:), @"v")];
-	[edit addItem:menuItem(@"Виділити все", @selector(selectAll:), @"a")];
+	[edit addItem:menuItem(L(@"menu.cut"), @selector(cut:), @"x")];
+	[edit addItem:menuItem(L(@"menu.copy"), @selector(copy:), @"c")];
+	[edit addItem:menuItem(L(@"menu.paste"), @selector(paste:), @"v")];
+	[edit addItem:menuItem(L(@"menu.selectAll"), @selector(selectAll:), @"a")];
 	NSMenuItem *editItem = [NSMenuItem new];
 	editItem.submenu = edit;
 	[bar addItem:editItem];
 
-	NSMenu *view = [[NSMenu alloc] initWithTitle:@"Вигляд"];
-	[view addItem:menuItem(@"Оновити", @selector(reload:), @"r")];
+	NSMenu *view = [[NSMenu alloc] initWithTitle:L(@"menu.view")];
+	[view addItem:menuItem(L(@"menu.reload"), @selector(reload:), @"r")];
 	NSMenuItem *viewItem = [NSMenuItem new];
 	viewItem.submenu = view;
 	[bar addItem:viewItem];
 
-	NSMenu *window = [[NSMenu alloc] initWithTitle:@"Вікно"];
-	[window addItem:menuItem(@"Закрити", @selector(performClose:), @"w")];
-	[window addItem:menuItem(@"Згорнути", @selector(performMiniaturize:), @"m")];
+	NSMenu *window = [[NSMenu alloc] initWithTitle:L(@"menu.window")];
+	[window addItem:menuItem(L(@"menu.close"), @selector(performClose:), @"w")];
+	[window addItem:menuItem(L(@"menu.minimize"), @selector(performMiniaturize:), @"m")];
 	NSMenuItem *windowItem = [NSMenuItem new];
 	windowItem.submenu = window;
 	[bar addItem:windowItem];
 	NSApp.windowsMenu = window;
 
 	NSApp.mainMenu = bar;
+}
+
+// makoSetWords: the window's words (a JSON object), the main menu made again in them once there is one.
+static void makoSetWords(const char *json) {
+	NSData *data = [[NSString stringWithUTF8String:json] dataUsingEncoding:NSUTF8StringEncoding];
+	NSDictionary *words = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+	dispatch_async(dispatch_get_main_queue(), ^{
+		makoWords = words;
+		if (makoWindow != nil) {
+			makoMainMenu();
+		}
+	});
 }
 
 // The board without a task (the menu, opening Mako again) keeps the page as it is; a task or another page goes there.
@@ -316,8 +335,10 @@ import "C"
 
 import (
 	"encoding/json"
+	"strings"
 	"unsafe"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 )
 
@@ -360,6 +381,20 @@ func Notify(n notify.Notice) bool {
 	defer C.free(unsafe.Pointer(g))
 	defer C.free(unsafe.Pointer(a))
 	return C.makoNotify(t, m, u, g, a) == 1
+}
+
+// Relocalize gives the window's menu and dialogs the words of Mako's language now.
+func Relocalize() {
+	words := map[string]string{}
+	for k, v := range i18n.Strings(i18n.Lang()) {
+		if strings.HasPrefix(k, "menu.") || k == "tray.quit" {
+			words[k] = v
+		}
+	}
+	data, _ := json.Marshal(words)
+	s := C.CString(string(data))
+	defer C.free(unsafe.Pointer(s))
+	C.makoSetWords(s)
 }
 
 // Withdraw takes Mako.app's notification with the tag away.

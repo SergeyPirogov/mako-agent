@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
@@ -92,7 +93,7 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 			d.Log(f.ID, "вас призначили рев'ювером: "+f.Title)
 		}
 		if !known && !first {
-			notify.Show(notify.Notice{Kind: notify.ReviewAsked, Title: "👀 Вас призначили рев'ювером: " + f.Ref,
+			notify.Show(notify.Notice{Kind: notify.ReviewAsked, Title: i18n.T("notify.reviewAsked", f.Ref),
 				Message: f.Project + ": " + f.Title, URL: d.reviewLink(f.ID), Tag: "review-asked:" + f.ID})
 		}
 	}

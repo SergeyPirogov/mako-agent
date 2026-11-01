@@ -17,6 +17,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 const maxDiff = 30_000
@@ -42,6 +43,7 @@ func ReviewText(ctx context.Context, worktree, baseBranch string, t core.Task) (
 		"First line: the title, an imperative summary under 72 characters, no issue number.",
 		"Then a blank line and 2-6 short bullet points (\"- \"): what changed and why, for a reviewer.",
 		fmt.Sprintf("The work is for the issue %q (%s).", t.Title, t.ID),
+		"Write them in " + lang() + ".",
 		"Answer with the title and bullets only: no headings, no quotes, no code fences, no preface.",
 		"", "Commits:", commits, stat, clip(diff),
 	}, "\n"))
@@ -156,7 +158,7 @@ func clipTo(s string, n int) string {
 	return s
 }
 
-// TaskSummary: what the task came to, in Ukrainian, for the card (and the issue comment): from the agent's last
+// TaskSummary: what the task came to, in Mako's language, for the card (and the issue comment): from the agent's last
 // words in its terminal, the commits and the diff.
 func TaskSummary(ctx context.Context, worktree, baseBranch string, t core.Task, agentText, reviewURL string) (string, error) {
 	commits, stat, diff := BranchWork(ctx, worktree, baseBranch)
@@ -166,11 +168,11 @@ func TaskSummary(ctx context.Context, worktree, baseBranch string, t core.Task, 
 		review = "Merge request: " + reviewURL
 	}
 	return Ask(ctx, worktree, strings.Join([]string{
-		"Summarize, in Ukrainian, what was done for this task, for the developer who will read it later on a task board.",
+		"Summarize, in " + lang() + ", what was done for this task, for the developer who will read it later on a task board.",
 		"Use Markdown with these sections, each short (bullets, at most ~6 per section), skipping a section that has nothing:",
-		"## Що зроблено",
-		"## Як перевірено",
-		"## На що звернути увагу (open questions, risks, follow-ups, anything left undone)",
+		i18n.T("summary.whatDone"),
+		i18n.T("summary.howChecked"),
+		i18n.T("summary.lookAt") + " (open questions, risks, follow-ups, anything left undone)",
 		"Base it on the end of the agent's terminal session and the actual changes below. Do not invent checks that are not mentioned. Answer with the summary only.",
 		"", fmt.Sprintf("Task: %s — %s", t.ID, t.Title), review,
 		"", "End of the agent's terminal session:", orNone(agentText),
@@ -283,7 +285,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 		"Look for what a careful reviewer would point out first: bugs, parts of the task not done, broken edge cases,",
 		"missing or wrong tests, leftovers (debug output, commented-out code, unrelated changes), security problems,",
 		"and what goes against the repository's conventions (CLAUDE.md, the code around it). Skip style nitpicks and matters of taste.",
-		"Answer in Ukrainian with a Markdown list only, one remark per item, each naming the file (and line) and what to change.",
+		"Answer in " + lang() + " with a Markdown list only, one remark per item, each naming the file (and line) and what to change.",
 		"If there is nothing worth fixing, answer exactly " + Reviewed + ".",
 		"", "Task: " + t.ID + " — " + t.Title, orNone(description),
 		"", "Commits:", orNone(commits), stat, clip(diff),
@@ -332,7 +334,7 @@ func ReviewNotes(answer string) (string, error) {
 }
 
 // Assess: the agent's rating of a finished task, from the task as it was written, the end of the agent's work
-// and the branch's changes. Each score is from 1 to 5, its reason and what the description lacked in Ukrainian.
+// and the branch's changes. Each score is from 1 to 5, its reason and what the description lacked in Mako's language.
 func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText, summary string) (core.Assessment, error) {
 	var commits, stat, diff string
 	if baseBranch != "" {
@@ -350,10 +352,10 @@ func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText,
 		"- risk: how likely the change is to break something or need rework in review: 1 safe, 5 very risky.",
 		"Also the size the task came to: \"small\" (a few lines in one place), \"medium\" (several files of one part), or \"big\" (many parts, new subsystems, migrations).",
 		"Base the scores on the task's text and the actual changes, not on what the agent says about itself.",
-		"Answer with JSON only, no code fences, in this shape, each \"why\" one short sentence in Ukrainian:",
+		"Answer with JSON only, no code fences, in this shape, each \"why\" one short sentence in " + lang() + ":",
 		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"size":"small","missing":"...","review":{"need":false,"why":"..."}}`,
-		"\"missing\": in Ukrainian, at most 3 short points on what the description should have said (\"\" when nothing).",
-		"\"review\": your advice to the developer whether a review (by them or a reviewer agent) is worth it before the merge: \"need\" true when the change is risky, subtle or touches what is easy to break, false when it is plain and safe; \"why\" one short sentence in Ukrainian.",
+		"\"missing\": in " + lang() + ", at most 3 short points on what the description should have said (\"\" when nothing).",
+		"\"review\": your advice to the developer whether a review (by them or a reviewer agent) is worth it before the merge: \"need\" true when the change is risky, subtle or touches what is easy to break, false when it is plain and safe; \"why\" one short sentence in " + lang() + ".",
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
 		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
 		"", "Summary of the work:", orNone(summary),
@@ -429,11 +431,11 @@ func pointsText(raw json.RawMessage) string {
 }
 
 // Retro: the look back at a merged task, from its story as Mako saw it (the task, the attempts, your messages
-// to the agent, the reviews, the journal). Each part is a few points in Ukrainian.
+// to the agent, the reviews, the journal). Each part is a few points in Mako's language.
 func Retro(ctx context.Context, dir string, t core.Task, story string) (core.Retro, error) {
 	text, err := Ask(ctx, dir, strings.Join([]string{
 		"A coding agent did the task below and its merge request is merged. Write a short retrospective of how the task went,",
-		"for the developer who gave it, so the next tasks go better. Three parts, each at most 4 short points in Ukrainian:",
+		"for the developer who gave it, so the next tasks go better. Three parts, each at most 4 short points in " + lang() + ":",
 		"- good: what went well;",
 		"- bad: what went wrong, was redone, or took longer than it should (retries, corrections, review rounds, failures);",
 		"- next: what to do differently next time: in how the task is written, in what the agent is told, in review.",
@@ -508,7 +510,7 @@ const (
 )
 
 // Estimate: the agent's look at a new task before it starts, from its text and the repository's layout (not its
-// code): how clear it is and what to ask, how big, how risky, and how to take it. Its text is in Ukrainian.
+// code): how clear it is and what to ask, how big, how risky, and how to take it. Its text is in Mako's language.
 func Estimate(ctx context.Context, dir string, t core.Task, outline string) (core.Estimate, error) {
 	var comments []string
 	for _, c := range t.Comments {
@@ -527,7 +529,7 @@ func Estimate(ctx context.Context, dir string, t core.Task, outline string) (cor
 		"- model: who should do it, by how complex it is: \"haiku\" for a trivial edit in one place, \"sonnet\" for ordinary work",
 		"  (the default), \"opus\" only for complex work: across subsystems, subtle logic, hard to get right;",
 		"- advice: one short sentence on how to take the task.",
-		"All text (why, questions, parts, advice) in Ukrainian, short.",
+		"All text (why, questions, parts, advice) in " + lang() + ", short.",
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
 		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
 		"", "Repository:", orNone(outline),
@@ -580,3 +582,6 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 	}
 	return e, nil
 }
+
+// lang: the language Mako speaks, as the agent is asked to write in it.
+func lang() string { return i18n.EnglishName(i18n.Lang()) }

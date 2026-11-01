@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="uk">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -21,14 +21,14 @@
   <span id="waiting"></span>
   <span id="restart-note"></span>
   <span class="spacer"></span>
-  <span class="limits" id="limits" aria-label="Ліміти Claude"></span>
+  <span class="limits" id="limits"></span>
   <button class="icon-btn" id="awake"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/><path class="slash" d="M3 3l18 18"/></svg></button>
-  <button class="icon-btn" id="restart" title="Перезапустити Mako, коли агенти закінчать хід" aria-label="Перезапустити Mako, коли агенти закінчать хід"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v7"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg></button>
-  <button class="icon-btn" id="code-btn" title="Запитати про код: агент відповість, читаючи клон проєкту" aria-label="Запитати про код"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></button>
-  <button class="icon-btn" id="stats-btn" title="Статистика" aria-label="Статистика"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
-  <button class="ghost" id="bell" hidden title="Сповіщення на цей телефон">🔔</button>
-  <a class="icon-btn" id="settings-link" href="/settings" title="Налаштування" aria-label="Налаштування"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
-  <button class="ghost" id="theme" title="Тема"></button>
+  <button class="icon-btn" id="restart" data-t-title="b.restart"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v7"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg></button>
+  <button class="icon-btn" id="code-btn" data-t-title="b.code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></button>
+  <button class="icon-btn" id="stats-btn" data-t-title="b.stats"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
+  <button class="ghost" id="bell" hidden data-t-title="b.bell">🔔</button>
+  <a class="icon-btn" id="settings-link" href="/settings" data-t-title="s.title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
+  <button class="ghost" id="theme"></button>
 </header>
 <div id="phone-hint"></div>
 <div id="problems"></div>
@@ -41,14 +41,14 @@
     <!-- The search for tasks: when it last looked, look now, pause -->
     <div class="side-bar">
       <span class="search" id="search"></span>
-      <button class="icon-btn" id="poll" title="Перевірити трекери зараз" aria-label="Перевірити трекери зараз"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+      <button class="icon-btn" id="poll" data-t-title="tray.poll"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
       <button class="icon-btn" id="pause"></button>
     </div>
-    <div class="new-task" id="new-task-bar"><button id="new-task" hidden>+ Задача</button><button class="ghost" id="why-btn" title="Вставте посилання на задачу, і Mako скаже, чому вона не на дошці">Чому немає задачі?</button></div>
-    <div class="filter" id="filter"><select id="scope" aria-label="Які задачі показати"></select><input id="q" type="search" placeholder="Фільтр: назва, номер, проєкт" aria-label="Фільтр задач" autocomplete="off" spellcheck="false"></div>
+    <div class="new-task" id="new-task-bar"><button id="new-task" hidden data-t="b.newTask">+ Задача</button><button class="ghost" id="why-btn" data-t-title="b.whyHint" data-t="b.why">Чому немає задачі?</button></div>
+    <div class="filter" id="filter"><select id="scope"></select><input id="q" type="search" data-t-ph="b.filter" autocomplete="off" spellcheck="false"></div>
     <nav id="list" aria-label="Задачі"></nav>
   </div>
-  <section id="detail"><div class="empty">Виберіть задачу зліва</div></section>
+  <section id="detail"><div class="empty" data-t="b.pick">Виберіть задачу зліва</div></section>
 </div>
 <!-- «Повторити інакше»: the agent went the wrong way; Mako drops the attempt and starts the task over. -->
 <dialog id="redo" aria-labelledby="redo-h">
@@ -72,12 +72,16 @@
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
 <script>
-const COLUMNS = [["later", "Відкладені"], ["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
-const LABEL = { new: "нова", later: "відкладена", queued: "у черзі", starting: "запускаю…", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
+// The columns, the tasks' states and the agent's notes, in Mako's language: made again when it changes.
+let COLUMNS = [], LABEL = {}, AGENT_NOTE = {};
+function boardWords() {
+  COLUMNS = ["later", "new", "doing", "blocked", "review", "forme", "done", "failed"].map((c) => [c, t("b.col." + c)]);
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
-  "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
-  "ci": "чекає на CI", "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
-const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
+  LABEL = Object.fromEntries(["new", "later", "queued", "starting", "doing", "review", "done", "failed",
+    "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"].map((k) => [k, t("b.label." + k)]));
+  AGENT_NOTE = Object.fromEntries(["waiting", "done", "idle", "unknown"].map((k) => [k, t("b.agent." + k)]));
+}
+boardWords();
 // The list's groups folded by a click on their heading (column → folded); «Відкладені», «Готово» and «Не виконано» start folded.
 const FOLDED_BY_DEFAULT = { later: true, done: true, failed: true };
 let folded = (() => { try { return { ...FOLDED_BY_DEFAULT, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { ...FOLDED_BY_DEFAULT }; } })();
@@ -277,8 +281,13 @@ async function load() {
     if (statsDays) q.set("days", statsDays);
     data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`)).json();
     if (data.now) skew = Date.now() - data.now;
+    // Mako's language, the first time and whenever the settings change it.
+    if (!Object.keys(I18N).length || (data.language && data.language !== LANG)) {
+      await loadI18n(data.language);
+      boardWords();
+    }
   } catch {
-    $("search").textContent = "Mako не відповідає";
+    $("search").textContent = t("s.noAnswer");
     $("search").className = "search err";
     return;
   }
@@ -313,8 +322,8 @@ async function loadCard() {
 // Bare=true is the compact form beside the meter: «12:20» today, «пт, 12:20» later; otherwise «о 12:20» for prose.
 const resetTime = (sec, bare) => {
   const d = new Date(sec * 1000), today = new Date().toDateString() === d.toDateString();
-  const hm = d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" });
-  return today ? (bare ? hm : `о ${hm}`) : d.toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const hm = d.toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit" });
+  return today ? (bare ? hm : `о ${hm}`) : d.toLocaleString(LANG, { weekday: "short", hour: "2-digit", minute: "2-digit" });
 };
 function limitsHTML(l) {
   const bad = data.limitPausePct || 85;
@@ -344,7 +353,7 @@ function snoozeDown(ids) {
 function downHTML(failed) {
   failed = failed.filter(([id]) => !snoozed(id));
   if (!failed.length) return "";
-  const since = (iso) => iso ? ` з ${new Date(iso).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" })}` : "";
+  const since = (iso) => iso ? ` з ${new Date(iso).toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit" })}` : "";
   return `<div class="banner down" role="alert">${failed.map(([id, s]) =>
     `<div><b>⚠ ${esc(s.down || id)}</b><span class="muted">${since(s.since)}</span>
       <button data-pause-tracker="${esc(id)}" title="Не шукати нових задач у цьому трекері, доки не продовжите; інші трекери шукаються">Пауза</button>
@@ -413,9 +422,9 @@ function render() {
   const uc = $("update-cancel");
   if (uc) uc.onclick = async () => { uc.disabled = true; await fetch("/api/update/cancel", { method: "POST" }); await load(); };
   $("problems").innerHTML = data.problems?.length
-    ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}${data.remote ? "" : `<a href="/settings">Відкрити налаштування →</a>`}</div>` : "";
+    ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}${data.remote ? "" : `<a href="/settings">${t("b.openSettings")}</a>`}</div>` : "";
   $("pause").innerHTML = data.paused ? ICON.play : ICON.pause;
-  $("pause").title = $("pause").ariaLabel = data.paused ? "Пошук на паузі: продовжити" : "Пауза: не шукати нових задач";
+  $("pause").title = $("pause").ariaLabel = data.paused ? t("b.resume") : t("tray.pause");
   $("pause").classList.toggle("on", !!data.paused);
   // «Перезапустити, коли агенти закінчать хід»: Mako waits for the agents that work now, then restarts.
   const rs = data.restart || {};
@@ -439,11 +448,11 @@ function render() {
   $("wip").className = "wip" + (data.wipLimit && doing >= data.wipLimit ? " full" : "");
   const waiting = live.filter((r) => agentOf(r)?.state === "waiting").length;
   // New tasks go to Orca or to Mako's own terminal.
-  const where = data.executor === "terminal" ? "В роботі" : "В Orca";
+  const where = data.executor === "terminal" ? t("b.col.doing") : t("b.inOrca");
   COLUMNS.find(([c]) => c === "doing")[1] = where;
   LABEL.doing = where.toLowerCase();
   // On a phone the word goes: «2/5» fits next to the limits.
-  $("wip").innerHTML = `<span class="w">${where} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> з </span><span class="sl">/</span>${data.wipLimit}` : "");
+  $("wip").innerHTML = `<span class="w">${where} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> ${t("b.of")} </span><span class="sl">/</span>${data.wipLimit}` : "");
   $("wip").title = data.wipLimit ? `${where}: ${doing} з ${data.wipLimit}` : `${where}: ${doing}`;
   $("waiting").innerHTML = waiting ? `<span class="waiting-chip" title="Чекає на вас: ${waiting}"><span class="dot"></span><span class="wt">чекає на вас: </span>${waiting}</span>` : "";
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
@@ -583,7 +592,7 @@ function renderAsk(q) {
   const chip = (body, cls = "", title = "") => `<span class="tchip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${body}</span>`;
   const card = (title, body, note = "") => `<div class="tcard"><div class="tcard-h">${title}${note ? `<span class="r">${note}</span>` : ""}</div>${body}</div>`;
   const chips = [chip(`<span class="k">Автор</span>${esc(q.author)}`), chip(sizeHTML(q))];
-  if (q.state === "open") chips.push(chip(`<span class="k">Чекає</span>${esc(ago(q.since).replace(/ тому$/, ""))}`, "", `З ${new Date(q.since).toLocaleString("uk")}`));
+  if (q.state === "open") chips.push(chip(`<span class="k">Чекає</span>${esc(ago(q.since).replace(/ тому$/, ""))}`, "", `З ${new Date(q.since).toLocaleString(LANG)}`));
   else chips.push(chip(`<span class="dot"></span><span class="v">${esc(DONE_WHY[q.done] ?? "готово")}</span>`, "st"));
   if (q.updated) chips.push(chip("оновлено: нові коміти", "upd"));
   let ci = "";
@@ -613,7 +622,7 @@ function renderAsk(q) {
     ${card("CI", `<div class="tcard-b">${ci}</div>`)}
     ${card(`Обговорення${c?.threads?.length ? ` · ${c.threads.length}` : ""}`, threads)}
     ${card(`Зміни${files.length ? ` · ${files.length} ${plural(files.length, "файл", "файли", "файлів")}` : ""}`, filesHTML)}
-    ${logs.length ? `<details class="journal"><summary>Журнал · ${logs.length}</summary><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
+    ${logs.length ? `<details class="journal"><summary>Журнал · ${logs.length}</summary><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString(LANG)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   if (html === shown) return;
   $("detail").innerHTML = shown = html;
   $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
@@ -991,7 +1000,7 @@ function commitGraph(commits) {
       return `<span class="cg-ref ${head ? "head" : ref.startsWith("origin/") ? "remote" : ref.startsWith("tag: ") ? "tag" : ""}" title="${esc(ref)}">${esc(name)}</span>`;
     });
     const open = commitOpen[c.hash];
-    const when = new Date(c.at * 1000).toLocaleString("uk", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    const when = new Date(c.at * 1000).toLocaleString(LANG, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
     return `<div class="cg-row ${c.mine ? "mine" : ""}" title="${esc(c.hash.slice(0, 8))} · ${esc(c.author)} · ${esc(when)}">
         <svg class="cg-lanes" width="${width}" height="${H}" fill="none" stroke-width="1.6" aria-hidden="true">${svg}</svg>
         <button type="button" class="cg-toggle" data-commit="${esc(c.hash)}" aria-label="${open ? "Згорнути" : "Розгорнути"} коміт">${open ? "▾" : "›"}</button>
@@ -1231,7 +1240,7 @@ function reviewerHTML(r) {
   if (!r.agentReviews?.length) return "";
   return `<h3>Рев'ю агентом</h3>` + r.agentReviews.map((a, i) => {
     const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1] + (a.sent ? ", передано агенту" : "");
-    return `<div class="agent-review ${esc(a.state)}"><div class="muted">Раунд ${i + 1} · ${new Date(a.at).toLocaleString("uk")} · <code>${esc(a.commit.slice(0, 8))}</code> · ${esc(text)}</div>
+    return `<div class="agent-review ${esc(a.state)}"><div class="muted">Раунд ${i + 1} · ${new Date(a.at).toLocaleString(LANG)} · <code>${esc(a.commit.slice(0, 8))}</code> · ${esc(text)}</div>
       ${a.notes ? `<div class="summary">${md(a.notes)}</div>` : ""}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
   }).join("");
 }
@@ -1472,9 +1481,9 @@ function laterMenu() {
     <div class="menu-pop">${item("hour", "На годину")}${item("tomorrow", "До завтра, 9:00")}${item("monday", monday)}</div></details>`;
 }
 const untilText = (ms) => {
-  const d = new Date(ms), t = d.toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit" });
+  const d = new Date(ms), t = d.toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit" });
   const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5);
-  return days === 0 ? `до ${t}` : days === 1 ? `до завтра, ${t}` : `до ${d.toLocaleDateString("uk", { weekday: "long" })}, ${t}`;
+  return days === 0 ? `до ${t}` : days === 1 ? `до завтра, ${t}` : `до ${d.toLocaleDateString(LANG, { weekday: "long" })}, ${t}`;
 };
 
 function agentBlock(r) {
@@ -1988,7 +1997,7 @@ function trendHTML(days) {
   // The days before the first task tell nothing: from it on, though a week at least.
   days = days.slice(Math.max(0, Math.min(days.findIndex((d) => d.taken), days.length - 7)));
   const top = Math.max(...days.map((d) => d.taken));
-  const date = (d) => new Date(d + "T12:00:00").toLocaleDateString("uk", { day: "numeric", month: "short" });
+  const date = (d) => new Date(d + "T12:00:00").toLocaleDateString(LANG, { day: "numeric", month: "short" });
   const seg = (cls, n) => n ? `<i class="${cls}" style="height:${(n / top) * 100}%"></i>` : "";
   const label = (i) => i === 0 || i === days.length - 1 || (days.length > 10 && i === Math.floor(days.length / 2));
   const col = (d, i) => {
@@ -2006,7 +2015,7 @@ function trendHTML(days) {
 function faultsHTML(fs) {
   if (!fs?.length) return "";
   const fresh = fs.filter((f) => !f.reported).length;
-  const at = (t) => new Date(t).toLocaleString("uk", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const at = (t) => new Date(t).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const row = (f) => `<li class="${f.reported ? "reported" : ""}"><div><b>${esc(f.what)}</b> <span class="muted">${f.count}× · ${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span></div>`
     + `<div class="fault-text">${esc(f.error)}</div>`
     + (f.reported ? `<div class="muted">на аналізі: ${/^https?:/.test(f.reported) ? `<a href="${esc(f.reported)}" target="_blank" rel="noopener">${esc(f.reported)}</a>` : esc(f.reported)}</div>` : "") + `</li>`;
@@ -2141,7 +2150,7 @@ function clarityHTML(s) {
 
 // «Поки вас не було»: what waits for you, the MRs to merge, what failed and got merged, with links to the tasks.
 function digestHTML(d) {
-  const at = (ms) => new Date(ms).toLocaleString("uk", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const at = (ms) => new Date(ms).toLocaleString(LANG, { weekday: "short", hour: "2-digit", minute: "2-digit" });
   const item = (x) => `<li><a href="#${encodeURIComponent(x.id)}"><b>${esc(x.id)}</b> ${esc(x.title)}</a>`
     + (x.new ? ` <span class="digest-new">нове</span>` : "")
     + (x.note ? `<div class="muted">${esc(x.note)}</div>` : "")
@@ -2246,7 +2255,7 @@ function renderDetail() {
     ${card("Опис", `<div class="tcard-b md">${t.description?.trim() ? md(t.description) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, "", `з ${esc(trackerName(t))}`)}
     ${t.comments?.length ? card(`Коментарі · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="md">${md(c.body)}</div></div></div>`).join("")) : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Журнал · ${logs.length} ${plural(logs.length, "запис", "записи", "записів")}</summary>
-      <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
+      <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString(LANG)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   const started = r.column === "doing" && !!r.worktree;
   // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
