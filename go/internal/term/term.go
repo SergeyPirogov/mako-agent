@@ -46,6 +46,7 @@ type Session struct {
 	since   time.Time
 	exited  bool
 	onState func()
+	done    chan struct{} // closed once the process ended and onState ran
 }
 
 // State: what the agent does now, from its hooks. "exited" once its process ended.
@@ -82,7 +83,7 @@ func Start(o Options) (*Session, error) {
 		state = "done"
 	}
 	s := &Session{ID: o.ID, Worktree: o.Worktree, Token: o.Token, cmd: cmd, pty: f, subs: map[chan Event]struct{}{},
-		state: state, since: time.Now(), onState: o.OnState}
+		state: state, since: time.Now(), onState: o.OnState, done: make(chan struct{})}
 	go s.read()
 	return s, nil
 }
@@ -117,7 +118,11 @@ func (s *Session) read() {
 	s.mu.Unlock()
 	s.pty.Close()
 	s.changed()
+	close(s.done)
 }
+
+// Wait blocks until the process has ended and its last state change was reported.
+func (s *Session) Wait() { <-s.done }
 
 // The marks of a Claude Code session Mako may have been started from: an agent that inherits them takes itself
 // for that session's child and saves no transcript (so no last message and no --continue).

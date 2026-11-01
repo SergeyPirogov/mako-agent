@@ -254,6 +254,7 @@ func TestSetupInBackgroundDoesNotHang(t *testing.T) {
 	if r.Status != core.HandedOff {
 		t.Fatalf("status %s, error %q", r.Status, r.Error)
 	}
-	defer d.StopTerminal(id)
+	// The agent's exit saves the task: let it finish before the temp dirs go.
+	defer func() { s := d.Sessions.Get(id); d.StopTerminal(id); s.Wait() }()
 	waitFor(t, func() bool { return strings.Contains(d.Sessions.Get(id).Output(4000), "prepared") }, "the setup's output is not in the terminal")
 }
