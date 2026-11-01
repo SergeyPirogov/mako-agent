@@ -40,8 +40,10 @@ type Search struct {
 }
 
 type Dispatcher struct {
-	Cfg      *config.Config
-	Store    *state.Store
+	Cfg   *config.Config
+	Store *state.Store
+	// Reviews: the MRs of others waiting for my review («Рев'ю для мене»).
+	Reviews  *state.ReviewRequests
 	Trackers []trackers.Tracker
 	Hand     Hand
 	Term     Terminals
@@ -114,6 +116,11 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove
+	if rs, err := state.OpenReviewRequests(cfg.StateDir); err == nil {
+		d.Reviews = rs
+	} else {
+		log.Printf("review-requests.json: %v", err)
+	}
 	return d
 }
 
@@ -288,6 +295,7 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 		if err != nil {
 			continue
 		}
+		d.pollReviews(ctx, t)
 		me := ""
 		if t.Config().SkipOthersTasks {
 			me, _ = t.Me(ctx)

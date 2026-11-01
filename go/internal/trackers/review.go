@@ -200,36 +200,12 @@ func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 	m := prURL.FindStringSubmatch(reviewURL)
 	repo, num := m[1], m[2]
 	c := &ReviewCheck{State: p.state(), Jobs: []Job{}, Failed: []Job{}, Threads: []Thread{}}
-	var runs struct {
-		CheckRuns []struct {
-			ID         int64  `json:"id"`
-			Name       string `json:"name"`
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-			HTMLURL    string `json:"html_url"`
-		} `json:"check_runs"`
-	}
-	if p.Head.SHA != "" && g.do(ctx, "GET", "/repos/"+repo+"/commits/"+p.Head.SHA+"/check-runs?per_page=100", nil, &runs) == nil && len(runs.CheckRuns) > 0 {
-		c.CI, c.CIURL = "success", reviewURL+"/checks"
-		running := false
-		for _, r := range runs.CheckRuns {
-			job := Job{ID: r.ID, Name: r.Name, URL: r.HTMLURL, Status: "success"}
-			switch {
-			case r.Status != "completed":
-				running = true
-				job.Status = map[bool]string{true: "running", false: "pending"}[r.Status == "in_progress"]
-			case r.Conclusion == "failure" || r.Conclusion == "timed_out" || r.Conclusion == "cancelled" || r.Conclusion == "action_required":
-				job.Status = "failed"
-				c.Failed = append(c.Failed, job)
-			case r.Conclusion == "skipped" || r.Conclusion == "neutral":
-				job.Status = "skipped"
+	if ci, jobs := g.checkRuns(ctx, repo, p.Head.SHA); ci != "" {
+		c.CI, c.CIURL, c.Jobs = ci, reviewURL+"/checks", jobs
+		for _, j := range jobs {
+			if j.Status == "failed" {
+				c.Failed = append(c.Failed, j)
 			}
-			c.Jobs = append(c.Jobs, job)
-		}
-		if len(c.Failed) > 0 {
-			c.CI = "failed"
-		} else if running {
-			c.CI = "running"
 		}
 	}
 	owner, name, _ := strings.Cut(repo, "/")

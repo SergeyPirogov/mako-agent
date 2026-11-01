@@ -57,25 +57,27 @@ type Server struct {
 }
 
 type stateReply struct {
-	Version  string                     `json:"version"`
-	Now      int64                      `json:"now"`
-	WipLimit int                        `json:"wipLimit"`
-	Records  []recordView               `json:"records"`
-	Searches map[string]dispatch.Search `json:"searches"`
-	Trackers []trackerView              `json:"trackers"`
-	Problems []string                   `json:"problems"`
-	Paused   bool                       `json:"paused"`
-	Agents   map[string]dispatch.Agent  `json:"agents"`
-	Executor string                     `json:"executor"`            // who gets new tasks: "orca" or "terminal"
-	Editor   string                     `json:"editor"`              // the code editor a worktree opens in, "" when none
-	Limits   chat.Limits                `json:"limits"`              // Claude's usage limits, as the agents last reported them
-	Hold     *dispatch.LimitHold        `json:"limitHold,omitempty"` // the queue waits for a Claude limit to reset
-	LimitPct int                        `json:"limitPausePct"`       // the threshold of the settings, 0: none
-	Remote   bool                       `json:"remote"`              // the page is open on a phone
-	Stats    core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
-	Update   *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
-	Release  *update.Release            `json:"release,omitempty"`   // a newer release to download; not on a phone
-	Restart  restartView                `json:"restart"`
+	Version  string       `json:"version"`
+	Now      int64        `json:"now"`
+	WipLimit int          `json:"wipLimit"`
+	Records  []recordView `json:"records"`
+	// ReviewRequests: others' MRs where I am a reviewer («Рев'ю для мене»), the finished ones too.
+	ReviewRequests []core.ReviewRequest       `json:"reviewRequests"`
+	Searches       map[string]dispatch.Search `json:"searches"`
+	Trackers       []trackerView              `json:"trackers"`
+	Problems       []string                   `json:"problems"`
+	Paused         bool                       `json:"paused"`
+	Agents         map[string]dispatch.Agent  `json:"agents"`
+	Executor       string                     `json:"executor"`            // who gets new tasks: "orca" or "terminal"
+	Editor         string                     `json:"editor"`              // the code editor a worktree opens in, "" when none
+	Limits         chat.Limits                `json:"limits"`              // Claude's usage limits, as the agents last reported them
+	Hold           *dispatch.LimitHold        `json:"limitHold,omitempty"` // the queue waits for a Claude limit to reset
+	LimitPct       int                        `json:"limitPausePct"`       // the threshold of the settings, 0: none
+	Remote         bool                       `json:"remote"`              // the page is open on a phone
+	Stats          core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
+	Update         *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
+	Release        *update.Release            `json:"release,omitempty"`   // a newer release to download; not on a phone
+	Restart        restartView                `json:"restart"`
 	// Awake: the settings keep the Mac awake while agents work (on), and it is being kept awake now (active).
 	Awake struct {
 		On     bool `json:"on"`
@@ -160,6 +162,10 @@ func (s *Server) Handler() http.Handler {
 			since = time.Now().AddDate(0, 0, -n)
 		}
 		reply.Stats = core.Summarize(all, time.Now(), since)
+		reply.ReviewRequests = []core.ReviewRequest{}
+		if s.D.Reviews != nil {
+			reply.ReviewRequests = s.D.Reviews.All()
+		}
 		reply.Faults = s.D.Faults()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
@@ -235,6 +241,15 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, map[string]any{"review": c})
+	})
+	// An MR to review for its card: CI, open threads, the files with their diffs; it is seen from now on.
+	mux.HandleFunc("GET /api/review-request", func(w http.ResponseWriter, r *http.Request) {
+		v, err := s.D.ReviewRequest(r.Context(), r.URL.Query().Get("id"))
+		if err != nil {
+			writeJSON(w, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, v)
 	})
 	mux.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
 		diff, err := s.D.FileDiff(r.Context(), r.URL.Query().Get("id"), r.URL.Query().Get("path"), r.URL.Query().Get("whole") == "1")

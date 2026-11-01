@@ -224,6 +224,26 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .kind { display: inline-flex; align-items: center; height: 16px; font: 600 10.5px/16px system-ui, -apple-system, "Segoe UI", sans-serif; padding: 0 5px; border-radius: 4px;
   background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
 .kind.fix { background: color-mix(in srgb, var(--err) 14%, var(--card)); color: var(--err); }
+.kind.rq { background: color-mix(in srgb, var(--purple) 14%, var(--card)); color: var(--purple); }
+/* «Рев'ю для мене»: others' MRs where I am a reviewer */
+.mr-size { font: 11px var(--mono); white-space: nowrap; }
+.mr-size .add { color: var(--ok); }
+.mr-size .del { color: var(--err); }
+.ci-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
+.ci-dot.ok { background: var(--ok); }
+.ci-dot.bad { background: var(--err); }
+.ci-dot.run { background: var(--warn); }
+.item .updated, .tchip.upd { font-size: 10.5px; padding: 0 6px; border-radius: 999px; white-space: nowrap; color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+.rq-file { border-top: 1px solid var(--line); }
+.rq-file:first-of-type { border-top: 0; }
+.rq-file > summary { display: flex; align-items: center; gap: 8px; padding: 7px 12px; cursor: pointer; font-size: 12.5px; }
+.rq-file > summary code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rq-file .fst { font: 600 10.5px var(--mono); width: 12px; color: var(--mute); }
+.rq-file .fst.A { color: var(--ok); }
+.rq-file .fst.D { color: var(--err); }
+.rq-file .fst.R { color: var(--purple); }
+.rq-file > .diff { max-height: 60vh; overflow: auto; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 4px 0 14px; }
 .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--mute); padding: 8px 12px; margin-bottom: -1px; }
 .tab:hover { background: none; color: var(--fg); }

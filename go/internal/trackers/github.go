@@ -289,6 +289,8 @@ type ghPull struct {
 	// Mergeable: nil while GitHub is still working it out.
 	Mergeable      *bool  `json:"mergeable"`
 	MergeableState string `json:"mergeable_state"`
+	Additions      int    `json:"additions"`
+	Deletions      int    `json:"deletions"`
 	Head           struct {
 		SHA string `json:"sha"`
 	} `json:"head"`

@@ -273,6 +273,7 @@ function renderTrackers() {
     }
     card.append(check(t, "assignOnTake", "«Взяти в роботу» призначає задачу на мене", { def: true }));
     card.append(check(t, "skipOthersTasks", "Не пропонувати задачі, призначені на інших", { def: true }));
+    if (t.type !== "jira") card.append(check(t, "reviewRequests", "Показувати MR, де мене призначили рев'ювером", { def: true, hint: "Окрема група «Рев'ю для мене» на дошці: назва, автор, розмір, CI, скільки чекає" }));
 
     const statuses = document.createElement("details");
     statuses.innerHTML = `<summary>Статуси задачі в трекері</summary><div class="hint" style="color:var(--mute);font-size:12.5px;margin:4px 0 6px">
@@ -577,6 +578,7 @@ function renderNotifications() {
     ["secrets", "🔐 Пуш зупинено: у змінах секрети"],
     ["merged", "🎉 MR змерджено"],
     ["newTask", "🦈 Нова задача"],
+    ["reviewAsked", "👀 Вас призначили рев'ювером"],
     ["reminder", "⏰ Час повернутися до відкладеної задачі"],
     ["gone", "🦈 Задачу в роботі закрито чи видалено в трекері"],
     ["limits", "⏳ Черга на паузі через ліміт Claude і продовжується"],
