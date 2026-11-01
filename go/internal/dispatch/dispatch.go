@@ -84,6 +84,8 @@ type Dispatcher struct {
 	estimates sync.WaitGroup
 	// questionsMu: the questions about code kept in questions.json (see codeask.go).
 	questionsMu sync.Mutex
+	// askingMu: one question's agent is started at a time (see AskCode).
+	askingMu sync.Mutex
 	// checking: the tasks whose checks before the MR run now.
 	checking map[string]bool
 	wake     chan struct{}

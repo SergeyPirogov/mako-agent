@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -306,5 +307,53 @@ read more
 	}
 	if strings.Join(kinds, " ") != "user:: permission:denied:Write result::" {
 		t.Fatalf("items %v", kinds)
+	}
+}
+
+// With Tools, reading stays within the worktree: an absolute path elsewhere, ~, .. or a symlink out are refused.
+func TestOnlyToolsStayInWorktree(t *testing.T) {
+	dir, out := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(out, "secret"), []byte("x"), 0o644)
+	os.MkdirAll(filepath.Join(dir, "pay"), 0o755)
+	os.WriteFile(filepath.Join(dir, "pay", "pay.go"), []byte("package pay"), 0o644)
+	os.Symlink(out, filepath.Join(dir, "away"))
+	in := func(k, v string) json.RawMessage { b, _ := json.Marshal(map[string]string{k: v}); return b }
+	for _, c := range []struct {
+		input json.RawMessage
+		ok    bool
+	}{
+		{in("file_path", "pay/pay.go"), true},
+		{in("file_path", filepath.Join(dir, "pay", "pay.go")), true},
+		{in("path", "pay"), true},
+		{in("pattern", "**/*.go"), true},
+		{in("file_path", "pay/new.go"), true}, // not there: by its name
+		{json.RawMessage(`{}`), true},
+		{in("file_path", filepath.Join(out, "secret")), false},
+		{in("file_path", "../secret"), false},
+		{in("file_path", "~/.ssh/id_rsa"), false},
+		{in("file_path", "away/secret"), false},
+		{in("path", out), false},
+		{in("pattern", filepath.Join(out, "**", "*")), false},
+	} {
+		if got := Within(dir, c.input); got != c.ok {
+			t.Errorf("%s: within %v", c.input, got)
+		}
+	}
+
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(`#!/bin/sh
+read init
+read msg
+echo '{"type":"control_request","request_id":"r","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"file_path":"`+filepath.Join(out, "secret")+`"}}}'
+read a
+echo "$a" > read.json
+echo '{"type":"result","subtype":"success","duration_ms":10}'
+read more
+`), 0o755)
+	s := Start(Options{ID: "ask-2", Worktree: dir, Command: bin, Prompt: "покажи секрет", Tools: []string{"Read", "Grep", "Glob"}})
+	defer s.Stop()
+	eventually(t, func() bool { st, _, _ := s.State(); return st == "done" }, func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
+	if b, _ := os.ReadFile(filepath.Join(dir, "read.json")); !strings.Contains(string(b), `"behavior":"deny"`) {
+		t.Fatalf("read outside answered %s", b)
 	}
 }

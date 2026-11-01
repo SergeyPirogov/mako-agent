@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -81,8 +82,9 @@ type Options struct {
 	OnSession    func(sessionID string)
 	// OnCost: what a turn cost (USD), so the task can add up its budget.
 	OnCost func(usd float64)
-	// Tools: when set, the only tools the agent may use; a request for any other is denied at once, nobody is
-	// asked (the read-only «Запитати про код»: Read, Grep, Glob).
+	// Tools: when set, the only tools the agent may use, and only within the worktree; a request for any other
+	// tool or for a path outside is denied at once, nobody is asked (the read-only «Запитати про код»: Read, Grep,
+	// Glob in the project's clone).
 	Tools []string
 }
 
@@ -111,7 +113,14 @@ type Session struct {
 	pending   map[string]json.RawMessage // permission request → the tool's input
 	o         Options
 	ended     chan struct{} // closed once the agent has exited and OnState has heard of it
+	ready     chan struct{} // closed once the agent's start is written (or it ended): messages may follow
+	readyOnce sync.Once
 }
+
+// startWait: how long a message sent while the agent starts waits for it, before it is refused.
+var startWait = 10 * time.Second
+
+func (s *Session) markReady() { s.readyOnce.Do(func() { close(s.ready) }) }
 
 const maxOutput = 6000
 
@@ -121,7 +130,7 @@ var IdleAfter = 20 * time.Minute
 // Start runs the setup and then the agent, in the background: the conversation shows both.
 func Start(o Options) *Session {
 	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode,
-		ended: make(chan struct{})}
+		ended: make(chan struct{}), ready: make(chan struct{})}
 	if s.mode == "" {
 		s.mode = "default"
 	}
@@ -161,7 +170,7 @@ func (s *Session) run() {
 	cmd.Stderr = &limitWriter{w: &stderr, n: 4000}
 	s.mu.Lock()
 	stopped := s.stopping
-	s.cmd, s.stdin, s.spent = cmd, stdin, 0
+	s.cmd, s.spent = cmd, 0
 	s.mu.Unlock()
 	if stopped {
 		s.end()
@@ -172,10 +181,22 @@ func (s *Session) run() {
 		s.end()
 		return
 	}
-	s.write(map[string]any{"type": "control_request", "request_id": randomID(), "request": map[string]any{"subtype": "initialize"}})
+	// The start goes first: a message sent meanwhile waits for stdin, so it never comes before the prompt.
+	s.writeMu.Lock()
+	writeLine(stdin, map[string]any{"type": "control_request", "request_id": randomID(), "request": map[string]any{"subtype": "initialize"}})
 	if s.o.Prompt != "" {
-		s.write(userMessage(s.o.Prompt))
-	} else {
+		writeLine(stdin, userMessage(s.o.Prompt))
+	}
+	s.mu.Lock()
+	s.stdin = stdin
+	stopped = s.stopping // Stop came meanwhile: it had no stdin to close
+	s.mu.Unlock()
+	s.writeMu.Unlock()
+	s.markReady()
+	if stopped {
+		stdin.Close()
+	}
+	if s.o.Prompt == "" {
 		s.setState("done")
 	}
 	sc := bufio.NewScanner(stdout)
@@ -208,6 +229,7 @@ func (s *Session) end() {
 	}
 	s.version++
 	s.mu.Unlock()
+	s.markReady()
 	s.changed()
 	close(s.ended)
 }
@@ -360,7 +382,7 @@ func (s *Session) handle(line []byte) {
 		}
 		if len(s.o.Tools) > 0 {
 			resp := map[string]any{"behavior": "allow", "updatedInput": r.Input}
-			if !slices.Contains(s.o.Tools, r.ToolName) {
+			if !slices.Contains(s.o.Tools, r.ToolName) || !Within(s.Worktree, r.Input) {
 				resp = map[string]any{"behavior": "deny", "message": ReadOnlyDenied}
 				s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "denied"})
 			}
@@ -491,7 +513,12 @@ func (s *Session) changed() {
 }
 
 func (s *Session) write(v any) error {
-	b, _ := json.Marshal(v)
+	if s.ready != nil {
+		select {
+		case <-s.ready:
+		case <-time.After(startWait): // still preparing (the setup): refused below, as before
+		}
+	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	s.mu.Lock()
@@ -500,6 +527,11 @@ func (s *Session) write(v any) error {
 	if w == nil {
 		return fmt.Errorf("агент ще не запустився")
 	}
+	return writeLine(w, v)
+}
+
+func writeLine(w io.Writer, v any) error {
+	b, _ := json.Marshal(v)
 	_, err := w.Write(append(b, '\n'))
 	return err
 }
@@ -607,8 +639,51 @@ func (s *Session) RevisePlan(requestID, notes string) error {
 
 const planRevision = "Розробник просить поправити план:"
 
-// ReadOnlyDenied: what an agent limited to Options.Tools hears when it asks for another tool.
-const ReadOnlyDenied = "Тут можна лише читати код (Read, Grep, Glob): нічого не змінюй і не запускай."
+// ReadOnlyDenied: what an agent limited to Options.Tools hears when it asks for another tool or another place.
+const ReadOnlyDenied = "Тут можна лише читати код цього проєкту (Read, Grep, Glob): нічого не змінюй, не запускай і не читай поза ним."
+
+// Within: every path a tool's input names (file_path, path, notebook_path, an absolute glob pattern) is inside
+// root, symlinks resolved; a path not there yet counts by its own name.
+func Within(root string, input json.RawMessage) bool {
+	var in map[string]any
+	json.Unmarshal(input, &in)
+	base, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	for _, k := range []string{"file_path", "path", "notebook_path", "pattern"} {
+		p, _ := in[k].(string)
+		if p = strings.TrimSpace(p); p == "" {
+			continue
+		}
+		if k == "pattern" {
+			if !filepath.IsAbs(p) {
+				continue // a glob within the search's path, or Grep's regular expression
+			}
+			if i := strings.IndexAny(p, "*?[{"); i >= 0 {
+				p = filepath.Dir(p[:i] + "x")
+			}
+		}
+		if strings.HasPrefix(p, "~") {
+			return false
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(base, p)
+		}
+		full, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			full = filepath.Clean(p)
+			if dir, err := filepath.EvalSymlinks(filepath.Dir(full)); err == nil {
+				full = filepath.Join(dir, filepath.Base(full))
+			}
+		}
+		rel, err := filepath.Rel(base, full)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return false
+		}
+	}
+	return true
+}
 
 // Asked: the request the agent waits on (a permission or AskUserQuestion), nil when there is none.
 func (s *Session) Asked() *Item {

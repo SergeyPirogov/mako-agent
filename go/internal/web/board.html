@@ -1410,7 +1410,13 @@ function showWhy() {
 // «Запитати про код»: a question about a project's code, without a task. A quick agent reads the project's clone
 // (Read, Grep, Glob only) and answers here; its file:line places open the file beside the chat. The project keeps
 // its questions, and one can become a new task's description.
-let code = null;
+let code = null, codeTimer = 0;
+// Leaving the view: its polling stops with it.
+function closeCode() {
+  clearInterval(codeTimer);
+  codeTimer = 0;
+  code = null;
+}
 $("code-btn").onclick = () => {
   selected = null; statsOpen = false; newOpen = "code"; digest = null;
   history.replaceState(null, "", location.pathname);
@@ -1423,7 +1429,7 @@ async function showCode() {
   $("detail").innerHTML = `<button class="ghost back" id="back">← Задачі</button><div class="code-ask" id="code-ask">
     <div class="ca-head"><h1>Запитати про код</h1>
       <select id="ca-project" aria-label="Проєкт"></select><button type="button" id="ca-new">Нове питання</button></div>
-    <p class="muted ca-sub">Агент (${esc("haiku")}) читає клон проєкту лише через Read, Grep і Glob: нічого не змінює й не запускає, без гілок і worktree.</p>
+    <p class="muted ca-sub">Агент<span id="ca-model"></span> читає клон проєкту лише через Read, Grep і Glob: нічого не змінює й не запускає, без гілок і worktree.</p>
     <div class="ca-body">
       <aside class="ca-history"><div class="ca-h">Історія питань</div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
@@ -1434,13 +1440,15 @@ async function showCode() {
             <button type="button" class="ghost" id="ca-task" hidden title="Питання й відповідь стануть описом нової задачі">Зробити задачею</button></div></div></div>
       <div class="ca-file" id="ca-file" hidden></div>
     </div></div>`;
-  const projects = (await getJSON("/api/code/projects")).projects ?? [];
+  closeCode();
+  const res = await getJSON("/api/code/projects"), projects = res.projects ?? [];
   if (!$("code-ask")) return;
+  if (res.model) $("ca-model").textContent = ` (${res.model})`;
   let saved = ""; try { saved = localStorage.getItem("mako-code-project") || ""; } catch {}
   const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
   code = { project: start?.key ?? "", projects, thread: "", version: -1, snap: null, flip: new Set(), code: true, list: document.querySelector("#code-ask .chat-list"), input: document.querySelector("#code-ask textarea") };
   $("ca-project").innerHTML = projects.map((p) => `<option value="${esc(p.key)}" ${p.key === code.project ? "selected" : ""}>${esc(p.name)}</option>`).join("");
-  $("back").onclick = () => { newOpen = false; code = null; render(); };
+  $("back").onclick = () => { newOpen = false; closeCode(); render(); };
   if (!projects.length) {
     $("ca-project").disabled = $("ca-new").disabled = true; code.input.disabled = true;
     code.list.innerHTML = `<div class="files-empty">На цьому Mac немає клонів проєктів. Клон з'являється, коли Mako бере задачу проєкту, або вкажіть шлях до нього в налаштуваннях.</div>`;
@@ -1477,7 +1485,7 @@ async function showCode() {
     if (t) { if (!code.flip.delete(t.dataset.toggle)) code.flip.add(t.dataset.toggle); renderCode(); }
   };
   $("ca-threads").onclick = (e) => { const b = e.target.closest("[data-thread]"); if (b) openThread(b.dataset.thread); };
-  code.timer = setInterval(pollCode, 1000);
+  codeTimer = setInterval(pollCode, 1000);
   openLatest();
 }
 
@@ -1500,14 +1508,14 @@ async function loadThreads() {
   if (v !== code || !$("ca-threads")) return;
   v.threads = r.threads ?? [];
   $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<button type="button" class="ca-thread ${t.id === v.thread ? "on" : ""}" data-thread="${esc(t.id)}" title="${esc(t.title)}">
-      <span>${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span></button>`).join("")
+      <span>${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}${t.cost ? ` · $${t.cost.toFixed(2)}` : ""}</span></button>`).join("")
     : `<div class="muted ca-none">Питань про цей проєкт ще не було.</div>`;
 }
 
 async function pollCode() {
   const v = code;
   if (!v) return;
-  if (!$("code-ask")) { clearInterval(v.timer); if (code === v) code = null; return; }
+  if (!$("code-ask")) { if (code === v) closeCode(); return; }
   if (!v.thread) return;
   const s = await getJSON(`/api/chat?id=${encodeURIComponent(v.thread)}&v=${v.version}`);
   if (v !== code || s.same || s.error) return;
@@ -1579,7 +1587,7 @@ function toTask() {
   const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
     .map((it) => it.kind === "user" ? `**Питання:** ${it.text}` : it.text).join("\n\n");
   taskDraft = { title, desc: `${desc}\n\n_З «Запитати про код» на дошці Mako._`, tracker: p?.tracker, project: p?.project };
-  code = null;
+  closeCode();
   newOpen = "task";
   render();
 }

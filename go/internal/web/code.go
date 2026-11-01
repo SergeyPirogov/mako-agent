@@ -12,7 +12,7 @@ import (
 // answers point to. The conversation itself is /api/chat?id=<the question's id>.
 func (s *Server) codeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/code/projects", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"projects": s.D.CodeProjects()})
+		writeJSON(w, map[string]any{"projects": s.D.CodeProjects(), "model": dispatch.CodeModel})
 	})
 	mux.HandleFunc("GET /api/code/threads", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"threads": s.D.CodeThreads(r.URL.Query().Get("project"))})

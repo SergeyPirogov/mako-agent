@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ func TestAskCodeReadOnly(t *testing.T) {
 	bin := t.TempDir()
 	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
 printf '%s\n' "$@" > "$MAKO_TEST_OUT/args.txt"
+echo start >> "$MAKO_TEST_OUT/starts.txt"
 read init
 read msg
 echo "$msg" > "$MAKO_TEST_OUT/question.json"
@@ -75,7 +77,8 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	b, _ := os.ReadFile(filepath.Join(out, "args.txt"))
 	args := strings.Split(strings.TrimSpace(string(b)), "\n")
 	tools := args[slices.Index(args, "--tools")+1]
-	if tools != "Read,Grep,Glob" || !slices.Contains(args, "--strict-mcp-config") || !slices.Contains(args, "haiku") {
+	// Not pre-allowed: a read outside the clone must come to Mako as a request, to be denied.
+	if tools != "Read,Grep,Glob" || !slices.Contains(args, "--strict-mcp-config") || !slices.Contains(args, "haiku") || slices.Contains(args, "--allowedTools") {
 		t.Fatalf("args %q", args)
 	}
 	for _, w := range []string{"Edit", "Write", "Bash"} {
@@ -105,7 +108,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 
 	// The project keeps its question, with the conversation to go on with.
 	th := d.CodeThreads(ps[0].Key)
-	if len(th) != 1 || th[0].ID != id || th[0].Title != "Де в нас обробка оплат?" || th[0].Session != "sess-q" {
+	if len(th) != 1 || th[0].ID != id || th[0].Title != "Де в нас обробка оплат?" || th[0].Session != "sess-q" || th[0].Cost != 0.001 {
 		t.Fatalf("threads %+v", th)
 	}
 	if again, err := d.AskCode(ps[0].Key, id, "А повернення?"); err != nil || again != id {
@@ -151,5 +154,26 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	}
 	if _, ok := d.QuestionChat("grp/app#5"); ok {
 		t.Fatal("a task is not a question")
+	}
+
+	// Two messages at once to a question whose agent is gone resume it once: the second does not stop the first.
+	os.Remove(filepath.Join(out, "starts.txt"))
+	os.Remove(filepath.Join(out, "question.json"))
+	var wg sync.WaitGroup
+	for _, q := range []string{"Перше", "Друге"} {
+		wg.Add(1)
+		go func() { defer wg.Done(); d.AskCode(ps[0].Key, id, q) }()
+	}
+	wg.Wait()
+	s = d.Chats.Get(id)
+	defer s.Stop()
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(out, "question.json")); return len(b) > 0 }, "not resumed")
+	time.Sleep(300 * time.Millisecond)
+	if b, _ := os.ReadFile(filepath.Join(out, "starts.txt")); string(b) != "start\n" {
+		t.Fatalf("started %q", b)
+	}
+	// The agent that runs got the message it was started with: nothing stopped it.
+	if b, _ := os.ReadFile(filepath.Join(out, "question.json")); !strings.Contains(string(b), "Перше") && !strings.Contains(string(b), "Друге") {
+		t.Fatalf("question %s", b)
 	}
 }

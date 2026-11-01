@@ -50,6 +50,8 @@ type CodeThread struct {
 	Title   string `json:"title"` // the first question
 	Session string `json:"session,omitempty"`
 	At      int64  `json:"at"` // the last question, unix ms
+	// Cost: what its answers cost so far (USD).
+	Cost float64 `json:"cost,omitempty"`
 }
 
 // maxThreads: the questions a project keeps.
@@ -157,6 +159,10 @@ func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 			return "", errors.New("немає такого питання")
 		}
 		d.touchThread(thread, "")
+		// One agent per question: two messages at once (Enter twice, two tabs) must not each resume it, the
+		// second would stop the first with its message.
+		d.askingMu.Lock()
+		defer d.askingMu.Unlock()
 		if s := d.Chats.Get(thread); s != nil && s.Running() {
 			return thread, s.Send(text)
 		}
@@ -200,12 +206,25 @@ func (d *Dispatcher) touchThread(id, session string) {
 	})
 }
 
-// CodeArgs: how claude runs for a question: the quick model, only the reading tools, no MCP servers.
+// addThreadCost: a turn of the question's agent cost usd.
+func (d *Dispatcher) addThreadCost(id string, usd float64) {
+	d.updateThreads(func(all []CodeThread) []CodeThread {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].Cost += usd
+			}
+		}
+		return all
+	})
+}
+
+// CodeArgs: how claude runs for a question: the quick model, only the reading tools, no MCP servers. The reading
+// tools are not pre-allowed: within the clone Claude Code reads without asking, and a read anywhere else comes to
+// Mako as a permission request, which the chat denies (chat.Options.Tools).
 func CodeArgs() []string {
 	return []string{"--model", CodeModel, "--tools", strings.Join(CodeTools, ","), "--strict-mcp-config",
 		"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash",
-		"--append-system-prompt", codePrompt,
-		"--allowedTools", strings.Join(CodeTools, ",")}
+		"--append-system-prompt", codePrompt}
 }
 
 // startQuestion runs the agent in the clone with the question; a question asked before goes on with its
@@ -225,6 +244,7 @@ func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string) err
 		ID: t.ID, Worktree: p.Path, Command: command, Args: args, Prompt: text, History: history, Tools: CodeTools,
 		OnLimits:  d.limitsReported,
 		OnSession: func(sid string) { d.touchThread(t.ID, sid) },
+		OnCost:    func(usd float64) { d.addThreadCost(t.ID, usd) },
 	}))
 	return nil
 }
