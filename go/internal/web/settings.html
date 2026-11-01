@@ -536,6 +536,7 @@ function renderOrca() {
     cfg.agentReview ??= {};
     const ar = cfg.agentReview;
     box.append(text(ar, "model", t("s.o.reviewer"), { placeholder: t("s.o.reviewerPh"), hint: t("s.o.reviewerHint") }));
+    box.append(select(ar, "comments", t("s.o.reviewComments"), [["", t("s.o.reviewCommentsOff")], ["issue", t("s.o.reviewCommentsIssue")], ["mr", t("s.o.reviewCommentsMR")], ["both", t("s.o.reviewCommentsBoth")]], { hint: t("s.o.reviewCommentsHint") }));
   }
   const more = document.createElement("details");
   more.innerHTML = `<summary>${t("s.more")}</summary>`;

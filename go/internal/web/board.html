@@ -538,7 +538,7 @@ function render() {
       const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Оцінка наперед: ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, опис ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}${checksBadge(r)}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Оцінка наперед: ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, опис ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${reviewBadge(r)}${checksBadge(r)}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }
@@ -1212,14 +1212,25 @@ function reviewerRow(r, need) {
     case "running": return row("bad", "Рев'ю агентом перервано", "", ready ? reviewBtn("Спробувати ще") : "");
     case "skipped": return row("idle", last.reason === "пропущено вами" ? "Рев'ю пропущено вами" : skippedText(last), "", ready ? reviewBtn("Все ж зробити") : "");
     case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Спробувати ще") : "");
-    case "notes":
-      if (step === "notes") return row("talk", "Рецензент залишив зауваження: вони в задачі", "", reviewFixBtn());
-      if (!last.sent) return row("talk", "Рецензент залишив зауваження: передасте агенту, коли він закінчить", "");
+    case "notes": {
+      const n = last.remarks?.length, what = n ? `${n} ${plural(n, "зауваження", "зауваження", "зауважень")}` : "зауваження";
+      if (step === "notes") return row("talk", `Рецензент залишив ${what}: вони в задачі` + (last.escalated ? ". Це останній раунд" : ""), "", reviewFixBtn());
+      if (!last.sent) return row("talk", `Рецензент залишив ${what}: передасте агенту, коли він закінчить`, "");
       if (step === "fixing") return row("run", "Агент виправляє зауваження рецензента", "");
-      return row("talk", "Агент відповів на зауваження" + (ready ? "" : ": нових запушених змін у гілці ще немає"), "", ready ? reviewBtn("Рев'ю ще раз") : "");
+      if (step === "human") return row("bad", "Раунди рев'ю агентом не зійшлись: рішення за вами", "");
+      const tally = replyTally(last);
+      return row(last.unverified ? "bad" : "talk", (last.replyAt ? "Агент відповів на зауваження" + tally : "Агент працював над зауваженнями")
+        + (last.unverified ? " · ⚠ пише «виправлено», але нових комітів немає" : "") + (ready ? "" : ": нових запушених змін у гілці ще немає"), "", ready ? reviewBtn("Рев'ю ще раз") : "");
+    }
   }
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
   return row(icon, text, "", ready ? reviewBtn("Рев'ю ще раз") : "");
+}
+// «: ✅ 2 · ❌ 1»: how the agent answered on the round's remarks, "" with no answers.
+function replyTally(a) {
+  const n = (k) => (a.remarks || []).filter((m) => m.reply === k).length;
+  const parts = [["✅", n("fixed")], ["◐", n("partial")], ["❌", n("not")]].filter(([, c]) => c).map(([i, c]) => `${i} ${c}`);
+  return parts.length ? ": " + parts.join(" · ") : ": без звіту по пунктах";
 }
 // The agent's summary, a section per heading: what was done, how it was checked (green), what to look at (amber).
 function summaryHTML(text) {
@@ -1236,12 +1247,54 @@ const mrName = (url) => { const m = url.match(/\/pull\/(\d+)/) || url.match(/mer
 // The last folders of a long path: the whole one is in the tooltip and is what gets copied.
 const shortPath = (p) => { const s = p.split("/").filter(Boolean); return s.length > 3 ? "…/" + s.slice(-3).join("/") : p; };
 const initials = (name) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
+// The reviewer in the list: ✓ for a clean last round, ⏳ for remarks that wait for «Виправити», 👤 when the rounds
+// ran out and the decision is yours.
+function reviewBadge(r) {
+  const last = r.agentReviews?.at(-1);
+  if (!last) return "";
+  if (last.state === "clean") return `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>`;
+  if (last.state !== "notes") return "";
+  if (last.escalated && last.sent) return `<span class="remarks human" title="Раунди рев'ю агентом не зійшлись: рішення за вами">👤 рев'ю</span>`;
+  if (last.sent) return "";
+  const n = last.remarks?.length;
+  return `<span class="remarks" title="Зауваження рецензента чекають на «Виправити»">⏳ ${n ? `${n} ${plural(n, "зауваження", "зауваження", "зауважень")}` : "зауваження"}</span>`;
+}
+const WEIGHT = { must: "треба", should: "варто" };
+const REPLY = { fixed: ["✅", "виправлено"], not: ["❌", "не виправлено"], partial: ["◐", "частково"] };
+const VERDICT = { closed: ["✅", "закрито"], accepted: ["✅", "приймаю пояснення"], open: ["❌", "не закрито"] };
+const mark = ([icon, text] = ["⏳", ""], note = "") => `<span class="rm-${icon === "✅" ? "ok" : icon === "❌" ? "bad" : "wait"}">${icon}</span> ${esc(text)}${note ? ` <span class="muted">— ${esc(note)}</span>` : ""}`;
+const extLink = (url, label) => /^https?:\/\//.test(url || "") ? `<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>` : "";
+// A round's numbered remarks: the remark, the agent's answer, the next round's verdict.
+function remarksTable(a, verdicts, answered) {
+  const rows = a.remarks.map((m) => {
+    const where = m.file ? `<code>${esc(m.file)}${m.line ? `:${m.line}` : ""}</code> ` : "";
+    const reply = REPLY[m.reply] ? mark(REPLY[m.reply], m.replyNote) + (a.unverified && m.reply !== "not" ? ` <span class="rm-warn" title="У гілці немає нових комітів після «Виправити»">⚠ без комітів</span>` : "")
+      : a.sent ? mark(["⏳", answered ? "без відповіді" : "чекає звіту"]) : `<span class="muted">не передано</span>`;
+    const v = verdicts[m.id];
+    return `<tr><td><b>${esc(m.id)}</b>${m.again ? ` <span class="muted" title="Не закрито в попередньому раунді">↻</span>` : ""}</td><td class="rm-${esc(m.weight)}">${WEIGHT[m.weight] ?? esc(m.weight)}</td>`
+      + `<td>${where}${esc(m.text).replace(/\n/g, "<br>")}</td><td>${reply}</td><td>${v ? mark(VERDICT[v.verdict], v.note) : mark()}</td></tr>`;
+  }).join("");
+  return `<div class="table remarks-table"><table><thead><tr><th>#</th><th>Вага</th><th>Зауваження</th><th>Відповідь агента</th><th>Наступний раунд</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
 function reviewerHTML(r) {
   if (!r.agentReviews?.length) return "";
+  // The verdict on each remark from the round after the one that wrote it.
+  const verdictsAfter = (i) => {
+    const v = {};
+    for (const b of r.agentReviews.slice(i + 1)) for (const c of b.checks || []) v[c.id] ??= c;
+    return v;
+  };
   return `<h3>Рев'ю агентом</h3>` + r.agentReviews.map((a, i) => {
     const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1] + (a.sent ? ", передано агенту" : "");
-    return `<div class="agent-review ${esc(a.state)}"><div class="muted">Раунд ${i + 1} · ${new Date(a.at).toLocaleString(LANG)} · <code>${esc(a.commit.slice(0, 8))}</code> · ${esc(text)}</div>
-      ${a.notes ? `<div class="summary">${md(a.notes)}</div>` : ""}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
+    const links = [extLink(a.commentUrl, "коментар у задачі"), extLink(a.mrCommentUrl, "коментар у MR"), extLink(a.replyUrl, "відповідь агента")].filter(Boolean).join(" · ");
+    const structured = a.remarks?.length || a.checks?.length;
+    const checks = a.checks?.length ? `<div class="muted">Попередні: ${a.checks.map((c) => `<b>${esc(c.id)}</b> ${mark(VERDICT[c.verdict], c.note)}`).join(" · ")}</div>` : "";
+    const body = structured ? checks + (a.remarks?.length ? remarksTable(a, verdictsAfter(i), !!a.replyAt) : "")
+      + (a.replyAt && !a.remarks?.some((m) => m.reply) && a.reply ? `<details><summary class="muted">Агент не дав звіту по пунктах — що він написав</summary><div class="summary">${md(a.reply)}</div></details>` : "")
+      : a.notes ? `<div class="summary">${md(a.notes)}</div>` : "";
+    const human = a.escalated ? `<div class="mr-err">👤 Раунди рев'ю агентом скінчились, а «треба» лишились відкриті: рішення за вами.</div>` : "";
+    return `<div class="agent-review ${esc(a.state)}"><div class="muted">Раунд ${i + 1} · ${new Date(a.at).toLocaleString(LANG)} · <code>${esc(a.commit.slice(0, 8))}</code> · ${esc(text)}${links ? ` · ${links}` : ""}</div>
+      ${body}${human}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
   }).join("");
 }
 
@@ -1972,6 +2025,7 @@ function statsHTML(s) {
       ${s.merged ? tile("Правки коментарів", (s.reviewFixes || 0).toFixed(1), "раундів на змерджену") : ""}
     </div>
     ${phasesHTML(s)}
+    ${reviewStatsHTML(s.review)}
     ${contextHTML(s.context)}
     ${s.assessed ? `<h3>Оцінка агента <span class="muted">· ${s.assessed} ${plural(s.assessed, "задача", "задачі", "задач")}</span></h3>
     <div class="stat-row">
@@ -2121,6 +2175,21 @@ const pctText = (x) => `${Math.round(x * 100)}%`;
 
 // How the agents' context filled over the period: the start, the peak, the compactions and the cache, by phase;
 // what filled it, by tool; the heaviest files and commands.
+// How the reviewer agent's rounds went: remarks per round, the agent's answers, the next rounds' verdicts.
+function reviewStatsHTML(v) {
+  if (!v?.rounds) return "";
+  const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+  const answered = v.fixed + v.notFixed + v.partly, checked = v.closed + v.open + v.accepted;
+  const share = (x, of) => of ? pctText(x / of) : "—";
+  return `<h3>Рев'ю агентом</h3><div class="stat-row small">
+      ${tile("Раундів", v.rounds, `${v.tasks} ${plural(v.tasks, "задача", "задачі", "задач")} · чистих ${v.clean}`)}
+      ${tile("Зауважень за раунд", v.remarks ? v.perRound.toFixed(1) : "—", v.remarks ? `усього ${v.remarks} · «треба» ${v.must}` : "пронумерованих ще немає")}
+      ${tile("Агент виправив", share(v.fixed, answered), `частково ${v.partly} · відхилив ${v.notFixed}${v.noReply ? ` · без відповіді ${v.noReply}` : ""}`)}
+      ${tile("Наступний раунд", share(v.closed, checked), `закрито ${v.closed} · прийнято пояснень ${v.accepted} · не закрито ${v.open}`)}
+      ${tile("Раундів до чистого", v.converged ? v.toClean.toFixed(1) : "—", `зійшлось ${v.converged} з ${v.tasks}${v.escalated ? ` · людині ${v.escalated}` : ""}`)}
+      ${tile("Чекають «Виправити»", v.waiting, v.unverified ? `«виправлено» без комітів: ${v.unverified}` : "")}
+    </div>`;
+}
 function contextHTML(c) {
   const phases = ctxPhases(c?.phases);
   if (!phases.length) return "";
