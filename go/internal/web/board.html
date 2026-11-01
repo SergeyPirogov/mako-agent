@@ -1255,9 +1255,64 @@ function estimateHTML(r, card) {
     e.split ? `<span class="tchip">розбити на кілька задач</span>` : "",
   ].filter(Boolean);
   const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.join("")}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
-  const questions = e.questions?.trim() ? `<div class="sec warn"><h4><span class="ic">?</span>Що уточнити в трекері</h4>${md(e.questions)}</div>` : "";
+  const questions = e.questions?.trim() ? questionsHTML(r, e) : "";
   const note = e.state === "running" ? `<span class="muted">оцінюю наново…</span>` : btn("Оцінити ще раз");
   return card("Оцінка наперед", `<div class="tcard-b scores">${scoreRow("Опис задачі", "up", e.clarity)}${size}${scoreRow("Ризик", "down", e.risk)}</div>${questions}${rec}`, "assess", note);
+}
+
+// The estimate's questions, each with a field for its answer; «Надіслати в трекер» posts the filled ones as one
+// comment and the task is estimated again. The fields are empty in the HTML: the drafts (kept per task, so they
+// outlive switching tasks) are put in after the render, and the 5 s reload does not take the field you type in.
+const splitQuestions = (text) => {
+  const qs = [];
+  for (const line of (text || "").split("\n")) {
+    const t = line.trim(), m = /^\s*(?:[-*•]|\d+[.)])\s+/.exec(line);
+    if (!t) continue;
+    if (m) qs.push(line.slice(m[0].length).trim());
+    else if (qs.length) qs[qs.length - 1] += " " + t;
+    else qs.push(t);
+  }
+  return qs.filter(Boolean);
+};
+let answerDrafts = (() => { try { return JSON.parse(localStorage.getItem("mako-answers")) || {}; } catch { return {}; } })();
+const saveAnswers = () => { try { localStorage.setItem("mako-answers", JSON.stringify(answerDrafts)); } catch {} };
+const answersErr = {}, answersBusy = {};
+function questionsHTML(r, e) {
+  const items = splitQuestions(e.questions).map((q, i) => `<li class="qa-item"><div class="qa-q">${md(q)}</div><textarea class="qa" data-qa="${i}" rows="2" placeholder="Відповідь (можна лишити порожньою)" aria-label="Відповідь на питання ${i + 1}"></textarea></li>`).join("");
+  const err = answersErr[r.id] ? `<div class="mr-err">${esc(answersErr[r.id])}</div>` : "";
+  return `<div class="sec warn"><h4><span class="ic">?</span>Що уточнити в трекері</h4><ol class="qa-list">${items}</ol>${err}
+    <div class="qa-bar"><button type="button" class="ghost" data-answers ${answersBusy[r.id] ? "disabled" : ""} title="Mako напише в задачу один коментар з відповідями й оцінить її ще раз">${answersBusy[r.id] ? "Надсилаю…" : "Надіслати в трекер"}</button></div></div>`;
+}
+function bindAnswers(r, focused) {
+  const fields = [...$("detail").querySelectorAll("textarea[data-qa]")];
+  if (!fields.length) return;
+  const draft = answerDrafts[r.id] || [];
+  for (const f of fields) {
+    f.value = draft[+f.dataset.qa] || "";
+    f.oninput = () => {
+      const d = answerDrafts[r.id] || [];
+      d[+f.dataset.qa] = f.value;
+      answerDrafts[r.id] = d;
+      saveAnswers();
+    };
+  }
+  if (focused) {
+    const f = fields.find((x) => x.dataset.qa === focused.qa);
+    if (f) { f.focus(); f.setSelectionRange(focused.at[0], focused.at[1]); }
+  }
+  const btn = $("detail").querySelector("[data-answers]");
+  if (btn) btn.onclick = async () => {
+    const answers = fields.map((f) => f.value);
+    if (!answers.some((a) => a.trim())) { answersErr[r.id] = "Напишіть відповідь хоча б на одне питання"; shown = ""; renderDetail(); return; }
+    answersBusy[r.id] = true; delete answersErr[r.id]; shown = ""; renderDetail();
+    const res = await fetch(`/api/answers?id=${encodeURIComponent(r.id)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers }) })
+      .then((x) => x.json()).catch((x) => ({ ok: false, error: x.message }));
+    delete answersBusy[r.id];
+    if (res.ok === false || res.error) answersErr[r.id] = `Не надіслано: ${res.error || "помилка"}`;
+    else { delete answerDrafts[r.id]; saveAnswers(); toast("Відповіді надіслано в трекер, оцінюю ще раз…"); }
+    shown = "";
+    await load();
+  };
 }
 
 // The look back at a merged task: what went well, what did not, what to do differently next time.
@@ -2088,7 +2143,9 @@ function renderDetail() {
   const box = $("detail").querySelector(".diff-view > .diff"), scrolled = box && { path: box.dataset.path, top: box.scrollTop, left: box.scrollLeft };
   const writing = document.activeElement?.id === "note-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   if (lessonEdit) lessonEdit.at = document.activeElement?.id === "lesson-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
+  const answering = document.activeElement?.dataset?.qa != null && { qa: document.activeElement.dataset.qa, at: [document.activeElement.selectionStart, document.activeElement.selectionEnd] };
   $("detail").innerHTML = shown = html;
+  bindAnswers(r, answering);
   const box2 = $("detail").querySelector(".diff-view > .diff");
   if (box2) box2.dataset.path = fileTab;
   if (box2 && scrolled?.path === fileTab) { box2.scrollTop = scrolled.top; box2.scrollLeft = scrolled.left; }

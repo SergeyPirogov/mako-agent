@@ -30,6 +30,8 @@ type fakeGitLab struct {
 	issues    map[int]map[string]any
 	mrs       []map[string]any
 	notes     []string
+	notesOf   map[int][]string // the notes of each issue, read back with the issue
+	failNotes bool             // the tracker refuses new notes
 	statusSet []string
 	assigned  []any
 	base      string
@@ -93,10 +95,26 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch {
+		case strings.HasSuffix(rest, "/notes") && r.Method == "GET":
+			list := []any{}
+			for _, b := range f.notesOf[iid] {
+				list = append(list, map[string]any{"body": b, "author": map[string]string{"name": "Serg"}})
+			}
+			reply(list)
 		case strings.HasSuffix(rest, "/notes"):
+			if f.failNotes {
+				w.WriteHeader(403)
+				reply(map[string]string{"message": "403 Forbidden"})
+				return
+			}
 			var n map[string]string
 			json.Unmarshal(body, &n)
 			f.notes = append(f.notes, n["body"])
+			if f.notesOf == nil {
+				f.notesOf = map[int][]string{}
+			}
+			f.notesOf[iid] = append(f.notesOf[iid], n["body"])
+			is["user_notes_count"] = len(f.notesOf[iid])
 			reply(map[string]any{})
 		case r.Method == "PUT":
 			var ch map[string]any

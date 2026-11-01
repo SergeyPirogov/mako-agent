@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -14,12 +15,17 @@ import (
 
 // The estimate: a new task, as it appears in «Нові», gets a quick look from the agent (haiku, the task's text
 // and the repository's layout, not its code): how clear it is and what to ask in the tracker, how big, how
-// risky, and how to take it. Once per task; again only when its title or description changes, or on
+// risky, and how to take it. Once per task; again only when its title, description or comments change, or on
 // «Оцінити ще раз». A failure leaves the task without an estimate, quietly.
 
-// EstimateKey: what the estimate of a task was made for; a changed title or description makes another.
+// EstimateKey: what the estimate of a task was made for; a changed title, description or comments (answers to
+// its questions among them) make another. A task without comments keeps the key it had before comments counted.
 func EstimateKey(t core.Task) string {
-	h := sha1.Sum([]byte(t.Title + "\n" + t.Description))
+	text := t.Title + "\n" + t.Description
+	for _, c := range t.Comments {
+		text += "\n\x00" + strings.TrimSpace(c.Body)
+	}
+	h := sha1.Sum([]byte(text))
 	return hex.EncodeToString(h[:6])
 }
 

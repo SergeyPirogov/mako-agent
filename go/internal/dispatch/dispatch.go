@@ -639,6 +639,9 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	})
 
 	d.step(id, "tracker", "оновлюю задачу в трекері")
+	if task, ok := d.refresh(ctx, t, id); ok {
+		r.Task = task
+	}
 	if t.Config().AssignOnTake {
 		if me, _ := t.Me(ctx); me == "" || !contains(r.Task.Assignees, me) {
 			if err := t.AssignToMe(ctx, r.Task); err != nil {

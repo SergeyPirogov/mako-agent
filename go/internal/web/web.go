@@ -537,6 +537,16 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "answers":
+			// «Надіслати в трекер»: the answers to the estimate's questions, one per question ("" for those left).
+			var in struct {
+				Answers []string `json:"answers"`
+			}
+			json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in)
+			if err := s.D.AnswerQuestions(ctx, id, in.Answers); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "agentreview":
 			if err := s.D.ReviewNow(id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -488,5 +489,30 @@ func TestUpdateCancelAndNowAreFromTheMacOnly(t *testing.T) {
 		if err != nil || res.StatusCode != 200 {
 			t.Fatalf("%s: %v %v", path, res, err)
 		}
+	}
+}
+
+// «Надіслати в трекер»: when the comment cannot be written, the reply says why, for the card to show.
+func TestAnswersErrorReachesCard(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	task := core.Task{ID: "grp/app#3", Title: "c", TrackerID: "gone"}
+	store.Update(task.ID, func(r *core.Record) {
+		r.Status, r.Task = core.Snoozed, task
+		r.Estimate = &core.Estimate{State: "done", Size: "small", Questions: "- Яка кнопка?", For: dispatch.EstimateKey(task)}
+	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Executor: "terminal"}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	res, err := http.Post(srv.URL+"/api/answers?id="+url.QueryEscape(task.ID), "application/json", strings.NewReader(`{"answers":["«Оплатити»"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reply struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	json.NewDecoder(res.Body).Decode(&reply)
+	if reply.OK || !strings.Contains(reply.Error, "трекер gone") {
+		t.Fatalf("reply %+v", reply)
 	}
 }
