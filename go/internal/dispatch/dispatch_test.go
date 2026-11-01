@@ -17,6 +17,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
@@ -183,6 +184,7 @@ func git(t *testing.T, dir string, args ...string) {
 func TestMain(m *testing.M) {
 	// Once, before any test: the goroutines a test leaves behind read it.
 	notify.Enabled = false
+	i18n.SetLang(i18n.UK) // the tests' tasks and what they expect Mako to say are Ukrainian
 	os.Exit(m.Run())
 }
 
@@ -209,7 +211,7 @@ func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 	host = host[:strings.Index(host, ":")]
 	git(t, repo, "remote", "add", "origin", "git@"+host+":grp/app.git")
 
-	raw := fmt.Sprintf(`{"wipLimit": 2, "executors": {"orca": {"type": "orca"}},
+	raw := fmt.Sprintf(`{"language": "uk", "wipLimit": 2, "executors": {"orca": {"type": "orca"}},
 	  "trackers": [{"type": "gitlab", "baseUrl": %q, "projects": {"grp/app": {"repoPath": %q, "baseBranch": "main"}}}]}`, srv.URL, repo)
 	cfg, err := config.Parse([]byte(raw), map[string]string{"GITLAB_TOKEN": "x"})
 	if err != nil {

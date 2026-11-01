@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 // Digest is what happened while you were away: what waits for you, the MRs to merge, what failed and what
@@ -38,10 +40,10 @@ func (d Digest) Line() string {
 			parts = append(parts, what+": "+strconv.Itoa(n))
 		}
 	}
-	add(len(d.Waiting), "чекає на вас")
-	add(len(d.Review), "MR до мерджу")
-	add(len(d.Failed), "не вдалося")
-	add(len(d.Merged), "змерджено")
+	add(len(d.Waiting), i18n.T("digest.waiting"))
+	add(len(d.Review), i18n.T("digest.review"))
+	add(len(d.Failed), i18n.T("digest.failed"))
+	add(len(d.Merged), i18n.T("digest.merged"))
 	return strings.Join(parts, " · ")
 }
 

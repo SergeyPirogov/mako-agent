@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"fyne.io/systray"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 var (
@@ -55,7 +57,7 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 	headline.Disable()
 	line := systray.AddMenuItem("", "")
 	line.Disable()
-	newTasks := systray.AddMenuItem("", "Відкрити дошку")
+	newTasks := systray.AddMenuItem("", "")
 	var mu sync.Mutex
 	ids := make([]string, maxItems)
 	slots := make([]*systray.MenuItem, maxItems)
@@ -73,27 +75,48 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 		}(i)
 	}
 	systray.AddSeparator()
-	board := systray.AddMenuItem("Відкрити дошку", "")
-	browser := systray.AddMenuItem("Відкрити в браузері", "")
+	board := systray.AddMenuItem("", "")
+	browser := systray.AddMenuItem("", "")
 	if !HasWindow() {
 		browser.Hide()
 	}
-	settings := systray.AddMenuItem("Налаштування…", "")
-	poll := systray.AddMenuItem("Перевірити трекери зараз", "")
+	settings := systray.AddMenuItem("", "")
+	poll := systray.AddMenuItem("", "")
 	systray.AddSeparator()
-	pause := systray.AddMenuItemCheckbox("Пауза: не шукати нових задач", "", false)
-	login := systray.AddMenuItemCheckbox("Запускати при вході в систему", "", StartsAtLogin())
-	folder := systray.AddMenuItem("Показати папку даних", "")
-	restart := systray.AddMenuItemCheckbox("Перезапустити, коли агенти закінчать хід", "", false)
+	pause := systray.AddMenuItemCheckbox("", "", false)
+	login := systray.AddMenuItemCheckbox("", "", StartsAtLogin())
+	folder := systray.AddMenuItem("", "")
+	restart := systray.AddMenuItemCheckbox("", "", false)
 	systray.AddSeparator()
-	exit := systray.AddMenuItem("Вийти з Mako", "")
+	exit := systray.AddMenuItem("", "")
+
+	// The menu's own words, again whenever the settings change the language.
+	lang := ""
+	words := func() {
+		if lang == i18n.Lang() {
+			return
+		}
+		lang = i18n.Lang()
+		newTasks.SetTooltip(i18n.T("tray.openBoard"))
+		board.SetTitle(i18n.T("tray.openBoard"))
+		browser.SetTitle(i18n.T("tray.openBrowser"))
+		settings.SetTitle(i18n.T("tray.settings"))
+		poll.SetTitle(i18n.T("tray.poll"))
+		pause.SetTitle(i18n.T("tray.pause"))
+		login.SetTitle(i18n.T("tray.login"))
+		folder.SetTitle(i18n.T("tray.folder"))
+		restart.SetTitle(i18n.T("tray.restart"))
+		exit.SetTitle(i18n.T("tray.quit"))
+		Relocalize()
+	}
 
 	refresh := func() {
+		words()
 		v := Snapshot(app.D, time.Now())
 		headline.SetTitle(v.Headline)
 		line.SetTitle(v.Line)
 		if v.NewCount > 0 {
-			newTasks.SetTitle("Нові задачі: " + itoa(v.NewCount))
+			newTasks.SetTitle(i18n.T("tray.newTasks", v.NewCount))
 			newTasks.Show()
 		} else {
 			newTasks.Hide()

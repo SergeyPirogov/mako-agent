@@ -10,6 +10,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/secrets"
 )
@@ -97,7 +98,7 @@ func (d *Dispatcher) CheckSecrets(ctx context.Context, id string) ([]secrets.Fin
 	if !sameFindings(before, found) {
 		d.Log(id, fmt.Sprintf("пуш зупинено: у змінах %d %s, схожі на секрети", len(found), plural(len(found), "знахідка", "знахідки", "знахідок")))
 		notify.Show(notify.Notice{Kind: notify.Secrets, Tag: secretsTag(id), URL: d.BoardURL + "/#" + id,
-			Title: "🔐 " + id + ": пуш зупинено, у змінах секрети", Message: findingsText(found, 3)})
+			Title: i18n.T("notify.secrets", id), Message: findingsText(found, 3)})
 	}
 	return found, nil
 }
@@ -145,7 +146,7 @@ func findingsText(found []secrets.Finding, n int) string {
 	var b []string
 	for i, f := range found {
 		if i == n {
-			b = append(b, fmt.Sprintf("- і ще %d", len(found)-n))
+			b = append(b, i18n.T("notify.andMore", len(found)-n))
 			break
 		}
 		at := f.File
@@ -153,7 +154,7 @@ func findingsText(found []secrets.Finding, n int) string {
 			at += fmt.Sprintf(":%d", f.Line)
 		}
 		if f.Commit != "" {
-			at += " (коміт " + f.Commit + ")"
+			at += " (" + i18n.T("notify.commit") + " " + f.Commit + ")"
 		}
 		line := "- " + at + " — " + f.Kind
 		if f.Masked != "" {

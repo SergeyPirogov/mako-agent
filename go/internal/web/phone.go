@@ -15,6 +15,7 @@ import (
 	webpush "github.com/SherClockHolmes/webpush-go"
 	qrcode "github.com/skip2/go-qrcode"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 )
 
@@ -178,7 +179,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		w.Header().Set("Cache-Control", "no-store")
 		json.NewEncoder(w).Encode(map[string]any{
 			"name": "Mako", "short_name": "Mako", "start_url": start, "scope": "/", "display": "standalone",
-			"background_color": "#111214", "theme_color": "#111214", "lang": "uk",
+			"background_color": "#111214", "theme_color": "#111214", "lang": i18n.Lang(),
 			"icons": []map[string]string{
 				{"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
 				{"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
@@ -288,7 +289,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		case "remove":
 			s.Phones.Remove(r.URL.Query().Get("id"))
 		case "test":
-			errs := s.Phones.Push(r.Context(), phone.Message{Title: "🦈 Mako", Body: "Сповіщення на телефон працюють", URL: "/"})
+			errs := s.Phones.Push(r.Context(), phone.Message{Title: "🦈 Mako", Body: i18n.T("notify.phoneWorks"), URL: "/"})
 			if len(errs) > 0 {
 				err = errs[0]
 			}

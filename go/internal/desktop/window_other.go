@@ -16,3 +16,5 @@ func NotificationsOn(boardURL string) {}
 func Notify(n notify.Notice) bool { return false }
 
 func Withdraw(tag string) {}
+
+func Relocalize() {}

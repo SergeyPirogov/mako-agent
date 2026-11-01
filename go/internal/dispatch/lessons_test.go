@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 func TestAddRule(t *testing.T) {
-	h := LessonsHeading
+	h := LessonsHeading[i18n.Lang()]
 	cases := []struct{ md, want string }{
 		{"", h + "\n\n- B\n"},
 		{"# Repo\n\nText.\n", "# Repo\n\nText.\n\n" + h + "\n\n- B\n"},
@@ -93,10 +94,10 @@ func TestLessons(t *testing.T) {
 	if err := d.SaveLesson(ctx, id, "branch", "  Стилі — лише в style.css,\n не в board.html "); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(wt, "CLAUDE.md")); string(b) != "# App\n\nGo.\n\n"+LessonsHeading+"\n\n- Стилі — лише в style.css, не в board.html\n" {
+	if b, _ := os.ReadFile(filepath.Join(wt, "CLAUDE.md")); string(b) != "# App\n\nGo.\n\n"+LessonsHeading[i18n.Lang()]+"\n\n- Стилі — лише в style.css, не в board.html\n" {
 		t.Fatalf("CLAUDE.md %q", b)
 	}
-	if s := gitOut(t, wt, "log", "-1", "--format=%s"); s != "grp/app#5: Add a review lesson to CLAUDE.md" {
+	if s := gitOut(t, wt, "log", "-1", "--format=%s"); s != "grp/app#5: Додати урок з рев'ю в CLAUDE.md" {
 		t.Fatalf("commit %q", s)
 	}
 	if files := gitOut(t, wt, "show", "--name-only", "--format=", "HEAD"); files != "CLAUDE.md" {
@@ -114,7 +115,7 @@ func TestLessons(t *testing.T) {
 	if err := d.SaveLesson(ctx, id, "base", "Тести — в _test.go поруч"); err != nil {
 		t.Fatal(err)
 	}
-	if md := gitOut(t, origin, "show", "main:CLAUDE.md"); !strings.HasSuffix(md, LessonsHeading+"\n\n- Тести — в _test.go поруч") {
+	if md := gitOut(t, origin, "show", "main:CLAUDE.md"); !strings.HasSuffix(md, LessonsHeading[i18n.Lang()]+"\n\n- Тести — в _test.go поруч") {
 		t.Fatalf("origin's CLAUDE.md %q", md)
 	}
 	if b, _ := os.ReadFile(filepath.Join(repo, "CLAUDE.md")); string(b) != "# App\n\nGo.\n" {

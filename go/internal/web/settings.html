@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="uk">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Mako · Налаштування</title>
+<title>Mako</title>
 <link rel="stylesheet" href="/style.css">
 <style>
 body { display: block; }
@@ -96,10 +96,10 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
 <body>
 <header>
   <a class="logo" href="/" style="color:inherit">🦈 Mako</a>
-  <a class="ghost-link" href="/">← Дошка</a>
-  <b>Налаштування</b>
+  <a class="ghost-link" href="/" data-t="s.toBoard">← Дошка</a>
+  <b data-t="s.title">Налаштування</b>
   <span class="spacer"></span>
-  <button class="ghost" id="theme" title="Тема"></button>
+  <button class="ghost" id="theme"></button>
 </header>
 <div id="problems"></div>
 <div class="layout">
@@ -109,49 +109,55 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <div id="trackers"></div>
     </div>
     <div class="pane" data-pane="add">
-      <h2>Додати трекер</h2>
-      <p class="lead">Звідки брати задачі. Трекерів може бути кілька: наприклад, Jira для задач і GitLab для коду.</p>
+      <div class="card" id="first-language"></div>
+      <h2 data-t="s.add.title">Додати трекер</h2>
+      <p class="lead" data-t="s.add.lead"></p>
       <div class="add-big">
-        <button data-add="gitlab"><b>GitLab</b><span>gitlab.com або свій сервер</span></button>
-        <button data-add="github"><b>GitHub</b><span>github.com або Enterprise</span></button>
-        <button data-add="jira"><b>Jira Cloud</b><span>задачі за JQL, код — у GitLab чи GitHub</span></button>
+        <button data-add="gitlab"><b>GitLab</b><span data-t="s.add.gitlab"></span></button>
+        <button data-add="github"><b>GitHub</b><span data-t="s.add.github"></span></button>
+        <button data-add="jira"><b>Jira Cloud</b><span data-t="s.add.jira"></span></button>
       </div>
     </div>
+    <div class="pane" data-pane="language">
+      <h2 data-t="s.lang.title"></h2>
+      <p class="lead" data-t="s.lang.lead"></p>
+      <div class="card" id="language"></div>
+    </div>
     <div class="pane" data-pane="orca">
-      <h2>Агент</h2>
-      <p class="lead">Хто виконує задачі: агент в Orca чи в терміналі Mako, і чим він має закінчити.</p>
+      <h2 data-t="s.orca.title"></h2>
+      <p class="lead" data-t="s.orca.lead"></p>
       <div class="card" id="orca"></div>
     </div>
     <div class="pane" data-pane="comments">
-      <h2>Коментарі в задачі</h2>
-      <p class="lead">Що Mako пише в задачу від вашого імені.</p>
+      <h2 data-t="s.comments.title"></h2>
+      <p class="lead" data-t="s.comments.lead"></p>
       <div class="card" id="comments"></div>
     </div>
     <div class="pane" data-pane="limits">
-      <h2>Задачі й ліміти</h2>
-      <p class="lead">Скільки задач одночасно, як часто шукати, як називати гілки.</p>
+      <h2 data-t="s.limits.title"></h2>
+      <p class="lead" data-t="s.limits.lead"></p>
       <div class="card" id="limits"></div>
     </div>
     <div class="pane" data-pane="disk">
-      <h2>Місце на диску</h2>
-      <p class="lead">Worktree агентів по проєктах. Після мерджу чи архівування задачі Mako сам прибирає її worktree і локальні гілки (і минулих спроб теж); worktree з незакоміченими змінами лишається, поки ви не скажете на картці задачі.</p>
+      <h2 data-t="s.disk.title"></h2>
+      <p class="lead" data-t="s.disk.lead"></p>
       <div id="disk"></div>
     </div>
     <div class="pane" data-pane="phone">
-      <h2>Телефон</h2>
-      <p class="lead">Mako на iPhone чи Android: дошка як додаток на екрані «Додому», «Взяти в роботу» і «Відкласти» з телефона, сповіщення про нові задачі й про агента, який чекає на вас.</p>
+      <h2 data-t="s.phone.title"></h2>
+      <p class="lead" data-t="s.phone.lead"></p>
       <div id="phone"></div>
     </div>
     <div class="pane" data-pane="notifications">
-      <h2>Сповіщення</h2>
+      <h2 data-t="s.notif.title"></h2>
       <div class="card" id="notifications"></div>
     </div>
     <p class="where" id="where"></p>
   </div>
 </div>
 <div class="savebar"><div class="in">
-  <button class="primary" id="save">Зберегти</button>
-  <button class="ghost" id="revert">Скасувати зміни</button>
+  <button class="primary" id="save" data-t="s.save"></button>
+  <button class="ghost" id="revert" data-t="s.revert"></button>
   <span class="msg" id="msg"></span>
 </div></div>
 <script src="/theme.js"></script>
@@ -161,12 +167,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 let navTimer;
 const renderNavSoon = () => { clearTimeout(navTimer); navTimer = setTimeout(renderNav, 300); };
 let cfg = {}, env = {}, envSet = {}, jiraBase = "", autoWip = 1, dirty = false;
-const TOKENS = { gitlab: [["GITLAB_TOKEN", "Токен", "Personal access token зі scope api: GitLab → Preferences → Access tokens"]],
-  github: [["GITHUB_TOKEN", "Токен", "Fine-grained token з доступом до Issues і Pull requests. Порожньо — береться з gh auth login"]],
-  jira: [["JIRA_EMAIL", "Email в Atlassian", ""], ["JIRA_API_TOKEN", "API-токен", "id.atlassian.com → Security → API tokens"]] };
+const TOKENS = () => ({ gitlab: [["GITLAB_TOKEN", t("s.token"), t("s.token.gitlab")]],
+  github: [["GITHUB_TOKEN", t("s.token"), t("s.token.github")]],
+  jira: [["JIRA_EMAIL", t("s.token.jiraEmail"), ""], ["JIRA_API_TOKEN", t("s.token.jiraApi"), "id.atlassian.com → Security → API tokens"]] });
 const NAMES = { gitlab: "GitLab", github: "GitHub", jira: "Jira Cloud" };
 
-function changed() { if (pane) renderNavSoon(); dirty = true; $("msg").className = "msg"; $("msg").textContent = "Є незбережені зміни"; }
+function changed() { if (pane) renderNavSoon(); dirty = true; $("msg").className = "msg"; $("msg").textContent = t("s.unsaved"); }
 
 // Small form helpers bound to a path in an object: they write back on input.
 function text(obj, key, label, { hint = "", placeholder = "", type = "text", parse } = {}) {
@@ -211,7 +217,7 @@ function secret(key, label, hint) {
   const el = document.createElement("div");
   el.className = "field";
   const plain = key === "JIRA_EMAIL";
-  el.innerHTML = `<label>${label}</label><input type="${plain ? "text" : "password"}" autocomplete="off" placeholder="${envSet[key] ? "задано — введіть, щоб замінити" : "не задано"}" value="${esc(env[key] ?? "")}">${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  el.innerHTML = `<label>${label}</label><input type="${plain ? "text" : "password"}" autocomplete="off" placeholder="${envSet[key] ? t("s.secret.set") : t("s.secret.unset")}" value="${esc(env[key] ?? "")}">${hint ? `<div class="hint">${hint}</div>` : ""}`;
   el.querySelector("input").oninput = (e) => {
     if (e.target.value.trim()) env[key] = e.target.value.trim();
     else delete env[key];
@@ -219,11 +225,33 @@ function secret(key, label, hint) {
   };
   return el;
 }
+// A text the developer writes in both languages ({"en": …, "uk": …}): a field for each. An older config's plain
+// string is the version in its own language, as Mako reads it.
+const LANGS = [["en", "English"], ["uk", "Українська"]];
+const cyrillic = (s) => /[Ѐ-ӿ]/.test(s);
+function localized(obj, key, label, { hint = "", placeholders = {}, area = false } = {}) {
+  if (typeof obj[key] === "string") obj[key] = cyrillic(obj[key]) ? { uk: obj[key] } : { en: obj[key] };
+  const el = document.createElement("div");
+  el.className = "field";
+  el.innerHTML = `<label>${label}</label><div>${LANGS.map(([l, name]) => `<div style="margin-bottom:6px"><div class="hint" style="margin:0 0 2px">${name}</div>${area
+    ? `<textarea data-l="${l}" placeholder="${esc(placeholders[l] ?? "")}"></textarea>`
+    : `<input type="text" data-l="${l}" placeholder="${esc(placeholders[l] ?? "")}">`}</div>`).join("")}</div>${hint ? `<div class="hint">${hint}</div>` : ""}`;
+  for (const inp of el.querySelectorAll("[data-l]")) {
+    inp.value = obj[key]?.[inp.dataset.l] ?? "";
+    inp.oninput = () => {
+      const v = { ...(obj[key] ?? {}) };
+      if (inp.value.trim()) v[inp.dataset.l] = inp.value; else delete v[inp.dataset.l];
+      if (Object.keys(v).length) obj[key] = v; else delete obj[key];
+      changed();
+    };
+  }
+  return el;
+}
 
 // transitions: absent → Mako guesses (or leaves it, where it cannot), "" in the form → absent, «-» → null: leave alone
-function transition(t, key, label, auto) {
-  t.transitions ??= {};
-  const tr = t.transitions;
+function transition(tr0, key, label, auto) {
+  tr0.transitions ??= {};
+  const tr = tr0.transitions;
   const el = document.createElement("div");
   el.className = "field";
   const v = tr[key] === null ? "-" : tr[key] ?? "";
@@ -232,7 +260,7 @@ function transition(t, key, label, auto) {
     const raw = e.target.value.trim();
     if (!raw) delete tr[key];
     else tr[key] = raw === "-" ? null : raw;
-    if (!Object.keys(tr).length) delete t.transitions;
+    if (!Object.keys(tr).length) delete tr0.transitions;
     changed();
   };
   return el;
@@ -241,83 +269,83 @@ function transition(t, key, label, auto) {
 function renderTrackers() {
   const box = $("trackers");
   box.innerHTML = "";
-  (cfg.trackers ?? []).forEach((t, i) => {
+  (cfg.trackers ?? []).forEach((tk, i) => {
     if (pane !== `tracker:${i}`) return;
     const card = document.createElement("div");
     card.className = "card";
-    card.innerHTML = `<div class="card-head"><b>${NAMES[t.type] ?? esc(t.type)}</b><span class="msg" data-me></span><span class="spacer"></span>
-      <label class="switch" title="Не шукати нових задач у цьому трекері, напр. коли вимкнено VPN. Інші трекери шукаються; задачі, вже взяті в роботу, тривають"><input type="checkbox" data-pause ${t.paused ? "checked" : ""}><span>Пауза</span></label>
-      <button data-check>Перевірити підключення</button><button class="ghost danger" data-del>Видалити</button></div>`;
-    if (t.type === "gitlab") card.append(text(t, "baseUrl", "Адреса GitLab", { placeholder: "https://gitlab.com" }));
-    if (t.type === "jira") card.append(text(t, "baseUrl", "Адреса Jira", { placeholder: jiraBase || "https://acme.atlassian.net" }));
-    for (const [key, label, hint] of TOKENS[t.type] ?? []) card.append(secret(key, label, hint));
+    card.innerHTML = `<div class="card-head"><b>${NAMES[tk.type] ?? esc(tk.type)}</b><span class="msg" data-me></span><span class="spacer"></span>
+      <label class="switch" title="${esc(t("s.tr.pauseHint"))}"><input type="checkbox" data-pause ${tk.paused ? "checked" : ""}><span>${t("s.tr.pause")}</span></label>
+      <button data-check>${t("s.tr.check")}</button><button class="ghost danger" data-del>${t("s.tr.delete")}</button></div>`;
+    if (tk.type === "gitlab") card.append(text(tk, "baseUrl", t("s.tr.gitlabUrl"), { placeholder: "https://gitlab.com" }));
+    if (tk.type === "jira") card.append(text(tk, "baseUrl", t("s.tr.jiraUrl"), { placeholder: jiraBase || "https://acme.atlassian.net" }));
+    for (const [key, label, hint] of TOKENS()[tk.type] ?? []) card.append(secret(key, label, hint));
 
-    if (t.type === "jira") {
-      card.append(text(t, "jql", "Які задачі брати (JQL)", { placeholder: "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC" }));
+    if (tk.type === "jira") {
+      card.append(text(tk, "jql", t("s.tr.jql"), { placeholder: "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC" }));
     } else {
-      card.append(check(t, "allProjects", "Мої задачі з усіх проєктів", { hint: "Задача, призначена на вас у будь-якому проєкті. Проєкт додається сам, репозиторій клонується в папку проєктів при передачі в Orca" }));
-      t.labels ??= {};
-      const noLabel = t.labels.trigger === null;
+      card.append(check(tk, "allProjects", t("s.tr.allProjects"), { hint: t("s.tr.allProjectsHint") }));
+      tk.labels ??= {};
+      const noLabel = tk.labels.trigger === null;
       const label = document.createElement("div");
-      label.append(check({ v: noLabel }, "v", "Брати всі мої задачі, без мітки"));
+      label.append(check({ v: noLabel }, "v", t("s.tr.noLabel")));
       label.querySelector("input").onchange = (e) => {
-        if (e.target.checked) t.labels.trigger = null;
-        else delete t.labels.trigger;
-        if (!Object.keys(t.labels).length) delete t.labels;
+        if (e.target.checked) tk.labels.trigger = null;
+        else delete tk.labels.trigger;
+        if (!Object.keys(tk.labels).length) delete tk.labels;
         changed();
         renderTrackers();
       };
       card.append(label);
-      if (!noLabel) card.append(text(t.labels, "trigger", "Мітка для агента", { placeholder: "claude-agent", hint: "Задачі з цією міткою" }));
-      card.append(text(t, "assignee", "Лише призначені на", { placeholder: noLabel || t.allProjects ? "мене" : "будь-кого", hint: "Логін або me" }));
+      if (!noLabel) card.append(text(tk.labels, "trigger", t("s.tr.label"), { placeholder: "claude-agent", hint: t("s.tr.labelHint") }));
+      card.append(text(tk, "assignee", t("s.tr.assignee"), { placeholder: noLabel || tk.allProjects ? t("s.tr.me") : t("s.tr.anyone"), hint: t("s.tr.assigneeHint") }));
     }
-    card.append(check(t, "assignOnTake", "«Взяти в роботу» призначає задачу на мене", { def: true }));
-    card.append(check(t, "skipOthersTasks", "Не пропонувати задачі, призначені на інших", { def: true }));
-    if (t.type !== "jira") card.append(check(t, "reviewRequests", "Показувати MR, де мене призначили рев'ювером", { def: true, hint: "Окрема група «Рев'ю для мене» на дошці: назва, автор, розмір, CI, скільки чекає" }));
+    card.append(check(tk, "assignOnTake", t("s.tr.assignOnTake"), { def: true }));
+    card.append(check(tk, "skipOthersTasks", t("s.tr.skipOthers"), { def: true }));
+    if (tk.type !== "jira") card.append(check(tk, "reviewRequests", t("s.tr.reviewRequests"), { def: true, hint: t("s.tr.reviewRequestsHint") }));
 
     const statuses = document.createElement("details");
-    statuses.innerHTML = `<summary>Статуси задачі в трекері</summary><div class="hint" style="color:var(--mute);font-size:12.5px;margin:4px 0 6px">
-      Назва статусу${t.type === "jira" ? " або переходу" : ""}. Порожньо — як підказано сірим, «-» — не змінювати.${t.type === "github" ? " У GitHub статусів немає: після мерджу задача закривається." : ""}</div>`;
-    if (t.type !== "github") {
-      const auto = t.type === "gitlab";
-      statuses.append(transition(t, "onStart", "Коли передано в Orca", auto ? "автоматично: In progress" : "не змінювати"));
-      statuses.append(transition(t, "onSuccess", "Коли є MR", "не змінювати"));
-      statuses.append(transition(t, "onFailure", "Коли не вдалось", "не змінювати"));
-      statuses.append(transition(t, "onMerged", "Коли MR змерджено", "автоматично: Done"));
+    statuses.innerHTML = `<summary>${t("s.tr.statuses")}</summary><div class="hint" style="color:var(--mute);font-size:12.5px;margin:4px 0 6px">
+      ${t(tk.type === "jira" ? "s.tr.statusesJira" : "s.tr.statusesHint")}${tk.type === "github" ? " " + t("s.tr.statusesGithub") : ""}</div>`;
+    if (tk.type !== "github") {
+      const auto = tk.type === "gitlab";
+      statuses.append(transition(tk, "onStart", t("s.tr.onStart"), auto ? t("s.tr.autoInProgress") : t("s.tr.leave")));
+      statuses.append(transition(tk, "onSuccess", t("s.tr.onSuccess"), t("s.tr.leave")));
+      statuses.append(transition(tk, "onFailure", t("s.tr.onFailure"), t("s.tr.leave")));
+      statuses.append(transition(tk, "onMerged", t("s.tr.onMerged"), t("s.tr.autoDone")));
       card.append(statuses);
     }
 
-    card.append(projectsTable(t));
-    if (t.type === "github") {
+    card.append(projectsTable(tk));
+    if (tk.type === "github") {
       const more = document.createElement("details");
-      more.innerHTML = "<summary>Додатково</summary>";
-      more.append(text(t, "apiUrl", "API GitHub Enterprise", { placeholder: "https://api.github.com" }));
+      more.innerHTML = `<summary>${t("s.more")}</summary>`;
+      more.append(text(tk, "apiUrl", t("s.tr.githubApi"), { placeholder: "https://api.github.com" }));
       card.append(more);
     }
     // A saved tracker goes on (or off) pause at once; one not saved yet keeps it till «Зберегти».
     card.querySelector("[data-pause]").onchange = async (e) => {
       const on = e.target.checked;
-      if (on) t.paused = true;
-      else delete t.paused;
+      if (on) tk.paused = true;
+      else delete tk.paused;
       const out = card.querySelector("[data-me]");
       e.target.disabled = true;
       try {
-        const r = await (await fetch(`/api/tracker-pause?id=${encodeURIComponent(trackerId(t))}&on=${on ? 1 : 0}`, { method: "POST" })).json();
+        const r = await (await fetch(`/api/tracker-pause?id=${encodeURIComponent(trackerId(tk))}&on=${on ? 1 : 0}`, { method: "POST" })).json();
         if (r.ok) {
           out.className = "msg ok";
-          out.textContent = on ? "На паузі" : "Пошук продовжено";
+          out.textContent = on ? t("s.tr.paused") : t("s.tr.resumed");
           renderNav();
         } else changed();
       } catch (err) {
         out.className = "msg bad";
-        out.textContent = "Mako не відповідає: " + err.message;
+        out.textContent = t("s.noAnswer") + ": " + err.message;
         changed();
       } finally {
         e.target.disabled = false;
       }
     };
     card.querySelector("[data-del]").onclick = () => {
-      if (!confirm(`Видалити трекер ${NAMES[t.type]}?`)) return;
+      if (!confirm(t("s.tr.deleteAsk", { name: NAMES[tk.type] }))) return;
       cfg.trackers.splice(i, 1);
       changed();
       show(cfg.trackers.length ? "tracker:0" : "add");
@@ -325,10 +353,10 @@ function renderTrackers() {
     card.querySelector("[data-check]").onclick = async (e) => {
       const out = card.querySelector("[data-me]");
       out.className = "msg";
-      out.textContent = "Перевіряю…";
-      const r = await (await fetch("/api/settings/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tracker: t, env }) })).json();
+      out.textContent = t("s.checking");
+      const r = await (await fetch("/api/settings/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tracker: tk, env }) })).json();
       out.className = "msg " + (r.ok ? "ok" : "bad");
-      out.textContent = r.ok ? `✓ Підключено: ${r.me}` : r.error;
+      out.textContent = r.ok ? t("s.tr.connected", { me: r.me }) : r.error;
     };
     box.append(card);
   });
@@ -336,69 +364,69 @@ function renderTrackers() {
 
 // The rules saved to the repos' CLAUDE.md from your corrections of the agents (newest first), by project.
 let lessons = [];
-function lessonsHTML(t) {
-  const mine = lessons.filter((l) => l.trackerId === (t.id || t.type));
+function lessonsHTML(tk) {
+  const mine = lessons.filter((l) => l.trackerId === (tk.id || tk.type));
   if (!mine.length) return "";
   const by = {};
   for (const l of mine) (by[l.project] ??= []).push(l);
-  return `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Уроки з рев'ю в CLAUDE.md</h3>
-    <div style="font-size:12.5px;color:var(--mute)">Правила, збережені з ваших поправок агентам. Змінити чи прибрати — у CLAUDE.md репозиторію.</div>` +
+  return `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">${t("s.lessons.title")}</h3>
+    <div style="font-size:12.5px;color:var(--mute)">${t("s.lessons.hint")}</div>` +
     Object.entries(by).map(([p, ls]) => `<div style="margin-top:8px;font-size:12.5px"><b>${esc(p)}</b><ul style="margin:4px 0 0;padding-left:18px">${ls.map((l) =>
-      `<li style="margin:2px 0">${esc(l.rule)} <span style="color:var(--mute)">· ${esc(l.task)} → <code>${esc(l.branch)}</code>${l.commit ? ` <code>${esc(l.commit)}</code>` : ""} · ${new Date(l.at).toLocaleDateString("uk")}</span></li>`).join("")}</ul></div>`).join("");
+      `<li style="margin:2px 0">${esc(l.rule)} <span style="color:var(--mute)">· ${esc(l.task)} → <code>${esc(l.branch)}</code>${l.commit ? ` <code>${esc(l.commit)}</code>` : ""} · ${new Date(l.at).toLocaleDateString(LANG)}</span></li>`).join("")}</ul></div>`).join("");
 }
 
-function projectsTable(t) {
-  t.projects ??= {};
+function projectsTable(tk) {
+  tk.projects ??= {};
   const wrap = document.createElement("div");
-  const what = t.type === "jira" ? "Ключ проєкту Jira" : t.type === "github" ? "Репозиторій GitHub" : "Проєкт GitLab";
-  const ph = t.type === "jira" ? "PAY" : t.type === "github" ? "acme/web" : "group/app";
-  wrap.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Проєкти</h3>
-    <div style="font-size:12.5px;color:var(--mute)">${t.type === "jira" ? "Для кожного проєкту Jira — де лежить код." : "Порожній шлях — клон у папці проєктів, адреса для клонування — за SSH."}
-      Під проєктом — перевірка перед MR (тести, лінт, збірка): агент Mako лише комітить, Mako запускає команди в його worktree і відкриває MR, коли всі пройшли.</div>
-    <table class="projects"><thead><tr><th>${what}</th><th>Шлях до репозиторію</th><th>Звідки клонувати</th><th title="Від якої гілки починати задачі й куди відкривати MR">Від гілки</th><th title="Команда, що готує новий worktree терміналу Mako">Підготовка</th><th></th></tr></thead><tbody></tbody></table>
-    <button style="margin-top:6px" data-addp>+ Проєкт</button>`;
+  const what = t(tk.type === "jira" ? "s.pr.jira" : tk.type === "github" ? "s.pr.github" : "s.pr.gitlab");
+  const ph = tk.type === "jira" ? "PAY" : tk.type === "github" ? "acme/web" : "group/app";
+  wrap.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">${t("s.pr.title")}</h3>
+    <div style="font-size:12.5px;color:var(--mute)">${t(tk.type === "jira" ? "s.pr.hintJira" : "s.pr.hint")}
+      ${t("s.pr.checksHint")}</div>
+    <table class="projects"><thead><tr><th>${what}</th><th>${t("s.pr.path")}</th><th>${t("s.pr.clone")}</th><th title="${esc(t("s.pr.baseHint"))}">${t("s.pr.base")}</th><th title="${esc(t("s.pr.setupHint"))}">${t("s.pr.setup")}</th><th></th></tr></thead><tbody></tbody></table>
+    <button style="margin-top:6px" data-addp>${t("s.pr.add")}</button>`;
   const body = wrap.querySelector("tbody");
-  const rows = Object.entries(t.projects);
+  const rows = Object.entries(tk.projects);
   for (const [key, p] of rows) {
     const tr = document.createElement("tr");
     const multi = p && p.repos && Object.keys(p.repos).length > 1;
     tr.innerHTML = `<td><input type="text" value="${esc(key)}" data-key></td>` +
-      (multi ? `<td colspan="4" style="color:var(--mute);font-size:12.5px;padding-top:8px">Кілька репозиторіїв (${Object.keys(p.repos).map(esc).join(", ")}): змінюйте у mako.config.json</td>`
-        : `<td><input type="text" placeholder="~/mako/projects/${esc(key.split("/").pop() || "назва")}" value="${esc(p?.repoPath ?? "")}" data-f="repoPath"></td>
-           <td><input type="text" placeholder="${t.type === "jira" ? "git@host:group/app.git" : "автоматично"}" value="${esc(p?.cloneUrl ?? "")}" data-f="cloneUrl"></td>
-           <td><input type="text" placeholder="як в origin" value="${esc(p?.baseBranch ?? "")}" data-f="baseBranch"></td>
-           <td><input type="text" placeholder="загальна" title="«-» — нічого" value="${esc(p?.setup ?? "")}" data-f="setup"></td>`) +
-      `<td><button class="ghost danger" title="Прибрати">✕</button></td>`;
+      (multi ? `<td colspan="4" style="color:var(--mute);font-size:12.5px;padding-top:8px">${t("s.pr.multi", { repos: Object.keys(p.repos).map(esc).join(", ") })}</td>`
+        : `<td><input type="text" placeholder="~/mako/projects/${esc(key.split("/").pop() || t("s.pr.name"))}" value="${esc(p?.repoPath ?? "")}" data-f="repoPath"></td>
+           <td><input type="text" placeholder="${tk.type === "jira" ? "git@host:group/app.git" : t("s.auto")}" value="${esc(p?.cloneUrl ?? "")}" data-f="cloneUrl"></td>
+           <td><input type="text" placeholder="${esc(t("s.pr.asOrigin"))}" value="${esc(p?.baseBranch ?? "")}" data-f="baseBranch"></td>
+           <td><input type="text" placeholder="${esc(t("s.pr.common"))}" title="${esc(t("s.pr.dashNothing"))}" value="${esc(p?.setup ?? "")}" data-f="setup"></td>`) +
+      `<td><button class="ghost danger" title="${esc(t("s.pr.remove"))}">✕</button></td>`;
     let current = key;
     tr.querySelector("[data-key]").onchange = (e) => {
       const nk = e.target.value.trim();
-      if (!nk || nk === current || t.projects[nk]) { e.target.value = current; return; }
-      const entries = Object.entries(t.projects).map(([k, v]) => (k === current ? [nk, v] : [k, v]));
-      t.projects = Object.fromEntries(entries);
+      if (!nk || nk === current || tk.projects[nk]) { e.target.value = current; return; }
+      const entries = Object.entries(tk.projects).map(([k, v]) => (k === current ? [nk, v] : [k, v]));
+      tk.projects = Object.fromEntries(entries);
       current = nk;
       changed();
     };
     for (const inp of tr.querySelectorAll("[data-f]")) {
       inp.oninput = () => {
-        const p = (t.projects[current] ??= {});
-        if (inp.value.trim()) p[inp.dataset.f] = inp.value.trim();
-        else delete p[inp.dataset.f];
+        const pp = (tk.projects[current] ??= {});
+        if (inp.value.trim()) pp[inp.dataset.f] = inp.value.trim();
+        else delete pp[inp.dataset.f];
         changed();
       };
     }
-    tr.querySelector("button").onclick = () => { delete t.projects[current]; changed(); renderTrackers(); };
+    tr.querySelector("button").onclick = () => { delete tk.projects[current]; changed(); renderTrackers(); };
     body.append(tr);
     // The checks before the MR: a line of their own under the project, one command a line.
     if (!multi) {
       const cr = document.createElement("tr");
       cr.className = "checks-row";
-      cr.innerHTML = `<td colspan="5"><textarea rows="1" placeholder="Перевірка перед MR, команда на рядок: go vet ./...  go test ./...  npm run lint" title="Mako запускає їх у worktree агента перед тим, як відкрити MR"></textarea></td><td></td>`;
+      cr.innerHTML = `<td colspan="5"><textarea rows="1" placeholder="${esc(t("s.pr.checksPh"))}" title="${esc(t("s.pr.checksTitle"))}"></textarea></td><td></td>`;
       const ta = cr.querySelector("textarea");
       ta.value = (p?.checks ?? []).join("\n");
       const fit = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
       ta.oninput = () => {
         const list = ta.value.split("\n").map((x) => x.trim()).filter(Boolean);
-        const pp = (t.projects[current] ??= {});
+        const pp = (tk.projects[current] ??= {});
         if (list.length) pp.checks = list; else delete pp.checks;
         fit();
         changed();
@@ -407,12 +435,12 @@ function projectsTable(t) {
       body.append(cr);
     }
   }
-  wrap.insertAdjacentHTML("beforeend", lessonsHTML(t));
-  if (!rows.length) body.innerHTML = `<tr><td colspan="4" style="color:var(--mute);font-size:12.5px;padding:6px 0">${t.allProjects ? "Не обовʼязково: задачі з усіх проєктів підхоплюються самі." : "Немає проєктів."}</td></tr>`;
+  wrap.insertAdjacentHTML("beforeend", lessonsHTML(tk));
+  if (!rows.length) body.innerHTML = `<tr><td colspan="4" style="color:var(--mute);font-size:12.5px;padding:6px 0">${t(tk.allProjects ? "s.pr.optional" : "s.pr.none")}</td></tr>`;
   wrap.querySelector("[data-addp]").onclick = () => {
-    const key = prompt(`${what}, наприклад ${ph}`)?.trim();
-    if (!key || t.projects[key]) return;
-    t.projects[key] = {};
+    const key = prompt(t("s.pr.addAsk", { what, example: ph }))?.trim();
+    if (!key || tk.projects[key]) return;
+    tk.projects[key] = {};
     changed();
     renderTrackers();
   };
@@ -453,8 +481,7 @@ function renderOrca() {
   const box = $("orca");
   box.innerHTML = "";
   const who = { kind: onTerminal() ? "terminal" : "orca" };
-  const pick = select(who, "kind", "Хто виконує задачі", [["orca", "агент в Orca"], ["terminal", "Claude Code у Mako"]],
-    { hint: "Термінал Mako: Mako сам створює worktree і запускає Claude, а ви бачите його й відповідаєте йому на дошці, у вкладці «Термінал»" });
+  const pick = select(who, "kind", t("s.o.who"), [["orca", t("s.o.whoOrca")], ["terminal", t("s.o.whoTerminal")]], { hint: t("s.o.whoHint") });
   pick.querySelector("select").onchange = (e) => {
     if (e.target.value === "terminal") cfg.defaultExecutor = terminalExecutor()[0];
     else cfg.defaultExecutor = Object.keys(cfg.executors).find((n) => cfg.executors[n] === o);
@@ -464,66 +491,57 @@ function renderOrca() {
   };
   box.append(pick);
   if (onTerminal()) {
-    const t = terminalExecutor()[1];
-    box.append(select(t, "view", "Як показувати агента", [["chat", "чат: повідомлення, картки інструментів, дозволи кнопками"], ["terminal", "термінал Claude Code"]],
-      { def: "chat", hint: "Для нових задач. На дошці можна перемкнути будь-яку задачу: та сама розмова" }));
-    box.append(text(t, "command", "Команда агента", { placeholder: "claude", hint: "Повний шлях, якщо Mako не знаходить claude сам" }));
-    box.append(text(t, "setupCommand", "Підготовка нового worktree", { placeholder: "за lockfile: pnpm install, npm ci, yarn, bun", hint: "Виконується в терміналі задачі перед агентом. У проєкту може бути своя — у таблиці проєктів. «-» — нічого" }));
-    box.append(select(t, "permissionMode", "Що Claude робить без питань", [["auto", "auto: Claude сам оцінює, що безпечно"], ["acceptEdits", "редагує файли без питань"], ["default", "питає про все"], ["bypassPermissions", "нічого не питає"]], { def: "auto" }));
+    const tm = terminalExecutor()[1];
+    box.append(select(tm, "view", t("s.o.view"), [["chat", t("s.o.viewChat")], ["terminal", t("s.o.viewTerminal")]], { def: "chat", hint: t("s.o.viewHint") }));
+    box.append(text(tm, "command", t("s.o.command"), { placeholder: "claude", hint: t("s.o.commandHint") }));
+    box.append(text(tm, "setupCommand", t("s.o.setup"), { placeholder: t("s.o.setupPh"), hint: t("s.o.setupHint") }));
+    box.append(select(tm, "permissionMode", t("s.o.perm"), [["auto", t("s.o.permAuto")], ["acceptEdits", t("s.o.permEdits")], ["default", t("s.o.permDefault")], ["bypassPermissions", t("s.o.permBypass")]], { def: "auto" }));
     const tools = document.createElement("div");
     tools.className = "field";
-    tools.innerHTML = `<label>Команди без питань</label><textarea placeholder="Bash(npm test:*)\nBash(git push:*)"></textarea>
-      <div class="hint">По одній на рядок, у форматі Claude Code. Для режиму «питати все» чи «правки без питань»</div>`;
+    tools.innerHTML = `<label>${t("s.o.tools")}</label><textarea placeholder="Bash(npm test:*)\nBash(git push:*)"></textarea>
+      <div class="hint">${t("s.o.toolsHint")}</div>`;
     const tta = tools.querySelector("textarea");
     tta.style.minHeight = "72px";
-    tta.value = (t.allowedTools ?? []).join("\n");
+    tta.value = (tm.allowedTools ?? []).join("\n");
     tta.oninput = () => {
       const list = tta.value.split("\n").map((x) => x.trim()).filter(Boolean);
-      if (list.length) t.allowedTools = list; else delete t.allowedTools;
+      if (list.length) tm.allowedTools = list; else delete tm.allowedTools;
       changed();
     };
     box.append(tools);
-    box.append(text(t, "model", "Модель", { placeholder: "sonnet", hint: "Наприклад, opus або sonnet. Коли оцінка радить модель або її вибрано на картці задачі — та" }));
-    box.append(select(t, "planFirst", "Починати з плану", [["never", "ніколи"], ["big", "для великих задач"], ["always", "завжди"]],
-      { def: "never", hint: "Агент стартує в режимі plan: досліджує й пише план, нічого не змінюючи. У чаті план — окремою карткою з кнопками «Затвердити й робити» і «Поправити». Велика задача — з міткою plan або «план»; інакше за оцінкою наперед, а без неї — з описом від 1500 символів" }));
-    box.append(num(t, "checkTimeoutSec", "Таймаут команди перевірки, с", { placeholder: "600", hint: "Для перевірки перед MR — команд, заданих у проєктів. Довше — команда перерветься й вважатиметься такою, що не пройшла" }));
-    box.append(num(t, "checkAttempts", "Спроб перевірки до «потребує уваги»", { placeholder: "3", hint: "Стільки разів поспіль агент отримує вивід невдалої перевірки, щоб виправити. Далі MR не відкривається, задача чекає на вас" }));
-    box.append(check(t, "autoFix", "Автофікс MR", { hint: "Коли агент закінчив хід, Mako сам просить його розвʼязати конфлікти, полагодити впалий CI й виправити нові коментарі рев'ю, як кнопки ✨. Кожну проблему — один раз, до 5 запитів на задачу" }));
-    box.append(select(t, "autoRebase", "Оновлювати гілку з основної", [["", "ні"], ["rebase", "rebase і push --force-with-lease"], ["merge", "merge основної в гілку і push"]],
-      { def: "", hint: "Поки MR на рев'ю, Mako сам підтягує в гілку свіжу основну. З конфліктом — просить агента розвʼязати його. Поки агент працює чи MR змерджено, гілку не чіпає" }));
-    box.append(num(t, "rebaseEveryMin", "Перевіряти гілку не частіше, хв", { placeholder: "30" }));
+    box.append(text(tm, "model", t("s.o.model"), { placeholder: "sonnet", hint: t("s.o.modelHint") }));
+    box.append(select(tm, "planFirst", t("s.o.plan"), [["never", t("s.o.planNever")], ["big", t("s.o.planBig")], ["always", t("s.o.planAlways")]], { def: "never", hint: t("s.o.planHint") }));
+    box.append(num(tm, "checkTimeoutSec", t("s.o.checkTimeout"), { placeholder: "600", hint: t("s.o.checkTimeoutHint") }));
+    box.append(num(tm, "checkAttempts", t("s.o.checkAttempts"), { placeholder: "3", hint: t("s.o.checkAttemptsHint") }));
+    box.append(check(tm, "autoFix", t("s.o.autoFix"), { hint: t("s.o.autoFixHint") }));
+    box.append(select(tm, "autoRebase", t("s.o.autoRebase"), [["", t("s.no")], ["rebase", t("s.o.rebase")], ["merge", t("s.o.merge")]], { def: "", hint: t("s.o.autoRebaseHint") }));
+    box.append(num(tm, "rebaseEveryMin", t("s.o.rebaseEvery"), { placeholder: "30" }));
   } else {
     const agents = [["claude", "Claude Code"], ["codex", "Codex"], ["cursor", "Cursor"], ["opencode", "OpenCode"], ["gemini", "Gemini"]];
     if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
-    box.append(select(o, "agent", "Агент в Orca", agents, { def: "claude" }));
+    box.append(select(o, "agent", t("s.o.orcaAgent"), agents, { def: "claude" }));
   }
-  box.append(num(cfg, "limitPausePct", "Пауза черги біля ліміту Claude, %", { placeholder: "85", hint: "Коли ліміт на 5 годин чи тиждень використано на стільки, нові задачі чекають, доки він оновиться. Агенти в роботі не зупиняються. 0 — не зважати" }));
-  box.append(select(o, "mrBy", "Хто відкриває MR", [["agent", "агент: пушить гілку й відкриває MR"], ["me", onTerminal() ? "я: агент лише комітить" : "я: агент лише комітить, MR — кнопкою в Orca"]], { def: "agent" }));
-  const instr = document.createElement("div");
-  instr.className = "field";
-  instr.innerHTML = `<label>Що сказати агенту після опису задачі</label><textarea placeholder="Порожньо — стандартна інструкція: закомітити з нормальними повідомленнями, запушити гілку й відкрити MR з описом"></textarea>
-    <div class="hint">Підставляються {branch} {baseBranch} {taskId} {title} {url} {closingRef}</div>`;
-  const ta = instr.querySelector("textarea");
-  ta.value = o.instructions ?? "";
-  ta.oninput = () => { if (ta.value.trim()) o.instructions = ta.value; else delete o.instructions; changed(); };
-  box.append(instr);
-  if (!onTerminal()) box.append(check(o, "linkIssue", "Привʼязувати задачу до workspace в Orca", { def: true }));
-  box.append(check(o, "summaryComment", "Додавати підсумок роботи агента в коментар до задачі", { hint: "Коли з'являється MR, Mako пише з термінала агента і змін гілки, що зроблено й як перевірено. Підсумок завжди видно на дошці" }));
+  box.append(num(cfg, "limitPausePct", t("s.o.limitPause"), { placeholder: "85", hint: t("s.o.limitPauseHint") }));
+  box.append(select(o, "mrBy", t("s.o.mrBy"), [["agent", t("s.o.mrByAgent")], ["me", t(onTerminal() ? "s.o.mrByMe" : "s.o.mrByMeOrca")]], { def: "agent" }));
+  box.append(localized(o, "instructions", t("s.o.instructions"), { area: true, hint: t("s.o.instructionsHint"),
+    placeholders: { en: t("s.o.instructionsPh"), uk: t("s.o.instructionsPh") } }));
+  if (!onTerminal()) box.append(check(o, "linkIssue", t("s.o.linkIssue"), { def: true }));
+  box.append(check(o, "summaryComment", t("s.o.summary"), { hint: t("s.o.summaryHint") }));
   cfg.estimate ??= {};
-  box.append(check(cfg.estimate, "enabled", "Оцінювати нові задачі до старту", { def: true, hint: "Щойно задача з'являється в «Нових», Opus читає її текст і структуру репозиторію (не код): наскільки зрозумілий опис і що уточнити в трекері, розмір, ризик, яка модель упорається (за складністю). Наново — лише коли змінився опис. Помилка — просто без оцінки" }));
-  box.append(check(cfg.estimate, "useModel", "Брати модель з оцінки", { def: true, hint: "Агент починає з моделлю, яку радить оцінка (haiku, sonnet, opus), якщо на картці задачі не вибрано іншу. Вимкнено: модель — з налаштувань (порожньо — sonnet) або вибрана на картці" }));
+  box.append(check(cfg.estimate, "enabled", t("s.o.estimate"), { def: true, hint: t("s.o.estimateHint") }));
+  box.append(check(cfg.estimate, "useModel", t("s.o.useModel"), { def: true, hint: t("s.o.useModelHint") }));
   cfg.codeAsk ??= {};
-  box.append(text(cfg.codeAsk, "model", "Модель для «Запитати про код»", { placeholder: "haiku", hint: "Одна для всіх проєктів; її можна перемкнути й на сторінці «Запитати про код». Наприклад, opus, sonnet або haiku" }));
+  box.append(text(cfg.codeAsk, "model", t("s.o.codeAskModel"), { placeholder: "haiku", hint: t("s.o.codeAskModelHint") }));
   // The reviewer agent: only Mako's own agents can be written to, so only with Claude Code in Mako.
   if (onTerminal()) {
     cfg.agentReview ??= {};
     const ar = cfg.agentReview;
-    box.append(text(ar, "model", "Модель рецензента", { placeholder: "як в агента", hint: "Рецензент-агент читає задачу й diff гілки, коли ви натискаєте «Рев'ю» на картці задачі, і залишає зауваження в задачі; агенту їх передає «Виправити». Наприклад, opus" }));
+    box.append(text(ar, "model", t("s.o.reviewer"), { placeholder: t("s.o.reviewerPh"), hint: t("s.o.reviewerHint") }));
   }
   const more = document.createElement("details");
-  more.innerHTML = "<summary>Додатково</summary>";
-  more.append(select(o, "setup", "Підготовка worktree", [["inherit", "як налаштовано в Orca"], ["run", "запускати"], ["skip", "пропускати"]], { def: "inherit" }));
-  more.append(text(o, "command", "Команда Orca", { placeholder: "автоматично (orca у PATH або в Orca.app)" }));
+  more.innerHTML = `<summary>${t("s.more")}</summary>`;
+  more.append(select(o, "setup", t("s.o.orcaSetup"), [["inherit", t("s.o.orcaSetupInherit")], ["run", t("s.o.orcaSetupRun")], ["skip", t("s.o.orcaSetupSkip")]], { def: "inherit" }));
+  more.append(text(o, "command", t("s.o.orcaCommand"), { placeholder: t("s.o.orcaCommandPh") }));
   if (!onTerminal()) box.append(more);
 }
 
@@ -532,21 +550,42 @@ function renderComments() {
   const c = cfg.comments;
   const box = $("comments");
   box.innerHTML = "";
-  box.append(text(c, "onStart", "Коли задачу взято", { placeholder: "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR.", hint: "Підставляються {branch} {taskId} {title} {url}. «-» — без коментаря" }));
-  box.append(text(c, "onReview", "Коли є MR", { placeholder: "Відкрив MR: {mr}", hint: "{mr} — посилання на MR" }));
+  box.append(localized(c, "onStart", t("s.c.onStart"), { hint: t("s.c.onStartHint"), placeholders: DEFAULT_COMMENTS.onStart }));
+  box.append(localized(c, "onReview", t("s.c.onReview"), { hint: t("s.c.onReviewHint"), placeholders: DEFAULT_COMMENTS.onReview }));
+}
+const DEFAULT_COMMENTS = {
+  onStart: { en: "Took the task. Branch {branch}. I'll open an MR once it's ready.", uk: "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR." },
+  onReview: { en: "Opened an MR: {mr}", uk: "Відкрив MR: {mr}" },
+};
+
+// The language of Mako's pages, notifications, comments and of what the agents write: one for all.
+function languageSelect() {
+  return select(cfg, "language", t("s.lang.label"), LANGS, { def: "en", hint: t("s.lang.hint") });
+}
+function renderLanguage() {
+  $("language").innerHTML = "";
+  $("language").append(languageSelect());
+  // The first start: no trackers yet, the language comes first.
+  const first = $("first-language");
+  first.innerHTML = "";
+  first.style.display = (cfg.trackers ?? []).length ? "none" : "";
+  if (!(cfg.trackers ?? []).length) {
+    first.insertAdjacentHTML("beforeend", `<h3 class="step">${t("s.lang.first")}</h3>`);
+    first.append(languageSelect());
+  }
 }
 
 function renderLimits() {
   const box = $("limits");
   box.innerHTML = "";
-  box.append(check(cfg, "wipAuto", "Рахувати WIP автоматично", { hint: `За ядрами й памʼяттю цього Mac: ${autoWip} одночасно (по 2 ядра й 4 ГБ на агента)` }));
+  box.append(check(cfg, "wipAuto", t("s.l.wipAuto"), { hint: t("s.l.wipAutoHint", { n: autoWip }) }));
   box.lastChild.querySelector("input").addEventListener("change", renderLimits);
-  if (!cfg.wipAuto) box.append(num(cfg, "wipLimit", "Задач в Orca одночасно (WIP)", { placeholder: "без ліміту", hint: "Решта чекає в черзі" }));
-  box.append(num(cfg, "pollIntervalSec", "Шукати задачі кожні, с", { placeholder: "60" }));
-  box.append(check(cfg, "keepAwake", "Не давати Mac заснути, поки агенти працюють", { def: true, hint: "Лише сон від бездіяльності: закрита кришка чи «Сон» вручну все одно зупинять агентів. Вимкнено — Mac засинає як звичайно" }));
-  box.append(num(cfg, "archiveAfterDays", "Архівувати завершені через, днів", { placeholder: "2", hint: "0 — не архівувати" }));
-  box.append(text(cfg, "branchPattern", "Назва гілки задачі", { placeholder: "{type}/{id}-{title}", hint: "{type} — feature або fix, {id}, {title}, {slug}" }));
-  box.append(text(cfg, "projectsDir", "Папка для проєктів", { placeholder: "~/mako/projects" }));
+  if (!cfg.wipAuto) box.append(num(cfg, "wipLimit", t("s.l.wip"), { placeholder: t("s.l.wipPh"), hint: t("s.l.wipHint") }));
+  box.append(num(cfg, "pollIntervalSec", t("s.l.poll"), { placeholder: "60" }));
+  box.append(check(cfg, "keepAwake", t("s.l.awake"), { def: true, hint: t("s.l.awakeHint") }));
+  box.append(num(cfg, "archiveAfterDays", t("s.l.archive"), { placeholder: "2", hint: t("s.l.archiveHint") }));
+  box.append(text(cfg, "branchPattern", t("s.l.branch"), { placeholder: "{type}/{id}-{title}", hint: t("s.l.branchHint") }));
+  box.append(text(cfg, "projectsDir", t("s.l.projectsDir"), { placeholder: "~/mako/projects" }));
 }
 
 function renderNotifications() {
@@ -554,55 +593,49 @@ function renderNotifications() {
   const n = cfg.notifications;
   const box = $("notifications");
   box.innerHTML = "";
-  box.append(check(n, "enabled", "Показувати системні сповіщення", { def: true }));
-  box.append(check(n, "autoTake", "Віддавати нові задачі в Orca без питань"));
-  box.append(select(n, "autoTakeOnly", "Які задачі брати без питань", [["all", "усі"], ["smallClear", "лише малі й зрозумілі"], ["small", "лише малі"]],
-    { def: "all", hint: "За попередньою оцінкою задачі: «мала» — її розмір, «зрозуміла» — ясність 4–5 і немає питань до опису. Задачу без оцінки (ще не оцінена, помилка) Mako сам не бере: вона лишається в «Нових» з поясненням чому" }));
-  box.append(num(n, "snoozeMin", "«Відкласти» без вибору — на, хв", { placeholder: "60" }));
-  box.append(text(n, "morningDigest", "Ранковий підсумок о", { placeholder: "09:00", hint: "Одне сповіщення (і пуш на телефон): що чекає на вас, які MR готові до мерджу, що впало, що змерджено. «-» — не надсилати" }));
-  box.append(num(n, "awayHours", "Підсумок на дошці після відсутності, год", { placeholder: "4", hint: "Дошку не відкривали стільки годин (або Mac спав) — покаже, що сталося за цей час. 0 — не показувати" }));
-  box.append(num(n, "inboxPort", "Порт дошки", { placeholder: "7777", hint: "Діє після перезапуску Mako" }));
+  box.append(check(n, "enabled", t("s.n.enabled"), { def: true }));
+  box.append(check(n, "autoTake", t("s.n.autoTake")));
+  box.append(select(n, "autoTakeOnly", t("s.n.autoTakeOnly"), [["all", t("s.n.all")], ["smallClear", t("s.n.smallClear")], ["small", t("s.n.small")]], { def: "all", hint: t("s.n.autoTakeOnlyHint") }));
+  box.append(num(n, "snoozeMin", t("s.n.snooze"), { placeholder: "60" }));
+  box.append(text(n, "morningDigest", t("s.n.morning"), { placeholder: "09:00", hint: t("s.n.morningHint") }));
+  box.append(num(n, "awayHours", t("s.n.away"), { placeholder: "4", hint: t("s.n.awayHint") }));
+  box.append(num(n, "inboxPort", t("s.n.port"), { placeholder: "7777", hint: t("s.n.portHint") }));
   // Which notifications to get: only the ones turned off are written, {"newTask": false}.
   n.events ??= {};
   const kinds = document.createElement("div");
-  kinds.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">Про що сповіщати</h3>
-    <div class="hint" style="font-size:12.5px;color:var(--mute);margin-bottom:6px">На Mac і на телефон. Вимкнене видно лише на дошці</div>`;
-  for (const [kind, label] of [
-    ["waiting", "✋ Агент чекає на відповідь"],
-    ["finished", "✅ Агент закінчив хід"],
-    ["stopped", "⏹ Агент зупинився або задачу не передано"],
-    ["review", "✅ З'явився MR"],
-    ["agentReview", "🔍 Рев'ю агентом-рецензентом"],
-    ["secrets", "🔐 Пуш зупинено: у змінах секрети"],
-    ["merged", "🎉 MR змерджено"],
-    ["newTask", "🦈 Нова задача"],
-    ["reviewAsked", "👀 Вас призначили рев'ювером"],
-    ["reminder", "⏰ Час повернутися до відкладеної задачі"],
-    ["gone", "🦈 Задачу в роботі закрито чи видалено в трекері"],
-    ["limits", "⏳ Черга на паузі через ліміт Claude і продовжується"],
-  ]) kinds.append(check(n.events, kind, label, { def: true }));
+  kinds.innerHTML = `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">${t("s.n.kinds")}</h3>
+    <div class="hint" style="font-size:12.5px;color:var(--mute);margin-bottom:6px">${t("s.n.kindsHint")}</div>`;
+  for (const kind of ["waiting", "finished", "stopped", "review", "agentReview", "secrets", "merged", "newTask", "reviewAsked", "reminder", "gone", "limits"])
+    kinds.append(check(n.events, kind, t("s.n.kind." + kind), { def: true }));
   box.append(kinds);
 }
 
 // The left menu: each tracker on its own, then the rest. The open section is kept in the address (#orca).
 let pane = "", problems = [];
-const trackerId = (t) => t.id ?? t.type;
-function trackerNote(t) {
+const trackerId = (tk) => tk.id ?? tk.type;
+// plural: the form for n — English one/many; Ukrainian 1 проєкт, 2 проєкти, 5 проєктів.
+function plural(n, key) {
+  if (LANG !== "uk") return t(key + (n === 1 ? ".one" : ".many"), { n });
+  const form = n % 10 === 1 && n % 100 !== 11 ? "one" : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? "few" : "many";
+  return t(`${key}.${form}`, { n });
+}
+function trackerNote(tk) {
   const host = (u) => { try { return new URL(u).host; } catch { return ""; } };
-  if (t.type === "jira") return host(t.baseUrl || jiraBase) || "адреса не задана";
-  const where = t.type === "gitlab" ? host(t.baseUrl || "https://gitlab.com") : t.apiUrl ? host(t.apiUrl) : "github.com";
-  const n = Object.keys(t.projects ?? {}).length;
-  return [t.paused ? "⏸ пауза" : "", where, t.allProjects ? "усі проєкти" : n ? `${n} проєкт${n === 1 ? "" : n < 5 ? "и" : "ів"}` : ""].filter(Boolean).join(" · ");
+  if (tk.type === "jira") return host(tk.baseUrl || jiraBase) || t("s.nav.noUrl");
+  const where = tk.type === "gitlab" ? host(tk.baseUrl || "https://gitlab.com") : tk.apiUrl ? host(tk.apiUrl) : "github.com";
+  const n = Object.keys(tk.projects ?? {}).length;
+  return [tk.paused ? t("s.nav.paused") : "", where, tk.allProjects ? t("s.nav.allProjects") : n ? plural(n, "s.nav.projects") : ""].filter(Boolean).join(" · ");
 }
 function renderNav() {
   const ts = cfg.trackers ?? [];
   const item = (id, title, note = "", bad = false) =>
-    `<button data-go="${id}" class="${pane === id ? "on" : ""}"><span>${title}${bad ? '<span class="dot" title="Є що виправити"></span>' : ""}</span>${note ? `<small>${esc(note)}</small>` : ""}</button>`;
-  $("side").innerHTML = `<div class="group">Трекери</div>` +
-    ts.map((t, i) => item(`tracker:${i}`, NAMES[t.type] ?? esc(t.type), trackerNote(t), problems.some((p) => p.startsWith(trackerId(t) + ":")))).join("") +
-    `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">+ Додати трекер</button>` +
-    `<div class="group">Робота</div>` + item("orca", "Агент", (onTerminal() ? "термінал Mako · " : "Orca · ") + { agent: "агент відкриває MR", me: "я відкриваю MR" }[orcaExecutor().mrBy ?? "agent"]) +
-    item("comments", "Коментарі в задачі") + item("limits", "Задачі й ліміти") + item("disk", "Місце на диску", diskNote) + item("notifications", "Сповіщення") + item("phone", "Телефон", phoneNote);
+    `<button data-go="${id}" class="${pane === id ? "on" : ""}"><span>${title}${bad ? `<span class="dot" title="${esc(t("s.nav.fix"))}"></span>` : ""}</span>${note ? `<small>${esc(note)}</small>` : ""}</button>`;
+  $("side").innerHTML = `<div class="group">${t("s.nav.trackers")}</div>` +
+    ts.map((tk, i) => item(`tracker:${i}`, NAMES[tk.type] ?? esc(tk.type), trackerNote(tk), problems.some((p) => p.startsWith(trackerId(tk) + ":")))).join("") +
+    `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">${t("s.nav.add")}</button>` +
+    `<div class="group">${t("s.nav.work")}</div>` + item("orca", t("s.orca.title"), (onTerminal() ? t("s.nav.terminal") : "Orca · ") + t((orcaExecutor().mrBy ?? "agent") === "me" ? "s.nav.mrByMe" : "s.nav.mrByAgent")) +
+    item("comments", t("s.comments.title")) + item("limits", t("s.limits.title")) + item("disk", t("s.disk.title"), diskNote) + item("notifications", t("s.notif.title")) + item("phone", t("s.phone.title"), phoneNote) +
+    item("language", t("s.lang.title"), LANGS.find(([l]) => l === (cfg.language ?? "en"))?.[1]);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
   const on = $("side").querySelector(".on");
@@ -624,15 +657,15 @@ function show(id) {
 
 // The agents' worktrees: how much each project's take, and «Прибрати змерджені».
 let diskNote = "";
-const size = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} ГБ` : b >= 1 << 20 ? `${Math.round(b / (1 << 20))} МБ` : `${Math.round(b / 1024)} КБ`;
+const size = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} ${t("s.gb")}` : b >= 1 << 20 ? `${Math.round(b / (1 << 20))} ${t("s.mb")}` : `${Math.round(b / 1024)} ${t("s.kb")}`;
 async function renderDisk(msg = "") {
   const box = $("disk");
-  if (!box.innerHTML) box.innerHTML = `<div class="card muted">Рахую…</div>`;
+  if (!box.innerHTML) box.innerHTML = `<div class="card muted">${t("s.d.counting")}</div>`;
   let list;
   try {
     list = await (await fetch("/api/settings/worktrees")).json();
   } catch {
-    box.innerHTML = `<div class="card bad">Mako не відповідає</div>`;
+    box.innerHTML = `<div class="card bad">${t("s.noAnswer")}</div>`;
     return;
   }
   const total = list.reduce((n, u) => n + u.bytes, 0), cleanable = list.reduce((n, u) => n + u.cleanable, 0);
@@ -640,14 +673,14 @@ async function renderDisk(msg = "") {
   diskNote = total ? size(total) : "";
   const projects = list.length ? list.map((u) => `<div class="card"><div class="card-head"><b>${esc(u.repo)}</b><span class="muted">${u.worktrees.length} worktree · ${size(u.bytes)}</span></div>
       ${u.worktrees.map((w) => `<div class="device"><div><code>${esc(w.branch || w.path.split("/").pop())}</code>
-        <div class="muted">${w.task ? esc(w.task) + (w.cleanable ? " · змерджена чи в архіві" : "") : "не задача Mako"}</div></div><span class="muted">${size(w.bytes)}</span></div>`).join("")}</div>`).join("")
-    : `<div class="card muted">Worktree агентів немає.</div>`;
-  box.innerHTML = `<div class="card"><div class="row" style="margin-top:0"><b>Усього: ${size(total)}</b><span class="spacer"></span>
-      <button class="primary" id="disk-clean" ${cleanable ? "" : "disabled"}>Прибрати змерджені${cleanable ? ` (${cleanable}, ${size(freed)})` : ""}</button></div>
+        <div class="muted">${w.task ? esc(w.task) + (w.cleanable ? " · " + t("s.d.mergedOrArchived") : "") : t("s.d.notMako")}</div></div><span class="muted">${size(w.bytes)}</span></div>`).join("")}</div>`).join("")
+    : `<div class="card muted">${t("s.d.none")}</div>`;
+  box.innerHTML = `<div class="card"><div class="row" style="margin-top:0"><b>${t("s.d.total", { size: size(total) })}</b><span class="spacer"></span>
+      <button class="primary" id="disk-clean" ${cleanable ? "" : "disabled"}>${t("s.d.clean")}${cleanable ? ` (${cleanable}, ${size(freed)})` : ""}</button></div>
       ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}</div>${projects}`;
   $("disk-clean").onclick = async () => {
     $("disk-clean").disabled = true;
-    $("disk-clean").textContent = "Прибираю…";
+    $("disk-clean").textContent = t("s.d.cleaning");
     let r;
     try {
       r = await (await fetch("/api/settings/worktrees/clean", { method: "POST" })).json();
@@ -655,90 +688,83 @@ async function renderDisk(msg = "") {
       r = { ok: false };
     }
     const c = r.cleanup;
-    renderDisk(!r.ok ? "Mako не відповідає" : `Прибрано worktree: ${c.worktrees}, гілок: ${c.branches}` +
-      (c.keptTasks?.length ? `. Лишились через незакомічені зміни: ${c.keptTasks.join(", ")}` : ""));
+    renderDisk(!r.ok ? t("s.noAnswer") : t("s.d.cleaned", { worktrees: c.worktrees, branches: c.branches }) +
+      (c.keptTasks?.length ? t("s.d.kept", { tasks: c.keptTasks.join(", ") }) : ""));
   };
   renderNav();
 }
 
 // The phone: Tailscale brings the iPhone or Android phone to this Mac with HTTPS; a QR code pairs it once.
 let phoneNote = "", phoneError = "";
-const linkifyText = (t) => esc(t).replace(/https?:\/\/[^\s<>"')]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+const linkifyText = (s) => esc(s).replace(/https?:\/\/[^\s<>"')]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 async function renderPhone(qr) {
   const box = $("phone");
   let st;
   try {
     st = await (await fetch("/api/phone")).json();
   } catch {
-    box.innerHTML = `<div class="card bad">Mako не відповідає</div>`;
+    box.innerHTML = `<div class="card bad">${t("s.noAnswer")}</div>`;
     return;
   }
-  const t = st.tailscale;
+  const ts = st.tailscale;
   const ok = (x) => `<span class="ok">✓</span> ${x}`;
   let step1;
-  if (!t.installed) {
-    step1 = `Встановіть <a href="https://tailscale.com/download/mac" target="_blank" rel="noopener">Tailscale на Mac</a> (безкоштовно) і увійдіть.
-      На телефоні він не потрібен, якщо відкрити Mako з будь-якої мережі. Потім натисніть «Перевірити».
-      <div class="row"><button data-p="refresh">Перевірити</button></div>`;
-  } else if (!t.running) {
-    step1 = `${esc(t.error || "Tailscale не підключено")}. Увійдіть у застосунку Tailscale на Mac.
-      <div class="row"><button data-p="refresh">Перевірити</button></div>`;
-  } else if (!t.serving) {
-    step1 = `${ok(`Tailscale працює: <code>${esc(t.host)}</code>`)}
+  if (!ts.installed) {
+    step1 = `${t("s.p.install")}
+      <div class="row"><button data-p="refresh">${t("s.p.check")}</button></div>`;
+  } else if (!ts.running) {
+    step1 = `${esc(ts.error || t("s.p.notConnected"))}. ${t("s.p.signIn")}
+      <div class="row"><button data-p="refresh">${t("s.p.check")}</button></div>`;
+  } else if (!ts.serving) {
+    step1 = `${ok(t("s.p.works", { host: `<code>${esc(ts.host)}</code>` }))}
       <div class="modes">
-        <div class="mode"><b>З будь-якої мережі</b><p class="muted">На телефоні нічого не треба. Mako буде в інтернеті за адресою <code>https://${esc(t.host)}</code>
-          (Tailscale Funnel), але без ключа телефона з QR-коду нічого не покаже.</p>
-          <button class="primary" data-p="serve" data-public="1">Відкрити з будь-якої мережі</button></div>
-        <div class="mode"><b>Лише пристрої Tailscale</b><p class="muted">З інтернету Mako не видно. На телефоні теж потрібен Tailscale
-          (<a href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">iPhone</a>,
-          <a href="https://play.google.com/store/apps/details?id=com.tailscale.ipn" target="_blank" rel="noopener">Android</a>) з тим самим акаунтом.</p>
-          <button data-p="serve">Відкрити для Tailscale</button></div>
+        <div class="mode"><b>${t("s.p.anyNetwork")}</b><p class="muted">${t("s.p.anyNetworkHint", { url: `<code>https://${esc(ts.host)}</code>` })}</p>
+          <button class="primary" data-p="serve" data-public="1">${t("s.p.openAny")}</button></div>
+        <div class="mode"><b>${t("s.p.tailnet")}</b><p class="muted">${t("s.p.tailnetHint")}</p>
+          <button data-p="serve">${t("s.p.openTailnet")}</button></div>
       </div>`;
   } else {
-    step1 = `${ok(`Mako доступний на <code>${esc(st.url)}</code> — ${t.public ? "з будь-якої мережі (Funnel)" : "лише для пристроїв вашого Tailscale"}`)}
-      <div class="row">${t.public
-        ? `<button data-p="serve">Лише для Tailscale</button>`
-        : `<button data-p="serve" data-public="1">Відкрити з будь-якої мережі</button>`}
-        <button class="ghost danger" data-p="unserve">Закрити доступ</button></div>`;
+    step1 = `${ok(t("s.p.available", { url: `<code>${esc(st.url)}</code>`, how: t(ts.public ? "s.p.howAny" : "s.p.howTailnet") }))}
+      <div class="row">${ts.public
+        ? `<button data-p="serve">${t("s.p.onlyTailnet")}</button>`
+        : `<button data-p="serve" data-public="1">${t("s.p.openAny")}</button>`}
+        <button class="ghost danger" data-p="unserve">${t("s.p.close")}</button></div>`;
   }
   if (phoneError) step1 += `<div class="notice-inline">${linkifyText(phoneError)}</div>`;
-  const step2 = !st.url ? `<span class="muted">Спершу крок 1.</span>`
-    : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR-код"><ol>
-        <li>Наведіть камеру телефона на код і відкрийте посилання. Код діє 10 хвилин і один раз.</li>
-        <li>Коли Mako відкрився на телефоні, додайте його на екран «Додому».
-          iPhone, Safari: «Поділитися» <b>⎙</b> → «На екран “Додому”» → «Додати».
-          iPhone, Chrome: <b>⎙</b> праворуч в адресному рядку (або <b>⋯</b> → «Поділитися») → «На екран “Додому”» → «Додати»;
-          потрібна iOS 16.4+. Android, Chrome: «Встановити» на дошці або <b>⋮</b> → «Додати на головний екран».</li>
-        <li>Відкрийте Mako зі значка й натисніть 🔔, щоб отримувати сповіщення. На iPhone вони приходять лише в Mako зі значка.</li></ol></div>`
-    : `<div class="row"><button class="primary" data-p="pairing">Показати QR-код</button></div>`;
+  const step2 = !st.url ? `<span class="muted">${t("s.p.step1First")}</span>`
+    : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR"><ol>
+        <li>${t("s.p.qr1")}</li>
+        <li>${t("s.p.qr2")}</li>
+        <li>${t("s.p.qr3")}</li></ol></div>`
+    : `<div class="row"><button class="primary" data-p="pairing">${t("s.p.showQr")}</button></div>`;
   const devices = st.devices.length
-    ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">підключено ${new Date(d.created).toLocaleDateString("uk")}, востаннє ${new Date(d.lastSeen).toLocaleString("uk")}</span>
-        <div class="muted">${d.push ? "сповіщення увімкнено" : "сповіщення вимкнено: натисніть 🔔 у додатку"}</div></div>
-        <button class="ghost danger" data-p="remove" data-id="${esc(d.id)}">Відключити</button></div>`).join("") +
-      `<div class="row"><button data-p="test">Надіслати тестове сповіщення</button><span class="msg" id="phone-msg"></span></div>`
-    : `<span class="muted">Ще немає.</span>`;
-  box.innerHTML = `<div class="card"><h3 class="step">1. Доступ з телефона</h3>${step1}</div>
-    <div class="card"><h3 class="step">2. Підключити телефон</h3>${step2}</div>
-    <div class="card"><h3 class="step">Підключені телефони</h3>${devices}</div>`;
-  phoneNote = st.devices.length ? `${st.devices.length} підключено` : t.serving ? "готово до підключення" : "";
+    ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">${t("s.p.device", { created: new Date(d.created).toLocaleDateString(LANG), seen: new Date(d.lastSeen).toLocaleString(LANG) })}</span>
+        <div class="muted">${t(d.push ? "s.p.pushOn" : "s.p.pushOff")}</div></div>
+        <button class="ghost danger" data-p="remove" data-id="${esc(d.id)}">${t("s.p.disconnect")}</button></div>`).join("") +
+      `<div class="row"><button data-p="test">${t("s.p.test")}</button><span class="msg" id="phone-msg"></span></div>`
+    : `<span class="muted">${t("s.p.noneYet")}</span>`;
+  box.innerHTML = `<div class="card"><h3 class="step">${t("s.p.step1")}</h3>${step1}</div>
+    <div class="card"><h3 class="step">${t("s.p.step2")}</h3>${step2}</div>
+    <div class="card"><h3 class="step">${t("s.p.connected")}</h3>${devices}</div>`;
+  phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving ? t("s.p.ready") : "";
   for (const b of box.querySelectorAll("[data-p]")) {
     b.onclick = async () => {
       const action = b.dataset.p;
       if (action === "refresh") return renderPhone();
-      if (action === "remove" && !confirm("Відключити цей телефон? Щоб повернути, доведеться відсканувати QR-код знову.")) return;
+      if (action === "remove" && !confirm(t("s.p.removeAsk"))) return;
       b.disabled = true;
       const query = b.dataset.id ? `?id=${encodeURIComponent(b.dataset.id)}` : b.dataset.public ? "?public=1" : "";
-      if (action === "serve" || action === "unserve") b.textContent = "Зачекайте…";
+      if (action === "serve" || action === "unserve") b.textContent = t("s.p.wait");
       let r;
       try {
         r = await (await fetch(`/api/phone/${action}${query}`, { method: "POST" })).json();
       } catch {
-        r = { ok: false, error: "Mako не відповідає" };
+        r = { ok: false, error: t("s.noAnswer") };
       }
       b.disabled = false;
       phoneError = r.ok ? "" : r.error;
       if (!r.ok && action !== "serve" && action !== "unserve") return alert(r.error);
-      if (action === "test") return ($("phone-msg").textContent = "Надіслано");
+      if (action === "test") return ($("phone-msg").textContent = t("s.p.sent"));
       renderPhone(action === "pairing" ? r : undefined);
     };
   }
@@ -746,7 +772,9 @@ async function renderPhone(qr) {
 }
 
 function render() {
+  document.title = "Mako · " + t("s.title");
   show(pane || decodeURIComponent(location.hash.slice(1)));
+  renderLanguage();
   renderOrca();
   renderComments();
   renderLimits();
@@ -759,14 +787,14 @@ function showProblems(list) {
 }
 
 async function load() {
-  const [r, ls] = await Promise.all([fetch("/api/settings").then((x) => x.json()), fetch("/api/settings/lessons").then((x) => x.json()).catch(() => [])]);
+  const [r, ls] = await Promise.all([fetch("/api/settings").then((x) => x.json()), fetch("/api/settings/lessons").then((x) => x.json()).catch(() => []), loadI18n()]);
   lessons = Array.isArray(ls) ? ls : [];
   cfg = r.config ?? {};
   envSet = r.env;
   jiraBase = r.jiraBaseUrl ?? "";
   autoWip = r.autoWip ?? 1;
   env = {};
-  $("where").innerHTML = `Налаштування зберігаються в <code>${esc(r.home)}/mako.config.json</code> і <code>.env</code>`;
+  $("where").innerHTML = t("s.where", { file: `<code>${esc(r.home)}/mako.config.json</code>` });
   showProblems(r.problems);
   dirty = false;
   render();
@@ -775,9 +803,9 @@ async function load() {
 for (const b of document.querySelectorAll("[data-add]")) {
   b.onclick = () => {
     cfg.trackers ??= [];
-    const t = { type: b.dataset.add, projects: {} };
-    if (t.type !== "jira") { t.allProjects = true; t.labels = { trigger: null }; }
-    cfg.trackers.push(t);
+    const tk = { type: b.dataset.add, projects: {} };
+    if (tk.type !== "jira") { tk.allProjects = true; tk.labels = { trigger: null }; }
+    cfg.trackers.push(tk);
     changed();
     show(`tracker:${cfg.trackers.length - 1}`);
   };
@@ -787,11 +815,11 @@ $("revert").onclick = () => load();
 $("save").onclick = async () => {
   $("save").disabled = true;
   $("msg").className = "msg";
-  $("msg").textContent = "Зберігаю…";
+  $("msg").textContent = t("s.saving");
   // Empty helper objects the form made stay out of the file.
-  for (const t of cfg.trackers ?? []) {
-    if (t.labels && !Object.keys(t.labels).length) delete t.labels;
-    if (t.transitions && !Object.keys(t.transitions).length) delete t.transitions;
+  for (const tk of cfg.trackers ?? []) {
+    if (tk.labels && !Object.keys(tk.labels).length) delete tk.labels;
+    if (tk.transitions && !Object.keys(tk.transitions).length) delete tk.transitions;
   }
   if (cfg.notifications?.events && !Object.keys(cfg.notifications.events).length) delete cfg.notifications.events;
   if (cfg.notifications && !Object.keys(cfg.notifications).length) delete cfg.notifications;
@@ -806,13 +834,15 @@ $("save").onclick = async () => {
     dirty = false;
     for (const k of Object.keys(env)) envSet[k] = true;
     env = {};
+    // A new language: the page's words change at once, like everything else in Mako.
+    if ((cfg.language ?? "en") !== LANG) await loadI18n();
     showProblems(r.problems);
     $("msg").className = "msg ok";
-    $("msg").textContent = r.problems?.length ? "Збережено, але є що виправити (вгорі)" : "Усі зміни збережено. Mako вже працює з ними";
+    $("msg").textContent = r.problems?.length ? t("s.savedProblems") : t("s.saved");
     render();
   } catch (e) {
     $("msg").className = "msg bad";
-    $("msg").textContent = "Mako не відповідає: " + e.message;
+    $("msg").textContent = t("s.noAnswer") + ": " + e.message;
   } finally {
     $("save").disabled = false;
   }

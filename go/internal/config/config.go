@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 const (
@@ -22,6 +24,8 @@ const (
 )
 
 type Config struct {
+	// Language: what Mako speaks and asks its agents to write in, i18n.EN (default) or i18n.UK.
+	Language        string
 	Path            string
 	Home            string // the folder of mako.config.json and .env
 	StateDir        string
@@ -92,9 +96,10 @@ type Comments struct {
 	OnReview string // when its MR appears
 }
 
-const (
-	DefaultCommentOnStart  = "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR."
-	DefaultCommentOnReview = "Відкрив MR: {mr}"
+// The built-in comments, by language.
+var (
+	DefaultCommentOnStart  = Localized{EN: "Took the task. Branch {branch}. I'll open an MR once it's ready.", UK: "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR."}
+	DefaultCommentOnReview = Localized{EN: "Opened an MR: {mr}", UK: "Відкрив MR: {mr}"}
 )
 
 type Notifications struct {
@@ -278,7 +283,15 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("mako.config.json: %w", err)
 	}
+	lang := strings.TrimSpace(raw.Language)
+	if lang == "" {
+		lang = i18n.Default
+	}
+	if !i18n.Supported(lang) {
+		return nil, fmt.Errorf("language %q: потрібна «en» або «uk»", lang)
+	}
 	c := &Config{
+		Language:         lang,
 		StateDir:         Expand(raw.StateDir),
 		PollIntervalSec:  orInt(raw.PollIntervalSec, 60),
 		WipLimit:         orInt(raw.WipLimit, 0),
@@ -304,8 +317,8 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
 		Comments: Comments{
-			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
-			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
+			OnStart:  orStr(raw.Comments.OnStart.In(lang), DefaultCommentOnStart.In(lang)),
+			OnReview: orStr(raw.Comments.OnReview.In(lang), DefaultCommentOnReview.In(lang)),
 		},
 	}
 	if c.WipAuto {
@@ -337,7 +350,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		c.Orca.Agent = orStr(e.Agent, "claude")
 		c.Orca.Setup = orStr(e.Setup, "inherit")
 		c.Orca.LinkIssue = e.LinkIssue == nil || *e.LinkIssue
-		c.Orca.Instructions = e.Instructions
+		c.Orca.Instructions = e.Instructions.Either(lang)
 		c.Orca.MRBy = orStr(e.MRBy, "agent")
 		c.Orca.SummaryComment = e.SummaryComment
 		c.Orca.ExtraArgs = e.ExtraArgs
@@ -556,6 +569,7 @@ func orInt(v *int, def int) int {
 }
 
 type rawConfig struct {
+	Language         string                 `json:"language"`
 	StateDir         string                 `json:"stateDir"`
 	PollIntervalSec  *int                   `json:"pollIntervalSec"`
 	WipLimit         *int                   `json:"wipLimit"`
@@ -568,8 +582,8 @@ type rawConfig struct {
 	Notifications    rawNotifications       `json:"notifications"`
 	Executors        map[string]rawExecutor `json:"executors"`
 	Comments         struct {
-		OnStart  string `json:"onStart"`
-		OnReview string `json:"onReview"`
+		OnStart  Localized `json:"onStart"`
+		OnReview Localized `json:"onReview"`
 	} `json:"comments"`
 	AgentReview struct {
 		Model string `json:"model"`
@@ -645,26 +659,26 @@ func (r *rawConfig) has(t string) bool {
 }
 
 type rawExecutor struct {
-	Type            string   `json:"type"`
-	Command         string   `json:"command"`
-	Agent           string   `json:"agent"`
-	Setup           string   `json:"setup"`
-	LinkIssue       *bool    `json:"linkIssue"`
-	Instructions    string   `json:"instructions"`
-	MRBy            string   `json:"mrBy"`
-	SummaryComment  bool     `json:"summaryComment"`
-	ExtraArgs       []string `json:"extraArgs"`
-	PermissionMode  string   `json:"permissionMode"`
-	AllowedTools    []string `json:"allowedTools"`
-	SetupCommand    string   `json:"setupCommand"`
-	View            string   `json:"view"`
-	Model           string   `json:"model"`
-	AutoFix         bool     `json:"autoFix"`
-	AutoRebase      string   `json:"autoRebase"`
-	RebaseEveryMin  int      `json:"rebaseEveryMin"`
-	PlanFirst       string   `json:"planFirst"`
-	CheckTimeoutSec int      `json:"checkTimeoutSec"`
-	CheckAttempts   int      `json:"checkAttempts"`
+	Type            string    `json:"type"`
+	Command         string    `json:"command"`
+	Agent           string    `json:"agent"`
+	Setup           string    `json:"setup"`
+	LinkIssue       *bool     `json:"linkIssue"`
+	Instructions    Localized `json:"instructions"`
+	MRBy            string    `json:"mrBy"`
+	SummaryComment  bool      `json:"summaryComment"`
+	ExtraArgs       []string  `json:"extraArgs"`
+	PermissionMode  string    `json:"permissionMode"`
+	AllowedTools    []string  `json:"allowedTools"`
+	SetupCommand    string    `json:"setupCommand"`
+	View            string    `json:"view"`
+	Model           string    `json:"model"`
+	AutoFix         bool      `json:"autoFix"`
+	AutoRebase      string    `json:"autoRebase"`
+	RebaseEveryMin  int       `json:"rebaseEveryMin"`
+	PlanFirst       string    `json:"planFirst"`
+	CheckTimeoutSec int       `json:"checkTimeoutSec"`
+	CheckAttempts   int       `json:"checkAttempts"`
 }
 
 type rawTracker struct {

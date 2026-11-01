@@ -17,6 +17,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
@@ -362,7 +363,7 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 			r.Task, r.Status = task, core.Snoozed
 		})
 		d.Log(task.ID, "нова задача: "+task.Title)
-		notify.Inform(notify.NewTask, "🦈 Нова задача", task.ID+": "+task.Title, d.BoardURL)
+		notify.Inform(notify.NewTask, i18n.T("notify.newTask"), task.ID+": "+task.Title, d.BoardURL)
 		if d.Config().Notifications.AutoTake {
 			d.autoTake(ctx, task.ID)
 		}
@@ -616,7 +617,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 				r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now()
 			}
 		})
-		notify.Inform(notify.Stopped, "❌ "+id+": не передано "+map[string]string{"orca": "в Orca", terminalExecutor: "агенту"}[executor], err.Error(), d.BoardURL)
+		notify.Inform(notify.Stopped, i18n.T(map[string]string{"orca": "notify.notHandedOrca", terminalExecutor: "notify.notHandedAgent"}[executor], id), err.Error(), d.BoardURL)
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
@@ -652,6 +653,11 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	d.step(id, "tracker", "оновлюю задачу в трекері")
 	if task, ok := d.refresh(ctx, t, id); ok {
 		r.Task = task
+	}
+	if i18n.IsRussian(r.Task.Title + "\n" + r.Task.Description) {
+		d.endSteps(id)
+		d.refuseRussian(ctx, t, id, r.Task)
+		return
 	}
 	if t.Config().AssignOnTake {
 		if me, _ := t.Me(ctx); me == "" || !contains(r.Task.Assignees, me) {
@@ -709,6 +715,22 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.Log(id, map[string]string{"orca": "передано в Orca: ", terminalExecutor: "агент працює в терміналі: "}[executor]+res.Note)
 	d.comment(ctx, t, r.Task, d.Config().Comments.OnStart, map[string]string{"branch": res.Branch})
+}
+
+// refuseRussian: a task written in Russian is not worked on; the issue asks for it in English or Ukrainian, and
+// the task fails until it is rewritten and taken again.
+func (d *Dispatcher) refuseRussian(ctx context.Context, t trackers.Tracker, id string, task core.Task) {
+	why := i18n.T("task.russian")
+	d.Log(id, why)
+	d.Store.Update(id, func(r *core.Record) {
+		if r.Status == core.Queued {
+			r.Status, r.Error, r.FinishedAt = core.Failed, why, now()
+		}
+	})
+	if err := t.Comment(ctx, task, i18n.T("comment.rewrite")); err != nil {
+		d.Fault(id, "коментар про мову не додано", err)
+	}
+	notify.Inform(notify.Stopped, i18n.T("notify.notTaken", id), why, d.BoardURL)
 }
 
 var commentVar = regexp.MustCompile(`\{(\w+)\}`)
@@ -846,7 +868,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 				d.Store.Update(r.ID, func(r *core.Record) {
 					r.Status, r.Error, r.FinishedAt = core.Cancelled, "Workspace видалено ("+r.Worktree+"), MR не відкрито", now()
 				})
-				notify.Inform(notify.Stopped, "🦈 "+r.ID+": передачу скасовано", "Workspace видалено, MR немає. Задачу можна повторити з дошки.", d.BoardURL)
+				notify.Inform(notify.Stopped, i18n.T("notify.handoffCancelled", r.ID), i18n.T("notify.handoffCancelledText"), d.BoardURL)
 			}
 			continue
 		}
@@ -892,7 +914,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		if !onTerminal(r) {
 			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")
 		}
-		notify.Inform(notify.Review, "✅ "+r.ID+": є MR", review.URL, review.URL)
+		notify.Inform(notify.Review, i18n.T("notify.review", r.ID), review.URL, review.URL)
 		if review.State != "open" {
 			d.CheckMerges(ctx)
 		}
@@ -970,7 +992,7 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			if !onTerminal(r) {
 				orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")
 			}
-			notify.Inform(notify.Merged, "🎉 "+r.ID+": змерджено", r.Task.Title, r.PRURL)
+			notify.Inform(notify.Merged, i18n.T("notify.merged", r.ID), r.Task.Title, r.PRURL)
 			if d.startRetro(r.ID) == nil {
 				d.retro(ctx, r.ID) // in the worktree, before it goes
 			}
@@ -1017,7 +1039,11 @@ func (d *Dispatcher) markGone(r core.Record, st string) {
 		return
 	}
 	d.Store.Update(r.ID, func(r *core.Record) { r.Gone = st })
-	notify.Inform(notify.Gone, "🦈 "+r.ID+": "+strings.ToLower(what), "Агент ще працює над нею в Orca.", d.BoardURL)
+	key := "notify.goneClosed"
+	if st == "deleted" {
+		key = "notify.goneDeleted"
+	}
+	notify.Inform(notify.Gone, i18n.T(key, r.ID), i18n.T("notify.goneText"), d.BoardURL)
 }
 
 // AutoArchive takes finished tasks off the board ArchiveAfterDays after they finished (not those in review),
@@ -1078,7 +1104,7 @@ func (d *Dispatcher) remind(now time.Time) {
 		}
 		d.Store.Update(r.ID, func(r *core.Record) { r.PostponedByYou, r.SnoozedUntil = false, 0 })
 		d.Log(r.ID, "час повернутися до задачі")
-		notify.Inform(notify.Reminder, "⏰ "+r.ID+": час повернутися до задачі", r.Task.Title, d.BoardURL+"/#"+r.ID)
+		notify.Inform(notify.Reminder, i18n.T("notify.reminder", r.ID), r.Task.Title, d.BoardURL+"/#"+r.ID)
 	}
 }
 
