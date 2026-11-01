@@ -20,6 +20,8 @@ type GitHub struct {
 	headers map[string]string
 	mu      sync.Mutex
 	login   string
+	// memos: the PRs to review as the last poll read them, by their URL.
+	memos map[string]reviewMemo
 }
 
 type ghIssue struct {
@@ -289,6 +291,8 @@ type ghPull struct {
 	// Mergeable: nil while GitHub is still working it out.
 	Mergeable      *bool  `json:"mergeable"`
 	MergeableState string `json:"mergeable_state"`
+	Additions      int    `json:"additions"`
+	Deletions      int    `json:"deletions"`
 	Head           struct {
 		SHA string `json:"sha"`
 	} `json:"head"`

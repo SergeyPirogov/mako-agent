@@ -21,6 +21,8 @@ type GitLab struct {
 	mu       sync.Mutex
 	me       *glUser
 	statuses []string
+	// memos: the MRs to review as the last poll read them, by their API path.
+	memos map[string]reviewMemo
 }
 
 type glUser struct {

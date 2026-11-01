@@ -44,6 +44,8 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case p == "/api/v4/user":
 		reply(map[string]any{"id": 7, "username": "serg"})
+	case p == "/api/v4/merge_requests": // MRs to review: none
+		reply([]any{})
 	case p == "/api/graphql":
 		var q struct {
 			Query     string         `json:"query"`

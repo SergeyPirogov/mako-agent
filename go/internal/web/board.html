@@ -72,7 +72,7 @@
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
 <script>
-const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["done", "Готово"], ["failed", "Не виконано"]];
+const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
 const LABEL = { new: "нова", later: "відкладена", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
@@ -474,10 +474,13 @@ function render() {
     const newRank = (r) => { const e = estimated(r); return e ? SIZE_RANK[e.size] * 5 + (5 - (e.clarity?.value || 0)) : 99; };
     // A held-up task keeps its column for its actions, but is listed under «Заблоковані».
     const items = rows.filter((r) => (r.blocked ? "blocked" : r.column) === col).sort((a, b) => (col === "new" ? a.postponed - b.postponed || newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
-    if (!items.length) continue;
+    // Others' MRs where I am a reviewer: open ones in «Рев'ю для мене», finished ones in «Готово».
+    const asks = col === "forme" || col === "done" ? reviewAsks(words).filter((q) => (q.state === "open") === (col === "forme")) : [];
+    if (!items.length && !asks.length) continue;
     // While filtering, every match shows: a folded group would hide what was asked for.
     const fold = !words.length && !!folded[col];
-    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
+    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length + asks.length}</span></button>`;
+    for (const q of fold ? [] : asks) html += reviewAskRow(q);
     for (const r of fold ? [] : items) {
       const st = state(r);
       // The card shows the task's status; its number is in the tooltip and the task's panel. A plain task needs no
@@ -499,6 +502,86 @@ function render() {
     render();
   };
   renderDetail();
+}
+
+// «Рев'ю для мене»: the MRs to review the list shows now (not in the archive; by the project and the filter).
+function reviewAsks(words) {
+  if (showArchive) return [];
+  return (data.reviewRequests || []).filter((q) => (!project || q.project === project)
+    && words.every((w) => `${q.title} ${q.ref} ${q.project} ${q.author}`.toLowerCase().includes(w)));
+}
+const DONE_WHY = { merged: "змерджено", closed: "MR закрито", approved: "ви схвалили" };
+const sizeHTML = (q) => `<span class="mr-size" title="Рядків додано / прибрано"><span class="add">+${q.additions}</span> <span class="del">−${q.deletions}</span></span>`;
+const ciDot = (ci) => { const [icon, text] = CI[ci] ?? []; return icon ? `<span class="ci-dot ${icon}" title="${esc(text)}"></span>` : ""; };
+function reviewAskRow(q) {
+  const say = q.state === "open" ? `${q.ref} · ${q.author}` : DONE_WHY[q.done] ?? "готово";
+  const since = q.state === "open" ? q.since : q.doneAt;
+  return `<button class="item rq ${q.id === selected ? "sel" : ""}" data-id="${esc(q.id)}" title="${esc(q.project)}${esc(q.ref)} · ${esc(q.title)}">
+    <span class="t">${esc(q.title)}</span>
+    <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${trackerMark(q)}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="Нові коміти, відколи ви дивились">оновлено</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Чекає " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
+}
+
+// The open MR to review as its code host has it now ({check, files, item} or {error}), and the files unfolded.
+let askView = null, askOpen = new Set();
+async function loadAsk(q) {
+  const id = q.id, v = await getJSON(`/api/review-request?id=${encodeURIComponent(id)}`);
+  if (selected !== id) return;
+  askView = { id, sha: q.headSha, v };
+  // «оновлено» is off once seen: the list shows it at once.
+  if (q.updated && v.item) q.updated = false;
+  render();
+}
+function renderAsk(q) {
+  closeTerminal(); closeChat(); $("detail").classList.remove("ws");
+  if (askView?.id !== q.id || askView.sha !== q.headSha) {
+    if (askView?.id !== q.id) askOpen = new Set();
+    askView = { id: q.id, sha: q.headSha, v: null };
+    loadAsk(q);
+  }
+  const v = askView.v, c = v?.check, host = trackerName(q);
+  const chip = (body, cls = "", title = "") => `<span class="tchip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${body}</span>`;
+  const card = (title, body, note = "") => `<div class="tcard"><div class="tcard-h">${title}${note ? `<span class="r">${note}</span>` : ""}</div>${body}</div>`;
+  const chips = [chip(`<span class="k">Автор</span>${esc(q.author)}`), chip(sizeHTML(q))];
+  if (q.state === "open") chips.push(chip(`<span class="k">Чекає</span>${esc(ago(q.since).replace(/ тому$/, ""))}`, "", `З ${new Date(q.since).toLocaleString("uk")}`));
+  else chips.push(chip(`<span class="dot"></span><span class="v">${esc(DONE_WHY[q.done] ?? "готово")}</span>`, "st"));
+  if (q.updated) chips.push(chip("оновлено: нові коміти", "upd"));
+  let ci = "";
+  if (!v) ci = `<div class="muted mr-none">Читаю MR…</div>`;
+  else if (c?.ci) {
+    const [icon, text] = CI[c.ci] ?? ["run", `CI: ${c.ci}`];
+    ci = row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl) + stagesHTML(c.jobs);
+  } else if (c) ci = `<div class="muted mr-none">CI немає</div>`;
+  const threads = c?.threads?.length ? c.threads.map((th) => `<div class="cmt"><span class="av">${esc(initials(th.author))}</span><div><b>${esc(th.author)}</b>${th.path ? ` <a href="${esc(th.url)}" target="_blank" rel="noopener"><code>${esc(th.path)}${th.line ? `:${th.line}` : ""}</code></a>` : ` <a href="${esc(th.url)}" target="_blank" rel="noopener">↗</a>`}<div class="md">${md(th.body)}</div></div></div>`).join("")
+    : `<div class="tcard-b muted">${v ? "Нерозвʼязаних обговорень немає" : "…"}</div>`;
+  const files = v?.files ?? [];
+  const filesHTML = !v ? `<div class="tcard-b muted">…</div>` : !files.length ? `<div class="tcard-b muted">Змін немає</div>`
+    : files.map((f) => `<details class="rq-file" data-path="${esc(f.path)}" ${askOpen.has(f.path) ? "open" : ""}><summary><span class="fst ${esc(f.status)}">${esc(f.status)}</span><code>${f.oldPath ? `${esc(f.oldPath)} → ` : ""}${esc(f.path)}</code><span class="spacer"></span>${sizeHTML(f)}</summary>
+      ${askOpen.has(f.path) ? (f.diff ? diffHTML(f.diff) : `<div class="diff"><div class="diff-note">Diff не показано: файл завеликий або двійковий</div></div>`) : ""}</details>`).join("");
+  const html = `
+    <button class="ghost back" id="back">← Задачі</button>
+    <div class="d-head">
+      <div class="d-main">
+        <div class="d-id">${trackerIcon(q)}<span class="kind rq">Рев'ю</span><span class="s ${q.state === "open" ? "review" : "done"}">${q.state === "open" ? "чекає на ваше рев'ю" : "готово"}</span><a href="${esc(q.url)}" target="_blank" rel="noopener">${esc(q.ref)}</a><span>${esc(q.project)}</span></div>
+        <h1>${esc(q.title)}</h1>
+      </div>
+      <div class="actions"><button class="primary" id="ask-open">Відкрити в ${esc(host)} ↗</button></div>
+    </div>
+    ${v?.error ? `<div class="notice">${linkify(v.error)}</div>` : ""}
+    <div class="tchips">${chips.join("")}</div>
+    ${card("Опис", `<div class="tcard-b md">${q.description?.trim() ? md(q.description) : `<span style="color:var(--mute)">Без опису</span>`}</div>`, `з ${esc(host)}`)}
+    ${card("CI", `<div class="tcard-b">${ci}</div>`)}
+    ${card(`Обговорення${c?.threads?.length ? ` · ${c.threads.length}` : ""}`, threads)}
+    ${card(`Зміни${files.length ? ` · ${files.length} ${plural(files.length, "файл", "файли", "файлів")}` : ""}`, filesHTML)}
+    ${logs.length ? `<details class="journal"><summary>Журнал · ${logs.length}</summary><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString("uk")}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
+  if (html === shown) return;
+  $("detail").innerHTML = shown = html;
+  $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
+  $("ask-open").onclick = () => window.open(q.url, "_blank", "noopener");
+  for (const d of $("detail").querySelectorAll(".rq-file")) d.ontoggle = () => {
+    if (d.open === askOpen.has(d.dataset.path)) return;
+    if (d.open) askOpen.add(d.dataset.path); else askOpen.delete(d.dataset.path);
+    renderAsk(q);
+  };
 }
 
 async function select(id) {
@@ -1745,7 +1828,9 @@ function digestHTML(d) {
 
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
-  $("work").classList.toggle("detail", !!r || statsOpen || newOpen || !!digest);
+  const ask = !r && !statsOpen && !newOpen && !digest && (data.reviewRequests || []).find((x) => x.id === selected);
+  $("work").classList.toggle("detail", !!r || !!ask || statsOpen || newOpen || !!digest);
+  if (ask) return renderAsk(ask);
   if (!r && digest) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     $("detail").innerHTML = `<button class="ghost back" id="back">← Задачі</button>` + digestHTML(digest);

@@ -40,6 +40,7 @@ const (
 	Gone        = "gone"        // a task in work was closed or deleted in the tracker
 	Limits      = "limits"      // the queue paused at the Claude limit or went on
 	Secrets     = "secrets"     // a push was stopped: the changes hold secrets
+	ReviewAsked = "reviewAsked" // I was made a reviewer of someone's merge request
 )
 
 // Muted says the kind is turned off: such notifications are not shown, nor pushed to the phones.
