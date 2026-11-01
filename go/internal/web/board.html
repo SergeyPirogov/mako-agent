@@ -1256,7 +1256,8 @@ function estimateHTML(r, card) {
     e.split ? `<span class="tchip">розбити на кілька задач</span>` : "",
   ].filter(Boolean);
   const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.join("")}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
-  const questions = e.questions?.trim() ? questionsHTML(r, e) : "";
+  // While the estimate runs again (after the answers were sent) the old questions are answered: no empty form.
+  const questions = e.questions?.trim() ? (e.state === "running" ? `<div class="sec"><h4><span class="ic">?</span>Питання до задачі</h4><p class="muted">Аналізую відповіді та оцінюю задачу ще раз…</p></div>` : questionsHTML(r, e)) : "";
   const note = e.state === "running" ? `<span class="muted">оцінюю наново…</span>` : btn("Оцінити ще раз");
   return card("Оцінка наперед", `<div class="tcard-b scores">${scoreRow("Опис задачі", "up", e.clarity)}${size}${scoreRow("Ризик", "down", e.risk)}</div>${questions}${rec}`, "assess", note);
 }
