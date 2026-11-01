@@ -34,9 +34,13 @@ func TestTerminalHandOff(t *testing.T) {
 	d.BoardURL = "http://127.0.0.1:1"
 
 	d.Poll(ctx)
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Model = "haiku" }) // picked on the card
 	d.Take(ctx, "grp/app#5")
 	d.Wait()
 	r, _ := d.Store.Get("grp/app#5")
+	if r.AgentModel != "haiku" { // the terminal does not report its model: the one Mako asked for
+		t.Fatalf("agent model %q", r.AgentModel)
+	}
 	if r.Status != core.HandedOff || r.Executor != "terminal" || len(*jobs) != 0 {
 		t.Fatalf("status %s, executor %q, error %q, orca jobs %d", r.Status, r.Executor, r.Error, len(*jobs))
 	}
@@ -50,13 +54,13 @@ func TestTerminalHandOff(t *testing.T) {
 	}
 	defer d.StopTerminal(r.ID)
 	var args string
-	for i := 0; i < 200 && !strings.HasSuffix(args, "auto\n"); i++ { // the stand-in may still be writing it
+	for i := 0; i < 200 && !strings.HasSuffix(args, "haiku\n"); i++ { // the stand-in may still be writing it
 		b, _ := os.ReadFile(argsFile)
 		args = string(b)
 		time.Sleep(20 * time.Millisecond)
 	}
 	if !strings.HasPrefix(args, "--settings\n") || !strings.Contains(args, "Кнопка оплати не працює") ||
-		!strings.HasSuffix(args, "--permission-mode\nauto\n") {
+		!strings.HasSuffix(args, "--permission-mode\nauto\n--model\nhaiku\n") {
 		t.Fatalf("args %q", args)
 	}
 	// The setup ran in the worktree before the agent.
@@ -119,6 +123,7 @@ echo "$more" > more.json
 	pushed := pushes(t)
 
 	d.Poll(ctx)
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Model = "opus" })
 	d.Take(ctx, "grp/app#5")
 	d.Wait()
 	r, _ := d.Store.Get("grp/app#5")
@@ -136,6 +141,10 @@ echo "$more" > more.json
 	d.watchTerminals(time.Now())
 	if a := d.Agents()[r.ID]; a.State != "waiting" || a.Reason != "дозвіл на Bash: npm test" || !a.Live {
 		t.Fatalf("agent %+v", a)
+	}
+	// The chat names the model exactly: it takes the place of the alias Mako asked for.
+	if r, _ := d.Store.Get(r.ID); r.AgentModel != "claude-opus-5-5" {
+		t.Fatalf("agent model %q", r.AgentModel)
 	}
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Кнопка оплати не працює") {
 		t.Fatalf("prompt %s", b)
@@ -168,6 +177,9 @@ echo "$more" > more.json
 	// The MR card's requests reach the agent as a message.
 	if err := d.sayTo(r.ID, "Полагодь CI"); err != nil {
 		t.Fatal(err)
+	}
+	if r, _ := d.Store.Get(r.ID); r.AgentModel != "claude-opus-5-5" { // going on with it keeps the exact name
+		t.Fatalf("agent model after a message %q", r.AgentModel)
 	}
 	s.Wait() // its exit is reported before the resume below starts another
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "more.json")); !strings.Contains(string(b), "Полагодь CI") {

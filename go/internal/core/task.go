@@ -88,6 +88,9 @@ type Record struct {
 	RetryNote   string `json:"retryNote,omitempty"`
 	LastAttempt string `json:"lastAttempt,omitempty"`
 	Model       string `json:"model,omitempty"` // "" — the configured one (or the estimate's, when the settings say)
+	// AgentModel: the model the agent last worked with: Claude Code's own name of it when its chat reported one,
+	// else the one Mako asked for ("opus"); "" unknown (the agent's default).
+	AgentModel string `json:"agentModel,omitempty"`
 	// PlanFirst: «план спочатку» picked on the card from the estimate: the agent starts with a plan.
 	PlanFirst bool    `json:"planFirst,omitempty"`
 	Cost      float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts

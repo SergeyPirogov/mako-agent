@@ -75,6 +75,9 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 	if m := modelFor(d.Config(), r); m != "" {
 		t.Model = m // picked for the task, or the estimate's advice
 	}
+	if t.Model != "" && !cont {
+		d.Store.Update(id, func(r *core.Record) { r.AgentModel = t.Model }) // the chat names it exactly once it starts
+	}
 	again := []string{"--continue"}
 	if orca.HasSession(worktree, r.SessionID) {
 		again = []string{"--resume", r.SessionID}
@@ -134,8 +137,13 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		OnState:  func() { d.watchTerminals(time.Now()) },
 		OnLimits: d.limitsReported,
 		// The task keeps its session: a later resume goes on with exactly this conversation.
-		OnSession: func(sid string) {
-			d.Store.Update(id, func(r *core.Record) { r.SessionID = sid })
+		OnSession: func(sid, model string) {
+			d.Store.Update(id, func(r *core.Record) {
+				r.SessionID = sid
+				if model != "" {
+					r.AgentModel = model
+				}
+			})
 		},
 		OnCost: func(usd float64) {
 			d.Store.Update(id, func(r *core.Record) { r.Cost += usd })

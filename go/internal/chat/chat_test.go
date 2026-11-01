@@ -45,7 +45,7 @@ func TestChat(t *testing.T) {
 	var session string
 	var cost float64
 	s := Start(Options{ID: "a#1", Worktree: dir, Command: bin, Setup: "echo prepared", Prompt: "Зроби задачу",
-		OnLimits: func(l Limits) { limits = l }, OnSession: func(id string) { session = id }, OnCost: func(usd float64) { cost += usd }})
+		OnLimits: func(l Limits) { limits = l }, OnSession: func(id, _ string) { session = id }, OnCost: func(usd float64) { cost += usd }})
 	defer s.Stop()
 	wait := func(state string) {
 		t.Helper()

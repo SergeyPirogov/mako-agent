@@ -78,7 +78,7 @@ type Options struct {
 	History      string // a Claude Code transcript: the conversation so far, shown before it continues
 	OnState      func()
 	OnLimits     func(Limits)
-	OnSession    func(sessionID string)
+	OnSession    func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
 	// OnCost: what a turn cost (USD), so the task can add up its budget.
 	OnCost func(usd float64)
 	// Tools: when set, the only tools the agent may use; a request for any other is denied at once, nobody is
@@ -278,7 +278,7 @@ func (s *Session) handle(line []byte) {
 			s.version++
 			s.mu.Unlock()
 			if s.o.OnSession != nil {
-				s.o.OnSession(e.SessionID)
+				s.o.OnSession(e.SessionID, e.Model)
 			}
 		}
 	case "assistant":

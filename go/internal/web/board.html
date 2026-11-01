@@ -1723,9 +1723,10 @@ function statsHTML(s) {
     ${clarityHTML(s)}
     ${groupsHTML("За проєктами", s.projects, "Проєкт")}
     ${groupsHTML("За агентами", s.executors, "Агент", (n) => n === "terminal" ? "Агент у Mako" : n === "—" ? "—" : `Orca · ${n}`)}
+    ${groupsHTML("За моделями", s.models, "Модель", (n) => n === "—" ? "Невідома" : n[0].toUpperCase() + n.slice(1), 1)}
     <h3>Причини невдач</h3>
     ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
-    <p class="stats-note">Час — від передачі агенту до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє.</p>
+    <p class="stats-note">Час — від передачі агенту до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
   </div>`;
 }
 
@@ -1767,8 +1768,9 @@ function bindFaults() {
 }
 
 // One row per project or agent: how its tasks went. Hidden while there is only one.
-function groupsHTML(title, groups, col, name = (n) => n) {
-  if (!groups || groups.length < 2) return "";
+// min: the fewest groups worth a table; a known model is worth one even alone.
+function groupsHTML(title, groups, col, name = (n) => n, min = 2) {
+  if (!groups || groups.length < min || groups.every((g) => g.name === "—")) return "";
   const rated = groups.some((g) => g.assessed);
   const row = (g) => `<tr><td>${esc(name(g.name))}</td><td>${g.taken}</td><td>${g.succeeded}</td><td>${g.failed}</td><td>${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td><td>${g.cost ? `$${g.cost.toFixed(2)}` : "—"}</td>${rated ? `<td>${g.assessed ? `${g.clarity.toFixed(1)}/5` : "—"}</td>` : ""}</tr>`;
   return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Взято</th><th>Успішно</th><th>Не успішно</th><th>Успіх</th><th>Витрачено</th>${rated ? `<th title="Як добре описано задачі, за оцінкою агента">Опис</th>` : ""}</tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
