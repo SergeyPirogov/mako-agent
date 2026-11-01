@@ -180,6 +180,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 				}
 				r.AddSpend(phase, usd, tokens)
 			})
+			d.recordContext(id)
 		},
 	}))
 	return nil

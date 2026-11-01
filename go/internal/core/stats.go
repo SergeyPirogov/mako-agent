@@ -65,6 +65,8 @@ type Stats struct {
 	// per merged task.
 	CIFixes     float64 `json:"ciFixes"`
 	ReviewFixes float64 `json:"reviewFixes"`
+	// Context: how the agents' context filled, by phase.
+	Context ContextStats `json:"context"`
 }
 
 // Day is how the tasks taken on one day went.
@@ -162,6 +164,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 	reviewed := 0
 	weekAgo := now.Add(-7 * 24 * time.Hour)
 	days := trend(now, since)
+	ctxs := newContextStats()
 	for _, r := range records {
 		if r.StartedAt == "" && r.Status != Failed {
 			continue
@@ -208,6 +211,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 				st.PhaseTokens[phase] += n
 			}
 		}
+		ctxs.add(r)
 		if a := r.Assessment; a != nil && a.State == "done" {
 			st.Assessed++
 			st.Clarity += float64(a.Clarity.Value)
@@ -292,6 +296,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		st.MedianSeconds = median(took)
 	}
 	st.LeadSeconds = median(lead)
+	st.Context = ctxs.done()
 	if st.Merged > 0 {
 		st.CIFixes /= float64(st.Merged)
 		st.ReviewFixes /= float64(st.Merged)

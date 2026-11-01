@@ -236,6 +236,7 @@ func (d *Dispatcher) Wake() {
 
 // Run polls until ctx ends: trackers every PollIntervalSec, merge requests every minute.
 func (d *Dispatcher) Run(ctx context.Context) {
+	go d.backfillContext(ctx)
 	// The agents in Orca are watched more often than the trackers: a question should not wait a minute.
 	go func() {
 		tick := time.NewTicker(10 * time.Second)
@@ -885,6 +886,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 			d.reviews[r.ID] = reviewLook{at: time.Now(), check: ci}
 			d.mu.Unlock()
 		}
+		d.recordContext(r.ID) // an agent in Orca or a terminal tells its context only in its transcript
 		d.summarize(ctx, r, repo.BaseBranch, review.URL)
 		if d.startAssess(r.ID) == nil {
 			d.assess(ctx, r.ID)

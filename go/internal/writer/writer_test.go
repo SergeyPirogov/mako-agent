@@ -93,10 +93,27 @@ func TestParseResult(t *testing.T) {
 	}
 	var got Spend
 	ctx := WithSpend(context.Background(), func(s Spend) { got = s })
-	if answer(ctx, out) != "LGTM" || got != spend {
+	if answer(ctx, out) != "LGTM" || got.USD != spend.USD || got.Tokens != spend.Tokens {
 		t.Fatalf("spend %+v", got)
 	}
 	if answer(ctx, []byte("plain")) != "plain" {
 		t.Fatal("plain text lost")
+	}
+}
+
+func TestParseStreamResult(t *testing.T) {
+	out := []byte(`{"type":"system","subtype":"init","session_id":"s-9"}
+{"type":"assistant","parent_tool_use_id":null,"message":{"id":"m1","usage":{"input_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":15000,"output_tokens":30},"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"x.go"}}]}}
+{"type":"user","parent_tool_use_id":null,"message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"package x"}]}}
+{"type":"assistant","parent_tool_use_id":null,"message":{"id":"m2","usage":{"input_tokens":5,"cache_read_input_tokens":15000,"cache_creation_input_tokens":500,"output_tokens":40},"content":[{"type":"text","text":"Добре"}]}}
+{"type":"result","subtype":"success","result":"Добре","total_cost_usd":0.05,"usage":{"input_tokens":10,"output_tokens":70,"cache_read_input_tokens":15000,"cache_creation_input_tokens":15500},"modelUsage":{"claude-sonnet-5-5":{"contextWindow":1000000}}}
+`)
+	text, spend, ok := ParseResult(out)
+	if !ok || text != "Добре" || spend.USD != 0.05 || spend.Tokens != 30580 || len(spend.Context) != 1 {
+		t.Fatalf("%q %+v %v", text, spend, ok)
+	}
+	c := spend.Context[0]
+	if c.Session != "s-9" || c.Start != 15005 || c.Peak != 15505 || c.Window != 1_000_000 || c.Calls != 2 || c.Tools["Read"] != 470 {
+		t.Fatalf("%+v", c)
 	}
 }

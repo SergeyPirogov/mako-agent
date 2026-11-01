@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/contextstat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 )
@@ -64,11 +65,17 @@ var (
 	fences      = regexp.MustCompile("^```\\w*\\n?|```\\s*$")
 )
 
-// Spend is what one call of Claude Code cost: USD and the tokens it read and wrote (cache included).
+// Spend is what one call of Claude Code cost: USD and the tokens it read and wrote (cache included), and how its
+// context filled, from the usage of each model call.
 type Spend struct {
-	USD    float64
-	Tokens int
+	USD     float64
+	Tokens  int
+	Context []core.ContextRun
 }
+
+// streamArgs: Claude Code prints each message as it goes (each model call's usage with it) and the result last,
+// and keeps no transcript: a call of Mako's is no session to go on, nor the worktree's latest one.
+var streamArgs = []string{"--output-format", "stream-json", "--verbose", "--no-session-persistence"}
 
 type spendKey struct{}
 
@@ -77,7 +84,7 @@ func WithSpend(ctx context.Context, f func(Spend)) context.Context {
 	return context.WithValue(ctx, spendKey{}, f)
 }
 
-// answer: the text of `claude -p --output-format json`'s result, telling its spend to the context's WithSpend;
+// answer: the text of `claude -p`'s result, telling its spend to the context's WithSpend;
 // output that is not that JSON is the text itself.
 func answer(ctx context.Context, out []byte) string {
 	text, spend, ok := ParseResult(out)
@@ -90,7 +97,8 @@ func answer(ctx context.Context, out []byte) string {
 	return text
 }
 
-// ParseResult reads the result `claude -p --output-format json` prints: its text and what it cost.
+// ParseResult reads the result `claude -p` prints, its last line with --output-format stream-json: its text and
+// what it cost; the stream's model calls tell how the context filled.
 func ParseResult(out []byte) (text string, spend Spend, ok bool) {
 	var r struct {
 		Type   string  `json:"type"`
@@ -103,11 +111,27 @@ func ParseResult(out []byte) (text string, spend Spend, ok bool) {
 			CacheCreate int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	}
-	if json.Unmarshal(bytes.TrimSpace(out), &r) != nil || r.Type != "result" || r.Result == nil {
+	lines := bytes.Split(bytes.TrimSpace(out), []byte("\n"))
+	found := false
+	for i := len(lines) - 1; i >= 0 && !found; i-- {
+		r.Type, r.Result = "", nil
+		found = json.Unmarshal(bytes.TrimSpace(lines[i]), &r) == nil && r.Type == "result" && r.Result != nil
+	}
+	if !found {
 		return "", Spend{}, false
 	}
 	u := r.Usage
-	return *r.Result, Spend{USD: r.Cost, Tokens: u.Input + u.Output + u.CacheRead + u.CacheCreate}, true
+	spend = Spend{USD: r.Cost, Tokens: u.Input + u.Output + u.CacheRead + u.CacheCreate}
+	if len(lines) > 1 {
+		res := contextstat.Analyze(bytes.NewReader(out), "")
+		for _, run := range res.Runs {
+			if run.Window = res.Window; run.Window == 0 {
+				run.Window = core.ContextWindow("", run.Peak)
+			}
+			spend.Context = append(spend.Context, run)
+		}
+	}
+	return *r.Result, spend, true
 }
 
 // Ask runs `claude -p --model haiku` with the prompt on stdin, for up to two minutes.
@@ -123,7 +147,7 @@ func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Durat
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "-p", "--model", model, "--output-format", "json")
+	cmd := exec.CommandContext(ctx, path, append([]string{"-p", "--model", model}, streamArgs...)...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr strings.Builder
@@ -294,8 +318,8 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
-	args := []string{"-p", "--output-format", "json", "--no-session-persistence", "--permission-mode", "default",
-		"--disallowedTools", "Edit", "Write", "NotebookEdit", "--allowedTools"}
+	args := append([]string{"-p"}, streamArgs...)
+	args = append(args, "--permission-mode", "default", "--disallowedTools", "Edit", "Write", "NotebookEdit", "--allowedTools")
 	args = append(args, ReviewerTools...)
 	if model != "" {
 		args = append(args, "--model", model)
