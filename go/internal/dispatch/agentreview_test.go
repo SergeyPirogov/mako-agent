@@ -86,7 +86,7 @@ done
 	if err := d.runAgent(id, wt, "chat", "Зроби задачу", false, ""); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { d.StopTerminal(id); d.Chats.Get(id).Wait(); settle(t, d, id) })
+	t.Cleanup(func() { d.StopTerminal(id); d.Chats.Get(id).Wait(); settle(t, d) })
 	idle = func() {
 		t.Helper()
 		waitFor(t, func() bool { return d.agentIdle(id) }, "the agent did not end its turn")
@@ -225,10 +225,21 @@ func TestAgentReviewByRisk(t *testing.T) {
 		t.Fatalf("calls %d reviews %+v", calls.Load(), r.AgentReviews)
 	}
 
-	// From the board's button: it runs whatever the risk, in place of the skipped round.
+	// From the board's button: it runs whatever the risk, in place of the skipped round; pressed while another
+	// call holds the task, it waits for it, not lost.
+	d.mu.Lock()
+	d.reviewing[id] = true
+	d.mu.Unlock()
 	if err := d.ReviewNow(id); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(300 * time.Millisecond) // the button's review waits meanwhile
+	if calls.Load() != 0 {
+		t.Fatal("the button ran beside another review")
+	}
+	d.mu.Lock()
+	delete(d.reviewing, id)
+	d.mu.Unlock()
 	waitFor(t, func() bool { r, _ = d.Store.Get(id); return r.AgentReviews[0].State == "clean" }, "the review from the button did not end")
 	if calls.Load() != 1 || len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "clean" {
 		t.Fatalf("calls %d reviews %+v after the button", calls.Load(), r.AgentReviews)

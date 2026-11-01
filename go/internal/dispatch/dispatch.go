@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
@@ -91,7 +92,9 @@ type Dispatcher struct {
 	reviewsEvery time.Duration
 	// checking: the tasks whose checks before the MR run now.
 	checking map[string]bool
-	wake     chan struct{}
+	// afterTurn: the reviewers and checks started in the background and not over yet (see inBackground).
+	afterTurn atomic.Int64
+	wake      chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
@@ -688,9 +691,19 @@ func remoteHost(remote string) string {
 func (d *Dispatcher) CheckGates() {
 	for _, r := range d.Store.All() {
 		if d.checksFor(r) != nil && d.agentIdle(r.ID) {
-			go d.maybeCheck(r.ID)
+			d.inBackground(func() { d.maybeCheck(r.ID) })
 		}
 	}
+}
+
+// inBackground runs a reviewer or the checks in a goroutine, counted from before it starts: the tests wait for
+// them to be over.
+func (d *Dispatcher) inBackground(f func()) {
+	d.afterTurn.Add(1)
+	go func() {
+		defer d.afterTurn.Add(-1)
+		f()
+	}()
 }
 
 // CheckHandoffs: a task in Orca is done on Mako's side once an MR from its branch exists. The issue moves to
@@ -769,7 +782,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 			d.assess(ctx, r.ID)
 		}
 		if rec, _ := d.Store.Get(r.ID); d.reviewWanted(rec) {
-			go d.maybeReview(r.ID)
+			d.inBackground(func() { d.maybeReview(r.ID) })
 		}
 		if !onTerminal(r) {
 			orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, branch, "in-review")

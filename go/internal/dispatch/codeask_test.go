@@ -23,31 +23,30 @@ func waitFor(t *testing.T, ok func() bool, why string) {
 	}
 }
 
-// settle waits for the task's reviewer and checks to end, the ones the agent's turn started in the background too.
-func settle(t *testing.T, d *Dispatcher, id string) {
+// settle waits for the reviewers and checks started in the background (the agent's turn, a poll, the button)
+// to be over: they are counted before their goroutine starts. Not seen: one the chat's OnState is about to
+// start right after the turn ends; it reads the record once it holds the task, so it finds this commit
+// reviewed or checked and does nothing.
+func settle(t *testing.T, d *Dispatcher) {
 	t.Helper()
-	waitFor(t, func() bool {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		return !d.reviewing[id] && !d.checking[id]
-	}, "the reviewer or the checks did not end")
+	waitFor(t, func() bool { return d.afterTurn.Load() == 0 }, "the reviewer or the checks did not end")
 }
 
 // reviewNow is maybeReview from the test, after and with the one the agent's turn may have started: whichever
 // runs it, the round is over when it returns.
 func reviewNow(t *testing.T, d *Dispatcher, id string) {
 	t.Helper()
-	settle(t, d, id)
+	settle(t, d)
 	d.maybeReview(id)
-	settle(t, d, id)
+	settle(t, d)
 }
 
 // checkNow is reviewNow for the checks.
 func checkNow(t *testing.T, d *Dispatcher, id string) {
 	t.Helper()
-	settle(t, d, id)
+	settle(t, d)
 	d.maybeCheck(id)
-	settle(t, d, id)
+	settle(t, d)
 }
 
 // setConfig changes the settings as Mako's reload does, in a copy: the agent's goroutines read the old ones.

@@ -61,7 +61,11 @@ func gateChecks(cfg *config.Config, repo *config.Repo) []string {
 // maybeCheck runs the checks over the agent's branch when they are due: its turn is over, the work is committed
 // and this commit was not checked yet. Passed checks open the MR.
 func (d *Dispatcher) maybeCheck(id string) {
-	// One at a time, and the record read after the one before ends: not a run on what it has replaced.
+	// Only a call with checks to run holds the task.
+	if r, ok := d.Store.Get(id); !ok || d.checksFor(r) == nil || !exists(r.Worktree) || !d.agentIdle(id) {
+		return
+	}
+	// One at a time, and the record read again after the one before ends: not a run on what it has replaced.
 	d.mu.Lock()
 	if d.checking[id] {
 		d.mu.Unlock()

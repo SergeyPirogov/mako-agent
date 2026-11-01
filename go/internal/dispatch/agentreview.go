@@ -122,7 +122,7 @@ func (d *Dispatcher) ReviewNow(id string) error {
 	if !d.agentIdle(id) {
 		return errors.New("агент ще працює: рецензент прочитає гілку, коли він закінчить")
 	}
-	go d.review(id, true)
+	d.inBackground(func() { d.review(id, true) })
 	return nil
 }
 
@@ -132,21 +132,37 @@ func (d *Dispatcher) maybeReview(id string) { d.review(id, false) }
 
 // review runs the reviewer when it is due; manual: you asked for it, whatever the task's risk.
 func (d *Dispatcher) review(id string, manual bool) {
-	// One at a time, and the record read after the one before ends: not a round on what it has replaced.
-	d.mu.Lock()
-	if d.reviewing[id] {
-		d.mu.Unlock()
+	reviewable := func() (core.Record, bool) {
+		r, ok := d.Store.Get(id)
+		return r, ok && d.reviewWanted(r) && exists(r.Worktree) && d.agentIdle(id)
+	}
+	// Only a call with a review to do holds the task (autofix and autorebase wait while it does).
+	if _, ok := reviewable(); !ok {
 		return
 	}
-	d.reviewing[id] = true
-	d.mu.Unlock()
+	// One at a time. Yours waits for the one running: the button must not be lost; the agent's turn starts
+	// another call anyway.
+	for {
+		d.mu.Lock()
+		if !d.reviewing[id] {
+			d.reviewing[id] = true
+			d.mu.Unlock()
+			break
+		}
+		d.mu.Unlock()
+		if !manual {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	defer func() {
 		d.mu.Lock()
 		delete(d.reviewing, id)
 		d.mu.Unlock()
 	}()
-	r, ok := d.Store.Get(id)
-	if !ok || !d.reviewWanted(r) || !exists(r.Worktree) || !d.agentIdle(id) {
+	// Read again: the one before may have reviewed this commit.
+	r, ok := reviewable()
+	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)

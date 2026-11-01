@@ -465,11 +465,11 @@ func (d *Dispatcher) watchTerminals(now time.Time) {
 		}
 		// A turn that ended with the branch ready (or the fixes of the reviewer's remarks) is for the reviewer.
 		if d.reviewWanted(r) && d.agentIdle(r.ID) {
-			go d.maybeReview(r.ID)
+			d.inBackground(func() { d.maybeReview(r.ID) })
 		}
 		// A turn that ended with the work committed is for the checks before the MR.
 		if d.checksFor(r) != nil && d.agentIdle(r.ID) {
-			go d.maybeCheck(r.ID)
+			d.inBackground(func() { d.maybeCheck(r.ID) })
 		}
 	}
 }
