@@ -3,6 +3,7 @@ package trackers
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"os/exec"
@@ -270,6 +271,10 @@ func (g *GitHub) Move(ctx context.Context, t core.Task, moment string) (string, 
 	err := g.do(ctx, "PATCH", ghIssuePath(t), map[string]any{"state": "closed"}, nil)
 	// The merge closes the issue by itself when the MR says «Closes #N»: GitHub may do it between our look and
 	// our PATCH and answer 422 «closed by another request».
+	var he *HTTPError
+	if errors.As(err, &he) && he.Status == 422 && strings.Contains(he.Body, "closed by another request") {
+		return "", nil
+	}
 	if isStatus(err, 422) {
 		if st, e := g.IssueState(ctx, t); e == nil && st != "open" {
 			return "", nil

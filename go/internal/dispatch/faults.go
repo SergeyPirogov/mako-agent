@@ -48,12 +48,13 @@ func faultKey(what, msg string) string {
 	return what + "\x00" + faultDigits.ReplaceAllString(clipText(msg, 200), "#")
 }
 
-// Fault journals a failed step as before and keeps it among Mako's errors.
+// Fault journals a failed step and keeps it among Mako's errors. A failure of the network or the service, or
+// of a setting (an unknown assignee), is only journaled: there is nothing in Mako for an agent to fix.
 func (d *Dispatcher) Fault(id, what string, err error) {
 	msg := strings.TrimSpace(err.Error())
 	d.Log(id, what+": "+msg)
-	if transientErr(err) {
-		return // the network, the VPN or the service, not Mako: nothing for an agent to fix
+	if transientErr(err) || badAssignee(err) {
+		return
 	}
 	d.faultsMu.Lock()
 	defer d.faultsMu.Unlock()
@@ -147,7 +148,7 @@ func (d *Dispatcher) ReportFaults(ctx context.Context) (string, error) {
 func (d *Dispatcher) faultTarget(ctx context.Context) (string, string, error) {
 	host, project := "github.com", strings.ToLower(strings.TrimPrefix(MakoRepo, "github.com/"))
 	if d.Source != "" {
-		if origin := gitx.OriginURL(ctx, d.Source); gitx.RemoteProject(origin) != "" {
+		if origin, _ := gitx.OriginURL(ctx, d.Source); gitx.RemoteProject(origin) != "" {
 			host, project = remoteHost(origin), gitx.RemoteProject(origin)
 		}
 	}

@@ -738,7 +738,10 @@ func (d *Dispatcher) move(ctx context.Context, t trackers.Tracker, task core.Tas
 // host: where the MRs of a repo live. The tracker itself for GitLab and GitHub on the same host; otherwise a
 // client for the origin's host with GITLAB_TOKEN / GITHUB_TOKEN (Jira tasks).
 func (d *Dispatcher) host(ctx context.Context, t trackers.Tracker, repo *config.Repo) (trackers.CodeHost, string, error) {
-	origin := gitx.OriginURL(ctx, repo.Path)
+	origin, err := gitx.OriginURL(ctx, repo.Path)
+	if err != nil {
+		return nil, "", err
+	}
 	project := gitx.RemoteProject(origin)
 	if project == "" {
 		return nil, "", fmt.Errorf("не розібрати origin репозиторію %s: %q", repo.Path, origin)
@@ -758,7 +761,6 @@ func (d *Dispatcher) host(ctx context.Context, t trackers.Tracker, repo *config.
 		return ch, project, nil
 	}
 	var ch trackers.CodeHost
-	var err error
 	if strings.Contains(h, "github") {
 		cfg := &config.Tracker{Type: "github", ID: "github@" + h}
 		if h != "github.com" {

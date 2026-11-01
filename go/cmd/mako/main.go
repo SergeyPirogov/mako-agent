@@ -299,7 +299,7 @@ func findHome(flagValue string) string {
 
 // reportToMako opens an issue in Mako's own repository (origin of its clone), through the tracker of that host.
 func reportToMako(ctx context.Context, d *dispatch.Dispatcher, src, title, body string) (string, error) {
-	origin := gitx.OriginURL(ctx, src)
+	origin, _ := gitx.OriginURL(ctx, src)
 	project := gitx.RemoteProject(origin)
 	for _, t := range d.TrackerList() {
 		c, ok := t.(trackers.Creator)
