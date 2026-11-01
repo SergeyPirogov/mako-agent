@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/contextstat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -107,6 +108,19 @@ func (d *Dispatcher) recordContextLater(id string) {
 			d.ctxMu.Unlock()
 		}
 	}()
+}
+
+// WaitContexts blocks until no background read of a context is running (tests: it writes to the state dir).
+func (d *Dispatcher) WaitContexts() {
+	for {
+		d.ctxMu.Lock()
+		n := len(d.contexts)
+		d.ctxMu.Unlock()
+		if n == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // notePrompt keeps the size of the prompt the task's agent is started with.
