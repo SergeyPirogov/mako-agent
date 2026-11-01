@@ -230,3 +230,18 @@ func TestSummarizeFlow(t *testing.T) {
 		t.Fatalf("week %+v", week.Days)
 	}
 }
+
+// A cancel from the board is written as "Cancelled" now, "Скасовано" in older records; both count as cancelled, not failed.
+func TestSummarizeCancelledBothSpellings(t *testing.T) {
+	app := Task{Project: "g/app"}
+	st := Summarize([]Record{
+		{Status: Cancelled, Task: app, Executor: "mako", StartedAt: "2026-10-02T10:00:00Z", Error: "Cancelled"},
+		{Status: Cancelled, Task: app, Executor: "mako", StartedAt: "2026-10-02T11:00:00Z", Error: "Скасовано"},
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	if st.Cancelled != 2 {
+		t.Fatalf("cancelled %d", st.Cancelled)
+	}
+	if len(st.Reasons) != 1 || st.Reasons[0] != (Reason{"Cancelled", 2}) {
+		t.Fatalf("reasons %+v", st.Reasons)
+	}
+}

@@ -136,7 +136,7 @@ func (d *Dispatcher) replyToReview(id string, threads []trackers.Thread) {
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "The reviewer left comments on MR %s. The agent sees them and is fixing them", r.PRURL)
+	fmt.Fprintf(&b, i18n.TA("comment.reviewSeen"), r.PRURL)
 	if len(threads) == 0 {
 		b.WriteString(".")
 	} else {
