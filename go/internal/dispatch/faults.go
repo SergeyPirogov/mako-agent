@@ -197,10 +197,20 @@ func plural(n int, one, few, many string) string {
 	return many
 }
 
-func (d *Dispatcher) faultsFile() string { return filepath.Join(d.Config().StateDir, "errors.json") }
+// faultsFile: errors.json in the state folder; "" without one (a test's Mako), so it never lands in the
+// current folder, a package of the repository.
+func (d *Dispatcher) faultsFile() string {
+	if d.Config().StateDir == "" {
+		return ""
+	}
+	return filepath.Join(d.Config().StateDir, "errors.json")
+}
 
 func (d *Dispatcher) readFaults() []Fault {
 	all := []Fault{}
+	if d.faultsFile() == "" {
+		return all
+	}
 	if b, err := os.ReadFile(d.faultsFile()); err == nil {
 		json.Unmarshal(b, &all)
 	}
@@ -208,6 +218,9 @@ func (d *Dispatcher) readFaults() []Fault {
 }
 
 func (d *Dispatcher) writeFaults(all []Fault) error {
+	if d.faultsFile() == "" {
+		return nil
+	}
 	b, _ := json.MarshalIndent(all, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(d.faultsFile()), 0o755); err != nil {
 		return err

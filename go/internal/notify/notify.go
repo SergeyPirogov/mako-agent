@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"testing"
 )
 
 // Enabled turns the Mac's notifications off for tests and when the config says so.
@@ -72,7 +73,8 @@ func Show(n Notice) {
 	if Remote != nil {
 		go Remote(n)
 	}
-	if !Enabled {
+	// A test's notification never reaches the screen, whatever the test forgot to turn off.
+	if !Enabled || testing.Testing() {
 		return
 	}
 	title, message, url := n.Title, n.Message, n.URL
@@ -116,7 +118,7 @@ func Withdraw(tag string) {
 	if RemoteWithdraw != nil {
 		go RemoteWithdraw(tag)
 	}
-	if !Enabled || runtime.GOOS != "darwin" {
+	if !Enabled || testing.Testing() || runtime.GOOS != "darwin" {
 		return
 	}
 	if NativeWithdraw != nil {
