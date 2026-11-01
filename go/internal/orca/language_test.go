@@ -16,7 +16,7 @@ func TestLanguageInPrompt(t *testing.T) {
 	for lang, want := range map[string]string{i18n.EN: "in English", i18n.UK: "in Ukrainian"} {
 		i18n.SetLang(lang)
 		p := FullPrompt(j, config.Orca{})
-		if !strings.Contains(p, "## Language") || !strings.Contains(p, want) || !strings.Contains(p, "written in Russian") {
+		if !strings.Contains(p, "## Language") || !strings.Contains(p, want) || !strings.Contains(p, "written in Russian") || !strings.Contains(p, "section headings named in English below") {
 			t.Errorf("%s: no language note in\n%s", lang, p)
 		}
 		if strings.Index(p, "## Language") > strings.Index(p, "Finish with a merge request") {

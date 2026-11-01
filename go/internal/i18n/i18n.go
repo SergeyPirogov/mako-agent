@@ -102,8 +102,8 @@ func Plural(n int, one, few, many string) string {
 	return many
 }
 
-// IsRussian says the text is written in Russian: it has the letters Ukrainian lacks (ы, э, ъ, ё) and none of
-// the ones Russian lacks (і, ї, є, ґ), or far more of the first. A word or two quoted in a Ukrainian or English
+// IsRussian says the text is written in Russian: it has none of the letters Russian lacks (і, ї, є, ґ) while
+// having the ones Ukrainian lacks (ы, э, ъ, ё) or being long enough to tell, or far more of the first. A word or two quoted in a Ukrainian or English
 // task does not count, nor does a text too short to tell or one mostly in Latin letters.
 func IsRussian(text string) bool {
 	russian, ukrainian, cyrillic, letters := 0, 0, 0, 0
@@ -124,7 +124,8 @@ func IsRussian(text string) bool {
 	if cyrillic < 20 || cyrillic*2 < letters { // too short to tell, or mostly not Cyrillic: an English task
 		return false
 	}
-	return russian >= 1 && ukrainian == 0 || russian >= 3 && russian > 2*ukrainian
+	// Ukrainian of 40 Cyrillic letters or more practically always has і, ї or є: without them it is Russian.
+	return ukrainian == 0 && (russian >= 1 || cyrillic >= 40) || russian >= 3 && russian > 2*ukrainian
 }
 
 // AgentNote: what every agent is told about the language it writes in — the replies, comments, commits and
@@ -133,7 +134,8 @@ func AgentNote(lang string) string {
 	name := EnglishName(lang)
 	return "## Language\n" +
 		"Write everything people read in " + name + ": your replies, questions, comments, commit messages, and the merge\n" +
-		"request's title and description (its section headings too). Code, identifiers and commands stay as they are.\n" +
+		"request's title and description. The section headings named in English below (## What changed and the like)\n" +
+		"are written in " + name + " too. Code, identifiers and commands stay as they are.\n" +
 		"If the task is written in Russian, do not work on it and change nothing: reply, in " + name + ", that it has to be\n" +
 		"rewritten in English or Ukrainian, and stop."
 }

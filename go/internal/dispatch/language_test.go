@@ -32,6 +32,10 @@ func TestRussianTaskRefused(t *testing.T) {
 	if len(f.statusSet) != 0 {
 		t.Fatalf("the tracker's status changed: %v", f.statusSet)
 	}
+	// Refused before the start: nothing cloned, no attempt recorded.
+	if r.StartedAt != "" || r.BranchName != "" || r.Attempt != 0 {
+		t.Fatalf("an attempt recorded: %+v", r)
+	}
 }
 
 // A Ukrainian task quoting Russian, or an English one naming a Russian button, still goes to the agent.

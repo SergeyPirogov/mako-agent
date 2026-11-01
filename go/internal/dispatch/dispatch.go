@@ -631,6 +631,16 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	logf := func(s string) { d.Log(id, s) }
 	d.startPlan(id, executor, repo.BaseBranch, executor == terminalExecutor && setupOf(repo, d.Config().Terminal, repo.Path) != "")
+	// The task as it is now, before anything is cloned or recorded: one written in Russian goes no further.
+	d.step(id, "tracker", "оновлюю задачу в трекері")
+	if task, ok := d.refresh(ctx, t, id); ok {
+		r.Task = task
+	}
+	if i18n.IsRussian(r.Task.Title + "\n" + r.Task.Description) {
+		d.endSteps(id)
+		d.refuseRussian(ctx, t, id, r.Task)
+		return
+	}
 	if !exists(filepath.Join(repo.Path, ".git")) {
 		d.step(id, "clone", "клоную репозиторій")
 	}
@@ -650,15 +660,6 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		r.AgentModel = "" // this attempt's agent names its own
 	})
 
-	d.step(id, "tracker", "оновлюю задачу в трекері")
-	if task, ok := d.refresh(ctx, t, id); ok {
-		r.Task = task
-	}
-	if i18n.IsRussian(r.Task.Title + "\n" + r.Task.Description) {
-		d.endSteps(id)
-		d.refuseRussian(ctx, t, id, r.Task)
-		return
-	}
 	if t.Config().AssignOnTake {
 		if me, _ := t.Me(ctx); me == "" || !contains(r.Task.Assignees, me) {
 			if err := t.AssignToMe(ctx, r.Task); err != nil {

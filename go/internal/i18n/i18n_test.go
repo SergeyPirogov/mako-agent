@@ -80,6 +80,8 @@ func TestIsRussian(t *testing.T) {
 		"The payment button does not work when clicked": false,
 		"The «Купить сыр» button on the Russian page does nothing: «Выбрать товар» neither, nor «Отмена»": false,
 		"Помилка в логах: «Объект не найден» — треба розібратися, звідки вона береться і що її викликає":  false,
+		"Сделать авторизацию через гугл для админки, добавить кнопку на страницу логина":                  true,
+		"Зробити авторизацію через гугл для адмінки, додати кнопку на сторінку логіна":                    false,
 		"":   false,
 		"ёы": false, // too short to tell
 	}
