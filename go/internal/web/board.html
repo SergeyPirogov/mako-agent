@@ -27,6 +27,7 @@
   <button class="icon-btn" id="code-btn" data-t-title="b.code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></button>
   <button class="icon-btn" id="stats-btn" data-t-title="b.stats"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button class="ghost" id="bell" hidden data-t-title="b.bell">🔔</button>
+  <button class="icon-btn" id="report-bug" data-t-title="b.reportBug"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8a4 4 0 0 1 8 0v7a4 4 0 0 1-8 0z"/><path d="M12 11v8M4 13h4M16 13h4M5 7l3 2M19 7l-3 2M5 19l3-2M19 19l-3-2"/></svg></button>
   <a class="icon-btn" id="settings-link" href="/settings" data-t-title="s.title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
   <button class="ghost" id="theme"></button>
 </header>
@@ -1695,6 +1696,51 @@ function showNewTask() {
   };
 }
 
+// "Report a bug": a form that opens an issue about Mako itself in its GitHub repository.
+$("report-bug").onclick = () => {
+  selected = null; statsOpen = false; newOpen = "bug"; digest = null;
+  history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+  $("bug-title")?.focus();
+};
+
+function showBug() {
+  $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button>
+    <form class="new-form nt-form" id="bug-form">
+      <div class="nt-head">
+        <h1>Report a bug in Mako</h1>
+        <p>It becomes an issue in the Mako repository on GitHub, under your GitHub account.</p>
+      </div>
+      <div class="nt-card">
+        <label>Title<input id="bug-title" required maxlength="250" autocomplete="off" placeholder="Briefly: what is broken"></label>
+        <label>Description<textarea id="bug-desc" rows="10" required placeholder="What you did, what you expected, and what happened instead."></textarea>
+          <span class="nt-hint">Markdown</span></label>
+        <div class="nt-error" id="bug-error" hidden></div>
+        <div class="notice" id="bug-done" hidden></div>
+      </div>
+      <div class="nt-foot">
+        <span></span>
+        <div class="nt-actions"><button type="button" id="bug-cancel">Cancel</button><button type="submit" class="primary" id="bug-submit">Report</button></div>
+      </div>
+    </form>`;
+  $("back").onclick = $("bug-cancel").onclick = () => { newOpen = false; render(); };
+  const fail = (msg) => { $("bug-error").textContent = msg; $("bug-error").hidden = !msg; };
+  $("bug-form").onsubmit = async (e) => {
+    e.preventDefault();
+    fail("");
+    $("bug-submit").disabled = true; $("bug-submit").textContent = "Reporting…";
+    const res = await fetch("/api/report-bug", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: $("bug-title").value, description: $("bug-desc").value }) })
+      .then((r) => r.json()).catch((err) => ({ error: err.message }));
+    if (!res.ok) {
+      $("bug-submit").disabled = false; $("bug-submit").textContent = "Report";
+      return fail(res.error || "Could not report the bug");
+    }
+    $("bug-form").querySelector(".nt-card").innerHTML = `<div class="notice">Thank you! The bug is reported: <a href="${esc(res.url)}" target="_blank" rel="noopener noreferrer">${esc(res.url)}</a></div>`;
+    $("bug-submit").hidden = true; $("bug-cancel").textContent = "Close";
+  };
+}
+
 // "Why is there no task?": a link to an issue; Mako checks it the way its search does and says what keeps it away.
 $("why-btn").onclick = () => {
   selected = null; statsOpen = false; newOpen = "why"; digest = null;
@@ -2477,7 +2523,7 @@ function renderDetail() {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     // The form keeps what is typed: the board re-renders every few seconds.
     if (newOpen === "code") { $("detail").classList.add("ws"); if (!$("code-ask")) showCode(); }
-    else if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (!$("new-form")) showNewTask();
+    else if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (newOpen === "bug") { if (!$("bug-form")) showBug(); } else if (!$("new-form")) showNewTask();
     return;
   }
   if (!r) {
@@ -3267,6 +3313,7 @@ const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
 else if (location.hash === "#code") newOpen = "code";
+else if (location.hash === "#bug") newOpen = "bug";
 // #stats: straight to "Stats".
 else if (location.hash === "#stats") statsOpen = true;
 // On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
@@ -3313,6 +3360,7 @@ function setupPhone() {
   phoneReady = true;
   document.body.classList.add("phone");
   $("settings-link").hidden = true;
+  $("report-bug").hidden = true; // opens an issue under the Mac's GitHub login: not from the phone
   $("awake").hidden = true; // the Mac's own sleep: its settings, not the phone's
   // The hint to install the app: once closed with «×», not shown again on this phone.
   const hintHidden = (() => { try { return localStorage.getItem("mako-hint-hidden") === "1"; } catch { return false; } })();

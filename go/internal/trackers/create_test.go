@@ -229,3 +229,26 @@ func TestGitHubMoveClosedMeanwhile(t *testing.T) {
 		t.Errorf("Move: %v", err)
 	}
 }
+
+// A bug report is an issue in the given repository: labelled bug, assigned to nobody, no trigger label.
+func TestGitHubReportBug(t *testing.T) {
+	var path string
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&got)
+		w.Write([]byte(`{"number":7,"html_url":"https://github.com/o/r/issues/7"}`))
+	}))
+	defer srv.Close()
+	g, _ := NewGitHub(&config.Tracker{ID: "gh", APIURL: srv.URL, Trigger: "claude-agent"}, "tok")
+	url, err := g.ReportBug(context.Background(), "o/r", "Crash", "steps")
+	if err != nil || url != "https://github.com/o/r/issues/7" {
+		t.Fatalf("%q %v", url, err)
+	}
+	if path != "/repos/o/r/issues" || got["title"] != "Crash" || got["body"] != "steps" {
+		t.Errorf("%s %v", path, got)
+	}
+	if l, _ := json.Marshal(got["labels"]); string(l) != `["bug"]` || got["assignees"] != nil {
+		t.Errorf("labels %s assignees %v", l, got["assignees"])
+	}
+}

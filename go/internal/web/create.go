@@ -41,6 +41,27 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, map[string]any{"ok": true, "id": id})
 	})
+	// «Report a bug»: an issue about Mako itself, in its own repository.
+	mux.HandleFunc("POST /api/report-bug", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) || remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var in struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "could not read the report: " + err.Error()})
+			return
+		}
+		url, err := s.D.ReportBug(context.WithoutCancel(r.Context()), in.Title, in.Description, s.Version)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "url": url})
+	})
 	// «Чому немає задачі?»: a link to an issue, and what of the search keeps it off the board.
 	mux.HandleFunc("POST /api/why", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {

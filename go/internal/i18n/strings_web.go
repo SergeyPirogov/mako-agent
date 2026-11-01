@@ -313,6 +313,7 @@ var webStrings = map[string]string{
 	"b.restart":          "Restart Mako when the agents end their turn",
 	"b.code":             "Ask about the code: an agent answers, reading the project's clone",
 	"b.stats":            "Statistics",
+	"b.reportBug":        "Report a bug in Mako",
 	"b.bell":             "Notifications on this phone",
 	"b.newTask":          "+ Task",
 	"b.why":              "Why is a task missing?",

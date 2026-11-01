@@ -390,6 +390,17 @@ func (g *GitHub) Create(ctx context.Context, n NewIssue) (core.Task, error) {
 	return g.toTask(n.Project, is), nil
 }
 
+// ReportBug opens an issue in repo on behalf of the signed-in user, not assigned and without the trigger
+// label: a bug report for the project's maintainers. It answers the issue's link.
+func (g *GitHub) ReportBug(ctx context.Context, repo, title, description string) (string, error) {
+	body := map[string]any{"title": title, "body": description, "labels": []string{"bug"}}
+	var is ghIssue
+	if err := g.do(ctx, "POST", "/repos/"+repo+"/issues", body, &is); err != nil {
+		return "", err
+	}
+	return is.HTMLURL, nil
+}
+
 // UploadRepo keeps the images pasted into new issues and the agents' screenshots: GitHub's API cannot attach
 // a file to an issue. One repository per owner (<owner>/mako-uploads), so the projects' own repositories
 // get no side branch that GitHub keeps offering to turn into a pull request.
