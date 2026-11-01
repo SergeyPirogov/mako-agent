@@ -1778,17 +1778,24 @@ function statsHTML(s) {
     return m < 60 ? `${m} хв` : m < 1440 ? `${Math.floor(m / 60)} год ${m % 60} хв` : `${Math.floor(m / 1440)} д ${Math.floor((m % 1440) / 60)} год`;
   };
   const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+  const share = (n, of) => of ? `${Math.round((n / of) * 100)}%` : "—";
+  const failedNote = s.cancelled ? `${pct(s.failed)}% · з них скасовано ${s.cancelled}` : `${pct(s.failed)}%`;
   return `<div class="stats">
     ${head}
-    <div class="stat-row">
+    <div class="stat-row main">
       ${tile("Взято задач", s.taken, s.running ? `${s.running} ще в роботі` : "")}
-      ${tile("Успішно", s.succeeded, `${pct(s.succeeded)}% · змерджено ${s.merged}${s.succeeded > s.merged ? ` · на рев'ю ${s.succeeded - s.merged}` : ""}`)}
-      ${tile("Не успішно", s.failed, `${pct(s.failed)}%`)}
-      ${tile("Середній час до MR", s.avgSeconds ? dur(s.avgSeconds) : "—", s.medianSeconds ? `медіана ${dur(s.medianSeconds)}` : "")}
+      ${tile("Змерджено", s.merged, `${pct(s.merged)}%${s.succeeded > s.merged ? ` · на рев'ю ${s.succeeded - s.merged}` : ""}`)}
+      ${tile("Без переробок", share(s.clean, s.ended), s.ended ? `${s.clean} з ${s.ended} завершених` : "ще жодна не завершилась")}
+      ${tile("Від взяття до мерджу", s.leadSeconds ? dur(s.leadSeconds) : "—", "медіана")}
+      ${tile("Не успішно", s.failed, failedNote)}
+      ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу` : "лише агент у Mako")}
+    </div>
+    ${trendHTML(s.days)}
+    <h3>Час і спроби</h3>
+    <div class="stat-row small">
+      ${tile("Агент до MR", s.medianSeconds ? dur(s.medianSeconds) : "—", s.avgSeconds ? `медіана · в середньому ${dur(s.avgSeconds)}` : "")}
       ${tile("Рев'ю до мерджу", s.reviewSeconds ? dur(s.reviewSeconds) : "—", "в середньому")}
-      ${tile("За 7 днів", s.lastWeek || 0, "взято задач")}
       ${tile("Повторні спроби", s.retried || 0, `${pct(s.retried || 0)}% задач`)}
-      ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу · ${s.priced} ${plural(s.priced, "задача", "задачі", "задач")}` : "лише агент у Mako")}
     </div>
     ${s.assessed ? `<h3>Оцінка агента <span class="muted">· ${s.assessed} ${plural(s.assessed, "задача", "задачі", "задач")}</span></h3>
     <div class="stat-row">
@@ -1802,11 +1809,31 @@ function statsHTML(s) {
     ${clarityHTML(s)}
     ${groupsHTML("За проєктами", s.projects, "Проєкт")}
     ${groupsHTML("За агентами", s.executors, "Агент", (n) => n === "terminal" ? "Агент у Mako" : n === "—" ? "—" : `Orca · ${n}`)}
-    ${groupsHTML("За моделями", s.models, "Модель", (n) => n === "—" ? "Невідома" : n[0].toUpperCase() + n.slice(1), 1)}
+    ${groupsHTML("За моделями", [...(s.models || []).filter((g) => g.name !== "—"), ...(s.models || []).filter((g) => g.name === "—")], "Модель", (n) => n === "—" ? "Невідома" : n[0].toUpperCase() + n.slice(1), 1)}
     <h3>Причини невдач</h3>
     ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
-    <p class="stats-note">Час — від передачі агенту до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
+    <p class="stats-note">«Без переробок» — змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось. «Від взяття до мерджу» — від передачі агенту до мерджу MR; «Агент до MR» — до відкриття MR, рев'ю — від MR до мерджу. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
   </div>`;
+}
+
+// The tasks taken each day: how many got merged, failed or are still going; the hover tells the numbers.
+function trendHTML(days) {
+  if (!days?.some((d) => d.taken)) return "";
+  // The days before the first task tell nothing: from it on, though a week at least.
+  days = days.slice(Math.max(0, Math.min(days.findIndex((d) => d.taken), days.length - 7)));
+  const top = Math.max(...days.map((d) => d.taken));
+  const date = (d) => new Date(d + "T12:00:00").toLocaleDateString("uk", { day: "numeric", month: "short" });
+  const seg = (cls, n) => n ? `<i class="${cls}" style="height:${(n / top) * 100}%"></i>` : "";
+  const label = (i) => i === 0 || i === days.length - 1 || (days.length > 10 && i === Math.floor(days.length / 2));
+  const col = (d, i) => {
+    const other = d.taken - d.merged - d.failed;
+    const tip = `${date(d.date)}: взято ${d.taken}${d.taken ? ` · змерджено ${d.merged} · не вдалось ${d.failed} · ще йде ${other}${d.cost ? ` · $${d.cost.toFixed(2)}` : ""}` : ""}`;
+    return `<div class="day" title="${esc(tip)}"><div class="bar">${seg("failed", d.failed)}${seg("other", other)}${seg("merged", d.merged)}</div>`
+      + `<span>${label(i) ? date(d.date) : ""}</span></div>`;
+  };
+  return `<h3>По днях <span class="muted">· найбільше ${top} ${plural(top, "задача", "задачі", "задач")} за день</span></h3>
+    <div class="trend">${days.map(col).join("")}</div>
+    <div class="legend"><span><i class="merged"></i>змерджено</span><span><i class="other"></i>MR на рев'ю або ще в роботі</span><span><i class="failed"></i>не вдалось</span></div>`;
 }
 
 // Mako's own errors, one row per kind: «На аналіз» writes them into an issue in Mako's repository.

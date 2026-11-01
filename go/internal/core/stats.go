@@ -45,7 +45,28 @@ type Stats struct {
 	BySize []SizeGroup `json:"bySize"`
 	// Authors: by who wrote the task in the tracker, the busiest first.
 	Authors []Group `json:"authors"`
+	// Cancelled: of the Failed, the ones stopped on purpose rather than gone wrong.
+	Cancelled int `json:"cancelled"`
+	// Ended: merged or failed, whose outcome is known; Clean: merged with no rework, as in SizeGroup.
+	Ended int `json:"ended"`
+	Clean int `json:"clean"`
+	// LeadSeconds: the median from the hand-off to the merge, over the merged tasks.
+	LeadSeconds float64 `json:"leadSeconds"`
+	// Days: the tasks taken on each day of the period (the last 14 days for all time), the oldest first.
+	Days []Day `json:"days"`
 }
+
+// Day is how the tasks taken on one day went.
+type Day struct {
+	Date   string  `json:"date"` // 2006-01-02, local
+	Taken  int     `json:"taken"`
+	Merged int     `json:"merged"`
+	Failed int     `json:"failed"`
+	Cost   float64 `json:"cost"`
+}
+
+// trendDays: the days the trend shows for all time, and the most it shows for a period.
+const trendDays, maxTrendDays = 14, 90
 
 // Forecast compares the estimate before the start with the assessment after the MR, over the tasks that have
 // both sizes.
@@ -121,10 +142,11 @@ func Summarize(records []Record, now, since time.Time) Stats {
 	}
 	reasons := map[string]int{}
 	projects, executors, authors, models := map[string]*Group{}, map[string]*Group{}, map[string]*Group{}, map[string]*Group{}
-	var took []float64
+	var took, lead []float64
 	var review time.Duration
 	reviewed := 0
 	weekAgo := now.Add(-7 * 24 * time.Hour)
+	days := trend(now, since)
 	for _, r := range records {
 		if r.StartedAt == "" && r.Status != Failed {
 			continue
@@ -175,10 +197,26 @@ func Summarize(records []Record, now, since time.Time) Stats {
 			}
 		}
 		bySize(&st, r)
+		day := days[localDay(r.StartedAt, now.Location())]
+		if day != nil {
+			day.Taken++
+			day.Cost += r.Cost
+		}
 		switch {
 		case r.Status == Failed || r.Status == Cancelled || r.ReviewState == "closed":
 			st.Failed++
-			reasons[reason(r.Error)]++
+			st.Ended++
+			if day != nil {
+				day.Failed++
+			}
+			why := reason(r.Error)
+			if cancelled(r) {
+				st.Cancelled++
+				if r.Status != Cancelled {
+					why = "Скасовано"
+				}
+			}
+			reasons[why]++
 			for _, g := range groups {
 				g.Failed++
 			}
@@ -189,9 +227,19 @@ func Summarize(records []Record, now, since time.Time) Stats {
 			}
 			if r.ReviewState == "merged" {
 				st.Merged++
+				st.Ended++
+				if day != nil {
+					day.Merged++
+				}
+				if clean(r) {
+					st.Clean++
+				}
 				if d, ok := between(r.FinishedAt, r.MergedAt); ok {
 					review += d
 					reviewed++
+				}
+				if d, ok := between(r.StartedAt, r.MergedAt); ok {
+					lead = append(lead, d.Seconds())
 				}
 			}
 			if d, ok := between(r.StartedAt, r.FinishedAt); ok {
@@ -207,13 +255,14 @@ func Summarize(records []Record, now, since time.Time) Stats {
 			sum += s
 		}
 		st.AvgSeconds = sum / float64(len(took))
-		sort.Float64s(took)
-		if n := len(took); n%2 == 1 {
-			st.MedianSeconds = took[n/2]
-		} else {
-			st.MedianSeconds = (took[n/2-1] + took[n/2]) / 2
-		}
+		st.MedianSeconds = median(took)
 	}
+	st.LeadSeconds = median(lead)
+	st.Days = make([]Day, 0, len(days))
+	for _, d := range days {
+		st.Days = append(st.Days, *d)
+	}
+	sort.Slice(st.Days, func(i, j int) bool { return st.Days[i].Date < st.Days[j].Date })
 	if reviewed > 0 {
 		st.ReviewSeconds = review.Seconds() / float64(reviewed)
 	}
@@ -266,7 +315,7 @@ func bySize(st *Stats, r Record) {
 	if failed || merged {
 		g.Ended++
 	}
-	if merged && r.Attempt <= 1 && r.ReviewFixes == 0 && !reviewed(r) {
+	if merged && clean(r) {
 		g.Clean++
 	}
 	if r.Status == Done {
@@ -279,6 +328,51 @@ func bySize(st *Stats, r Record) {
 		g.Cost += r.Cost
 		g.Priced++
 	}
+}
+
+// clean: merged with no rework: no «Повторити інакше» or another attempt, no fixes after a review.
+func clean(r Record) bool {
+	return r.Attempt <= 1 && r.ReviewFixes == 0 && !reviewed(r)
+}
+
+// cancelled: stopped on purpose, from the board or in Orca, rather than gone wrong.
+func cancelled(r Record) bool {
+	return r.Status == Cancelled && r.Error == "Скасовано" || strings.Contains(strings.ToLower(r.Error), "cancelled by the developer")
+}
+
+// trend: an empty day for each day the trend shows, by its local date: the period's, the last 14 for all time.
+func trend(now, since time.Time) map[string]*Day {
+	n := trendDays
+	if !since.IsZero() {
+		n = min(int(now.Sub(since).Hours()/24+0.5), maxTrendDays)
+	}
+	days := map[string]*Day{}
+	for i := 0; i < n; i++ {
+		date := now.AddDate(0, 0, -i).Format(time.DateOnly)
+		days[date] = &Day{Date: date}
+	}
+	return days
+}
+
+// localDay: the local date of a RFC 3339 time, "" when there is none.
+func localDay(at string, loc *time.Location) string {
+	t, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		return ""
+	}
+	return t.In(loc).Format(time.DateOnly)
+}
+
+func median(xs []float64) float64 {
+	n := len(xs)
+	if n == 0 {
+		return 0
+	}
+	sort.Float64s(xs)
+	if n%2 == 1 {
+		return xs[n/2]
+	}
+	return (xs[n/2-1] + xs[n/2]) / 2
 }
 
 // reviewed: the reviewer agent sent the task's agent remarks to fix.

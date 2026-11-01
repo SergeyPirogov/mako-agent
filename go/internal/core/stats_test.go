@@ -200,3 +200,33 @@ func TestModelFamily(t *testing.T) {
 		}
 	}
 }
+
+func TestSummarizeFlow(t *testing.T) {
+	st := Summarize([]Record{
+		{Status: Done, StartedAt: "2026-10-07T10:00:00Z", FinishedAt: "2026-10-07T10:30:00Z", ReviewState: "merged", MergedAt: "2026-10-07T12:00:00Z", Cost: 1},
+		{Status: Done, StartedAt: "2026-10-07T11:00:00Z", FinishedAt: "2026-10-07T11:30:00Z", ReviewState: "merged", MergedAt: "2026-10-07T15:00:00Z", ReviewFixes: 1},
+		{Status: Done, StartedAt: "2026-10-08T09:00:00Z", FinishedAt: "2026-10-08T09:30:00Z", PRURL: "u"}, // on review
+		{Status: Cancelled, StartedAt: "2026-10-08T09:00:00Z", Error: "Скасовано", Cost: 0.5},
+		{Status: Failed, StartedAt: "2026-10-08T09:00:00Z", Error: "Session cancelled by the developer."},
+		{Status: Failed, StartedAt: "2026-09-01T09:00:00Z", Error: "впало"}, // before the trend
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	if st.Ended != 5 || st.Clean != 1 || st.Cancelled != 2 || st.LeadSeconds != 3*3600 {
+		t.Fatalf("ended %d, clean %d, cancelled %d, lead %v", st.Ended, st.Clean, st.Cancelled, st.LeadSeconds)
+	}
+	if st.Reasons[0] != (Reason{"Скасовано", 2}) {
+		t.Fatalf("reasons %+v", st.Reasons)
+	}
+	if len(st.Days) != 14 || st.Days[0].Date != "2026-09-25" {
+		t.Fatalf("days %+v", st.Days)
+	}
+	if got := st.Days[12]; got != (Day{"2026-10-07", 2, 2, 0, 1}) {
+		t.Fatalf("7th %+v", got)
+	}
+	if got := st.Days[13]; got != (Day{"2026-10-08", 3, 0, 2, 0.5}) {
+		t.Fatalf("8th %+v", got)
+	}
+	week := Summarize(nil, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC))
+	if len(week.Days) != 7 || week.Days[6].Date != "2026-10-08" {
+		t.Fatalf("week %+v", week.Days)
+	}
+}
