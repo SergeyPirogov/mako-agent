@@ -40,6 +40,20 @@ func (d *Dispatcher) Blocked(r core.Record) string {
 	return ""
 }
 
+// CIWait: "CI біжить" for a task in review whose MR is open and whose CI is still running, else "".
+// Like Blocked it reads only what Mako already looked at.
+func (d *Dispatcher) CIWait(r core.Record) string {
+	if r.Column(0) != "review" {
+		return ""
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if l, ok := d.reviews[r.ID]; ok && l.err == nil && l.check != nil && l.check.State == "open" && trackers.CIRunning(l.check.CI) {
+		return "CI біжить"
+	}
+	return ""
+}
+
 // agentStopped: the task's agent in Mako's chat or terminal is not running and no message wakes it by itself
 // (it exited, or Mako restarted without it), so a request to fix the MR reaches nobody. Agents in Orca: false.
 func (d *Dispatcher) agentStopped(r core.Record) bool {

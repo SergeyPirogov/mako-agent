@@ -109,6 +109,8 @@ type recordView struct {
 	ReviewStep string `json:"reviewStep,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
+	// CIWait: the MR in review is open and its CI still runs.
+	CIWait string `json:"ciWait,omitempty"`
 	// Starting: the steps of its start while Mako prepares it («запускаю»); QueueWhy: why a queued task that is
 	// not being started waits.
 	Starting *dispatch.StartProgress `json:"starting,omitempty"`
@@ -187,6 +189,7 @@ func (s *Server) Handler() http.Handler {
 			v.ReviewStep = s.D.ReviewStep(rec)
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
+				v.CIWait = s.D.CIWait(rec)
 			}
 			if rec.Status == core.Queued {
 				if v.Starting = s.D.Starting(rec.ID); v.Starting == nil {
