@@ -29,17 +29,17 @@ func TestAutoTakeGate(t *testing.T) {
 		{config.AutoTakeAll, nil, ""},
 		{config.AutoTakeAll, est("big", 1, "- що?"), ""},
 		{config.AutoTakeSmall, nil, "not estimated yet"},
-		{config.AutoTakeSmall, &core.Estimate{State: "running"}, "ще оцінюється"},
-		{config.AutoTakeSmall, &core.Estimate{State: "failed", Error: "timeout"}, "оцінка не вдалась"},
+		{config.AutoTakeSmall, &core.Estimate{State: "running"}, "still being estimated"},
+		{config.AutoTakeSmall, &core.Estimate{State: "failed", Error: "timeout"}, "the estimate failed"},
 		{config.AutoTakeSmall, small, ""},
 		{config.AutoTakeSmall, est("small", 2, "- який трекер?"), ""},
-		{config.AutoTakeSmall, est("big", 5, ""), "велика"},
-		{config.AutoTakeSmall, est("medium", 5, ""), "середня"},
+		{config.AutoTakeSmall, est("big", 5, ""), "large"},
+		{config.AutoTakeSmall, est("medium", 5, ""), "medium"},
 		{config.AutoTakeSmallClear, nil, "not estimated yet"},
 		{config.AutoTakeSmallClear, small, ""},
-		{config.AutoTakeSmallClear, est("small", 5, "- який трекер?"), "є питання до опису"},
-		{config.AutoTakeSmallClear, est("small", 3, ""), "опис неясний"},
-		{config.AutoTakeSmallClear, est("big", 5, "- який трекер?"), "велика, є питання до опису"},
+		{config.AutoTakeSmallClear, est("small", 5, "- який трекер?"), "the description has questions"},
+		{config.AutoTakeSmallClear, est("small", 3, ""), "the description is unclear"},
+		{config.AutoTakeSmallClear, est("big", 5, "- який трекер?"), "large, the description has questions"},
 	}
 	for _, c := range cases {
 		if got := autoTakeGate(c.only, c.e); got != c.want {
@@ -76,7 +76,7 @@ func TestAutoTakeWaitsForTheEstimate(t *testing.T) {
 	d.Store.Update(id, func(r *core.Record) { r.Estimate = freshFor(r, est("small", 5, "- який трекер?")) })
 	d.Poll(ctx)
 	d.Wait()
-	if r, _ = d.Store.Get(id); r.AutoSkip != "є питання до опису" || len(*jobs) != 0 {
+	if r, _ = d.Store.Get(id); r.AutoSkip != "the description has questions" || len(*jobs) != 0 {
 		t.Fatalf("taken with questions: %s %q", r.Status, r.AutoSkip)
 	}
 
@@ -98,7 +98,7 @@ func TestAutoTakeSmallOnly(t *testing.T) {
 	d.Store.Update(id, func(r *core.Record) { r.Estimate = freshFor(r, est("big", 5, "")) })
 	d.Poll(ctx)
 	d.Wait()
-	if r, _ := d.Store.Get(id); r.AutoSkip != "велика" || len(*jobs) != 0 {
+	if r, _ := d.Store.Get(id); r.AutoSkip != "large" || len(*jobs) != 0 {
 		t.Fatalf("big task: %s %q", r.Status, r.AutoSkip)
 	}
 
@@ -156,7 +156,7 @@ func TestAutoTakeStaleEstimate(t *testing.T) {
 	})
 	d.Poll(ctx)
 	d.Wait()
-	if r, _ := d.Store.Get(id); r.AutoSkip != "опис змінився після оцінки" || len(*jobs) != 0 {
+	if r, _ := d.Store.Get(id); r.AutoSkip != "the description changed after the estimate" || len(*jobs) != 0 {
 		t.Fatalf("estimate of old text: %s %q, %d jobs", r.Status, r.AutoSkip, len(*jobs))
 	}
 }
