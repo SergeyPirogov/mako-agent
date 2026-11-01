@@ -499,7 +499,7 @@ function render() {
       const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
       html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
         <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Оцінка наперед: ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, опис ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}${checksBadge(r)}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
+        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Оцінка наперед: ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, опис ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${r.agentReviews?.at(-1)?.state === "clean" ? `<span class="reviewed" title="Рев'ю агентом пройдено">✓ рев'ю</span>` : ""}${checksBadge(r)}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
     }
     html += `</div>`;
   }
@@ -1007,6 +1007,15 @@ const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n 
 const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
   ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${esc(text)}">${esc(text)}</a>` : `<span title="${esc(text)}">${esc(text)}</span>`}${btn}</div>`;
 // ✨: the agent in the terminal does it; only while it runs.
+// The tracker's priority in words ("Highest", "P1", "urgent") as a tone: hot, mid or low.
+function prioTone(p) {
+  const s = String(p).toLowerCase();
+  if (/block|crit|urgent|highest|^p0$|^p1$|^1$/.test(s)) return "hot";
+  if (/high|^p2$|^2$/.test(s)) return "high";
+  if (/low|minor|trivial|lowest|^p3$|^p4$|^[3-5]$/.test(s)) return "low";
+  return "mid";
+}
+const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}" title="Пріоритет: ${esc(t.priority)}">${esc(t.priority)}</span>` : "";
 const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
 const commits = (n) => `${n} ${plural(n, "коміт", "коміти", "комітів")}`;
 
@@ -1932,6 +1941,7 @@ function renderDetail() {
   const copy = (v, what) => `<button type="button" class="icon" data-copy="${esc(v)}" title="Скопіювати ${what}" aria-label="Скопіювати ${what}">${ICON.copy}</button>`;
   const chips = [];
   if (r.trackerStatus) chips.push(chip(`<span class="dot"></span><span class="v">${esc(r.trackerStatus.text)}</span>`, r.trackerStatus.ok ? "st" : "st bad", r.trackerStatus.ok ? "Статус у трекері" : r.trackerStatus.text));
+  if (t.priority) chips.push(chip(`<span class="k">Пріоритет</span><span class="prio ${prioTone(t.priority)}">${esc(t.priority)}</span>`, "", "Пріоритет у трекері"));
   if (t.meta) chips.push(chip(esc(t.meta), "", "Трекер"));
   if (t.assignees?.length) chips.push(chip(`<span class="k">Виконавці</span>${esc(t.assignees.join(", "))}`));
   if (r.repo) chips.push(chip(`<span class="k">Репо</span>${esc(r.repo)}`));

@@ -210,6 +210,7 @@ func (g *GitHub) toTask(repo string, is ghIssue) core.Task {
 		Description: is.Body,
 		URL:         is.HTMLURL,
 		Meta:        meta,
+		Priority:    priorityFromLabels(labels),
 		Labels:      labels,
 		Components:  []string{},
 		Comments:    []core.Comment{},

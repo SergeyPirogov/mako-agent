@@ -916,3 +916,9 @@ a.tchip:hover { text-decoration: none; background: var(--hover); }
 .item .size { font-size: 10.5px; padding: 0 6px; }
 .score.expected { grid-template-columns: 130px 1fr; }
 @media (max-width: 640px) { .score { grid-template-columns: 110px auto 34px; } .score .score-why { grid-column: 1 / -1; } }
+
+.prio { font-weight: 600; }
+.item .m > .prio { padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 15px; border: 1px solid var(--line); }
+.prio.hot { color: var(--err); }
+.prio.high { color: var(--warn); }
+.prio.low, .prio.mid { color: var(--mute); }
