@@ -64,6 +64,9 @@ func TestJira(t *testing.T) {
 		t.Fatalf("%v %v", err, tasks)
 	}
 	task := tasks[0]
+	if task.Priority != "High" {
+		t.Errorf("priority %q", task.Priority)
+	}
 	if task.Meta != "Type: Bug | Priority: High" || task.Description != "Steps:\n\n- open refund" || task.Comments[0].Body != "Since Monday" {
 		t.Errorf("task %+v", task)
 	}

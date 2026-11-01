@@ -123,6 +123,7 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 		priority := "?"
 		if is.Fields.Priority != nil {
 			priority = is.Fields.Priority.Name
+			t.Priority = priority
 		}
 		t.Meta = fmt.Sprintf("Type: %s | Priority: %s", is.Fields.IssueType.Name, priority)
 		for _, c := range is.Fields.Components {

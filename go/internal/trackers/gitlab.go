@@ -223,6 +223,7 @@ func (g *GitLab) toTask(projectPath string, is glIssue) core.Task {
 		Description: is.Description,
 		URL:         is.WebURL,
 		Meta:        strings.Join(meta, " | "),
+		Priority:    priorityFromLabels(is.Labels),
 		Labels:      orEmpty(is.Labels),
 		Components:  []string{},
 		Comments:    []core.Comment{},

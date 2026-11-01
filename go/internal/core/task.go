@@ -6,14 +6,16 @@ import "github.com/SergeyPirogov/mako-agent/go/internal/secrets"
 // Task is an issue as Mako sees it, whatever tracker it came from. The JSON names match the TypeScript
 // Mako's state.json, so both read the same file.
 type Task struct {
-	ID          string       `json:"id"`        // "group/app#12", "PROJ-12"
-	Slug        string       `json:"slug"`      // "app-12", "PROJ-12": safe for folders
-	TrackerID   string       `json:"trackerId"` // the tracker's id in the config
-	Project     string       `json:"project"`   // "group/app", "PROJ"
-	Title       string       `json:"title"`
-	Description string       `json:"description"`
-	URL         string       `json:"url"`
-	Meta        string       `json:"meta,omitempty"` // "Type: Bug | Priority: High"
+	ID          string `json:"id"`        // "group/app#12", "PROJ-12"
+	Slug        string `json:"slug"`      // "app-12", "PROJ-12": safe for folders
+	TrackerID   string `json:"trackerId"` // the tracker's id in the config
+	Project     string `json:"project"`   // "group/app", "PROJ"
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	Meta        string `json:"meta,omitempty"` // "Type: Bug | Priority: High"
+	// Priority: the tracker's priority of the issue ("High", "P1"); "" when it has none.
+	Priority    string       `json:"priority,omitempty"`
 	Labels      []string     `json:"labels"`
 	Components  []string     `json:"components"`
 	Comments    []Comment    `json:"comments"`
