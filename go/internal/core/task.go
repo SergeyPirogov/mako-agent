@@ -247,7 +247,9 @@ type AgentReview struct {
 }
 
 // ReviewCycle: the rounds from AgentReviews[From] on, up to Rounds of them with remarks: each time the agent
-// pushes its fixes the reviewer reads the branch again, until it passes or the rounds are used up.
+// pushes its fixes the reviewer reads the branch again, until it passes or the rounds are used up. It stays
+// once over, and the settings' MaxRounds no longer applies to the task: as with the settings' own rounds, a
+// passed or used-up review starts no more by itself, only your next «Зробити рев'ю» (a new cycle).
 type ReviewCycle struct {
 	From   int `json:"from"`
 	Rounds int `json:"rounds"`

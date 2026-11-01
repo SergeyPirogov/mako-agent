@@ -1116,27 +1116,31 @@ const reviewBtn = (label, title = "Рецензент-агент прочита�
 function reviewRound(r) {
   const c = r.reviewCycle, list = r.agentReviews?.slice(c?.from ?? 0) ?? [];
   const n = list.filter((a) => a.state === "notes" || a.state === "clean").length;
-  return { n, max: c?.rounds, left: !c || list.filter((a) => a.state === "notes").length < c.rounds };
+  return { n, left: !c || list.filter((a) => a.state === "notes").length < c.rounds };
 }
 function reviewerRow(r) {
-  const last = r.agentReviews?.at(-1), step = r.reviewStep;
-  if (!last) return step === "ready" ? row("idle", "Потребує рев'ю", "", reviewBtn("Зробити рев'ю")) : step === "running" ? row("run", REVIEW_STATE.running[1], "") : "";
-  const { n, max, left } = reviewRound(r);
-  const of = (k) => k > 0 ? ` · раунд ${k}${max ? ` з ${max}` : ""}` : "";
-  if (step === "running" || last.state === "running") return row("run", REVIEW_STATE.running[1] + of(n + 1), "");
+  const last = r.agentReviews?.at(-1), step = r.reviewStep, ready = step === "ready";
+  if (step === "running") return row("run", REVIEW_STATE.running[1] + (last ? reviewOf(r, reviewRound(r).n + 1) : ""), "");
+  if (!last) return ready ? row("idle", "Потребує рев'ю", "", reviewBtn("Зробити рев'ю"))
+    : step === "due" ? row("idle", "Рецензент-агент прочитає гілку сам", "") : "";
+  const { n, left } = reviewRound(r), of = (k) => reviewOf(r, k);
   switch (last.state) {
-    case "skipped": return row("idle", skippedText(last), "", step === "ready" ? reviewBtn("Зробити рев'ю", "Рецензент-агент прочитає задачу й diff гілки попри ризик") : "");
+    // Left by a restart of Mako in the middle of a round.
+    case "running": return row("bad", "Рев'ю агентом перервано", "", ready ? reviewBtn("Спробувати ще") : "");
+    case "skipped": return row("idle", skippedText(last), "", ready ? reviewBtn("Зробити рев'ю", "Рецензент-агент прочитає задачу й diff гілки попри ризик") : "");
+    case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Спробувати ще") : "");
     case "notes":
       if (step === "fixing") return row("run", "Агент виправляє зауваження рецензента" + of(n), "");
-      if (step !== "ready") return row("talk", REVIEW_STATE.notes[1] + of(n), "");
-      return left && max
-        ? row("talk", `Агент відповів на зауваження${of(n)}: наступний раунд — щойно він запушить зміни`, "", reviewBtn("Рев'ю ще раз"))
-        : row("talk", left ? `Агент відповів на зауваження рецензента${of(n)}` : `Зауваження лишились після ${n} ${plural(n, "раунду", "раундів", "раундів")}`, "", reviewBtn("Рев'ю ще раз"));
-    case "failed": return row("bad", REVIEW_STATE.failed[1], "", step === "ready" ? reviewBtn("Спробувати ще") : "");
+      if (!step) return row("talk", REVIEW_STATE.notes[1] + of(n), "");
+      if (!left) return row("talk", `Зауваження лишились після ${n} ${plural(n, "раунду", "раундів", "раундів")}`, "", ready ? reviewBtn("Рев'ю ще раз") : "");
+      if (step === "due") return row("run", `Агент виправив зауваження${of(n)}: рецензент прочитає гілку знову`, "");
+      return row("talk", `Агент відповів на зауваження${of(n)}` + (ready ? "" : ": нових запушених змін у гілці ще немає"), "", ready ? reviewBtn("Рев'ю ще раз") : "");
   }
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
   return row(icon, n > 1 ? `${text} · раунд ${n}` : text, "");
 }
+// « · раунд 2 з 5»: of the cycle you started, or just its number.
+const reviewOf = (r, k) => k > 0 ? ` · раунд ${k}${r.reviewCycle ? ` з ${r.reviewCycle.rounds}` : ""}` : "";
 // The agent's summary, a section per heading: what was done, how it was checked (green), what to look at (amber).
 function summaryHTML(text) {
   const parts = md(text).split(/(?=<h4>)/).filter((p) => p.trim());

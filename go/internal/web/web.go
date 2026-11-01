@@ -104,7 +104,7 @@ type recordView struct {
 	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked: the estimate's, the
 	// configured one or Sonnet; "" for Orca's agent with its own.
 	DefaultModel string `json:"defaultModel,omitempty"`
-	// ReviewStep: what the reviewer agent's row offers: "running", "fixing", "ready" or "" (dispatch.ReviewStep).
+	// ReviewStep: what the reviewer agent's row offers: "running", "fixing", "ready", "due", "idle" or "" (dispatch.ReviewStep).
 	ReviewStep string `json:"reviewStep,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`

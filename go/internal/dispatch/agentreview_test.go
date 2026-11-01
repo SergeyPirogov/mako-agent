@@ -2,10 +2,12 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,32 +16,53 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
 
-// reviewDue: a round for the branch at head, as the settings start them.
-func reviewDue(list []core.AgentReview, head string, max int) bool {
-	return roundsLeft(list, max) && !seen(list, head, false)
-}
-
-func TestReviewDue(t *testing.T) {
+func TestRoundsLeft(t *testing.T) {
 	notes := core.AgentReview{State: "notes", Commit: "a"}
 	cases := []struct {
 		list []core.AgentReview
-		head string
 		max  int
 		want bool
 	}{
-		{nil, "a", 1, true},
-		{[]core.AgentReview{notes}, "b", 1, false},                          // the one round is used up
-		{[]core.AgentReview{notes}, "b", 2, true},                           // the fixes get a second
-		{[]core.AgentReview{notes}, "a", 2, false},                          // nothing new since
-		{[]core.AgentReview{{State: "clean", Commit: "a"}}, "b", 3, false},  // passed
-		{[]core.AgentReview{{State: "failed", Commit: "a"}}, "a", 1, false}, // not again on the same commit
-		{[]core.AgentReview{{State: "failed", Commit: "a"}}, "b", 1, true},  // a failure is no round
-		{[]core.AgentReview{{State: "running", Commit: "a"}}, "a", 1, true}, // left by a restart
+		{nil, 1, true},
+		{[]core.AgentReview{notes}, 1, false}, // the one round is used up
+		{[]core.AgentReview{notes}, 2, true},  // the fixes get a second
+		{[]core.AgentReview{notes, {State: "clean", Commit: "b"}}, 3, false},        // passed
+		{[]core.AgentReview{{State: "failed"}, {State: "skipped"}}, 1, true},        // neither is a round
+		{[]core.AgentReview{notes, notes, notes, notes, notes}, CycleRounds, false}, // a cycle used up
 	}
 	for i, c := range cases {
-		if got := reviewDue(c.list, c.head, c.max); got != c.want {
-			t.Errorf("%d: reviewDue = %v, want %v", i, got, c.want)
+		if got := roundsLeft(c.list, c.max); got != c.want {
+			t.Errorf("%d: roundsLeft = %v, want %v", i, got, c.want)
 		}
+	}
+}
+
+func TestSeen(t *testing.T) {
+	at := func(state string) []core.AgentReview { return []core.AgentReview{{State: state, Commit: "a"}} }
+	cases := []struct {
+		list        []core.AgentReview
+		head        string
+		auto, asked bool // seen by the automatic rounds, and by the button
+	}{
+		{nil, "a", false, false},
+		{at("notes"), "a", true, true},     // nothing new since
+		{at("notes"), "b", false, false},   // the fixes
+		{at("clean"), "a", true, true},     //
+		{at("failed"), "a", true, false},   // not retried by itself, but by the button
+		{at("skipped"), "a", true, false},  // the button reads it whatever the risk
+		{at("running"), "a", false, false}, // left by a restart
+	}
+	for i, c := range cases {
+		if got := seen(c.list, c.head, false); got != c.auto {
+			t.Errorf("%d: seen = %v, want %v", i, got, c.auto)
+		}
+		if got := seen(c.list, c.head, true); got != c.asked {
+			t.Errorf("%d: seen asked = %v, want %v", i, got, c.asked)
+		}
+	}
+	// The next round over the commit a failed one read takes its place; over a new commit it is a new one.
+	if !replaces(at("failed"), "a") || replaces(at("failed"), "b") || replaces(at("notes"), "a") || !replaces(at("running"), "b") {
+		t.Error("replaces")
 	}
 }
 
@@ -71,6 +94,7 @@ func reviewSetup(t *testing.T, prep ...func(*config.Config)) (d *Dispatcher, cfg
 read init
 while read msg; do
   echo "$msg" >> said.json
+  case "$msg" in *повільно*) sleep 1;; esac
   echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]},"parent_tool_use_id":null}'
   echo '{"type":"result","subtype":"success","duration_ms":10,"total_cost_usd":0}'
 done
@@ -280,21 +304,25 @@ func TestReviewCycle(t *testing.T) {
 	d, _, id, wt, idle := reviewSetup(t, func(c *config.Config) { c.Reviewer.Enabled = false })
 	old := ReviewBranch
 	t.Cleanup(func() { ReviewBranch = old })
-	calls := 0
+	var calls atomic.Int32
+	var clean atomic.Bool
 	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
-		calls++
+		calls.Add(1)
+		if clean.Load() {
+			return "", nil
+		}
 		return "- ще не так", nil
 	}
 	rounds := func(n int) core.Record {
 		t.Helper()
 		var r core.Record
-		for i := 0; i < 300; i++ {
-			if r, _ = d.Store.Get(id); len(r.AgentReviews) == n && r.AgentReviews[n-1].State != "running" && d.ReviewStep(r) != "running" {
-				return r
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		t.Fatalf("reviews %+v, want %d rounds", r.AgentReviews, n)
+		waitFor(t, func() bool {
+			d.mu.Lock()
+			busy := d.reviewing[id]
+			d.mu.Unlock()
+			r, _ = d.Store.Get(id)
+			return !busy && len(r.AgentReviews) == n && r.AgentReviews[n-1].State != "running"
+		}, "the round did not end")
 		return r
 	}
 	push := func(msg string) {
@@ -302,7 +330,7 @@ func TestReviewCycle(t *testing.T) {
 		git(t, wt, "push", "-q", "origin", "fix/5-pay")
 	}
 
-	if r, _ := d.Store.Get(id); d.reviewWanted(r) || d.ReviewStep(r) != "ready" {
+	if r, _ := d.Store.Get(id); d.reviewWanted(r) || d.ReviewStep(r) != "idle" { // no commits: no button
 		t.Fatalf("off in the settings: wanted %v, step %q", d.reviewWanted(r), d.ReviewStep(r))
 	}
 	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "не готова") {
@@ -326,22 +354,18 @@ func TestReviewCycle(t *testing.T) {
 		if r, _ := d.Store.Get(id); !d.reviewWanted(r) {
 			t.Fatalf("round %d not wanted", n)
 		}
-		d.maybeReview(id)
+		reviewNow(t, d, id)
 		rounds(n)
 		idle()
 	}
 	push("Fix again")
-	r, _ = d.Store.Get(id)
-	d.maybeReview(id)
-	if d.reviewWanted(r) || calls != CycleRounds {
-		t.Fatalf("over the cycle: wanted %v, calls %d", d.reviewWanted(r), calls)
+	reviewNow(t, d, id)
+	if r, _ := d.Store.Get(id); d.reviewWanted(r) || calls.Load() != CycleRounds {
+		t.Fatalf("over the cycle: wanted %v, calls %d", d.reviewWanted(r), calls.Load())
 	}
 
 	// Another click starts a new cycle, which a clean review ends.
-	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
-		calls++
-		return "", nil
-	}
+	clean.Store(true)
 	if err := d.ReviewNow(id); err != nil {
 		t.Fatal(err)
 	}
@@ -353,4 +377,98 @@ func TestReviewCycle(t *testing.T) {
 	if r, _ := d.Store.Get(id); d.reviewWanted(r) {
 		t.Fatal("reviewed after it passed")
 	}
+}
+
+// The button after a failed round and after one a restart of Mako cut short, and the steps the board shows.
+func TestReviewRetryAndSteps(t *testing.T) {
+	d, _, id, wt, idle := reviewSetup(t, func(c *config.Config) { c.Reviewer.Enabled = false })
+	old := ReviewBranch
+	t.Cleanup(func() { ReviewBranch = old })
+	// What the reviewer says, set between its rounds: the agent's turns start rounds in the background too.
+	var mu sync.Mutex
+	var fail error
+	answer := "- повільно: немає тесту"
+	says := func(notes string, err error) { mu.Lock(); answer, fail = notes, err; mu.Unlock() }
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return answer, fail
+	}
+	step := func(want string) {
+		t.Helper()
+		d.mu.Lock()
+		delete(d.branches, id) // as after 15 seconds
+		d.mu.Unlock()
+		if r, _ := d.Store.Get(id); d.ReviewStep(r) != want {
+			t.Fatalf("step %q, want %q (reviews %+v)", d.ReviewStep(r), want, r.AgentReviews)
+		}
+	}
+	wait := func(state string) core.Record {
+		t.Helper()
+		var r core.Record
+		waitFor(t, func() bool {
+			d.mu.Lock()
+			busy := d.reviewing[id]
+			d.mu.Unlock()
+			r, _ = d.Store.Get(id)
+			return !busy && len(r.AgentReviews) > 0 && r.AgentReviews[len(r.AgentReviews)-1].State == state
+		}, "the round did not end as "+state)
+		return r
+	}
+
+	step("idle") // no commits yet: no button
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Pay")
+	step("idle") // not pushed
+	git(t, wt, "push", "-q", "origin", "fix/5-pay")
+	step("ready")
+
+	// The reviewer fails: the automatic rounds leave the commit, the button tries it again in its place.
+	says(answer, errors.New("ліміт"))
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatal(err)
+	}
+	wait("failed")
+	step("ready")
+	says(answer, nil)
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatalf("again after a failure: %v", err)
+	}
+	// The remarks keep the agent busy for a while: it fixes them.
+	r := wait("notes")
+	if len(r.AgentReviews) != 1 || r.ReviewCycle.From != 0 {
+		t.Fatalf("the retry did not take the failed round's place: cycle %+v reviews %+v", r.ReviewCycle, r.AgentReviews)
+	}
+	step("fixing")
+	idle()
+	step("idle") // it answered, nothing new pushed
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Fix")
+	git(t, wt, "push", "-q", "origin", "fix/5-pay")
+	step("due") // the cycle reads it by itself
+
+	// A round cut short by a restart: the board offers it again, and the button runs it.
+	d.Store.Update(id, func(r *core.Record) {
+		r.AgentReviews = append(r.AgentReviews, core.AgentReview{At: now(), Commit: "old", State: "running"})
+		r.ReviewCycle = nil
+	})
+	step("ready")
+	says("", nil)
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatal(err)
+	}
+	if r := wait("clean"); len(r.AgentReviews) != 2 {
+		t.Fatalf("reviews %+v", r.AgentReviews)
+	}
+	step("idle")
+	// Only a round in progress is the reviewer at work, not the quick look whether one is due.
+	d.mu.Lock()
+	d.reviewing[id] = true
+	d.mu.Unlock()
+	step("idle")
+	d.Store.Update(id, func(r *core.Record) {
+		r.AgentReviews = append(r.AgentReviews, core.AgentReview{At: now(), Commit: "new", State: "running"})
+	})
+	step("running")
+	d.mu.Lock()
+	delete(d.reviewing, id) // for the cleanup's settle
+	d.mu.Unlock()
 }
