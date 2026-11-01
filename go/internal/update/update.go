@@ -32,6 +32,7 @@ type Status struct {
 	// "failed".
 	State   string `json:"state,omitempty"`
 	Busy    int    `json:"busy,omitempty"`    // agents mid-turn, while "waiting"
+	Since   int64  `json:"since,omitempty"`   // ms: when the wait for them began
 	Error   string `json:"error,omitempty"`   // in a line; the whole of it goes to Issue
 	Issue   string `json:"issue,omitempty"`   // the issue the failure was reported in
 	Checked int64  `json:"checked,omitempty"` // ms: the last look at origin
@@ -57,8 +58,10 @@ type Updater struct {
 
 	mu       sync.Mutex
 	status   Status
-	busy     bool              // an update is under way
-	reported map[string]string // the commit a failure was reported for → the issue
+	busy     bool               // an update is under way
+	cancel   context.CancelFunc // ends the update under way
+	force    bool               // restart now, without waiting for the agents
+	reported map[string]string  // the commit a failure was reported for → the issue
 }
 
 // Locate finds the clone Mako was built from: the one the build named, else one around the binary. "" when none.
@@ -178,23 +181,65 @@ func (u *Updater) Start() bool {
 	}
 	u.busy = true
 	u.status.Error, u.status.Issue, u.status.State = "", "", "building"
+	u.force = false
+	ctx, cancel := context.WithCancel(context.Background())
+	u.cancel = cancel
 	u.mu.Unlock()
 	go func() {
-		err := u.Apply(context.Background())
+		defer cancel()
+		err := u.Apply(ctx)
+		cancelled := ctx.Err() != nil
 		var issue string
-		if err != nil {
+		if err != nil && !cancelled {
 			log.Printf("оновлення: %v", err)
 			issue = u.report(err)
 		}
 		u.mu.Lock()
-		u.busy = false
-		if err != nil {
+		u.busy, u.cancel = false, nil
+		if cancelled {
+			u.status.State, u.status.Busy, u.status.Since = "", 0, 0
+		} else if err != nil {
 			line, _, _ := strings.Cut(err.Error(), "\n")
 			u.status.State, u.status.Error, u.status.Issue = "failed", line, issue
 		}
 		u.mu.Unlock()
 	}()
 	return true
+}
+
+// Waiting: the update waits for the agents to finish their turn; no new agent may start meanwhile.
+func (u *Updater) Waiting() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.status.State == "waiting"
+}
+
+// Cancel gives the update up while it builds or waits: nothing is changed, the new agents may start again.
+func (u *Updater) Cancel() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.cancel == nil || u.status.State == "restarting" {
+		return false
+	}
+	u.cancel()
+	return true
+}
+
+// Force restarts now, without waiting for the agents: they are interrupted. false when nothing waits.
+func (u *Updater) Force() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.status.State != "waiting" {
+		return false
+	}
+	u.force = true
+	return true
+}
+
+func (u *Updater) forced() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.force
 }
 
 // report files the failure once per commit of origin's main branch; "" when there is no Report or it failed.
@@ -271,8 +316,13 @@ func (u *Updater) Apply(ctx context.Context) error {
 	// The agents in Mako end with it: let them finish their turn first.
 	for u.Busy != nil {
 		n := u.Busy()
-		u.set(func(s *Status) { s.State, s.Busy = "waiting", n })
-		if n == 0 {
+		u.set(func(s *Status) {
+			if s.State != "waiting" {
+				s.Since = time.Now().UnixMilli()
+			}
+			s.State, s.Busy = "waiting", n
+		})
+		if n == 0 || u.forced() {
 			break
 		}
 		select {
@@ -281,6 +331,10 @@ func (u *Updater) Apply(ctx context.Context) error {
 		case <-time.After(busyPoll):
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	u.set(func(s *Status) { s.Since = 0 })
 
 	u.set(func(s *Status) { s.State = "restarting" })
 	command := append([]string{u.Exe}, u.Args...)

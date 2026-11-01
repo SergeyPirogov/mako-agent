@@ -79,6 +79,7 @@ type stateReply struct {
 	Update         *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
 	Release        *update.Release            `json:"release,omitempty"`   // a newer release to download; not on a phone
 	Restart        restartView                `json:"restart"`
+	QueueHold      string                     `json:"queueHold,omitempty"` // why no new agent starts now
 	// Awake: the settings keep the Mac awake while agents work (on), and it is being kept awake now (active).
 	Awake struct {
 		On     bool `json:"on"`
@@ -159,6 +160,7 @@ func (s *Server) Handler() http.Handler {
 		if s.Release != nil && !reply.Remote {
 			reply.Release = s.Release.Latest()
 		}
+		reply.QueueHold = s.D.HoldReason()
 		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
 		reply.Awake.On, reply.Awake.Active = s.D.Config().KeepAwake, awake.Active()
 		all := s.D.Store.All()
@@ -293,6 +295,25 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": s.Update.Start()})
 	})
+	// «Скасувати» and «Перезапустити зараз» while the update builds or waits for the agents; from the Mac only.
+	for path, act := range map[string]func(*update.Updater) bool{
+		"/api/update/cancel": (*update.Updater).Cancel,
+		"/api/update/now":    (*update.Updater).Force,
+	} {
+		mux.HandleFunc("POST "+path, func(w http.ResponseWriter, r *http.Request) {
+			if !sameOrigin(r) || remote(r) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if s.Update == nil {
+				writeJSON(w, map[string]any{"ok": false, "error": "Mako зібраний не з репозиторію"})
+				return
+			}
+			ok := act(s.Update)
+			s.D.Wake()
+			writeJSON(w, map[string]bool{"ok": ok})
+		})
+	}
 	// «Сховати» on the new release's banner: until a later release, from the Mac only.
 	mux.HandleFunc("POST /api/release/dismiss", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) || remote(r) {

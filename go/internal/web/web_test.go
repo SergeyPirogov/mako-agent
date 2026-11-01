@@ -441,3 +441,23 @@ func TestRelease(t *testing.T) {
 		t.Fatal("shown after hiding")
 	}
 }
+
+func TestUpdateCancelAndNowAreFromTheMacOnly(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Update: &update.Updater{Source: t.TempDir()}}).Handler())
+	defer srv.Close()
+	for _, path := range []string{"/api/update/cancel", "/api/update/now"} {
+		req, _ := http.NewRequest("POST", srv.URL+path, nil)
+		req.Header.Set("X-Forwarded-For", "100.64.0.2")
+		if res, _ := http.DefaultClient.Do(req); res.StatusCode == 200 {
+			t.Fatalf("%s from a phone", path)
+		}
+		req, _ = http.NewRequest("POST", srv.URL+path, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil || res.StatusCode != 200 {
+			t.Fatalf("%s: %v %v", path, res, err)
+		}
+	}
+}

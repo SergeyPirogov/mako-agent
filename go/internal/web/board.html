@@ -350,7 +350,10 @@ function updateHTML(u) {
   const busy = ["building", "restarting", "waiting"].includes(u.state);
   // The failure in a line; what went wrong in full is in the issue filed about it.
   const failed = u.state === "failed" ? `<div class="update-error"><b>Не вдалося оновити, нічого не змінено.</b> <span class="muted">${esc(u.error || "")}</span>${u.issue ? ` <a href="${esc(u.issue)}" target="_blank" rel="noopener">Задача ↗</a>` : ""}</div>` : "";
-  const button = busy ? `<span class="muted">Оновлюю…</span>` : u.count ? `<button class="primary" id="update-btn">${u.state === "failed" ? "Спробувати ще раз" : "Оновити"}</button>` : "";
+  const waiting = u.state === "waiting" && u.busy > 0;
+  const button = waiting ? `<span class="muted">Чекаю, поки ${u.busy} ${u.busy === 1 ? "агент закінчить" : "агенти закінчать"} хід; нові задачі стартують після оновлення</span>`
+      + `<button id="update-now" class="danger" title="Агентів буде перервано">Перезапустити зараз</button><button id="update-cancel">Скасувати</button>`
+    : busy ? `<span class="muted">Оновлюю…</span>` : u.count ? `<button class="primary" id="update-btn">${u.state === "failed" ? "Спробувати ще раз" : "Оновити"}</button>` : "";
   if (!button && !failed) return "";
   return `<div class="banner update"><div class="update-head"><b>Оновлення Mako</b>${button}</div>${failed}</div>`;
 }
@@ -372,6 +375,13 @@ function render() {
   $("limit-hold").innerHTML = limitHoldHTML(data.limitHold);
   const ub = $("update-btn");
   if (ub) ub.onclick = async () => { ub.disabled = true; await fetch("/api/update", { method: "POST" }); await load(); };
+  const un = $("update-now");
+  if (un) un.onclick = async () => {
+    if (!confirm("Перезапустити Mako зараз? Агентів, що працюють, буде перервано.")) return;
+    un.disabled = true; await fetch("/api/update/now", { method: "POST" }); await load();
+  };
+  const uc = $("update-cancel");
+  if (uc) uc.onclick = async () => { uc.disabled = true; await fetch("/api/update/cancel", { method: "POST" }); await load(); };
   $("problems").innerHTML = data.problems?.length
     ? `<div class="banner">${data.problems.map((p) => `<div>${esc(p)}</div>`).join("")}${data.remote ? "" : `<a href="/settings">Відкрити налаштування →</a>`}</div>` : "";
   $("pause").innerHTML = data.paused ? ICON.play : ICON.pause;
