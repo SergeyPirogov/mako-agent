@@ -1035,7 +1035,7 @@ const CI = { failed: ["bad", "CI впав"], running: ["run", "CI іде"], pend
 const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many);
 // One line of a card: a status icon, what it is (a link when it has one), and the button that fixes it.
 const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
-  ? `<a href="${esc(href)}" target="_blank" rel="noopener" title="${esc(text)}">${esc(text)}</a>` : `<span title="${esc(text)}">${esc(text)}</span>`}${btn}</div>`;
+  ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>` : `<span>${esc(text)}</span>`}${btn}</div>`;
 // The tracker's priority in words ("Highest", "P1", "urgent") as a tone: hot, high, mid (unknown) or low.
 function prioTone(p) {
   const s = String(p).toLowerCase();
@@ -1065,7 +1065,7 @@ function branchCard(r, term) {
     if (b.dirty) rows += row("idle", `${b.dirty} ${plural(b.dirty, "файл", "файли", "файлів")} не закомічено`);
   }
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">Гілка</span>
-      <code class="branch-name" title="${esc(b.name)}">${esc(b.name)}</code>
+      <code class="branch-name">${esc(b.name)}</code>
       ${b.name ? `<button type="button" class="icon" data-copy="${esc(b.name)}" title="Скопіювати назву гілки" aria-label="Скопіювати назву гілки">${ICON.copy}</button>` : ""}
       <button type="button" class="icon" data-open="finder" title="Показати у Finder" aria-label="Показати у Finder">${ICON.folder}</button>
       ${data.editor ? `<button type="button" class="icon" data-open="editor" title="Відкрити в ${esc(data.editor)}" aria-label="Відкрити в ${esc(data.editor)}">${ICON.code}</button>` : ""}
