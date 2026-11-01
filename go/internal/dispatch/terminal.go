@@ -252,14 +252,14 @@ func (d *Dispatcher) Say(id, text string) error {
 	return nil
 }
 
-// awaitClosed: a session that refused a message (closed for being idle a moment ago, or dead) is stopped, and
-// its exit waited for, so the conversation can be resumed with the message. Stop's SIGKILL comes after 3s.
+// awaitClosed waits for a session that refused a message (closed for being idle a moment ago, which stopped it
+// already, or dead) to exit, so the conversation can be resumed with the message. It does not stop it: a dead
+// agent still reports why it died. Up to 5s: Stop's SIGKILL comes after 3s. Say and AskCode wait that long.
 func (d *Dispatcher) awaitClosed(s *chat.Session) error {
-	s.Stop()
 	select {
 	case <-s.Done():
 		return nil
-	case <-time.After(10 * time.Second):
+	case <-time.After(5 * time.Second):
 		return errors.New("агент ще закривається: спробуйте за мить")
 	}
 }

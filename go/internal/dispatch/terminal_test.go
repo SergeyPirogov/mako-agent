@@ -2,7 +2,6 @@ package dispatch
 
 import (
 	"context"
-	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
@@ -264,7 +264,9 @@ read msg
 echo "$msg" > prompt.json
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'
 echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.01}'
-sleep 1
+cat > /dev/null
+touch stdin-closed
+sleep 2
 `), 0o755)
 	cfg := *d.Config()
 	cfg.Executor, cfg.Terminal.Command, cfg.StateDir = "terminal", filepath.Join(bin, "claude"), t.TempDir()
@@ -281,10 +283,8 @@ sleep 1
 	s := d.Chats.Get(r.ID)
 	defer func() { d.StopTerminal(r.ID); d.Chats.Get(r.ID).Wait() }()
 	waitFor(t, func() bool { st, _, _ := s.State(); return st == "done" }, "the chat is not done")
-	time.Sleep(400 * time.Millisecond) // the idle timer has closed its stdin; the process is still there
-	if !s.Running() {
-		t.Skip("the agent already exited: the lingering window was missed")
-	}
+	// The idle timer closes its stdin; the process lingers after that.
+	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(r.Worktree, "stdin-closed")); return err == nil }, "the idle timer did not close the agent")
 	projects := filepath.Join(home, ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(r.Worktree, "-"))
 	os.MkdirAll(projects, 0o755)
 	os.WriteFile(filepath.Join(projects, "sess-1.jsonl"), []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]}}`+"\n"), 0o644)
