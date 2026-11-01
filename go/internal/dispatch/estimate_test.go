@@ -38,7 +38,7 @@ func TestEstimateNewTask(t *testing.T) {
 	r, _ := d.Store.Get("grp/app#5")
 	e := r.Estimate
 	if e == nil || e.State != "done" || e.Size != "big" || e.Clarity.Value != 4 || e.Risk.Why != "UI" || !e.Plan || e.Model != "sonnet" ||
-		!strings.Contains(e.Questions, "Яка саме кнопка?") || e.For != estimateKey(r.Task) {
+		!strings.Contains(e.Questions, "Яка саме кнопка?") || e.For != EstimateKey(r.Task) {
 		t.Fatalf("estimate: %+v", e)
 	}
 	// Opus estimates the task, and so picks who does it.
@@ -63,7 +63,7 @@ func TestEstimateNewTask(t *testing.T) {
 		t.Fatalf("a changed description: %d calls", n)
 	}
 	r, _ = d.Store.Get("grp/app#5")
-	if r.Estimate.For != estimateKey(r.Task) || r.Estimate.State != "done" {
+	if r.Estimate.For != EstimateKey(r.Task) || r.Estimate.State != "done" {
 		t.Fatalf("estimate of the new text: %+v", r.Estimate)
 	}
 

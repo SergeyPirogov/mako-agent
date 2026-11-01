@@ -91,6 +91,48 @@ func TestTerminalHandOff(t *testing.T) {
 	}
 }
 
+// Nothing picked, no estimate, no model in the settings: Mako's agent starts with Sonnet, the model the board showed,
+// and the task keeps it as the model that did the work.
+func TestTerminalDefaultModel(t *testing.T) {
+	d, _, _ := setup(t)
+	ctx := context.Background()
+	var repo string
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		repo = r.Path
+	}
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+	bin := t.TempDir()
+	argsFile := filepath.Join(bin, "args")
+	os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+argsFile+"\nexec sleep 30\n"), 0o755)
+	cfg := *d.Config()
+	cfg.Executor, cfg.Terminal.Command, cfg.StateDir, cfg.Terminal.View = "terminal", filepath.Join(bin, "claude"), t.TempDir(), "terminal"
+	d.Cfg = &cfg
+	d.Sessions = term.NewManager(t.TempDir())
+	d.BoardURL = "http://127.0.0.1:1"
+
+	d.Poll(ctx)
+	before, _ := d.Store.Get("grp/app#5")
+	if m := StartModel(d.Config(), before); m != "sonnet" {
+		t.Fatalf("start model %q", m)
+	}
+	d.Take(ctx, "grp/app#5")
+	d.Wait()
+	r, _ := d.Store.Get("grp/app#5")
+	defer d.StopTerminal(r.ID)
+	if r.Status != core.HandedOff || r.AgentModel != "sonnet" {
+		t.Fatalf("status %s, agent model %q, error %q", r.Status, r.AgentModel, r.Error)
+	}
+	var args string
+	for i := 0; i < 200 && !strings.HasSuffix(args, "sonnet\n"); i++ {
+		b, _ := os.ReadFile(argsFile)
+		args = string(b)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.HasSuffix(args, "--model\nsonnet\n") {
+		t.Fatalf("args %q", args)
+	}
+}
+
 func TestChatHandOff(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home) // where Claude Code keeps the transcripts a resume reads

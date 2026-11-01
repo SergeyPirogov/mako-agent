@@ -63,7 +63,7 @@ func TestParseEstimate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if e.State != "done" || e.Size != "medium" || e.Clarity.Value != 2 || e.Risk.Why != "налаштування" || !e.Plan || !e.Split ||
-		e.Model != "sonnet" || e.Questions != "- Який трекер?\n- Де кнопка?" || e.Advice != "розбити" {
+		e.Model != "" || e.Questions != "- Який трекер?\n- Де кнопка?" || e.Advice != "розбити" {
 		t.Fatalf("%+v", e)
 	}
 	for _, bad := range []string{

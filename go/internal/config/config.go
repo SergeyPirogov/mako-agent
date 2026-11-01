@@ -128,7 +128,7 @@ type Orca struct {
 // Terminal is Mako's own terminal: the agent runs in a pseudo-terminal the board shows.
 type Terminal struct {
 	Command string // "claude" when empty
-	Model   string // "" — Sonnet (dispatch.DefaultModel); a task's own or the estimate's comes first
+	Model   string // Mako's agent's model when neither the task nor the estimate names one; "" — Sonnet
 	// PermissionMode: how much Claude may do without asking: "auto" (default), "acceptEdits", "default",
 	// "bypassPermissions".
 	PermissionMode string

@@ -31,24 +31,24 @@ func TestWantsPlan(t *testing.T) {
 		}
 	}
 	// The estimate of the task's current text decides over its length; one of an older text does not.
-	big := &core.Estimate{State: "done", Size: "big", For: estimateKey(small)}
+	big := &core.Estimate{State: "done", Size: "big", For: EstimateKey(small)}
 	if !wantsPlan(config.Terminal{PlanFirst: "big"}, small, big, false) {
 		t.Error("a big estimate wants a plan")
 	}
-	if wantsPlan(config.Terminal{PlanFirst: "big"}, long, &core.Estimate{State: "done", Size: "small", For: estimateKey(long)}, false) {
+	if wantsPlan(config.Terminal{PlanFirst: "big"}, long, &core.Estimate{State: "done", Size: "small", For: EstimateKey(long)}, false) {
 		t.Error("a small estimate of a long description wants no plan")
 	}
 	if wantsPlan(config.Terminal{PlanFirst: "big"}, core.Task{Description: "інший текст"}, big, false) {
 		t.Error("an estimate of another text decides nothing")
 	}
-	if !wantsPlan(config.Terminal{PlanFirst: "big"}, labelled, &core.Estimate{State: "done", Size: "small", For: estimateKey(labelled)}, false) {
+	if !wantsPlan(config.Terminal{PlanFirst: "big"}, labelled, &core.Estimate{State: "done", Size: "small", For: EstimateKey(labelled)}, false) {
 		t.Error("the label wins over the estimate")
 	}
 	if wantsPlan(config.Terminal{PlanFirst: "never"}, small, big, false) {
 		t.Error("never is never")
 	}
 	// The estimate advises a plan for a medium task; «план спочатку» picked on the card wins over the settings.
-	advised := &core.Estimate{State: "done", Size: "medium", Plan: true, For: estimateKey(small)}
+	advised := &core.Estimate{State: "done", Size: "medium", Plan: true, For: EstimateKey(small)}
 	if !wantsPlan(config.Terminal{PlanFirst: "big"}, small, advised, false) {
 		t.Error("a plan the estimate advises")
 	}
@@ -63,7 +63,7 @@ func TestWantsPlan(t *testing.T) {
 // The model: picked for the task first, then the estimate's when the settings take it, else the configured one.
 func TestModelFor(t *testing.T) {
 	task := core.Task{ID: "g/a#1", Title: "x", Description: "y"}
-	e := &core.Estimate{State: "done", Size: "small", Model: "sonnet", For: estimateKey(task)}
+	e := &core.Estimate{State: "done", Size: "small", Model: "sonnet", For: EstimateKey(task)}
 	r := core.Record{Task: task, Estimate: e}
 	if m := modelFor(&config.Config{}, r); m != "" {
 		t.Errorf("settings off: %q", m)
@@ -81,20 +81,26 @@ func TestModelFor(t *testing.T) {
 	}
 }
 
-// The start model: as modelFor, then the configured one, then Sonnet.
+// The start model: as modelFor, then for Mako's own agent the configured one, then Sonnet; Orca's agent its own.
 func TestStartModel(t *testing.T) {
 	task := core.Task{ID: "g/a#1", Title: "x", Description: "y"}
 	r := core.Record{Task: task}
-	if m := StartModel(&config.Config{EstimateModel: true}, r); m != "sonnet" {
+	if m := StartModel(&config.Config{Executor: "terminal", EstimateModel: true}, r); m != "sonnet" {
 		t.Errorf("nothing names one: %q", m)
 	}
-	cfg := &config.Config{EstimateModel: true, Terminal: config.Terminal{Model: "haiku"}}
+	if m := StartModel(&config.Config{EstimateModel: true}, r); m != "" {
+		t.Errorf("Orca's own default: %q", m)
+	}
+	cfg := &config.Config{Executor: "terminal", EstimateModel: true, Terminal: config.Terminal{Model: "haiku"}}
 	if m := StartModel(cfg, r); m != "haiku" {
 		t.Errorf("configured: %q", m)
 	}
-	r.Estimate = &core.Estimate{State: "done", Size: "big", Model: "opus", For: estimateKey(task)}
+	r.Estimate = &core.Estimate{State: "done", Size: "big", Model: "opus", For: EstimateKey(task)}
 	if m := StartModel(cfg, r); m != "opus" {
 		t.Errorf("estimate: %q", m)
+	}
+	if m := StartModel(&config.Config{EstimateModel: true}, r); m != "opus" {
+		t.Errorf("estimate for Orca: %q", m)
 	}
 	r.Model = "sonnet"
 	if m := StartModel(cfg, r); m != "sonnet" {

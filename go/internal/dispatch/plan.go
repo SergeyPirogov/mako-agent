@@ -83,7 +83,7 @@ func (d *Dispatcher) RevisePlan(id, requestID, notes string) error {
 
 // estimateFresh: e is a finished estimate of the task's current text.
 func estimateFresh(e *core.Estimate, task core.Task) bool {
-	return e != nil && e.State == "done" && e.Size != "" && e.For == estimateKey(task)
+	return e != nil && e.State == "done" && e.Size != "" && e.For == EstimateKey(task)
 }
 
 // modelFor: the model of the task's agent: picked for the task (on the card or with «Повторити інакше»), else
@@ -108,9 +108,18 @@ func (d *Dispatcher) DefaultModel(r core.Record) string {
 // DefaultModel: the model of Mako's agent when nothing else names one.
 const DefaultModel = "sonnet"
 
-// StartModel: the model Mako's agent starts a task with: picked for the task, else the estimate's advice when the
-// settings take it, else the configured one, else Sonnet.
+// StartModel: the model the task's agent will start with, as the board shows it before the start: Mako's own agent
+// takes terminalModel; Orca's is asked only for one picked or advised, else it starts with its own ("").
 func StartModel(cfg *config.Config, r core.Record) string {
+	if cfg.Executor == terminalExecutor {
+		return terminalModel(cfg, r)
+	}
+	return modelFor(cfg, r)
+}
+
+// terminalModel: the model of Mako's own agent: picked for the task, else the estimate's advice when the settings
+// take it, else the configured one, else Sonnet.
+func terminalModel(cfg *config.Config, r core.Record) string {
 	if m := modelFor(cfg, r); m != "" {
 		return m
 	}

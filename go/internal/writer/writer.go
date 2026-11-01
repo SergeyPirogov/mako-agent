@@ -445,8 +445,11 @@ func RepoOutline(ctx context.Context, dir string) string {
 	return strings.Join(out, "\n")
 }
 
-// EstimateModel: the model that estimates a task and so picks who does it.
-const EstimateModel = "opus"
+// EstimateModel: the model that estimates a task and so picks who does it; EstimateTimeout: how long it may take.
+const (
+	EstimateModel   = "opus"
+	EstimateTimeout = 5 * time.Minute
+)
 
 // Estimate: the agent's look at a new task before it starts, from its text and the repository's layout (not its
 // code): how clear it is and what to ask, how big, how risky, and how to take it. Its text is in Ukrainian.
@@ -472,7 +475,7 @@ func Estimate(ctx context.Context, dir string, t core.Task, outline string) (cor
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
 		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
 		"", "Repository:", orNone(outline),
-	}, "\n"), 5*time.Minute)
+	}, "\n"), EstimateTimeout)
 	if err != nil {
 		return core.Estimate{}, err
 	}
@@ -508,7 +511,7 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		return core.Estimate{}, fmt.Errorf("невідомий розмір %q", in.Size)
 	}
 	if !slices.Contains(core.Models, e.Model) {
-		e.Model = "sonnet" // the default model
+		e.Model = "" // no advice: the agent starts with the default one
 	}
 	for _, s := range []struct {
 		in  score
