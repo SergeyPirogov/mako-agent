@@ -12,7 +12,7 @@ import (
 // estimate to the merge. The board draws them; which one is which is decided here, where tests can reach it.
 type cardView struct {
 	// Primary: the main action: "take", "restore", "push", "cancel", "stop", "resume", "focus", "fix-conflicts",
-	// "fix-ci", "merge", "retry", "archive", "unarchive"; the rest go in the card's «⋯».
+	// "fix-ci", "open-mr", "merge", "retry", "archive", "unarchive"; "" none (the card's «⋯» has the rest).
 	Primary string      `json:"primary"`
 	Stages  []stageView `json:"stages"`
 }
@@ -71,15 +71,22 @@ func primaryAction(v recordView) string {
 			return "stop"
 		}
 		return "resume"
-	case v.Column == "doing":
+	case v.Column == "doing" && r.Worktree != "":
 		return "focus"
+	case v.Column == "doing":
+		// Orca's agent with no worktree yet: nothing to show, «⋯» has the rest.
+		return ""
 	case v.Column == "review":
-		// A stopped agent hears no request to fix: it has to be started again first.
-		if strings.HasPrefix(v.Blocked, "agent stopped") {
-			return "resume"
-		}
-		if b := blockedBy(v); b != "" {
+		b := blockedBy(v)
+		switch {
+		// Only Mako's own running agent hears a request to fix (AskAgent); a stopped one is started first.
+		case b != "" && terminal && r.Worktree != "" && v.Live:
 			return "fix-" + b
+		case b != "" && terminal && r.Worktree != "":
+			return "resume"
+		// Orca's agent is asked in Orca; CI still running: nothing to merge yet.
+		case b != "" || v.CIWait != "":
+			return "open-mr"
 		}
 		return "merge"
 	case v.Column == "failed":
@@ -216,7 +223,7 @@ func stagesOf(v recordView, now time.Time) []stageView {
 		merge.State = "done"
 	case r.ReviewState == "closed":
 		merge.State, merge.Note = "fail", "closed"
-	case col == "review" && blockedBy(v) == "":
+	case col == "review" && blockedBy(v) == "" && v.CIWait == "":
 		merge.State = "now"
 		if merge.Seconds < 60 {
 			merge.Note = "waiting for you"
@@ -225,6 +232,10 @@ func stagesOf(v recordView, now time.Time) []stageView {
 		merge.State, merge.Note = "skip", "no MR"
 	}
 
+	// One stage is the current one: the merge waits while the reviewer's round is still on.
+	if rev.State == "now" && merge.State == "now" {
+		merge.State, merge.Note = "todo", ""
+	}
 	return []stageView{est, plan, work, rev, ci, merge}
 }
 

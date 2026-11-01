@@ -76,6 +76,25 @@ func TestCleanTaskKeepsUncommittedWork(t *testing.T) {
 	}
 }
 
+// The cleanup keeps what the branch changed: the worktree that could tell it is gone after.
+func TestCleanTaskKeepsChangeStat(t *testing.T) {
+	d, id, _, _, cur, _, _, _ := cleanupSetup(t)
+	ctx := context.Background()
+	os.WriteFile(filepath.Join(cur, "a.txt"), []byte("one\ntwo\n"), 0o644)
+	git(t, cur, "add", "a.txt")
+	git(t, cur, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "a")
+	if _, err := d.CleanTask(ctx, id, true); err != nil {
+		t.Fatal(err)
+	}
+	if exists(cur) {
+		t.Fatal("the worktree is left")
+	}
+	r, _ := d.Store.Get(id)
+	if r.Changed == nil || r.Changed.Files != 1 || r.Changed.Added != 2 || r.Changed.Removed != 0 || r.Changed.Commits != 1 {
+		t.Fatalf("changed: %+v", r.Changed)
+	}
+}
+
 func TestCleanMergedLeavesWorkingAgents(t *testing.T) {
 	d, id, repo, old, cur, _, curBranch, _ := cleanupSetup(t)
 	ctx := context.Background()

@@ -936,7 +936,7 @@ function treeHTML(node, depth, prefix, ST) {
 function showSide(r) {
   if (r.column === "review") return true;
   if (changes) return !changes.error;
-  return r.column === "doing";
+  return r.column === "doing" || !!r.worktree && (r.column === "failed" || r.worktreeKept > 0);
 }
 // Next to the agent: what its branch changed. A file opens as a tab over the terminal.
 function workArea(r, term, taskPane = "") {
@@ -2292,7 +2292,7 @@ function headHTML(r, title = true) {
   const t = r.task, st = state(r), [text, cls, tip] = cardStatus(r);
   return `<div class="d-head">
       <div class="d-main">
-        <div class="d-id">${trackerIcon(t)}<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span class="s ${st} ${cls}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(text)}</span></div>
+        <div class="d-id">${trackerIcon(t)}${r.type === "fix" ? kind(r) : ""}<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span class="s ${st} ${cls}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(text)}</span></div>
         ${title ? `<h1>${esc(t.title)}</h1>${metaLine(r)}` : ""}
       </div>
       <div class="actions">${primaryHTML(r)}${moreMenu(r)}</div>
@@ -2333,9 +2333,12 @@ function primaryHTML(r) {
     case "fix-conflicts": return `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>` + openMR(r);
     case "fix-ci": return `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>` + openMR(r);
     case "merge": return `<button class="primary" data-merge>${ICON.merge}Merge</button>` + openMR(r);
+    // CI still running, or the agent is in Orca: the MR is where to look.
+    case "open-mr": return openMR(r, "primary");
     case "retry": return b("retry", "Retry", "primary");
     case "unarchive": return b("unarchive", `${ICON.unarchive}Restore from archive`);
-    default: return b("archive", `${ICON.archive}Archive`);
+    case "archive": return b("archive", `${ICON.archive}Archive`);
+    default: return "";
   }
 }
 
@@ -2348,7 +2351,7 @@ function moreMenu(r) {
   if (r.reviewStep === "ready") it(`data-a="agentreview"`, "Run agent review");
   if (["doing", "review", "failed"].includes(r.column) && r.status !== "queued") it("data-redo", "Retry differently");
   if (r.column === "doing" && !term && r.worktree && p !== "focus") it(`data-a="focus"`, "Show in Orca");
-  if (r.prUrl && !["merge", "fix-conflicts", "fix-ci"].includes(p)) items.push(`<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))} ↗</a>`);
+  if (r.prUrl && !["merge", "fix-conflicts", "fix-ci", "open-mr"].includes(p)) items.push(`<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))} ↗</a>`);
   if (r.worktree && r.column !== "done") {
     if (data.editor) it(`data-open="editor"`, `Open in ${esc(data.editor)}`);
     it(`data-open="finder"`, "Show in Finder");
@@ -2445,6 +2448,10 @@ function doneHTML(r, card) {
   if (spent) kv.push(["Spent", `$${spent.toFixed(2)}`]);
   const tokens = Object.values(m?.tokens || {}).reduce((a, b) => a + b, 0);
   if (tokens) kv.push(["Tokens", tok(tokens)]);
+  // What the branch changed: kept in the record when its worktree was cleaned up, else read from the worktree.
+  const fs = changes?.files;
+  const ch = r.changed ?? (fs?.length ? { files: fs.length, added: fs.reduce((n, f) => n + f.additions, 0), removed: fs.reduce((n, f) => n + f.deletions, 0), commits: changes.commits?.length || 0 } : null);
+  if (ch) kv.push(["Changed", `${ch.files} ${plural(ch.files, "file", "files")}`, `+${ch.added} −${ch.removed}${ch.commits ? ` · ${ch.commits} ${plural(ch.commits, "commit", "commits")}` : ""}`]);
   const rework = (r.ciFixes || 0) + (r.reviewFixes || 0);
   kv.push(["Rework", rework ? `${rework}` : "none", [r.ciFixes ? `CI ${r.ciFixes}` : "", r.reviewFixes ? `comments ${r.reviewFixes}` : ""].filter(Boolean).join(" · ")]);
   if (r.agentReviews?.length) kv.push(["Agent review", `${r.agentReviews.length} ${plural(r.agentReviews.length, "round", "rounds")}`]);
@@ -2488,27 +2495,11 @@ function renderDetail() {
     return;
   }
   const t = r.task;
-  const b = (action, label, cls = "", extra = "") => `<button class="${cls}" data-a="${action}" data-x="${extra}">${label}</button>`;
-  // Icon buttons leave the room to the work; the name is in the tooltip.
-  const ib = (action, label, icon, cls = "") => `<button class="icon ${cls}" data-a="${action}" title="${label}" aria-label="${label}">${ICON[icon]}</button>`;
-  let actions = "";
   const term = r.executor === "terminal" && r.worktree;
   // Mako's own agent goes on after its MR too (CI, review comments), until the merge.
   const agentOn = term && !r.archivedAt && r.reviewState !== "merged" && (r.column === "doing" || r.column === "review");
-  // "Retry differently": an icon in the agent's workspace bar, words elsewhere.
-  const redo = term ? `<button class="icon" data-redo title="Retry differently" aria-label="Retry differently">${ICON.redo}</button>` : `<button data-redo>Retry differently</button>`;
-  if (r.column === "new") actions = takeButton(r) + (r.postponed ? b("later", "Restore", "", "&min=-1") : laterMenu());
-  // Being started: nothing to push, only to cancel (it stops the start and takes its worktree away).
-  else if (r.status === "queued" && r.starting) actions = b("cancel", "Cancel", "danger");
-  // "Run now": past the WIP limit and Claude's limits, the queue is yours to skip.
-  else if (r.status === "queued") actions = `<button class="primary" data-a="push" title="Skip the queue: hand it to the agent now, past the WIP limit and Claude limits">Run now</button>` + b("cancel", "Cancel", "danger");
-  else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Stop the agent", "stop") : ib("resume", "Continue the conversation", "play")) + redo + ib("archive", "Archive", "archive");
-  else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Stop the agent", "stop") : ib("resume", "Continue the conversation", "play")) + redo + ib("cancel", "Stop watching", "unwatch", "danger");
-  else if (r.column === "doing") actions = (r.worktree ? b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + redo + ib("cancel", "Stop watching", "unwatch", "danger");
-  else if (r.column === "failed") actions = b("retry", "Retry", "primary") + redo + ib("archive", "Archive", "archive");
-  else if (r.column === "review") actions = redo + ib("archive", "Archive", "archive");
-  else actions = ib("archive", "Archive", "archive");
-  if (r.archivedAt) actions = ib("unarchive", "Restore from archive", "unarchive");
+  // The buttons are the same everywhere: the main action for the state (r.card.primary) and "⋯".
+  const actions = primaryHTML(r) + moreMenu(r);
 
   const card = (title, body, cls = "", note = "") => `<div class="tcard ${cls}"><div class="tcard-h">${title}${note ? `<span class="r">${note}</span>` : ""}</div>${body}</div>`;
 
@@ -2672,6 +2663,8 @@ function renderDetail() {
   for (const d of $("detail").querySelectorAll("details[data-desc]")) d.ontoggle = () => { descOpen[r.id] = d.open; };
   for (const d of $("detail").querySelectorAll("details[data-qs]")) d.ontoggle = () => { qOpen[r.id] = d.open; };
   for (const btn of $("detail").querySelectorAll("[data-stage]")) btn.onclick = () => {
+    const shownBelow = r.column === "new" && btn.dataset.stage === "estimate" && $("detail").querySelector(".tcard.assess");
+    if (shownBelow) return shownBelow.scrollIntoView({ behavior: "smooth", block: "start" });
     stageOpen[r.id] = stageOpen[r.id] === btn.dataset.stage ? "" : btn.dataset.stage;
     renderDetail();
   };

@@ -38,17 +38,26 @@ func TestCardByState(t *testing.T) {
 		{"working, stopped", view(term, nil), "resume", "skip skip now todo todo todo"},
 		{"planning", view(func() core.Record { r := term; r.Planning = true; return r }(), func(v *recordView) { v.Live = true }), "stop", "skip now todo todo todo todo"},
 		{"in Orca", view(core.Record{Status: core.HandedOff, Worktree: "/wt"}, nil), "focus", "skip skip now todo todo todo"},
+		{"in Orca, no worktree", view(core.Record{Status: core.HandedOff}, nil), "", "skip skip now todo todo todo"},
 		{"checks failed", view(func() core.Record { r := term; r.Checks = &core.Checks{State: "failed"}; return r }(), nil), "resume", "skip skip now todo fail todo"},
 		{"MR ready", view(mr, nil), "merge", "skip skip done todo done now"},
-		{"MR, CI running", view(mr, func(v *recordView) { v.CIWait = "CI is running" }), "merge", "skip skip done todo now now"},
-		{"MR conflicts", view(mr, func(v *recordView) { v.Blocked = "the MR has conflicts" }), "fix-conflicts", "skip skip done todo fail todo"},
-		{"MR CI failed", view(mr, func(v *recordView) { v.Blocked = "CI failed" }), "fix-ci", "skip skip done todo fail todo"},
+		{"MR, CI running", view(mr, func(v *recordView) { v.CIWait = "CI is running" }), "open-mr", "skip skip done todo now todo"},
+		{"MR conflicts", view(mr, func(v *recordView) { v.Blocked, v.Live = "the MR has conflicts", true }), "fix-conflicts", "skip skip done todo fail todo"},
+		{"MR CI failed", view(mr, func(v *recordView) { v.Blocked, v.Live = "CI failed", true }), "fix-ci", "skip skip done todo fail todo"},
+		{"MR conflicts, agent not running", view(mr, func(v *recordView) { v.Blocked = "the MR has conflicts" }), "resume", "skip skip done todo fail todo"},
+		{"MR conflicts in Orca", view(func() core.Record { r := mr; r.Executor = ""; return r }(), func(v *recordView) { v.Blocked = "the MR has conflicts" }), "open-mr", "skip skip done todo fail todo"},
+		{"MR CI failed in Orca", view(func() core.Record { r := mr; r.Executor = ""; return r }(), func(v *recordView) { v.Blocked = "CI failed" }), "open-mr", "skip skip done todo fail todo"},
 		{"MR blocked, agent stopped", view(mr, func(v *recordView) { v.Blocked = "agent stopped: CI failed, continue it in the chat" }), "resume", "skip skip done todo fail todo"},
 		{"MR reviewed", view(func() core.Record {
 			r := mr
 			r.PlanFirst, r.AgentReviews = true, []core.AgentReview{{State: "notes", Sent: true}, {State: "clean"}}
 			return r
 		}(), nil), "merge", "skip done done done done now"},
+		{"MR, remarks being fixed", view(func() core.Record {
+			r := mr
+			r.AgentReviews = []core.AgentReview{{State: "notes", Sent: true}}
+			return r
+		}(), nil), "merge", "skip skip done now done todo"},
 		{"merged", view(func() core.Record { r := mr; r.ReviewState = "merged"; return r }(), nil), "archive", "skip skip done skip done done"},
 		{"MR closed", view(func() core.Record { r := mr; r.ReviewState = "closed"; return r }(), nil), "retry", "skip skip done skip todo fail"},
 		{"failed", view(core.Record{Status: core.Failed, Estimate: est}, nil), "retry", "done skip fail skip todo todo"},

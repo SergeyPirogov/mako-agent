@@ -72,6 +72,11 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 	if repo == nil || !exists(repo.Path) {
 		return c, nil
 	}
+	// What the branch changed, while its worktree is still there to tell: the finished card shows it.
+	if cs, err := d.Changes(ctx, id); err == nil && (len(cs.Files) > 0 || len(cs.Commits) > 0) {
+		st := changeStat(cs)
+		d.Store.Update(id, func(rec *core.Record) { rec.Changed = st })
+	}
 	wts, err := gitx.Worktrees(ctx, repo.Path)
 	if err != nil {
 		return c, err
@@ -273,4 +278,14 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Bytes > out[j].Bytes })
 	return out
+}
+
+// changeStat: the size of a change set.
+func changeStat(cs *gitx.ChangeSet) *core.ChangeStat {
+	st := &core.ChangeStat{Files: len(cs.Files), Commits: len(cs.Commits)}
+	for _, f := range cs.Files {
+		st.Added += f.Additions
+		st.Removed += f.Deletions
+	}
+	return st
 }

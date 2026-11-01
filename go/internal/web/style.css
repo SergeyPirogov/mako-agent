@@ -1104,3 +1104,7 @@ details.desc .r { flex: none; color: var(--accent) !important; }
   .rec-line { flex-wrap: wrap; }
   .rec-line .rec-why { flex-basis: 100%; white-space: normal; }
 }
+.ws-bar .actions > button svg, .ws-bar .actions > a svg { vertical-align: -3px; margin-right: 4px; }
+.ws-bar .actions { align-items: center; }
+a.btn.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
+a.btn.primary:hover { opacity: .9; background: var(--primary); }
