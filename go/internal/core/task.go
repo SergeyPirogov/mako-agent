@@ -244,7 +244,16 @@ type Assessment struct {
 	Size string `json:"size,omitempty"`
 	// Missing: what the description should have said, for whoever writes the next one.
 	Missing string `json:"missing,omitempty"`
-	Error   string `json:"error,omitempty"`
+	// Review: whether the agent advises a review before the merge, and why; nil from older versions of Mako
+	// (the board goes by the risk then). You decide: «Робити» or «Пропустити».
+	Review *ReviewAdvice `json:"review,omitempty"`
+	Error  string        `json:"error,omitempty"`
+}
+
+// ReviewAdvice is the agent's say on whether the change needs a review before the merge.
+type ReviewAdvice struct {
+	Need bool   `json:"need"`
+	Why  string `json:"why,omitempty"`
 }
 
 // Score is one rating from 1 to 5 (0: none) with why.
