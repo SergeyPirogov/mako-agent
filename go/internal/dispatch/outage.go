@@ -90,3 +90,33 @@ func badAssignee(err error) bool {
 	var he *trackers.HTTPError
 	return errors.As(err, &he) && (he.Status == 422 || he.Status == 400) && strings.Contains(he.Body, `"assignee"`)
 }
+
+// transientErr: the failure comes from the network, the service or the machine (no internet or VPN, a dropped
+// connection, a 5xx, a killed process), not from Mako, so it is only journaled, not kept among Mako's errors.
+func transientErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *trackers.HTTPError
+	if errors.As(err, &he) {
+		switch {
+		case he.Status == 429 || he.Status >= 500:
+			return true
+		case he.Status == 422 && strings.Contains(he.Body, "closed by another request"):
+			return true
+		}
+		return false
+	}
+	var dns *net.DNSError
+	var ne net.Error
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		errors.As(err, &dns), errors.As(err, &ne) && ne.Timeout(),
+		errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.ECONNREFUSED),
+		errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH),
+		errors.Is(err, syscall.ENETDOWN), errors.Is(err, syscall.EADDRNOTAVAIL):
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "can't assign requested address") || strings.Contains(msg, "signal: killed")
+}

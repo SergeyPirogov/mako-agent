@@ -52,6 +52,9 @@ func faultKey(what, msg string) string {
 func (d *Dispatcher) Fault(id, what string, err error) {
 	msg := strings.TrimSpace(err.Error())
 	d.Log(id, what+": "+msg)
+	if transientErr(err) {
+		return // the network, the VPN or the service, not Mako: nothing for an agent to fix
+	}
 	d.faultsMu.Lock()
 	defer d.faultsMu.Unlock()
 	all := d.readFaults()
