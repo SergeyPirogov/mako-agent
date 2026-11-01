@@ -90,6 +90,9 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 			continue
 		}
 		n, err := gitx.Dirty(ctx, w.Path)
+		if err == nil {
+			n += gitx.Unpushed(ctx, w.Path) // commits the remote branch lacks would go with the local one
+		}
 		if err != nil || (n > 0 && !force) {
 			c.Kept += n
 			busy[w.Branch] = true
@@ -130,7 +133,7 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 	d.Store.Update(id, func(rec *core.Record) { rec.WorktreeKept = c.Kept })
 	switch {
 	case c.Kept > 0:
-		d.Log(id, fmt.Sprintf("worktree лишився: %d незакомічених змін", c.Kept))
+		d.Log(id, fmt.Sprintf("worktree лишився: %d незакомічених змін або незапушених комітів", c.Kept))
 	case c.Worktrees > 0 || c.Branches > 0:
 		d.Log(id, fmt.Sprintf("прибрано worktree: %d, локальних гілок: %d", c.Worktrees, c.Branches))
 	}

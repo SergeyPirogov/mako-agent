@@ -2199,7 +2199,7 @@ function renderDetail() {
     ${r.checks?.attention && r.status === "handed-off" ? `<div class="notice warn">Перевірка перед MR не пройшла ${r.checks.fails} раз поспіль (${esc(checksLine(r.checks))}): MR не відкрито, агента більше не просять виправити. Подивіться, що впало, і продовжте з агентом — після нового коміту Mako перевірить ще раз.</div>` : ""}
     ${r.checks?.error && !r.prUrl && r.status === "handed-off" ? `<div class="notice">Перевірка пройшла, але MR не відкрито: ${linkify(r.checks.error)}. Mako спробує ще раз.</div>` : ""}
     ${r.lesson && !r.archivedAt ? lessonHTML(r) : ""}
-    ${r.worktreeKept ? `<div class="notice warn kept">Задача завершена, але її worktree не прибрано: ${r.worktreeKept} ${plural(r.worktreeKept, "незакомічена зміна", "незакомічені зміни", "незакомічених змін")}.
+    ${r.worktreeKept ? `<div class="notice warn kept">Задача завершена, але її worktree не прибрано: ${r.worktreeKept} ${plural(r.worktreeKept, "незакомічена зміна або незапушений коміт", "незакомічені зміни або незапушені коміти", "незакомічених змін або незапушених комітів")}.
       <span class="kept-a"><button type="button" class="danger" data-kept="clean">Прибрати все одно</button><button type="button" class="ghost" data-kept="keepworktree">Залишити</button></span></div>` : ""}
     ${r.gone && r.status !== "cancelled" ? `<div class="notice warn">Задачу ${r.gone === "deleted" ? "видалено" : "закрито"} в трекері, а агент ще працює над нею ${term ? "в терміналі" : "в Orca"}.</div>` : ""}`;
   // In the workspace the tabs, the task's id and the buttons share one thin bar: the rest is the terminal's.
