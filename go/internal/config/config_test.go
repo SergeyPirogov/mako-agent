@@ -130,20 +130,10 @@ func TestParseDigest(t *testing.T) {
 }
 
 func TestParseReviewer(t *testing.T) {
-	if c, _ := Parse([]byte(`{}`), nil); c.Reviewer.Enabled || c.Reviewer.MaxRounds != 1 {
-		t.Fatalf("default %+v", c.Reviewer)
-	}
-	c, _ := Parse([]byte(`{"agentReview":{"enabled":true,"maxRounds":3,"model":" opus "}}`), nil)
-	if !c.Reviewer.Enabled || c.Reviewer.MaxRounds != 3 || c.Reviewer.Model != "opus" {
+	// The settings of older versions (the reviewer on by itself, its rounds, by risk) are ignored.
+	c, _ := Parse([]byte(`{"agentReview":{"enabled":true,"maxRounds":3,"when":"high","model":" opus "}}`), nil)
+	if c.Reviewer.Model != "opus" {
 		t.Fatalf("reviewer %+v", c.Reviewer)
-	}
-	if c, _ := Parse([]byte(`{"agentReview":{"maxRounds":0}}`), nil); c.Reviewer.MaxRounds != 1 {
-		t.Fatalf("0 rounds: %+v", c.Reviewer)
-	}
-	for in, want := range map[string]string{"": ReviewAlways, "medium": ReviewMedium, "high": ReviewHigh, "low": ReviewAlways} {
-		if c, _ := Parse([]byte(`{"agentReview":{"when":"`+in+`"}}`), nil); c.Reviewer.When != want {
-			t.Errorf("when %q: %q, want %q", in, c.Reviewer.When, want)
-		}
 	}
 }
 

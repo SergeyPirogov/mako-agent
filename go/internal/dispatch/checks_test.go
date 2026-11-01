@@ -32,7 +32,6 @@ func TestCheckName(t *testing.T) {
 // GitLab's address, so Mako can push the branch and open the MR there.
 func checksSetup(t *testing.T, prep func(*config.Config), checks ...string) (d *Dispatcher, cfg *config.Config, repo *config.Repo, id, wt, origin string, idle func()) {
 	d, cfg, id, wt, idle = reviewSetup(t, func(c *config.Config) {
-		c.Reviewer.Enabled = false
 		for _, r := range c.Trackers[0].Projects["grp/app"].Repos {
 			r.Checks = checks
 		}
