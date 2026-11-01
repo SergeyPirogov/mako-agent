@@ -86,6 +86,9 @@ type Dispatcher struct {
 	estimates sync.WaitGroup
 	// questionsMu: the questions about code kept in questions.json (see codeask.go).
 	questionsMu sync.Mutex
+	// reviewsAt: when each tracker was last searched for MRs to review; reviewsEvery: how often it may be.
+	reviewsAt    map[string]time.Time
+	reviewsEvery time.Duration
 	// checking: the tasks whose checks before the MR run now.
 	checking map[string]bool
 	wake     chan struct{}
@@ -113,6 +116,7 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
 		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
+		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery,
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove
@@ -160,6 +164,7 @@ func (d *Dispatcher) Reload(cfg *config.Config, ts []trackers.Tracker, problems 
 	d.mu.Lock()
 	d.hosts = map[string]trackers.CodeHost{}
 	d.searches = map[string]Search{}
+	d.reviewsAt = map[string]time.Time{}
 	d.mu.Unlock()
 	d.Wake()
 }
@@ -273,6 +278,9 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 		return
 	}
 	for _, t := range d.TrackerList() {
+		if !t.Config().ReviewRequests {
+			d.dropReviews(t.ID())
+		}
 		if t.Config().Paused {
 			// Its last search, failed or not, says nothing now: the board shows it as paused instead.
 			d.mu.Lock()

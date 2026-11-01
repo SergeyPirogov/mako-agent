@@ -20,6 +20,8 @@ type GitHub struct {
 	headers map[string]string
 	mu      sync.Mutex
 	login   string
+	// memos: the PRs to review as the last poll read them, by their URL.
+	memos map[string]reviewMemo
 }
 
 type ghIssue struct {

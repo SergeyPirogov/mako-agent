@@ -25,7 +25,10 @@ func OpenReviewRequests(dir string) (*ReviewRequests, error) {
 	s := &ReviewRequests{file: filepath.Join(dir, "review-requests.json"), list: map[string]*core.ReviewRequest{}}
 	if data, err := os.ReadFile(s.file); err == nil && len(data) > 0 {
 		if err := json.Unmarshal(data, &s.list); err != nil {
-			return nil, err
+			// A broken file must not turn the feature off: it is kept aside and the list starts anew (the
+			// next search fills it again).
+			_ = os.Rename(s.file, s.file+".broken")
+			s.list = map[string]*core.ReviewRequest{}
 		}
 	}
 	return s, nil

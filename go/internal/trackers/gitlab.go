@@ -21,8 +21,8 @@ type GitLab struct {
 	mu       sync.Mutex
 	me       *glUser
 	statuses []string
-	// sizes: the lines an MR to review adds and removes, by its path and head commit.
-	sizes map[string][2]int
+	// memos: the MRs to review as the last poll read them, by their API path.
+	memos map[string]reviewMemo
 }
 
 type glUser struct {

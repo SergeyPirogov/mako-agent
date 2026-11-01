@@ -162,10 +162,7 @@ func (s *Server) Handler() http.Handler {
 			since = time.Now().AddDate(0, 0, -n)
 		}
 		reply.Stats = core.Summarize(all, time.Now(), since)
-		reply.ReviewRequests = []core.ReviewRequest{}
-		if s.D.Reviews != nil {
-			reply.ReviewRequests = s.D.Reviews.All()
-		}
+		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}

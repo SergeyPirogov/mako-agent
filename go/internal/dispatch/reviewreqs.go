@@ -17,6 +17,10 @@ import (
 // keepDoneReviews: how long a finished review stays in «Готово» before it is forgotten.
 const keepDoneReviews = 7 * 24 * time.Hour
 
+// reviewsEvery: how often the MRs to review are searched; less often than the tasks, for the code hosts'
+// limits (GitHub's search allows 30 requests a minute).
+const reviewsEvery = 3 * time.Minute
+
 // pollReviews looks for the tracker's MRs waiting for my review: new ones are told about once, new commits
 // mark the card «оновлено», and one merged, closed or approved by me goes to «Готово».
 func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
@@ -24,10 +28,26 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 	if !ok || !t.Config().ReviewRequests || d.Reviews == nil {
 		return
 	}
+	d.mu.Lock()
+	if last, ok := d.reviewsAt[t.ID()]; ok && time.Since(last) < d.reviewsEvery {
+		d.mu.Unlock()
+		return
+	}
+	d.reviewsAt[t.ID()] = time.Now()
+	d.mu.Unlock()
 	found, err := inbox.ToReview(ctx)
 	if err != nil {
 		d.Fault(t.ID(), "пошук MR на рев'ю не вдався", err)
 		return
+	}
+	// The first search of a tracker (a new Mako, the switch just turned on) only fills the list: no
+	// notifications about MRs that have been waiting for long, and they wait since they were opened.
+	first := true
+	for _, r := range d.Reviews.All() {
+		if r.TrackerID == t.ID() {
+			first = false
+			break
+		}
 	}
 	stamp := now()
 	seen := map[string]bool{}
@@ -41,20 +61,37 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 			continue
 		}
 		reopened := known && prev.State == "done"
+		// A request of the poll that failed leaves a value empty: what was known of it stays.
+		if known {
+			if f.HeadSHA == "" {
+				f.HeadSHA = prev.HeadSHA
+			}
+			if f.HeadSHA == prev.HeadSHA {
+				if f.CI == "" {
+					f.CI = prev.CI
+				}
+				if f.Additions == 0 && f.Deletions == 0 {
+					f.Additions, f.Deletions = prev.Additions, prev.Deletions
+				}
+			}
+		}
+		since := prev.Since
+		switch {
+		case !known && first && f.Since != "":
+			since = f.Since
+		case !known || reopened:
+			since = stamp
+		}
 		d.Reviews.Update(f.ID, func(r *core.ReviewRequest) {
-			since, updated := r.Since, r.Updated
 			// New commits since it was last seen; a review asked again after it was done is news too.
-			if known && (reopened || prev.HeadSHA != "" && f.HeadSHA != "" && prev.HeadSHA != f.HeadSHA) {
-				updated = true
-			}
-			if !known || reopened {
-				since = stamp
-			}
+			updated := r.Updated || known && (reopened || prev.HeadSHA != "" && f.HeadSHA != prev.HeadSHA)
 			*r = f
 			r.Since, r.Updated, r.State = since, updated, "open"
 		})
 		if !known {
 			d.Log(f.ID, "вас призначили рев'ювером: "+f.Title)
+		}
+		if !known && !first {
 			notify.Show(notify.Notice{Kind: notify.ReviewAsked, Title: "👀 Вас призначили рев'ювером: " + f.Ref,
 				Message: f.Project + ": " + f.Title, URL: d.reviewLink(f.ID), Tag: "review-asked:" + f.ID})
 		}
@@ -75,6 +112,38 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 		}
 	}
 	d.forgetDoneReviews(time.Now())
+}
+
+// dropReviews forgets the tracker's MRs to review: «Рев'ю для мене» is turned off for it.
+func (d *Dispatcher) dropReviews(trackerID string) {
+	if d.Reviews == nil {
+		return
+	}
+	for _, r := range d.Reviews.All() {
+		if r.TrackerID == trackerID {
+			d.Reviews.Delete(r.ID)
+		}
+	}
+}
+
+// ReviewList: the MRs to review the board shows, of the trackers that have them turned on.
+func (d *Dispatcher) ReviewList() []core.ReviewRequest {
+	out := []core.ReviewRequest{}
+	if d.Reviews == nil {
+		return out
+	}
+	on := map[string]bool{}
+	for _, t := range d.TrackerList() {
+		if _, ok := t.(trackers.ReviewInbox); ok && t.Config().ReviewRequests {
+			on[t.ID()] = true
+		}
+	}
+	for _, r := range d.Reviews.All() {
+		if on[r.TrackerID] {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (d *Dispatcher) finishReview(id, why string) {
@@ -113,12 +182,16 @@ type ReviewRequestView struct {
 
 // ReviewRequest reads the MR from its code host for the card, and takes «оновлено» off it: it is seen now.
 func (d *Dispatcher) ReviewRequest(ctx context.Context, id string) (*ReviewRequestView, error) {
+	if d.Reviews == nil {
+		return nil, fmt.Errorf("немає такого MR на рев'ю: %s", id)
+	}
 	r, ok := d.Reviews.Get(id)
 	if !ok {
 		return nil, fmt.Errorf("немає такого MR на рев'ю: %s", id)
 	}
-	inbox, ok := d.tracker(r.TrackerID).(trackers.ReviewInbox)
-	if !ok {
+	t := d.tracker(r.TrackerID)
+	inbox, ok := t.(trackers.ReviewInbox)
+	if !ok || !t.Config().ReviewRequests {
 		return nil, fmt.Errorf("трекер %s не вміє показувати MR", r.TrackerID)
 	}
 	v := &ReviewRequestView{Files: []trackers.ReviewFile{}, Item: r}

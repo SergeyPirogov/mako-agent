@@ -48,6 +48,19 @@ func countDiff(diff string) (add, del int) {
 	return add, del
 }
 
+// reviewMemo is what Mako remembers of an MR to review between polls, so each poll asks the code host only
+// what may have changed: the size per head commit, CI until it settles, GitHub's PR and reviews per update.
+type reviewMemo struct {
+	sha, updated string
+	sized        bool
+	add, del     int
+	ci           string
+	approved     bool // my last say on it was an approval (GitHub)
+}
+
+// ciSettled: the head's CI ended and will not change by itself.
+func ciSettled(ci string) bool { return ci != "" && !CIRunning(ci) }
+
 // --- GitLab
 
 type glReviewMR struct {
@@ -56,6 +69,7 @@ type glReviewMR struct {
 	Description string `json:"description"`
 	WebURL      string `json:"web_url"`
 	SHA         string `json:"sha"`
+	CreatedAt   string `json:"created_at"`
 	Author      glUser `json:"author"`
 	References  struct {
 		Full string `json:"full"` // "group/app!12"
@@ -83,8 +97,15 @@ func (g *GitLab) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 	if err != nil {
 		return nil, err
 	}
+	g.mu.Lock()
+	old := g.memos
+	g.mu.Unlock()
+	memos := map[string]reviewMemo{}
 	out := []core.ReviewRequest{}
 	for _, m := range mrs {
+		if m.Author.Username == me {
+			continue // my own MR, with me among its reviewers
+		}
 		proj := m.References.Full
 		if i := strings.LastIndex(proj, "!"); i > 0 {
 			proj = proj[:i]
@@ -92,13 +113,32 @@ func (g *GitLab) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 			proj = mm[1]
 		}
 		r := core.ReviewRequest{ID: m.WebURL, TrackerID: g.cfg.ID, Project: proj, Number: m.IID, Ref: fmt.Sprintf("!%d", m.IID),
-			Title: m.Title, Description: m.Description, URL: m.WebURL, Author: m.Author.Username, HeadSHA: m.SHA}
+			Title: m.Title, Description: m.Description, URL: m.WebURL, Author: m.Author.Username, HeadSHA: m.SHA, Since: m.CreatedAt}
 		path := project(proj) + "/merge_requests/" + strconv.Itoa(m.IID)
-		// The list has no pipeline: the MR itself has its head's.
-		var one glMR
-		if g.do(ctx, "GET", path, nil, &one) == nil && one.HeadPipeline != nil {
-			r.CI = one.HeadPipeline.Status
+		memo := old[path]
+		if memo.sha != m.SHA {
+			memo = reviewMemo{sha: m.SHA}
 		}
+		// The list has no pipeline: the MR itself has its head's, asked until it settles.
+		if !ciSettled(memo.ci) {
+			var one glMR
+			if g.do(ctx, "GET", path, nil, &one) == nil && one.HeadPipeline != nil {
+				memo.ci = one.HeadPipeline.Status
+			}
+		}
+		if !memo.sized {
+			diffs, err := allPages(url.Values{}, func(query string, out *[]glDiff) error {
+				return g.do(ctx, "GET", path+"/diffs?"+query, nil, out)
+			})
+			if err == nil {
+				memo.sized, memo.add, memo.del = true, 0, 0
+				for _, d := range diffs {
+					a, r := countDiff(d.Diff)
+					memo.add, memo.del = memo.add+a, memo.del+r
+				}
+			}
+		}
+		// An approval does not change the MR's head: asked every poll.
 		var approvals struct {
 			ApprovedBy []struct {
 				User glUser `json:"user"`
@@ -111,37 +151,15 @@ func (g *GitLab) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 				}
 			}
 		}
-		r.Additions, r.Deletions = g.mrSize(ctx, path, m.SHA)
+		memos[path] = memo
+		r.CI, r.Additions, r.Deletions = memo.ci, memo.add, memo.del
 		out = append(out, r)
 	}
+	// Only the MRs still to review are remembered.
+	g.mu.Lock()
+	g.memos = memos
+	g.mu.Unlock()
 	return out, nil
-}
-
-// mrSize: the lines the MR adds and removes, read once per head commit.
-func (g *GitLab) mrSize(ctx context.Context, path, sha string) (int, int) {
-	key := path + "@" + sha
-	g.mu.Lock()
-	if s, ok := g.sizes[key]; ok {
-		g.mu.Unlock()
-		return s[0], s[1]
-	}
-	g.mu.Unlock()
-	diffs, err := allPages(url.Values{}, func(query string, out *[]glDiff) error { return g.do(ctx, "GET", path+"/diffs?"+query, nil, out) })
-	if err != nil {
-		return 0, 0
-	}
-	add, del := 0, 0
-	for _, d := range diffs {
-		a, r := countDiff(d.Diff)
-		add, del = add+a, del+r
-	}
-	g.mu.Lock()
-	if g.sizes == nil {
-		g.sizes = map[string][2]int{}
-	}
-	g.sizes[key] = [2]int{add, del}
-	g.mu.Unlock()
-	return add, del
 }
 
 func (g *GitLab) ReviewFiles(ctx context.Context, reviewURL string) ([]ReviewFile, error) {
@@ -175,13 +193,40 @@ func (g *GitLab) ReviewFiles(ctx context.Context, reviewURL string) ([]ReviewFil
 // --- GitHub
 
 type ghSearchItem struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	Body    string `json:"body"`
-	HTMLURL string `json:"html_url"`
-	User    struct {
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	HTMLURL   string `json:"html_url"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	User      struct {
 		Login string `json:"login"`
 	} `json:"user"`
+}
+
+// search reads all pages of a search (GitHub gives at most 1000 results); an incomplete answer is an error,
+// or the PRs missing from it would look gone.
+func (g *GitHub) search(ctx context.Context, q string) ([]ghSearchItem, error) {
+	var all []ghSearchItem
+	for page := 1; page <= maxPages; page++ {
+		var res struct {
+			Total      int            `json:"total_count"`
+			Incomplete bool           `json:"incomplete_results"`
+			Items      []ghSearchItem `json:"items"`
+		}
+		query := url.Values{"q": {q}, "per_page": {strconv.Itoa(perPage)}, "page": {strconv.Itoa(page)}}
+		if err := g.do(ctx, "GET", "/search/issues?"+query.Encode(), nil, &res); err != nil {
+			return nil, err
+		}
+		if res.Incomplete {
+			return nil, fmt.Errorf("GitHub дав неповну відповідь на пошук «%s»", q)
+		}
+		all = append(all, res.Items...)
+		if len(res.Items) < perPage || len(all) >= res.Total {
+			break
+		}
+	}
+	return all, nil
 }
 
 // ToReview: the open PRs whose review is asked of me, and those I already reviewed that are not merged yet.
@@ -194,13 +239,11 @@ func (g *GitHub) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 	seen := map[string]bool{}
 	var items []ghSearchItem
 	for _, q := range []string{"is:pr is:open review-requested:@me", "is:pr is:open reviewed-by:@me"} {
-		var res struct {
-			Items []ghSearchItem `json:"items"`
-		}
-		if err := g.do(ctx, "GET", "/search/issues?"+url.Values{"q": {q}, "per_page": {"100"}}.Encode(), nil, &res); err != nil {
+		found, err := g.search(ctx, q)
+		if err != nil {
 			return nil, err
 		}
-		for _, it := range res.Items {
+		for _, it := range found {
 			if strings.Contains(q, "review-requested") {
 				requested[it.HTMLURL] = true
 			}
@@ -210,6 +253,10 @@ func (g *GitHub) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 			}
 		}
 	}
+	g.mu.Lock()
+	old := g.memos
+	g.mu.Unlock()
+	memos := map[string]reviewMemo{}
 	out := []core.ReviewRequest{}
 	for _, it := range items {
 		m := prURL.FindStringSubmatch(it.HTMLURL)
@@ -218,33 +265,47 @@ func (g *GitHub) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 		}
 		repo := m[1]
 		r := core.ReviewRequest{ID: it.HTMLURL, TrackerID: g.cfg.ID, Project: repo, Number: it.Number, Ref: fmt.Sprintf("#%d", it.Number),
-			Title: it.Title, Description: it.Body, URL: it.HTMLURL, Author: it.User.Login}
+			Title: it.Title, Description: it.Body, URL: it.HTMLURL, Author: it.User.Login, Since: it.CreatedAt}
 		path := fmt.Sprintf("/repos/%s/pulls/%d", repo, it.Number)
-		var p ghPull
-		if g.do(ctx, "GET", path, nil, &p) == nil {
-			r.HeadSHA, r.Additions, r.Deletions = p.Head.SHA, p.Additions, p.Deletions
-			r.CI, _ = g.checkRuns(ctx, repo, p.Head.SHA)
-		}
-		// Approved: my last say on it was an approval, and nobody asked me to look again since.
-		if !requested[it.HTMLURL] {
-			var reviews []struct {
-				State string `json:"state"`
-				User  struct {
-					Login string `json:"login"`
-				} `json:"user"`
-			}
-			if g.do(ctx, "GET", path+"/reviews?per_page=100", nil, &reviews) == nil {
-				last := ""
-				for _, rv := range reviews {
-					if strings.EqualFold(rv.User.Login, me) && rv.State != "COMMENTED" && rv.State != "PENDING" {
-						last = rv.State
-					}
+		memo := old[it.HTMLURL]
+		// A push, a review or a new request updates the PR: only then is it read again.
+		if memo.updated != it.UpdatedAt || it.UpdatedAt == "" {
+			var p ghPull
+			if err := g.do(ctx, "GET", path, nil, &p); err == nil {
+				if p.Head.SHA != memo.sha {
+					memo.ci = ""
 				}
-				r.Approved = last == "APPROVED"
+				memo.sha, memo.add, memo.del, memo.sized = p.Head.SHA, p.Additions, p.Deletions, true
+				var reviews []struct {
+					State string `json:"state"`
+					User  struct {
+						Login string `json:"login"`
+					} `json:"user"`
+				}
+				if err := g.do(ctx, "GET", path+"/reviews?per_page=100", nil, &reviews); err == nil {
+					last := ""
+					for _, rv := range reviews {
+						if strings.EqualFold(rv.User.Login, me) && rv.State != "COMMENTED" && rv.State != "PENDING" {
+							last = rv.State
+						}
+					}
+					memo.approved = last == "APPROVED"
+					memo.updated = it.UpdatedAt // read whole: not again until it changes
+				}
 			}
 		}
+		if memo.sha != "" && !ciSettled(memo.ci) {
+			memo.ci, _ = g.checkRuns(ctx, repo, memo.sha)
+		}
+		memos[it.HTMLURL] = memo
+		r.HeadSHA, r.Additions, r.Deletions, r.CI = memo.sha, memo.add, memo.del, memo.ci
+		// Approved: my last say on it was an approval, and nobody asked me to look again since.
+		r.Approved = memo.approved && !requested[it.HTMLURL]
 		out = append(out, r)
 	}
+	g.mu.Lock()
+	g.memos = memos
+	g.mu.Unlock()
 	return out, nil
 }
 
