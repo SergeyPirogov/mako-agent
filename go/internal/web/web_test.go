@@ -64,39 +64,45 @@ func TestBoard(t *testing.T) {
 	}
 	store.Delete("grp/app#6")
 
-	// «Взяти в роботу» with a model from its arrow: the model is the task's, «план спочатку» stays.
+	// A model from the button's arrow: picked only, the task does not start, «план спочатку» stays.
 	store.Update("grp/app#7", func(r *core.Record) {
 		r.Status, r.Task, r.PlanFirst = core.Asking, core.Task{ID: "grp/app#7", Title: "Pick"}, true
 	})
-	req, _ = http.NewRequest("POST", srv.URL+"/api/take?id=grp/app%237&model=sonnet", nil)
-	req.Header.Set("Origin", srv.URL)
-	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 {
-		t.Fatalf("take with model: %d", res.StatusCode)
+	post := func(q string) (ok bool) {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/pick?id=grp/app%237"+q, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil || res.StatusCode != 200 {
+			t.Fatalf("pick %s: %v %v", q, err, res)
+		}
+		var reply struct{ OK *bool }
+		json.NewDecoder(res.Body).Decode(&reply)
+		return reply.OK == nil || *reply.OK
 	}
-	d.Wait() // taken: it starts (and fails here, no trackers) or waits in the queue
-	if r, _ := store.Get("grp/app#7"); r.Model != "sonnet" || !r.PlanFirst || r.Status == core.Asking {
-		t.Fatalf("take with model: model %q, plan %v, status %v", r.Model, r.PlanFirst, r.Status)
-	}
-	// «Як у налаштуваннях» (model=): the picked model goes, «план спочатку» stays.
-	store.Update("grp/app#7", func(r *core.Record) { r.Status, r.Model, r.PlanFirst = core.Asking, "opus", true })
-	req, _ = http.NewRequest("POST", srv.URL+"/api/take?id=grp/app%237&model=", nil)
-	req.Header.Set("Origin", srv.URL)
-	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 {
-		t.Fatalf("take with the default model: %d", res.StatusCode)
+	if !post("&model=sonnet") {
+		t.Fatal("pick refused")
 	}
 	d.Wait()
-	if r, _ := store.Get("grp/app#7"); r.Model != "" || !r.PlanFirst || r.Status == core.Asking {
-		t.Fatalf("take with the default model: model %q, plan %v, status %v", r.Model, r.PlanFirst, r.Status)
+	if r, _ := store.Get("grp/app#7"); r.Model != "sonnet" || !r.PlanFirst || r.Status != core.Asking {
+		t.Fatalf("pick: model %q, plan %v, status %v", r.Model, r.PlanFirst, r.Status)
+	}
+	// «Як у налаштуваннях» (model=): the picked model goes, the plan stays.
+	post("&model=")
+	if r, _ := store.Get("grp/app#7"); r.Model != "" || !r.PlanFirst {
+		t.Fatalf("pick of the default: model %q, plan %v", r.Model, r.PlanFirst)
+	}
+	// An explicit plan=0 turns the plan off.
+	post("&model=opus&plan=0")
+	if r, _ := store.Get("grp/app#7"); r.Model != "opus" || r.PlanFirst {
+		t.Fatalf("pick with plan=0: model %q, plan %v", r.Model, r.PlanFirst)
 	}
 	// Taken already (queued from another tab): the model stays, the reply says why.
-	store.Update("grp/app#7", func(r *core.Record) { r.Status, r.Model = core.Queued, "opus" })
-	req, _ = http.NewRequest("POST", srv.URL+"/api/take?id=grp/app%237&model=haiku", nil)
-	req.Header.Set("Origin", srv.URL)
-	res, _ = http.DefaultClient.Do(req)
-	var reply struct{ OK bool }
-	json.NewDecoder(res.Body).Decode(&reply)
-	if r, _ := store.Get("grp/app#7"); reply.OK || r.Model != "opus" {
-		t.Fatalf("take of a queued task: ok %v, model %q", reply.OK, r.Model)
+	store.Update("grp/app#7", func(r *core.Record) { r.Status = core.Queued })
+	if post("&model=haiku") {
+		t.Fatal("pick of a queued task was accepted")
+	}
+	if r, _ := store.Get("grp/app#7"); r.Model != "opus" {
+		t.Fatalf("pick of a queued task changed the model to %q", r.Model)
 	}
 	store.Delete("grp/app#7")
 

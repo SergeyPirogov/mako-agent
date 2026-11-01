@@ -1321,12 +1321,12 @@ function takeButton(r) {
   // Opus's estimate advises a model by how complex the task is; without it the default is the configured one or Sonnet.
   const advised = estimated(r)?.model || "", fromEstimate = def && def === advised;
   // A model from the menu is only picked: the button shows it, the task starts on the button's click.
-  const item = (m, label) => `<button type="button" data-a="pick" data-x="&model=${encodeURIComponent(m)}&plan=${r.planFirst ? 1 : 0}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}${m && m === advised ? ` <span class="muted">радить Opus</span>` : ""}</button>`;
+  const item = (m, label) => `<button type="button" data-a="pick" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}${m && m === advised ? ` <span class="muted">радить Opus</span>` : ""}</button>`;
   const title = model ? `Агент почне з моделлю ${model}` : fromEstimate ? `Агент почне з моделлю ${def}, яку радить оцінка` : def ? `Агент почне з моделлю ${def}` : "Агент почне з моделлю з налаштувань";
   const byDefault = fromEstimate ? `Типова: <code>${esc(def)}</code> з оцінки` : def ? `Типова: <code>${esc(def)}</code>` : "Як у налаштуваннях";
   return `<span class="takesplit"><button class="primary" data-a="take" data-x="" title="${esc(title)}">Взяти в роботу${start ? ` · <code>${esc(start)}</code>` : ""}</button>
-    <details class="menu"><summary class="primary" title="Взяти в роботу з іншою моделлю" aria-label="Вибрати модель">${ICON.chevron}</summary>
-    <div class="menu-pop"><div class="menu-h">Взяти в роботу з моделлю</div>${(data?.models ?? []).map((m) => item(m, `<code>${esc(m)}</code>`)).join("")}${item("", byDefault)}</div></details></span>`;
+    <details class="menu"><summary class="primary" title="Вибрати модель для агента" aria-label="Вибрати модель">${ICON.chevron}</summary>
+    <div class="menu-pop"><div class="menu-h">Модель для роботи</div>${(data?.models ?? []).map((m) => item(m, `<code>${esc(m)}</code>`)).join("")}${item("", byDefault)}</div></details></span>`;
 }
 function laterMenu() {
   const item = (kind, label) => {

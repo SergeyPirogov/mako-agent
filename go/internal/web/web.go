@@ -375,19 +375,6 @@ func (s *Server) Handler() http.Handler {
 		}
 		switch action {
 		case "take":
-			// The arrow's model: ?model=sonnet (empty: as the settings say); «план спочатку» stays as picked.
-			if q := r.URL.Query(); q.Has("model") {
-				rec, _ := s.D.Store.Get(id)
-				// Taken already (another tab, the phone): the model is not changed for a take that does not happen.
-				if !dispatch.CanTake(rec) {
-					writeJSON(w, map[string]any{"ok": false, "error": "задачу вже взято в роботу"})
-					return
-				}
-				if err := s.D.Pick(id, strings.TrimSpace(q.Get("model")), rec.PlanFirst); err != nil {
-					writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
-					return
-				}
-			}
 			s.D.Take(ctx, id)
 		case "push":
 			s.D.Push(ctx, id)
@@ -395,8 +382,20 @@ func (s *Server) Handler() http.Handler {
 			min, _ := strconv.Atoi(r.URL.Query().Get("min"))
 			s.D.Later(id, min)
 		case "pick":
-			// The estimate's advice taken on the card: ?model=sonnet&plan=1 (empty: as the settings say).
-			if err := s.D.Pick(id, r.URL.Query().Get("model"), r.URL.Query().Get("plan") == "1"); err != nil {
+			// The model from the arrow and the estimate's advice on the card: ?model=sonnet&plan=1 (empty model: as the
+			// settings say). Without plan, «план спочатку» stays as it is now.
+			rec, _ := s.D.Store.Get(id)
+			// Taken already (another tab, the phone): the model is not changed for a task that is going.
+			if !dispatch.CanTake(rec) {
+				writeJSON(w, map[string]any{"ok": false, "error": "задачу вже взято в роботу"})
+				return
+			}
+			q := r.URL.Query()
+			plan := rec.PlanFirst
+			if q.Has("plan") {
+				plan = q.Get("plan") == "1"
+			}
+			if err := s.D.Pick(id, strings.TrimSpace(q.Get("model")), plan); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
