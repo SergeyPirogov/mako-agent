@@ -158,7 +158,13 @@ func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 		}
 		d.touchThread(thread, "")
 		if s := d.Chats.Get(thread); s != nil && s.Running() {
-			return thread, s.Send(text)
+			err := s.Send(text)
+			if !errors.Is(err, chat.ErrClosed) {
+				return thread, err
+			}
+			if err := d.awaitClosed(s); err != nil {
+				return thread, err
+			}
 		}
 		return thread, d.startQuestion(p, t, text)
 	}

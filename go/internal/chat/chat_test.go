@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -327,5 +328,61 @@ read more
 	}
 	if strings.Join(kinds, " ") != "user:: permission:denied:Write result::" {
 		t.Fatalf("items %v", kinds)
+	}
+}
+
+// A message sent right after the idle timer closed stdin is refused with ErrClosed, not written into a dead
+// pipe and lost: the caller resumes the conversation with it.
+func TestSendAfterIdleClose(t *testing.T) {
+	old := IdleAfter
+	IdleAfter = 50 * time.Millisecond
+	defer func() { IdleAfter = old }()
+	bin := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\necho '{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":10}'\nsleep 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := Start(Options{ID: "a#3", Worktree: t.TempDir(), Command: bin, Prompt: "Почни"})
+	defer func() { s.Stop(); s.Wait() }()
+	eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.stopping
+	}, func() string { return "idle timer did not fire" })
+	// The process lingers (sleep 2): it still counts as running, yet cannot take a message.
+	if err := s.Send("ще"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("send after idle close: %v", err)
+	}
+	for _, it := range s.Snapshot().Items {
+		if it.Kind == "user" && it.Text == "ще" {
+			t.Fatal("a refused message is shown as sent")
+		}
+	}
+}
+
+// The write fails after Send's check passed (stdin closed in between): the message is taken back, the state
+// goes back to done, and the error is ErrClosed so the caller resumes with it.
+func TestSendRollsBackFailedWrite(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\necho '{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":10}'\nsleep 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := Start(Options{ID: "a#4", Worktree: t.TempDir(), Command: bin, Prompt: "Почни"})
+	defer func() { s.Stop(); s.Wait() }()
+	eventually(t, func() bool { st, _, _ := s.State(); return st == "done" }, func() string { return fmt.Sprintf("not done: %+v", s.Snapshot()) })
+	s.mu.Lock()
+	s.stdin.Close() // closed behind Send's back: neither stopping nor exited
+	s.mu.Unlock()
+	err := s.Send("ще")
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("send: %v", err)
+	}
+	snap := s.Snapshot()
+	if snap.State != "done" {
+		t.Fatalf("state %q", snap.State)
+	}
+	for _, it := range snap.Items {
+		if it.Kind == "user" && it.Text == "ще" {
+			t.Fatal("a message that was not delivered shows as sent")
+		}
 	}
 }

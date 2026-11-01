@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
@@ -117,7 +118,14 @@ func TestTerminalDefaultModel(t *testing.T) {
 	d.Take(ctx, "grp/app#5")
 	d.Wait()
 	r, _ := d.Store.Get("grp/app#5")
-	defer d.StopTerminal(r.ID)
+	// The agent's exit saves the task: let it finish before the temp dirs go.
+	defer func() {
+		s := d.Sessions.Get(r.ID)
+		d.StopTerminal(r.ID)
+		if s != nil {
+			s.Wait()
+		}
+	}()
 	if r.Status != core.HandedOff || r.AgentModel != "sonnet" {
 		t.Fatalf("status %s, agent model %q, error %q", r.Status, r.AgentModel, r.Error)
 	}
@@ -237,4 +245,65 @@ echo "$more" > more.json
 	// The resumed agent saves the task when it exits: let it finish before the temp dirs go.
 	d.StopTerminal(r.ID)
 	d.Chats.Get(r.ID).Wait()
+}
+
+// A message sent after the idle timer closed the agent, while its process still lingers, is delivered: the
+// conversation is resumed with it.
+func TestSayAfterIdleClose(t *testing.T) {
+	old := chat.IdleAfter
+	chat.IdleAfter = 100 * time.Millisecond
+	defer func() { chat.IdleAfter = old }()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	d, _, _ := setup(t)
+	ctx := context.Background()
+	var repo string
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		repo = r.Path
+	}
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+	bin := t.TempDir()
+	// It ends its turn, then lingers a while after its stdin is closed.
+	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
+echo "$@" > args.txt
+read init
+read msg
+echo "$msg" > prompt.json
+echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'
+echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.01}'
+cat > /dev/null
+touch stdin-closed
+sleep 2
+`), 0o755)
+	cfg := *d.Config()
+	cfg.Executor, cfg.Terminal.Command, cfg.StateDir = "terminal", filepath.Join(bin, "claude"), t.TempDir()
+	d.Cfg = &cfg
+	d.BoardURL = "http://127.0.0.1:1"
+	pushes(t)
+	d.Poll(ctx)
+	d.Take(ctx, "grp/app#5")
+	d.Wait()
+	r, _ := d.Store.Get("grp/app#5")
+	if r.Status != core.HandedOff || r.View != "chat" {
+		t.Fatalf("status %s view %q error %q", r.Status, r.View, r.Error)
+	}
+	s := d.Chats.Get(r.ID)
+	defer func() { d.StopTerminal(r.ID); d.Chats.Get(r.ID).Wait() }()
+	waitFor(t, func() bool { st, _, _ := s.State(); return st == "done" }, "the chat is not done")
+	// The idle timer closes its stdin; the process lingers after that.
+	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(r.Worktree, "stdin-closed")); return err == nil }, "the idle timer did not close the agent")
+	projects := filepath.Join(home, ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(r.Worktree, "-"))
+	os.MkdirAll(projects, 0o755)
+	os.WriteFile(filepath.Join(projects, "sess-1.jsonl"), []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]}}`+"\n"), 0o644)
+	os.Remove(filepath.Join(r.Worktree, "prompt.json"))
+	if err := d.Say(r.ID, "Після простою"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return len(b) > 0 }, "the message was lost")
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Після простою") {
+		t.Fatalf("resumed with %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "args.txt")); !strings.Contains(string(b), "--resume sess-1") {
+		t.Fatalf("args %s", b)
+	}
 }

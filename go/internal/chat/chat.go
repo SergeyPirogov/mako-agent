@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -221,6 +222,9 @@ func (s *Session) end() {
 
 // Wait blocks until the agent has exited and its last change is reported.
 func (s *Session) Wait() { <-s.ended }
+
+// Done is closed once the agent has exited, for a select with a timeout.
+func (s *Session) Done() <-chan struct{} { return s.ended }
 
 // replay shows a transcript: it has the same messages claude streams.
 func (s *Session) replay(path string) {
@@ -447,12 +451,14 @@ func textOf(raw json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-func (s *Session) add(it Item) {
+func (s *Session) add(it Item) int {
 	s.mu.Lock()
 	s.items = append(s.items, it)
+	at := len(s.items) - 1
 	s.version++
 	s.mu.Unlock()
 	s.changed()
+	return at
 }
 
 // Show puts what Mako has to show into the conversation, as a screenshot the agent took.
@@ -507,7 +513,7 @@ func (s *Session) write(v any) error {
 	w := s.stdin
 	s.mu.Unlock()
 	if w == nil {
-		return fmt.Errorf("агент ще не запустився")
+		return errNotStarted
 	}
 	_, err := w.Write(append(b, '\n'))
 	return err
@@ -517,15 +523,43 @@ func userMessage(text string) map[string]any {
 	return map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}}
 }
 
+// errNotStarted: the agent's process is not up yet (its history or setup is still being shown); it is no reason to stop it.
+var errNotStarted = errors.New("агент ще не запустився")
+
+// ErrClosed: the agent is stopped or stopping, so it cannot take a message; resuming its conversation can.
+var ErrClosed = errors.New("агент не запущений")
+
 // Send is a message from you; Claude reads it after its current step.
 func (s *Session) Send(text string) error {
-	if !s.Running() {
-		return fmt.Errorf("агент не запущений")
+	s.mu.Lock()
+	closed := s.exited || s.stopping // stdin is closed as soon as it stops, before the process has exited
+	s.mu.Unlock()
+	if closed {
+		return ErrClosed
 	}
 	// Working before Claude reads it: a turn it ends at once must not be set back to working.
-	s.add(Item{Kind: "user", Text: text})
+	at := s.add(Item{Kind: "user", Text: text})
 	s.setState("working")
-	return s.write(userMessage(text))
+	err := s.write(userMessage(text))
+	if err == nil {
+		return nil
+	}
+	// It never reached the agent: take it back, so it does not show as sent (and again after a resume).
+	s.mu.Lock()
+	s.items = append(s.items[:at], s.items[at+1:]...)
+	closed = s.exited || s.stopping
+	if s.state == "working" && !s.exited && len(s.pending) == 0 {
+		s.state, s.since = "done", time.Now()
+	}
+	s.version++
+	s.mu.Unlock()
+	s.changed()
+	// Closed for idleness in between, or the process died: the caller resumes the conversation with the message.
+	// An agent that has not started yet is neither: it is left to start.
+	if closed || errors.Is(err, os.ErrClosed) || errors.Is(err, syscall.EPIPE) {
+		return fmt.Errorf("%w: %v", ErrClosed, err)
+	}
+	return err
 }
 
 // Say is Send for the board's ✨ requests.
@@ -710,6 +744,7 @@ func (s *Session) sleep() {
 	idle := s.state == "done" && !s.exited && len(s.pending) == 0
 	if idle {
 		s.asleep = true
+		s.stopping = true // closed from here on: Send must not take a message the closing stdin will lose
 	}
 	s.mu.Unlock()
 	if idle {
