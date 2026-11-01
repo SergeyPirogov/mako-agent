@@ -1599,7 +1599,8 @@ function renderDetail() {
   // «Повторити інакше»: an icon in the agent's workspace bar, words elsewhere.
   const redo = term ? `<button class="icon" data-redo title="Повторити інакше" aria-label="Повторити інакше">${ICON.redo}</button>` : `<button data-redo>Повторити інакше</button>`;
   if (r.column === "new") actions = b("take", "Взяти в роботу", "primary") + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
-  else if (r.status === "queued") actions = b("cancel", "Скасувати", "danger");
+  // «Запустити зараз»: past the WIP limit and Claude's limits, the queue is yours to skip.
+  else if (r.status === "queued") actions = `<button class="primary" data-a="push" title="Не чекати черги: передати агенту зараз, понад ліміт WIP і ліміти Claude">Запустити зараз</button>` + b("cancel", "Скасувати", "danger");
   else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + redo + ib("archive", "В архів", "archive");
   else if (r.column === "doing" && term) actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + redo + ib("cancel", "Більше не стежити", "unwatch", "danger");
   else if (r.column === "doing") actions = (r.worktree ? b("focus", "Показати в Orca", agentOf(r)?.state === "waiting" ? "primary" : "") : "") + redo + ib("cancel", "Більше не стежити", "unwatch", "danger");
