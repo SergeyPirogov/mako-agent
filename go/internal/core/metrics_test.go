@@ -37,7 +37,7 @@ func TestEnterStageAddsUpTheStages(t *testing.T) {
 			t.Fatalf("stages %v, want %v", got, want)
 		}
 	}
-	if back.Metrics.Stage != "" || back.Metrics.StageSince != "" {
+	if back.Metrics.Stage != "" {
 		t.Fatalf("still open: %+v", back.Metrics)
 	}
 }
@@ -68,8 +68,14 @@ func TestAddSpendByPhase(t *testing.T) {
 	if m.Tokens[PhaseWork] != 70_000 || r.TokensUsed() != 71_000 {
 		t.Fatalf("tokens %v", m.Tokens)
 	}
-	if r.Cost != 2.1 {
-		t.Fatalf("total %v", r.Cost)
+	if r.Cost != 2 || r.Spent() != 2.1 { // Cost: the agent's own, as an agent in Orca reports none
+		t.Fatalf("cost %v, spent %v", r.Cost, r.Spent())
+	}
+	orca := Record{}
+	orca.AddSpend(PhaseEstimate, 0.05, 100)
+	orca.AddSpend(PhaseReview, 0.2, 100)
+	if orca.Cost != 0 || orca.Spent() != 0.25 {
+		t.Fatalf("orca cost %v, spent %v", orca.Cost, orca.Spent())
 	}
 }
 
@@ -100,5 +106,29 @@ func TestSummarizeStagesAndPhases(t *testing.T) {
 	}
 	if st.Models[0].Tokens != 125 {
 		t.Fatalf("models %+v", st.Models)
+	}
+}
+
+func TestEnterStageStartsAtTheHandOff(t *testing.T) {
+	at := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
+	r := Record{Status: HandedOff, StartedAt: at.Format(time.RFC3339Nano)}
+	r.EnterStage(StageAgent, at.Add(5*time.Minute)) // the agent's first state, 5 min after the hand-off
+	r.EnterStage(StageYou, at.Add(20*time.Minute))
+	if got := r.StageSeconds(at.Add(20 * time.Minute)); got[StageAgent] != 20*60 {
+		t.Fatalf("stages %v", got)
+	}
+	// Back in the queue and handed off again: from the new hand-off, not over the time already counted.
+	r.Status = Queued
+	r.EnterStage("", at.Add(30*time.Minute))
+	r.Status, r.StartedAt = HandedOff, at.Add(40*time.Minute).Format(time.RFC3339Nano)
+	r.EnterStage(StageAgent, at.Add(45*time.Minute))
+	if got := r.StageSeconds(at.Add(50 * time.Minute)); got[StageAgent] != 30*60 || got[StageYou] != 10*60 {
+		t.Fatalf("stages %v", got)
+	}
+	// With an MR already (no hand-off to start from): from now.
+	done := Record{Status: Done, StartedAt: at.Format(time.RFC3339Nano)}
+	done.EnterStage(StageReview, at.Add(time.Hour))
+	if got := done.StageSeconds(at.Add(time.Hour)); got[StageReview] != 0 {
+		t.Fatalf("done %v", got)
 	}
 }

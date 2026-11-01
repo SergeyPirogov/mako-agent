@@ -30,7 +30,8 @@ var Phases = []string{PhaseEstimate, PhasePlan, PhaseWork, PhaseReview, PhaseAss
 
 // Metrics is where a task's time went and what it cost, kept in its record as it goes, so a restart keeps them.
 type Metrics struct {
-	// Stage: the one the task is in now, since StageSince (RFC 3339); "" in none.
+	// Stage: the one the task is in now, since StageSince (RFC 3339); "" in none, and StageSince is then when the
+	// last one ended.
 	Stage      string `json:"stage,omitempty"`
 	StageSince string `json:"stageSince,omitempty"`
 	// Seconds: the time of each stage that ended, by stage.
@@ -51,7 +52,8 @@ func (m *Metrics) clone() *Metrics {
 }
 
 // EnterStage ends the stage the task is in, adding its time, and starts stage at now; "" only ends it. The same
-// stage again changes nothing.
+// stage again changes nothing. A task in work that is in no stage yet starts it from its hand-off (StartedAt), so
+// the stages add up to the lead time: the time before the agent's first state counts too.
 func (r *Record) EnterStage(stage string, now time.Time) {
 	if r.Metrics == nil && stage == "" || r.Metrics != nil && r.Metrics.Stage == stage {
 		return
@@ -66,10 +68,15 @@ func (r *Record) EnterStage(stage string, now time.Time) {
 			m.Seconds[m.Stage] += now.Sub(since).Seconds()
 		}
 	}
-	m.Stage, m.StageSince = stage, ""
-	if stage != "" {
-		m.StageSince = now.UTC().Format(time.RFC3339Nano)
+	start := now
+	if m.Stage == "" && stage != "" && r.Status == HandedOff {
+		handed, err := time.Parse(time.RFC3339Nano, r.StartedAt)
+		ended, err2 := time.Parse(time.RFC3339Nano, m.StageSince)
+		if err == nil && handed.Before(now) && (err2 != nil || !handed.Before(ended)) {
+			start = handed
+		}
 	}
+	m.Stage, m.StageSince = stage, start.UTC().Format(time.RFC3339Nano)
 }
 
 // StageSeconds: the time of each stage, the one the task is in now counted up to now.
@@ -90,7 +97,9 @@ func (r *Record) StageSeconds(now time.Time) map[string]float64 {
 	return out
 }
 
-// AddSpend adds what one call of an agent cost to the phase. Record.Cost stays the total of all the phases.
+// AddSpend adds what one call of an agent cost to the phase. Record.Cost stays what the task's own agent spent
+// (plan and work): an agent in Orca reports nothing, and the estimate or the review of its task must not make it
+// look as if it cost cents. Spent is the total.
 func (r *Record) AddSpend(phase string, usd float64, tokens int) {
 	if usd <= 0 && tokens <= 0 {
 		return
@@ -102,7 +111,9 @@ func (r *Record) AddSpend(phase string, usd float64, tokens int) {
 			m.Cost = map[string]float64{}
 		}
 		m.Cost[phase] += usd
-		r.Cost += usd
+		if phase == PhasePlan || phase == PhaseWork {
+			r.Cost += usd
+		}
 	}
 	if tokens > 0 {
 		if m.Tokens == nil {
@@ -122,4 +133,18 @@ func (r *Record) TokensUsed() int {
 		n += t
 	}
 	return n
+}
+
+// Spent: USD of all the phases: the agent's own (Cost, including what it spent before the phases were kept) and
+// Mako's around it (estimate, review, assess).
+func (r *Record) Spent() float64 {
+	usd := r.Cost
+	if r.Metrics != nil {
+		for phase, c := range r.Metrics.Cost {
+			if phase != PhasePlan && phase != PhaseWork {
+				usd += c
+			}
+		}
+	}
+	return usd
 }

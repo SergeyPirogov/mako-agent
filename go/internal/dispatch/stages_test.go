@@ -12,17 +12,20 @@ import (
 func TestWorkAndMRStages(t *testing.T) {
 	checking := core.Record{Checks: &core.Checks{State: "running"}}
 	for _, c := range []struct {
-		r           core.Record
-		state, want string
+		r         core.Record
+		state     string
+		reviewing bool
+		want      string
 	}{
-		{core.Record{}, "working", core.StageAgent},
-		{core.Record{}, "waiting", core.StageYou},
-		{core.Record{}, "done", core.StageYou},
-		{checking, "done", core.StageCI},
-		{core.Record{}, "unknown", ""},
+		{core.Record{}, "working", false, core.StageAgent},
+		{core.Record{}, "waiting", false, core.StageYou},
+		{core.Record{}, "done", false, core.StageYou},
+		{core.Record{}, "done", true, core.StageAgent}, // Mako's reviewer reads the branch: nobody waits for you
+		{checking, "done", false, core.StageCI},
+		{core.Record{}, "unknown", true, ""},
 	} {
-		if got := workStage(c.r, c.state); got != c.want {
-			t.Errorf("workStage(%s) = %q, want %q", c.state, got, c.want)
+		if got := workStage(c.r, c.state, c.reviewing); got != c.want {
+			t.Errorf("workStage(%s, %v) = %q, want %q", c.state, c.reviewing, got, c.want)
 		}
 	}
 	for _, c := range []struct {
@@ -66,7 +69,16 @@ func TestTrackStages(t *testing.T) {
 	agent("waiting", at.Add(20*time.Minute))
 	agent("working", at.Add(30*time.Minute))
 	agent("unknown", at.Add(40*time.Minute)) // Orca did not answer: still working
-	agent("done", at.Add(60*time.Minute))
+	agent("done", at.Add(55*time.Minute))
+	// Mako's reviewer agent reads the branch for 5 min before the MR: the agent's time, not yours.
+	d.mu.Lock()
+	d.reviewing[id] = true
+	d.mu.Unlock()
+	d.TrackStages(ctx, at.Add(55*time.Minute))
+	d.mu.Lock()
+	delete(d.reviewing, id)
+	d.mu.Unlock()
+	d.TrackStages(ctx, at.Add(60*time.Minute))
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.PRURL = core.Done, "https://gitlab.example/grp/app/-/merge_requests/7"
 	})

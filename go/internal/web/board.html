@@ -1785,7 +1785,7 @@ function statsHTML(s) {
       ${tile("Без переробок", share(s.clean, s.ended), s.ended ? `${s.clean} з ${s.ended} завершених` : "ще жодна не завершилась")}
       ${tile("Від взяття до мерджу", s.leadSeconds ? dur(s.leadSeconds) : "—", "медіана")}
       ${tile("Не успішно", s.failed, failedNote)}
-      ${tile("Витрачено", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу${s.tokens ? ` · ${tok(s.tokens)} токенів` : ""}` : "лише агент у Mako")}
+      ${tile("Витрачено агентом", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} на задачу${s.tokens ? ` · ${tok(s.tokens)} токенів усього` : ""}` : "лише агент у Mako")}
     </div>
     ${trendHTML(s.days)}
     ${stagesHTML(s.stages, s.staged, dur)}
@@ -1813,7 +1813,7 @@ function statsHTML(s) {
     ${groupsHTML("За моделями", [...(s.models || []).filter((g) => g.name !== "—"), ...(s.models || []).filter((g) => g.name === "—")], "Модель", (n) => n === "—" ? "Невідома" : n[0].toUpperCase() + n.slice(1), 1)}
     <h3>Причини невдач</h3>
     ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
-    <p class="stats-note">«Без переробок» — змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось. «Від взяття до мерджу» — від передачі агенту до мерджу MR; «Агент до MR» — до відкриття MR, рев'ю — від MR до мерджу. «Де йде час» — у середньому на змерджену задачу: агент працює, чекає на вас (питання, дозвіл, план, його хід закінчено), MR чекає на CI, MR чекає на рев'ю й мердж. Бюджет рахує лише агент у Mako: агент в Orca своїх витрат не повідомляє; токени — усе, що модель прочитала й написала, з кешем. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
+    <p class="stats-note">«Без переробок» — змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось. «Від взяття до мерджу» — від передачі агенту до мерджу MR; «Агент до MR» — до відкриття MR, рев'ю — від MR до мерджу. «Де йде час» — у середньому на змерджену задачу: агент працює, чекає на вас (питання, дозвіл, план, його хід закінчено), MR чекає на CI, MR чекає на рев'ю й мердж. «Витрачено агентом», «≈ на задачу» й витрати в таблицях — лише робота й план агента у Mako: агент в Orca своїх витрат не повідомляє. Оцінка, рев'ю агента, оцінка й ретро — окремо, у «На що витрачено», для всіх задач. Етапи часу йдуть від передачі агенту; час рев'ю агента до MR — це час агента. Токени — усе, що модель прочитала й написала, з кешем. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
   </div>`;
 }
 
@@ -1904,7 +1904,8 @@ function cycleHTML(r, card) {
   const tokens = Object.values(m.tokens || {}).reduce((a, b) => a + b, 0);
   const spend = phases.length ? `<div class="legend stage-legend">${phases.map((k) => `<span>${PHASE_NAMES[k]} <b>${m.cost?.[k] ? `$${m.cost[k].toFixed(2)}` : "—"}</b>${m.tokens?.[k] ? ` <span class="muted">· ${tok(m.tokens[k])}</span>` : ""}</span>`).join("")}</div>` : "";
   if (!bar && !spend) return "";
-  const note = [r.cost ? `$${r.cost.toFixed(2)}` : "", tokens ? `${tok(tokens)} токенів` : "",
+  const spent = (r.cost || 0) + Object.entries(m.cost || {}).filter(([k]) => k !== "plan" && k !== "work").reduce((a, [, v]) => a + v, 0);
+  const note = [spent ? `$${spent.toFixed(2)}` : "", tokens ? `${tok(tokens)} токенів` : "",
     r.ciFixes ? `фіксів CI ${r.ciFixes}` : "", r.reviewFixes ? `правок коментарів ${r.reviewFixes}` : ""].filter(Boolean).join(" · ");
   return card("Час і витрати", `<div class="tcard-b">${bar}${spend}</div>`, "cycle", note);
 }
@@ -1956,7 +1957,7 @@ function bySizeHTML(groups, dur) {
     + `<td>${g.timed ? dur(g.seconds) : "—"}</td><td>${g.priced ? `$${g.cost.toFixed(2)}` : "—"}</td>${tokened ? `<td>${g.tokened ? tok(g.tokens) : "—"}</td>` : ""}</tr>`;
   return `<h3>За очікуваним розміром</h3><div class="table"><table><thead><tr><th>Розмір</th><th>Взято</th>`
     + `<th title="Змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось">Без переробок</th>`
-    + `<th title="Від передачі агенту до MR">Час агента</th><th title="Лише агент у Mako, в середньому на задачу">Витрати</th>${tokened ? `<th title="В середньому на задачу">Токени</th>` : ""}</tr></thead><tbody>${groups.filter((g) => g.taken).map(row).join("")}</tbody></table></div>`;
+    + `<th title="Від передачі агенту до MR">Час агента</th><th title="Робота й план агента у Mako, в середньому на задачу; без оцінки й рев'ю агента">Витрати</th>${tokened ? `<th title="В середньому на задачу">Токени</th>` : ""}</tr></thead><tbody>${groups.filter((g) => g.taken).map(row).join("")}</tbody></table></div>`;
 }
 
 // Where the agents most often did not understand the task: clarity 1–2 in the final assessment.

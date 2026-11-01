@@ -128,7 +128,7 @@ func (d *Dispatcher) setAgent(r core.Record, a Agent, now time.Time) {
 	}
 	d.agents[r.ID] = &a
 	d.mu.Unlock()
-	if s := workStage(r, a.State); s != "" && r.Status == core.HandedOff {
+	if s := workStage(r, a.State, d.reviewingNow(r.ID)); s != "" && r.Status == core.HandedOff {
 		d.enterStage(r, s, now)
 	}
 	// Another request while it still waits is told too: the notification answers that one now.
