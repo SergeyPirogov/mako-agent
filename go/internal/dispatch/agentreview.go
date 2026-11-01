@@ -97,6 +97,43 @@ func (d *Dispatcher) ReviewNow(id string) error {
 	return nil
 }
 
+// SkipReview is the board's «Пропустити»: you decided the branch at its head needs no review. The round is kept
+// as «skipped», which reads nothing: «Робити» can still start one, and its round goes in its place.
+func (d *Dispatcher) SkipReview(id string) error {
+	r, ok := d.Store.Get(id)
+	if !ok {
+		return errors.New("немає такої задачі")
+	}
+	if !reviewable(r) {
+		return errors.New("рев'ю пропускається лише для агентів Mako, що в роботі чи у відкритому MR")
+	}
+	d.mu.Lock()
+	busy := d.reviewing[id]
+	d.mu.Unlock()
+	if busy {
+		return errors.New("рецензент уже переглядає гілку")
+	}
+	if last := lastReview(r); last.State == "notes" && !last.Sent {
+		return errors.New("зауваження рецензента ще чекають: передайте їх агенту або залиште")
+	}
+	wt, _, err := d.workOf(id)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	head, err := gitx.Run(ctx, wt, "rev-parse", "HEAD")
+	if head = strings.TrimSpace(head); err != nil || head == "" {
+		return errors.New("не вдалось прочитати гілку")
+	}
+	d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "skipped", Reason: SkippedByYou})
+	d.Log(id, "рев'ю пропущено")
+	return nil
+}
+
+// SkippedByYou: the reason of a round «Пропустити» left.
+const SkippedByYou = "пропущено вами"
+
 // review runs the reviewer's round over head, which ReviewNow has marked as running; its remarks stay in the
 // task until you hand them to the agent.
 func (d *Dispatcher) review(id, wt, base, head string) {

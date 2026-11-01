@@ -558,6 +558,12 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "reviewskip":
+			// «Пропустити»: you decided no review is needed.
+			if err := s.D.SkipReview(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "reviewfix":
 			// «Виправити»: the reviewer's remarks go to the agent.
 			if err := s.D.FixReview(id); err != nil {

@@ -249,6 +249,46 @@ func TestReviewRetry(t *testing.T) {
 	d.mu.Unlock()
 }
 
+// «Пропустити»: the round is kept as skipped, «Робити» can still start one, and it goes in its place.
+func TestReviewSkip(t *testing.T) {
+	d, _, id, wt, _ := reviewSetup(t)
+	old := ReviewBranch
+	t.Cleanup(func() { ReviewBranch = old })
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
+		return "", nil
+	}
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Pay")
+	git(t, wt, "push", "-q", "origin", "fix/5-pay")
+
+	if err := d.SkipReview(id); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := d.Store.Get(id)
+	if len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "skipped" || r.AgentReviews[0].Reason != SkippedByYou {
+		t.Fatalf("reviews %+v", r.AgentReviews)
+	}
+	if err := d.SkipReview(id); err != nil {
+		t.Fatalf("skipped again: %v", err)
+	}
+	if r, _ = d.Store.Get(id); len(r.AgentReviews) != 1 || d.ReviewStep(r) != "ready" {
+		t.Fatalf("step %q reviews %+v", d.ReviewStep(r), r.AgentReviews)
+	}
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatal(err)
+	}
+	if r := reviewEnd(t, d, id, "clean"); len(r.AgentReviews) != 1 {
+		t.Fatalf("the round did not take the skip's place: %+v", r.AgentReviews)
+	}
+
+	// Remarks waiting for «Виправити» are not skipped over.
+	d.Store.Update(id, func(r *core.Record) {
+		r.AgentReviews = []core.AgentReview{{At: now(), Commit: "x", State: "notes", Notes: "- щось"}}
+	})
+	if err := d.SkipReview(id); err == nil || !strings.Contains(err.Error(), "чекають") {
+		t.Fatalf("skipped the remarks: %v", err)
+	}
+}
+
 // reviewEnd waits for the reviewer's round to end as state.
 func reviewEnd(t *testing.T, d *Dispatcher, id, state string) core.Record {
 	t.Helper()
