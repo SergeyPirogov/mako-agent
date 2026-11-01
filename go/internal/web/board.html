@@ -2043,7 +2043,7 @@ function renderDetail() {
   if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
 
   const notices = `
-    ${r.status === "queued" && r.starting ? startingHTML(r) : ""}
+    ${r.status === "queued" && r.starting ? `<!--st--><div id="starting-slot">${startingHTML(r)}</div><!--/st-->` : ""}
     ${r.status === "queued" && !r.starting ? `<div class="notice later-note">${ICON.clock}У черзі${r.queueWhy ? `: ${esc(r.queueWhy)}` : ""}. Mako запустить її сам</div>` : ""}
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
     ${r.column === "new" && r.autoSkip ? `<div class="notice auto-skip">Не взято автоматично: ${esc(r.autoSkip)}. Візьміть кнопкою або Mako візьме сам, щойно оцінка підійде під налаштування</div>` : ""}
@@ -2075,6 +2075,14 @@ function renderDetail() {
   if (!term) { closeTerminal(); closeChat(); }
   // The board reloads every 5 s: the same page is left as it is, so the terminal keeps its focus and selection.
   if (html === shown) return;
+  // Only the start's timers moved: patch that notice, so the task's text and pictures below it do not reload and jump.
+  const strip = (x) => x.replace(/<!--st-->[\s\S]*<!--\/st-->/, "");
+  const inner = (x) => x.slice(x.indexOf("<!--st-->") + 9, x.indexOf("<!--/st-->"));
+  if ($("starting-slot") && shown.includes("<!--st-->") && html.includes("<!--st-->") && strip(shown) === strip(html)) {
+    $("starting-slot").outerHTML = inner(html);
+    shown = html;
+    return;
+  }
   const typing = tv?.el.contains(document.activeElement) || cv?.el.contains(document.activeElement);
   // The diff stays where it was scrolled to, and a comment being written keeps its cursor.
   const box = $("detail").querySelector(".diff-view > .diff"), scrolled = box && { path: box.dataset.path, top: box.scrollTop, left: box.scrollLeft };
