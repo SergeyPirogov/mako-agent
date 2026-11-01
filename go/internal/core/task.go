@@ -150,6 +150,17 @@ type Record struct {
 	SecretsAllowed []string          `json:"secretsAllowed,omitempty"`
 	// Checks: the repo's checks (tests, lint, build) Mako ran in the worktree before opening the MR, the last run.
 	Checks *Checks `json:"checks,omitempty"`
+	// Changed: what the branch changed against its base, kept when its worktree is cleaned up, so a finished
+	// task still says it.
+	Changed *ChangeStat `json:"changed,omitempty"`
+}
+
+// ChangeStat: the size of a branch's work: files, lines added and removed, commits.
+type ChangeStat struct {
+	Files   int `json:"files"`
+	Added   int `json:"added"`
+	Removed int `json:"removed"`
+	Commits int `json:"commits"`
 }
 
 // BaseConflict: the base branch's commit the task's branch conflicted with, and the files.
