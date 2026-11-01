@@ -76,7 +76,7 @@ const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", 
 const LABEL = { new: "нова", later: "відкладена", queued: "у черзі", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
-  "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
+  "ci": "чекає на CI", "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
 const AGENT_NOTE = { waiting: "Агент чекає на вас", done: "Подивіться відповідь агента в Orca: далі — ваш хід або MR", idle: "У workspace зараз не працює жоден агент", unknown: "Orca не відповідає" };
 // The list's groups folded by a click on their heading (column → folded); «Готово» and «Не виконано» start folded.
 let folded = (() => { try { return { done: true, failed: true, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { done: true, failed: true }; } })();
@@ -155,7 +155,9 @@ const state = (r) => {
   if (r.column === "new" && r.postponed) return "later";
   // Taken but not started yet (the WIP limit or Claude's limit holds it): in «В роботі», but not working.
   if (r.status === "queued") return "queued";
+  // The MR is open, its CI still runs: the task stays in work, but it waits for CI and not for the agent.
   const a = agentOf(r);
+  if (r.column === "doing" && r.prUrl && r.status === "handed-off" && (!a || a.state === "done" || a.state === "idle")) return "ci";
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
 // What the card says under its title: where the task is, in words ([text, class: "warn" or "err" or "", tooltip]).
@@ -1064,6 +1066,7 @@ function mrCard(r, term) {
   const live = term && r.live, c = review?.review;
   const num = r.prUrl?.match(/\/(?:merge_requests|pull)\/(\d+)/)?.[1];
   const state = c?.state ?? (r.reviewState || (r.prUrl ? "open" : ""));
+  const waitCI = r.status === "handed-off" && !!r.prUrl && state === "open";
   const fix = (kind, label) => fixBtn(live, kind, label);
   let rows = "";
   if (!r.prUrl) rows = `<div class="muted mr-none">Ще немає: агент відкриє MR, коли закінчить</div>`;
@@ -1087,12 +1090,12 @@ function mrCard(r, term) {
     `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
   const open = live && !r.prUrl ? icon(`data-ask="open"`, "Відкрити MR: агент закомітить, запушить і відкриє його", "pr") : "";
   const update = live && r.prUrl && state === "open" ? icon(`data-ask="push"`, "Оновити MR: агент закомітить і запушить зроблене", "push") : "";
-  const merge = c?.state === "open" ? icon("data-merge", c.mergeable ? "Змерджити MR в основну гілку" : `Змерджити ще не можна: ${c.blocked || "GitLab не дозволяє"}`,
+  const merge = c?.state === "open" && !waitCI ? icon("data-merge", c.mergeable ? "Змерджити MR в основну гілку" : `Змерджити ще не можна: ${c.blocked || "GitLab не дозволяє"}`,
     "merge", c.mergeable ? "ready" : "", !c.mergeable) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Закрити MR без злиття", "closeMR", "danger") : "";
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "відкрити"}</a>` : ""}
-      <span class="muted">${{ open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span>
+      <span class="muted">${waitCI ? "відкрито · чекаю на CI" : { open: "відкритий", merged: "змерджено", closed: "закрито" }[state] ?? ""}</span>
       <span class="spacer"></span>${open}${update}${close}${merge}</div>
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
 }
