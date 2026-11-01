@@ -1471,6 +1471,8 @@ function agentBlock(r) {
 
 // A task in Orca: its agent's whole Claude Code session, read from the transcript while it is open.
 let convoScroll = null;
+// Where each task's «Задача» tab was scrolled to: it is redrawn on every refresh and tab switch.
+const taskScroll = {};
 let convoOpen = (() => { try { return localStorage.getItem("mako-chat") === "1"; } catch { return false; } })(), convo = { id: null, turns: [] };
 async function loadConvo() {
   const id = selected, r = data?.records.find((x) => x.id === id);
@@ -2232,12 +2234,19 @@ function renderDetail() {
   }
   const typing = tv?.el.contains(document.activeElement) || cv?.el.contains(document.activeElement);
   // The diff stays where it was scrolled to, and a comment being written keeps its cursor.
+  const tp = $("detail").querySelector(".task-pane");
+  if (tp) taskScroll[r.id] = tp.scrollTop;
   const box = $("detail").querySelector(".diff-view > .diff"), scrolled = box && { path: box.dataset.path, top: box.scrollTop, left: box.scrollLeft };
   const writing = document.activeElement?.id === "note-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   if (lessonEdit) lessonEdit.at = document.activeElement?.id === "lesson-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   const answering = document.activeElement?.dataset?.qa != null && { qa: document.activeElement.dataset.qa, at: [document.activeElement.selectionStart, document.activeElement.selectionEnd] };
   $("detail").innerHTML = shown = html;
   bindAnswers(r, answering);
+  const tp2 = $("detail").querySelector(".task-pane");
+  if (tp2) {
+    tp2.scrollTop = taskScroll[r.id] ?? 0;
+    tp2.onscroll = () => (taskScroll[r.id] = tp2.scrollTop);
+  }
   const box2 = $("detail").querySelector(".diff-view > .diff");
   if (box2) box2.dataset.path = fileTab;
   if (box2 && scrolled?.path === fileTab) { box2.scrollTop = scrolled.top; box2.scrollLeft = scrolled.left; }
