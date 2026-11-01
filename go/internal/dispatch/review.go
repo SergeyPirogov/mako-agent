@@ -106,12 +106,56 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 
 // asked: the agent got the request for kind; a review's comments and CI fixes count, for the statistics, as rework.
 func (d *Dispatcher) asked(id, kind string) {
+	var threads []trackers.Thread
+	if kind == "comments" {
+		// Before the cache is forgotten: these are the threads the agent was just given.
+		if c, _ := d.Review(context.Background(), id); c != nil {
+			threads = c.Threads
+		}
+	}
 	d.forgetReview(id)
 	switch kind {
 	case "comments":
+		d.replyToReview(id, threads)
 		d.Store.Update(id, func(rec *core.Record) { rec.ReviewFixes++ })
 	case "ci":
 		d.Store.Update(id, func(rec *core.Record) { rec.CIFixes++ })
+	}
+}
+
+// replyToReview leaves in the issue a reply to the reviewers: the card shows that their comments were seen
+// and are being handled.
+func (d *Dispatcher) replyToReview(id string, threads []trackers.Thread) {
+	r, ok := d.Store.Get(id)
+	if !ok {
+		return
+	}
+	t := d.tracker(r.Task.TrackerID)
+	if t == nil {
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Ревʼюер залишив коментарі до MR %s. Агент їх бачить і виправляє", r.PRURL)
+	if len(threads) == 0 {
+		b.WriteString(".")
+	} else {
+		b.WriteString(":\n")
+		for _, th := range threads {
+			where := ""
+			if th.Path != "" {
+				where = fmt.Sprintf(" (%s:%d)", th.Path, th.Line)
+			}
+			body := strings.Join(strings.Fields(th.Body), " ")
+			if rs := []rune(body); len(rs) > 140 {
+				body = string(rs[:140]) + "…"
+			}
+			fmt.Fprintf(&b, "\n- %s%s: %s", th.Author, where, body)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := t.Comment(ctx, r.Task, b.String()); err != nil {
+		d.Fault(id, "відповідь на рев'ю не додано", err)
 	}
 }
 
