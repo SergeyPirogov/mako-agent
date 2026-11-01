@@ -61,6 +61,7 @@ type stateReply struct {
 	Now      int64        `json:"now"`
 	WipLimit int          `json:"wipLimit"`
 	Records  []recordView `json:"records"`
+	Models   []string     `json:"models"` // the agent's models to pick from
 	// ReviewRequests: others' MRs where I am a reviewer («Рев'ю для мене»), the finished ones too.
 	ReviewRequests []core.ReviewRequest       `json:"reviewRequests"`
 	Searches       map[string]dispatch.Search `json:"searches"`
@@ -100,6 +101,8 @@ type recordView struct {
 	Postponed bool   `json:"postponed"`
 	Type      string `json:"type"` // "fix" for a bug, "feature" for a task: as the branch is named
 	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
+	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked ("" the configured one).
+	DefaultModel string `json:"defaultModel,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
 }
@@ -161,12 +164,16 @@ func (s *Server) Handler() http.Handler {
 		if n, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && n > 0 {
 			since = time.Now().AddDate(0, 0, -n)
 		}
+		reply.Models = core.Models
 		reply.Stats = core.Summarize(all, time.Now(), since)
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
+			if v.Column == "new" {
+				v.DefaultModel = s.D.DefaultModel(rec)
+			}
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
 			}
@@ -367,6 +374,11 @@ func (s *Server) Handler() http.Handler {
 			// The arrow's model: ?model=sonnet (empty: as the settings say); «план спочатку» stays as picked.
 			if q := r.URL.Query(); q.Has("model") {
 				rec, _ := s.D.Store.Get(id)
+				// Taken already (another tab, the phone): the model is not changed for a take that does not happen.
+				if !dispatch.CanTake(rec) {
+					writeJSON(w, map[string]any{"ok": false, "error": "задачу вже взято в роботу"})
+					return
+				}
 				if err := s.D.Pick(id, strings.TrimSpace(q.Get("model")), rec.PlanFirst); err != nil {
 					writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 					return

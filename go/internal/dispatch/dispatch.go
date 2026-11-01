@@ -444,14 +444,18 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 // Take: «Взяти в роботу». Within the WIP limit and below Claude's limits it starts now, otherwise it waits in
 // the queue.
 func (d *Dispatcher) Take(ctx context.Context, id string) {
-	r, ok := d.Store.Get(id)
-	if !ok || (r.Status != core.Asking && r.Status != core.Snoozed && r.Status != core.Failed && r.Status != core.Cancelled) {
+	if r, ok := d.Store.Get(id); !ok || !CanTake(r) {
 		return
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.Error, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt, r.AutoSkip = core.Queued, "", 0, false, 0, ""
 	})
 	d.schedule(ctx)
+}
+
+// CanTake: the task waits for «Взяти в роботу» (or for it again: failed, cancelled), not queued or with its agent.
+func CanTake(r core.Record) bool {
+	return r.Status == core.Asking || r.Status == core.Snoozed || r.Status == core.Failed || r.Status == core.Cancelled
 }
 
 // Push: «Запустити зараз» on a task waiting in the queue. You decided it goes now: past the WIP limit and
