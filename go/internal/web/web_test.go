@@ -130,6 +130,31 @@ func TestBoard(t *testing.T) {
 	}
 }
 
+// Before the take the board names the model the agent gets when none is picked: the estimate's, else Sonnet.
+func TestBoardDefaultModel(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	plain := core.Task{ID: "grp/app#1", Title: "a"}
+	advised := core.Task{ID: "grp/app#2", Title: "b"}
+	store.Update(plain.ID, func(r *core.Record) { r.Status, r.Task = core.Snoozed, plain })
+	store.Update(advised.ID, func(r *core.Record) {
+		r.Status, r.Task, r.Model = core.Snoozed, advised, "haiku" // picked on the card: the default stays
+		r.Estimate = &core.Estimate{State: "done", Size: "big", Model: "opus", For: dispatch.EstimateKey(advised)}
+	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Executor: "terminal", EstimateModel: true}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	res, _ := http.Get(srv.URL + "/api/state")
+	var st stateReply
+	json.NewDecoder(res.Body).Decode(&st)
+	m := map[string]string{}
+	for _, r := range st.Records {
+		m[r.ID] = r.DefaultModel
+	}
+	if m[plain.ID] != "sonnet" || m[advised.ID] != "opus" {
+		t.Fatalf("default models %v", m)
+	}
+}
+
 func TestSettingsSaveReloads(t *testing.T) {
 	home := t.TempDir()
 	store, _ := state.Open(t.TempDir())

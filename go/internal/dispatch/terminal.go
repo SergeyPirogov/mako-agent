@@ -72,10 +72,8 @@ func viewOf(t config.Terminal) string {
 func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setup string) error {
 	t := d.Config().Terminal
 	r, _ := d.Store.Get(id)
-	if m := modelFor(d.Config(), r); m != "" {
-		t.Model = m // picked for the task, or the estimate's advice
-	}
-	if t.Model != "" && !cont {
+	t.Model = terminalModel(d.Config(), r) // picked for the task, the estimate's advice, the configured one or Sonnet
+	if !cont {
 		d.Store.Update(id, func(r *core.Record) { r.AgentModel = t.Model }) // the chat names it exactly once it starts
 	}
 	again := []string{"--continue"}

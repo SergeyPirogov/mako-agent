@@ -194,8 +194,11 @@ func TestParseTrackerPaused(t *testing.T) {
 }
 
 func TestParseEstimate(t *testing.T) {
-	if c, _ := Parse([]byte(`{}`), nil); !c.Estimate {
-		t.Fatal("the estimate is on by default")
+	if c, _ := Parse([]byte(`{}`), nil); !c.Estimate || !c.EstimateModel {
+		t.Fatal("the estimate and its model are on by default")
+	}
+	if c, _ := Parse([]byte(`{"estimate":{"useModel":false}}`), nil); c.EstimateModel {
+		t.Fatal("the estimate's model turned off")
 	}
 	if c, _ := Parse([]byte(`{"estimate":{"enabled":false}}`), nil); c.Estimate {
 		t.Fatal("turned off")

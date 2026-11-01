@@ -1187,10 +1187,8 @@ function estimateHTML(r, card) {
   const advice = [
     e.plan ? chip(plan, "план спочатку", pick(model, !plan), plan ? "Агент почне з плану. Натисніть, щоб скасувати" : "Агент почне з плану: нічого не змінить, доки ви його не затвердите") : "",
     e.split ? `<span class="tchip">розбити на кілька задач</span>` : "",
-    e.model ? chip(model === e.model, `модель <code>${esc(e.model)}</code>`, pick(model === e.model ? "" : e.model, plan), model === e.model ? "Агент почне з цією моделлю. Натисніть, щоб скасувати" : `Агент почне з моделлю ${e.model} замість налаштованої`) : "",
   ].filter(Boolean);
-  const picked = model && model !== e.model ? `<span class="muted">модель для задачі: <code>${esc(model)}</code></span>` : "";
-  const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.join("")}${picked}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
+  const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.join("")}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
   const questions = e.questions?.trim() ? `<div class="sec warn"><h4><span class="ic">?</span>Що уточнити в трекері</h4>${md(e.questions)}</div>` : "";
   const note = e.state === "running" ? `<span class="muted">оцінюю наново…</span>` : btn("Оцінити ще раз");
   return card("Оцінка наперед", `<div class="tcard-b scores">${scoreRow("Опис задачі", "up", e.clarity)}${size}${scoreRow("Ризик", "down", e.risk)}</div>${questions}${rec}`, "assess", note);
@@ -1298,9 +1296,11 @@ function laterAt(kind) {
 // names the model the agent will start with: picked for the task, else the estimate's when the settings take it.
 function takeButton(r) {
   const model = r.model || "", def = r.defaultModel || "", start = model || def;
-  const item = (m, label) => `<button type="button" data-a="take" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}</button>`;
-  const title = model ? `Агент почне з моделлю ${model}` : def ? `Агент почне з моделлю ${def}, яку радить оцінка` : "Агент почне з моделлю з налаштувань";
-  const byDefault = def ? `Типова: <code>${esc(def)}</code> з оцінки` : "Як у налаштуваннях";
+  // Opus's estimate advises a model by how complex the task is; without it the default is the configured one or Sonnet.
+  const advised = estimated(r)?.model || "", fromEstimate = def && def === advised;
+  const item = (m, label) => `<button type="button" data-a="take" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}${m && m === advised ? ` <span class="muted">радить Opus</span>` : ""}</button>`;
+  const title = model ? `Агент почне з моделлю ${model}` : fromEstimate ? `Агент почне з моделлю ${def}, яку радить оцінка` : def ? `Агент почне з моделлю ${def}` : "Агент почне з моделлю з налаштувань";
+  const byDefault = fromEstimate ? `Типова: <code>${esc(def)}</code> з оцінки` : def ? `Типова: <code>${esc(def)}</code>` : "Як у налаштуваннях";
   return `<span class="split"><button class="primary" data-a="take" data-x="" title="${esc(title)}">Взяти в роботу${start ? ` · <code>${esc(start)}</code>` : ""}</button>
     <details class="menu"><summary class="primary" title="Взяти в роботу з іншою моделлю" aria-label="Вибрати модель">${ICON.chevron}</summary>
     <div class="menu-pop"><div class="menu-h">Взяти в роботу з моделлю</div>${(data?.models ?? []).map((m) => item(m, `<code>${esc(m)}</code>`)).join("")}${item("", byDefault)}</div></details></span>`;
@@ -1902,6 +1902,7 @@ function renderDetail() {
   if (t.meta) chips.push(chip(esc(t.meta), "", "Трекер"));
   if (t.assignees?.length) chips.push(chip(`<span class="k">Виконавці</span>${esc(t.assignees.join(", "))}`));
   if (r.repo) chips.push(chip(`<span class="k">Репо</span>${esc(r.repo)}`));
+  if (r.agentModel && r.column !== "new") chips.push(chip(`<span class="k">Модель</span><code>${esc(r.agentModel)}</code>`, "", "Модель, якою працював агент"));
   const branch = r.branch || r.branchName;
   if (branch) chips.push(chip(`${ICON.pr}<code>${esc(branch)}</code>${copy(branch, "назву гілки")}`, "", "Гілка"));
   if (r.worktree) chips.push(chip(`${ICON.folder}<code>${esc(shortPath(r.worktree))}</code>${copy(r.worktree, "шлях до worktree")}`, "wt", r.worktree));

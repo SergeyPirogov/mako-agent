@@ -17,8 +17,8 @@ import (
 // risky, and how to take it. Once per task; again only when its title or description changes, or on
 // «Оцінити ще раз». A failure leaves the task without an estimate, quietly.
 
-// estimateKey: what the estimate of a task was made for; a changed title or description makes another.
-func estimateKey(t core.Task) string {
+// EstimateKey: what the estimate of a task was made for; a changed title or description makes another.
+func EstimateKey(t core.Task) string {
 	h := sha1.Sum([]byte(t.Title + "\n" + t.Description))
 	return hex.EncodeToString(h[:6])
 }
@@ -35,7 +35,7 @@ func (d *Dispatcher) maybeEstimate(id string) {
 	if !ok || !isNew(r) {
 		return
 	}
-	if e := r.Estimate; e != nil && (e.For == estimateKey(r.Task) || (e.State == "running" && !stale(e.At))) {
+	if e := r.Estimate; e != nil && (e.For == EstimateKey(r.Task) || (e.State == "running" && !stale(e.At))) {
 		return
 	}
 	if d.startEstimate(id) == nil {
@@ -75,7 +75,7 @@ func (d *Dispatcher) startEstimate(id string) error {
 	if e := r.Estimate; e != nil && e.State == "running" && !stale(e.At) {
 		return errors.New("задачу вже оцінюють")
 	}
-	key := estimateKey(r.Task)
+	key := EstimateKey(r.Task)
 	d.Store.Update(id, func(r *core.Record) {
 		// The last estimate stays readable meanwhile, for the size and the order of «Нові».
 		e := core.Estimate{}
@@ -90,7 +90,7 @@ func (d *Dispatcher) startEstimate(id string) error {
 
 // estimate asks the agent for the estimate and keeps it with the key of the text it read.
 func (d *Dispatcher) estimate(ctx context.Context, id string) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, writer.EstimateTimeout+time.Minute) // the estimate's own limit, and a minute to read the repository
 	defer cancel()
 	r, ok := d.Store.Get(id)
 	if !ok {
@@ -102,7 +102,7 @@ func (d *Dispatcher) estimate(ctx context.Context, id string) {
 			dir = repo.Path
 		}
 	}
-	key := estimateKey(r.Task)
+	key := EstimateKey(r.Task)
 	e, err := writer.Estimate(ctx, dir, r.Task, writer.RepoOutline(ctx, dir))
 	e.At, e.For = now(), key
 	if err != nil {

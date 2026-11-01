@@ -65,20 +65,25 @@ var (
 
 // Ask runs `claude -p --model haiku` with the prompt on stdin, for up to two minutes.
 func Ask(ctx context.Context, dir, prompt string) (string, error) {
+	return AskModel(ctx, dir, "haiku", prompt, 2*time.Minute)
+}
+
+// AskModel runs `claude -p --model <model>` with the prompt on stdin, for up to timeout.
+func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Duration) (string, error) {
 	path, err := exec.LookPath(Claude)
 	if err != nil {
 		return "", errors.New("Claude Code не знайдено")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "-p", "--model", "haiku", "--output-format", "text")
+	cmd := exec.CommandContext(ctx, path, "-p", "--model", model, "--output-format", "text")
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", errors.New("Claude не відповів за 2 хв")
+		return "", fmt.Errorf("Claude не відповів за %d хв", int(timeout.Minutes()))
 	}
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
@@ -440,6 +445,12 @@ func RepoOutline(ctx context.Context, dir string) string {
 	return strings.Join(out, "\n")
 }
 
+// EstimateModel: the model that estimates a task and so picks who does it; EstimateTimeout: how long it may take.
+const (
+	EstimateModel   = "opus"
+	EstimateTimeout = 5 * time.Minute
+)
+
 // Estimate: the agent's look at a new task before it starts, from its text and the repository's layout (not its
 // code): how clear it is and what to ask, how big, how risky, and how to take it. Its text is in Ukrainian.
 func Estimate(ctx context.Context, dir string, t core.Task, outline string) (core.Estimate, error) {
@@ -447,7 +458,7 @@ func Estimate(ctx context.Context, dir string, t core.Task, outline string) (cor
 	for _, c := range t.Comments {
 		comments = append(comments, "- "+c.Author+": "+clipTo(c.Body, 1500))
 	}
-	text, err := Ask(ctx, dir, strings.Join([]string{
+	text, err := AskModel(ctx, dir, EstimateModel, strings.Join([]string{
 		"A developer is deciding whether to give the task below to a coding agent, and how. Before anyone starts, estimate it",
 		"from its text and the repository's layout (you do not see the code). Answer with JSON only, no code fences, in this shape:",
 		`{"clarity":{"score":1,"why":"..."},"questions":["..."],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
@@ -457,13 +468,14 @@ func Estimate(ctx context.Context, dir string, t core.Task, outline string) (cor
 		"- parts: which folders or parts of the code it will likely touch, one short line;",
 		"- risk: 1 safe, 5 likely to break something; \"why\" names what it touches (settings, updates, stored data, security, the UI, …);",
 		"- plan: true when the agent should first plan and have the plan approved; split: true when it is several tasks in one;",
-		"- model: \"haiku\", \"sonnet\" or \"opus\", the cheapest that will do it well;",
+		"- model: who should do it, by how complex it is: \"haiku\" for a trivial edit in one place, \"sonnet\" for ordinary work",
+		"  (the default), \"opus\" only for complex work: across subsystems, subtle logic, hard to get right;",
 		"- advice: one short sentence on how to take the task.",
 		"All text (why, questions, parts, advice) in Ukrainian, short.",
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
 		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
 		"", "Repository:", orNone(outline),
-	}, "\n"))
+	}, "\n"), EstimateTimeout)
 	if err != nil {
 		return core.Estimate{}, err
 	}
@@ -499,7 +511,7 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		return core.Estimate{}, fmt.Errorf("невідомий розмір %q", in.Size)
 	}
 	if !slices.Contains(core.Models, e.Model) {
-		e.Model = ""
+		e.Model = "" // no advice: the agent starts with the default one
 	}
 	for _, s := range []struct {
 		in  score

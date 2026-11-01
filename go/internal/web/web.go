@@ -101,7 +101,8 @@ type recordView struct {
 	Postponed bool   `json:"postponed"`
 	Type      string `json:"type"` // "fix" for a bug, "feature" for a task: as the branch is named
 	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
-	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked ("" the configured one).
+	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked: the estimate's, the
+	// configured one or Sonnet; "" for Orca's agent with its own.
 	DefaultModel string `json:"defaultModel,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`

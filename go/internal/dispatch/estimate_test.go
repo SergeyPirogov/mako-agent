@@ -11,11 +11,11 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
-// estimateClaude answers every prompt with an estimate and keeps each prompt, one per line of the log.
+// estimateClaude answers every prompt with an estimate and keeps each call's arguments and prompt, one per line of the log.
 func estimateClaude(t *testing.T) func() []string {
 	dir := t.TempDir()
 	calls := filepath.Join(dir, "calls")
-	script := "#!/bin/sh\n(cat; echo) | tr '\\n' ' ' >> " + calls + "\necho >> " + calls + "\n" +
+	script := "#!/bin/sh\n(echo \"$*\"; cat; echo) | tr '\\n' ' ' >> " + calls + "\necho >> " + calls + "\n" +
 		`echo '{"clarity":{"score":4,"why":"зрозуміло"},"questions":["Яка саме кнопка?"],"size":"big","parts":"web","risk":{"score":2,"why":"UI"},"plan":true,"split":false,"model":"sonnet","advice":"почати з плану"}'` + "\n"
 	os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755)
 	old := writer.Claude
@@ -38,10 +38,11 @@ func TestEstimateNewTask(t *testing.T) {
 	r, _ := d.Store.Get("grp/app#5")
 	e := r.Estimate
 	if e == nil || e.State != "done" || e.Size != "big" || e.Clarity.Value != 4 || e.Risk.Why != "UI" || !e.Plan || e.Model != "sonnet" ||
-		!strings.Contains(e.Questions, "Яка саме кнопка?") || e.For != estimateKey(r.Task) {
+		!strings.Contains(e.Questions, "Яка саме кнопка?") || e.For != EstimateKey(r.Task) {
 		t.Fatalf("estimate: %+v", e)
 	}
-	if got := calls(); len(got) != 1 || !strings.Contains(got[0], "Кнопка") {
+	// Opus estimates the task, and so picks who does it.
+	if got := calls(); len(got) != 1 || !strings.Contains(got[0], "Кнопка") || !strings.Contains(got[0], "--model_opus") {
 		t.Fatalf("calls: %v", got)
 	}
 
@@ -62,7 +63,7 @@ func TestEstimateNewTask(t *testing.T) {
 		t.Fatalf("a changed description: %d calls", n)
 	}
 	r, _ = d.Store.Get("grp/app#5")
-	if r.Estimate.For != estimateKey(r.Task) || r.Estimate.State != "done" {
+	if r.Estimate.For != EstimateKey(r.Task) || r.Estimate.State != "done" {
 		t.Fatalf("estimate of the new text: %+v", r.Estimate)
 	}
 

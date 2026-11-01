@@ -15,7 +15,7 @@ func est(size string, clarity int, questions string) *core.Estimate {
 
 // freshFor: the estimate made for the task's present text.
 func freshFor(r *core.Record, e *core.Estimate) *core.Estimate {
-	e.For = estimateKey(r.Task)
+	e.For = EstimateKey(r.Task)
 	return e
 }
 
