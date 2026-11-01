@@ -46,7 +46,7 @@ func (a *absence) save() {
 		return
 	}
 	data, _ := json.Marshal(a)
-	if os.WriteFile(a.file+".tmp", data, 0o644) == nil {
+	if os.WriteFile(a.file+".tmp", data, 0o600) == nil {
 		_ = os.Rename(a.file+".tmp", a.file)
 	}
 }

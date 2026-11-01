@@ -108,7 +108,7 @@ func (d *Dispatcher) updateThreads(f func([]CodeThread) []CodeThread) error {
 	all := f(d.readThreads())
 	b, _ := json.MarshalIndent(all, "", "  ")
 	os.MkdirAll(filepath.Dir(d.threadsFile()), 0o755)
-	return os.WriteFile(d.threadsFile(), b, 0o644)
+	return os.WriteFile(d.threadsFile(), b, 0o600)
 }
 
 // CodeThreads: a project's questions, the latest first.

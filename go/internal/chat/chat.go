@@ -974,7 +974,7 @@ func (m *Manager) SetLimits(l Limits) {
 	m.mu.Unlock()
 	if m.file != "" {
 		b, _ := json.Marshal(l)
-		os.WriteFile(m.file, b, 0o644)
+		os.WriteFile(m.file, b, 0o600)
 	}
 }
 
