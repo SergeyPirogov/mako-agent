@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,11 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
+
+// reviewDue: a round for the branch at head, as the settings start them.
+func reviewDue(list []core.AgentReview, head string, max int) bool {
+	return roundsLeft(list, max) && !seen(list, head, false)
+}
 
 func TestReviewDue(t *testing.T) {
 	notes := core.AgentReview{State: "notes", Commit: "a"}
@@ -265,5 +271,86 @@ func TestAgentReviewByRiskRuns(t *testing.T) {
 				t.Fatalf("calls %d reviews %+v", calls.Load(), r.AgentReviews)
 			}
 		})
+	}
+}
+
+// The board's «Зробити рев'ю» with the reviewer off in the settings: a cycle that reads every push of the
+// agent's fixes, up to CycleRounds rounds with remarks.
+func TestReviewCycle(t *testing.T) {
+	d, _, id, wt, idle := reviewSetup(t, func(c *config.Config) { c.Reviewer.Enabled = false })
+	old := ReviewBranch
+	t.Cleanup(func() { ReviewBranch = old })
+	calls := 0
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
+		calls++
+		return "- ще не так", nil
+	}
+	rounds := func(n int) core.Record {
+		t.Helper()
+		var r core.Record
+		for i := 0; i < 300; i++ {
+			if r, _ = d.Store.Get(id); len(r.AgentReviews) == n && r.AgentReviews[n-1].State != "running" && d.ReviewStep(r) != "running" {
+				return r
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("reviews %+v, want %d rounds", r.AgentReviews, n)
+		return r
+	}
+	push := func(msg string) {
+		git(t, wt, "commit", "-q", "--allow-empty", "-m", msg)
+		git(t, wt, "push", "-q", "origin", "fix/5-pay")
+	}
+
+	if r, _ := d.Store.Get(id); d.reviewWanted(r) || d.ReviewStep(r) != "ready" {
+		t.Fatalf("off in the settings: wanted %v, step %q", d.reviewWanted(r), d.ReviewStep(r))
+	}
+	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "не готова") {
+		t.Fatalf("a branch with no commits: %v", err)
+	}
+	push("Pay")
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatal(err)
+	}
+	r := rounds(1)
+	if r.ReviewCycle == nil || r.ReviewCycle.Rounds != CycleRounds || r.AgentReviews[0].State != "notes" {
+		t.Fatalf("cycle %+v reviews %+v", r.ReviewCycle, r.AgentReviews)
+	}
+	idle()
+	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "не змінив") {
+		t.Fatalf("the same commit again: %v", err)
+	}
+	// Each push of the fixes is read again by itself, as watchTerminals does, until the rounds are used up.
+	for n := 2; n <= CycleRounds; n++ {
+		push("Fix " + strconv.Itoa(n))
+		if r, _ := d.Store.Get(id); !d.reviewWanted(r) {
+			t.Fatalf("round %d not wanted", n)
+		}
+		d.maybeReview(id)
+		rounds(n)
+		idle()
+	}
+	push("Fix again")
+	r, _ = d.Store.Get(id)
+	d.maybeReview(id)
+	if d.reviewWanted(r) || calls != CycleRounds {
+		t.Fatalf("over the cycle: wanted %v, calls %d", d.reviewWanted(r), calls)
+	}
+
+	// Another click starts a new cycle, which a clean review ends.
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
+		calls++
+		return "", nil
+	}
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatal(err)
+	}
+	r = rounds(CycleRounds + 1)
+	if r.AgentReviews[CycleRounds].State != "clean" || r.ReviewCycle.From != CycleRounds {
+		t.Fatalf("cycle %+v reviews %+v", r.ReviewCycle, r.AgentReviews)
+	}
+	push("More")
+	if r, _ := d.Store.Get(id); d.reviewWanted(r) {
+		t.Fatal("reviewed after it passed")
 	}
 }

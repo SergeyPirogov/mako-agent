@@ -985,7 +985,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
 		rec.AutoFixed, rec.AutoFixes, rec.BaseConflict = nil, 0, nil
-		rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
+		rec.AgentReviews, rec.ReviewCycle, rec.Assessment, rec.Retro = nil, nil, nil, nil
 	})
 	d.Take(ctx, id)
 }

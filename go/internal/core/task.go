@@ -112,6 +112,8 @@ type Record struct {
 	ReviewFixes int `json:"reviewFixes,omitempty"`
 	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.
 	AgentReviews []AgentReview `json:"agentReviews,omitempty"`
+	// ReviewCycle: the reviewer's rounds you started with «Зробити рев'ю»; nil: only the settings start them.
+	ReviewCycle *ReviewCycle `json:"reviewCycle,omitempty"`
 	// Assessment: how the agent rates the finished task: its description, how hard it was, how much of it is
 	// done and how risky the change is.
 	Assessment *Assessment `json:"assessment,omitempty"`
@@ -242,6 +244,13 @@ type AgentReview struct {
 	Reason string `json:"reason,omitempty"`
 	Notes  string `json:"notes,omitempty"` // Markdown
 	Error  string `json:"error,omitempty"`
+}
+
+// ReviewCycle: the rounds from AgentReviews[From] on, up to Rounds of them with remarks: each time the agent
+// pushes its fixes the reviewer reads the branch again, until it passes or the rounds are used up.
+type ReviewCycle struct {
+	From   int `json:"from"`
+	Rounds int `json:"rounds"`
 }
 
 // Lesson is a rule for the repo's next agents, drawn from what you told one of them.
