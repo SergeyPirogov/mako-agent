@@ -172,6 +172,36 @@ func (s *Server) saveConfig(ctx context.Context, data json.RawMessage, envChange
 // pauseTracker sets "paused" of the tracker id (its "id", else its "type", as config.Tracker.ID) in
 // mako.config.json, leaving the rest of the file as it is.
 func (s *Server) pauseTracker(ctx context.Context, id string, on bool) error {
+	return s.changeConfig(ctx, func(raw map[string]json.RawMessage) error {
+		return pauseIn(raw, id, on)
+	})
+}
+
+// setCodeModel: the model of «Запитати про код», kept in the settings for every repository; "" — the default.
+func (s *Server) setCodeModel(ctx context.Context, model string) error {
+	return s.changeConfig(ctx, func(raw map[string]json.RawMessage) error {
+		var ca map[string]json.RawMessage
+		if b, ok := raw["codeAsk"]; ok {
+			if err := json.Unmarshal(b, &ca); err != nil {
+				return fmt.Errorf("mako.config.json: codeAsk: %w", err)
+			}
+		}
+		if ca == nil {
+			ca = map[string]json.RawMessage{}
+		}
+		if model == "" {
+			delete(ca, "model")
+		} else {
+			ca["model"], _ = json.Marshal(model)
+		}
+		var err error
+		raw["codeAsk"], err = json.Marshal(ca)
+		return err
+	})
+}
+
+// changeConfig changes mako.config.json as change says, keeping the rest as it is, and Mako reloads it.
+func (s *Server) changeConfig(ctx context.Context, change func(map[string]json.RawMessage) error) error {
 	data, err := os.ReadFile(filepath.Join(s.Home, "mako.config.json"))
 	if err != nil {
 		return err
@@ -180,6 +210,23 @@ func (s *Server) pauseTracker(ctx context.Context, id string, on bool) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return fmt.Errorf("mako.config.json: %w", err)
 	}
+	if raw == nil {
+		raw = map[string]json.RawMessage{}
+	}
+	if err := change(raw); err != nil {
+		return err
+	}
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	_, err = s.saveConfig(ctx, out, nil)
+	return err
+}
+
+// pauseIn: the tracker id paused (or not) in the settings.
+func pauseIn(raw map[string]json.RawMessage, id string, on bool) error {
+	var err error
 	var ts []map[string]json.RawMessage
 	if err := json.Unmarshal(raw["trackers"], &ts); err != nil {
 		return fmt.Errorf("mako.config.json: trackers: %w", err)
@@ -205,14 +252,7 @@ func (s *Server) pauseTracker(ctx context.Context, id string, on bool) error {
 	if !found {
 		return fmt.Errorf("трекера %q немає в налаштуваннях", id)
 	}
-	if raw["trackers"], err = json.Marshal(ts); err != nil {
-		return err
-	}
-	out, err := json.Marshal(raw)
-	if err != nil {
-		return err
-	}
-	_, err = s.saveConfig(ctx, out, nil)
+	raw["trackers"], err = json.Marshal(ts)
 	return err
 }
 

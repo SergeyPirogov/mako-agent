@@ -815,6 +815,18 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .ca-chat .chat-hint #ca-task { height: 24px; font-size: 12px; }
 .ca-chat .chat-hint #ca-task[hidden] { display: none; }
 .src-link { font-family: var(--mono); }
+/* The shared worktree, bottom right: its branch, or a warning with «Скинути й оновити». */
+.ca-ws { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
+.ca-ws button { height: 24px; font-size: 12px; padding: 0 8px; }
+.ca-ws > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-ws-warn { color: var(--warn); }
+/* The ticket the agent proposes, under its answer. */
+.ca-ticket { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 10px; background: color-mix(in srgb, var(--accent) 5%, var(--card)); }
+.ca-ticket-h { display: flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+.ca-ticket-body { max-height: 180px; overflow: auto; font-size: 13px; }
+.ca-ticket-foot { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.ca-ticket-foot button { height: 28px; }
 .ca-file { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
 .ca-file[hidden] { display: none; }
 .ca-file-h { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); }

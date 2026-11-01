@@ -137,6 +137,15 @@ func TestParseReviewer(t *testing.T) {
 	}
 }
 
+func TestParseCodeModel(t *testing.T) {
+	if c, _ := Parse([]byte(`{}`), nil); c.CodeModel != DefaultCodeModel {
+		t.Fatalf("default %q", c.CodeModel)
+	}
+	if c, _ := Parse([]byte(`{"codeAsk":{"model":" opus "}}`), nil); c.CodeModel != "opus" {
+		t.Fatalf("picked %q", c.CodeModel)
+	}
+}
+
 func TestParseNotificationEvents(t *testing.T) {
 	cfg, err := Parse([]byte(`{}`), nil)
 	if err != nil || cfg.Notifications.Muted("newTask") {

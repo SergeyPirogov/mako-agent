@@ -84,9 +84,9 @@ type Options struct {
 	// OnCost: what a turn cost (USD) and the tokens its model calls read and wrote, so the task can add up its
 	// budget.
 	OnCost func(usd float64, tokens int)
-	// Tools: when set, the only tools the agent may use; a request for any other is denied at once, nobody is
-	// asked (the read-only «Запитати про код»: Read, Grep, Glob).
-	Tools []string
+	// Deny: when set, the tools denied at once; any other is allowed at once, nobody is asked («Запитати про
+	// код»: everything but changing files).
+	Deny []string
 }
 
 // SetupResult: what a setup run before the agent printed and whether it failed.
@@ -370,10 +370,10 @@ func (s *Session) handle(line []byte) {
 			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": e.RequestID, "error": "Mako не підтримує " + r.Subtype}})
 			return
 		}
-		if len(s.o.Tools) > 0 {
+		if len(s.o.Deny) > 0 {
 			resp := map[string]any{"behavior": "allow", "updatedInput": r.Input}
-			if !slices.Contains(s.o.Tools, r.ToolName) {
-				resp = map[string]any{"behavior": "deny", "message": ReadOnlyDenied}
+			if slices.Contains(s.o.Deny, r.ToolName) {
+				resp = map[string]any{"behavior": "deny", "message": NoEdits}
 				s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "denied"})
 			}
 			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": e.RequestID, "response": resp}})
@@ -471,7 +471,7 @@ func (s *Session) finishTool(id, output string, failed bool) {
 			it.Output, it.Status = output, "ok"
 			if failed {
 				it.Status = "error"
-				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) || strings.Contains(output, ReadOnlyDenied) {
+				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) || strings.Contains(output, NoEdits) {
 					it.Status = "denied"
 				}
 			}
@@ -650,8 +650,8 @@ func (s *Session) RevisePlan(requestID, notes string) error {
 
 const planRevision = "Розробник просить поправити план:"
 
-// ReadOnlyDenied: what an agent limited to Options.Tools hears when it asks for another tool.
-const ReadOnlyDenied = "Тут можна лише читати код (Read, Grep, Glob): нічого не змінюй і не запускай."
+// NoEdits: what an agent hears when it asks for a tool of Options.Deny.
+const NoEdits = "Тут не можна змінювати код (Edit, Write, NotebookEdit): читай, шукай і запускай команди, але файлів не змінюй."
 
 // Asked: the request the agent waits on (a permission or AskUserQuestion), nil when there is none.
 func (s *Session) Asked() *Item {

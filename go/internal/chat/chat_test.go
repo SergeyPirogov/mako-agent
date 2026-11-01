@@ -294,8 +294,8 @@ func TestPlan(t *testing.T) {
 	}
 }
 
-// With Tools, a request for any other tool is denied at once and one of them is allowed: nobody is asked.
-func TestOnlyTools(t *testing.T) {
+// With Deny, a request for one of its tools is denied at once and any other is allowed: nobody is asked.
+func TestDenyTools(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
@@ -310,10 +310,10 @@ echo "$b" > grep.json
 echo '{"type":"result","subtype":"success","duration_ms":10}'
 read more
 `), 0o755)
-	s := Start(Options{ID: "ask-1", Worktree: dir, Command: bin, Prompt: "де оплата?", Tools: []string{"Read", "Grep", "Glob"}})
+	s := Start(Options{ID: "ask-1", Worktree: dir, Command: bin, Prompt: "де оплата?", Deny: []string{"Edit", "Write"}})
 	defer s.Stop()
 	eventually(t, func() bool { st, _, _ := s.State(); return st == "done" }, func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
-	if b, _ := os.ReadFile(filepath.Join(dir, "write.json")); !strings.Contains(string(b), `"behavior":"deny"`) || !strings.Contains(string(b), "лише читати") {
+	if b, _ := os.ReadFile(filepath.Join(dir, "write.json")); !strings.Contains(string(b), `"behavior":"deny"`) || !strings.Contains(string(b), "не можна змінювати") {
 		t.Fatalf("write answered %s", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "grep.json")); !strings.Contains(string(b), `"behavior":"allow"`) {

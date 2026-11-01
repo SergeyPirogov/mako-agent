@@ -228,6 +228,44 @@ func TestSettingsSaveReloads(t *testing.T) {
 	}
 }
 
+// The model of «Запитати про код» picked on the board goes to the settings, the rest of them as they were.
+func TestCodeModel(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "mako.config.json"), []byte(`{"wipLimit":3,"codeAsk":{"other":1}}`), 0o600)
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), CodeModel: config.DefaultCodeModel}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	models := func() (out struct {
+		Models  []string
+		Current string
+	}) {
+		res, _ := http.Get(srv.URL + "/api/code/models")
+		json.NewDecoder(res.Body).Decode(&out)
+		return
+	}
+	if m := models(); strings.Join(m.Models, ",") != "opus,sonnet,haiku" || m.Current != "haiku" {
+		t.Fatalf("models %+v", m)
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/api/code/model", strings.NewReader(`{"model":"opus"}`))
+	req.Header.Set("Origin", srv.URL)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	json.NewDecoder(res.Body).Decode(&out)
+	if out["ok"] != true || d.Config().CodeModel != "opus" || d.Config().WipLimit != 3 {
+		t.Fatalf("saved %v, model %q", out, d.Config().CodeModel)
+	}
+	if data, _ := os.ReadFile(filepath.Join(home, "mako.config.json")); !strings.Contains(string(data), `"other": 1`) || !strings.Contains(string(data), `"model": "opus"`) {
+		t.Fatalf("config %s", data)
+	}
+	if m := models(); m.Current != "opus" {
+		t.Fatalf("models %+v", m)
+	}
+}
+
 func TestPhone(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)

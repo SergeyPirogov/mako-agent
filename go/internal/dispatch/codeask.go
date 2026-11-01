@@ -11,28 +11,48 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
+	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
 
-// «Запитати про код»: a question about a project's code, without a task. A quick agent reads the project's clone
-// with Read, Grep and Glob only (no worktree, no branch, nothing written or run) and answers in Mako's chat with
-// file:line places the board opens. Each project keeps its questions; one can become a task's description.
+// «Запитати про код»: a question about a project's code, without a task. The agent works in the project's one
+// shared worktree on the base branch (mako-ask, next to the tasks' worktrees, brought up to date before each new
+// conversation): it reads, searches and runs commands, but its tools that change files are refused. It answers in
+// Mako's chat with file:line places the board opens, and may propose a ticket the developer edits and creates.
+// Each project keeps its questions.
 
-// CodeTools: all the agent of a question may use.
-var CodeTools = []string{"Read", "Grep", "Glob"}
+// CodeDeny: the tools the agent of a question may not use: it changes no code.
+var CodeDeny = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
-// CodeModel: the quick model that answers.
-const CodeModel = "haiku"
+// CodeModels: the models the picker offers. Claude Code has no command that lists them; its aliases always mean
+// the newest of each.
+var CodeModels = []string{"opus", "sonnet", "haiku"}
 
-const codePrompt = "You answer the developer's questions about the code in this repository. You can only read it: " +
-	"Read, Grep and Glob; never try to change files or run commands. Look the answer up in the code, then answer briefly, " +
-	"in the language of the question. Cite every place you rely on as path:line (or path:start-end), the path relative to " +
-	"the repository root, in backticks, e.g. `internal/web/web.go:120`."
+// TicketFence: the fenced block the agent proposes a ticket in, JSON {"title", "description"}.
+const TicketFence = "mako-ticket"
+
+const codePrompt = "You help the developer explore the code in this repository: answer questions, look for problems, " +
+	"come up with ideas. You may read, search and run commands (tests, builds, git log, scripts), but never change, " +
+	"create or delete files: the tools that edit files are refused, and do not change files through the shell either. " +
+	"Look the answer up in the code, then answer briefly, in the language of the question. Cite every place you rely " +
+	"on as path:line (or path:start-end), the path relative to the repository root, in backticks, e.g. " +
+	"`internal/web/web.go:120`. You cannot create tickets yourself. When the conversation finds a problem, a remark or " +
+	"an idea worth a ticket, or the developer asks for one, end the answer with one fenced code block whose language " +
+	"is " + TicketFence + " holding JSON {\"title\": \"…\", \"description\": \"…\"}: a short title and a Markdown " +
+	"description (what, why, where in the code, how to check), in the language of the conversation. The developer " +
+	"edits it and creates the ticket from it."
+
+// askSlug: the folder of a project's shared worktree among the worktrees of its tasks.
+const askSlug = "mako-ask"
+
+// askMu: one change of a shared worktree at a time.
+var askMu sync.Mutex
 
 // CodeProject: a clone the agent can read.
 type CodeProject struct {
@@ -41,6 +61,8 @@ type CodeProject struct {
 	Tracker string `json:"tracker"`
 	Project string `json:"project"`
 	Path    string `json:"path"`
+
+	repo *config.Repo
 }
 
 // CodeThread: one question and the conversation that grew from it.
@@ -49,7 +71,9 @@ type CodeThread struct {
 	Project string `json:"project"`
 	Title   string `json:"title"` // the first question
 	Session string `json:"session,omitempty"`
-	At      int64  `json:"at"` // the last question, unix ms
+	// Dir: where its conversation runs, the shared worktree; "" — the clone, before the worktree.
+	Dir string `json:"dir,omitempty"`
+	At  int64  `json:"at"` // the last question, unix ms
 }
 
 // maxThreads: the questions a project keeps.
@@ -71,7 +95,7 @@ func (d *Dispatcher) CodeProjects() []CodeProject {
 				if len(p.Repos) > 1 {
 					label += " · " + name
 				}
-				out = append(out, CodeProject{Key: t.ID() + "/" + key + "/" + name, Name: label, Tracker: t.ID(), Project: key, Path: r.Path})
+				out = append(out, CodeProject{Key: t.ID() + "/" + key + "/" + name, Name: label, Tracker: t.ID(), Project: key, Path: r.Path, repo: r})
 			}
 		}
 		d.mu.Unlock()
@@ -141,36 +165,51 @@ func (d *Dispatcher) thread(id string) (CodeThread, bool) {
 func IsQuestion(id string) bool { return strings.HasPrefix(id, "ask-") }
 
 // AskCode asks about the project's code: a new question without thread, else one more in that conversation (a
-// closed agent resumes it). It returns the question's id, its chat on the board.
-func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
+// closed agent resumes it). It returns the question's id, its chat on the board, and the uncommitted changes of the
+// shared worktree, which kept it from being brought up to date.
+func (d *Dispatcher) AskCode(project, thread, text string) (string, int, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return "", errors.New("напишіть питання")
+		return "", 0, errors.New("напишіть питання")
 	}
 	p, err := d.codeProject(project)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if thread != "" {
 		t, ok := d.thread(thread)
 		if !ok || t.Project != project {
-			return "", errors.New("немає такого питання")
+			return "", 0, errors.New("немає такого питання")
 		}
 		d.touchThread(thread, "")
 		if s := d.Chats.Get(thread); s != nil && s.Running() {
 			err := s.Send(text)
 			if !errors.Is(err, chat.ErrClosed) {
-				return thread, err
+				return thread, 0, err
 			}
 			if err := d.awaitClosed(s); err != nil {
-				return thread, err
+				return thread, 0, err
 			}
 		}
-		return thread, d.startQuestion(p, t, text)
+		// The worktree is made again when it was removed, as it is otherwise: the conversation goes on in it.
+		dir, dirty, err := d.prepareAsk(p, false)
+		if err != nil {
+			return thread, 0, err
+		}
+		if t.Dir != dir {
+			// A question from before the shared worktree: its conversation was in the clone, a new one starts.
+			t.Dir, t.Session = dir, ""
+			d.setThreadDir(t.ID, dir)
+		}
+		return thread, dirty, d.startQuestion(p, t, text)
+	}
+	dir, dirty, err := d.prepareAsk(p, true)
+	if err != nil {
+		return "", 0, err
 	}
 	b := make([]byte, 6)
 	rand.Read(b)
-	t := CodeThread{ID: "ask-" + hex.EncodeToString(b), Project: project, Title: clipText(firstLine(text), 200), At: time.Now().UnixMilli()}
+	t := CodeThread{ID: "ask-" + hex.EncodeToString(b), Project: project, Title: clipText(firstLine(text), 200), At: time.Now().UnixMilli(), Dir: dir}
 	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
 		all = append(all, t)
 		// A project keeps its latest questions.
@@ -185,9 +224,29 @@ func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 		}
 		return all
 	}); err != nil {
-		return "", err
+		return "", 0, err
 	}
-	return t.ID, d.startQuestion(p, t, text)
+	return t.ID, dirty, d.startQuestion(p, t, text)
+}
+
+// setThreadDir: the question's conversation runs in dir from now on, a new one.
+func (d *Dispatcher) setThreadDir(id, dir string) {
+	d.updateThreads(func(all []CodeThread) []CodeThread {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].Dir, all[i].Session = dir, ""
+			}
+		}
+		return all
+	})
+}
+
+// threadDir: where the question's conversation is, the clone for one from before the shared worktree.
+func threadDir(p CodeProject, t CodeThread) string {
+	if t.Dir != "" {
+		return t.Dir
+	}
+	return p.Path
 }
 
 // touchThread: the question was asked again now; session, when given, is its Claude Code conversation.
@@ -206,12 +265,12 @@ func (d *Dispatcher) touchThread(id, session string) {
 	})
 }
 
-// CodeArgs: how claude runs for a question: the quick model, only the reading tools, no MCP servers.
-func CodeArgs() []string {
-	return []string{"--model", CodeModel, "--tools", strings.Join(CodeTools, ","), "--strict-mcp-config",
-		"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash",
-		"--append-system-prompt", codePrompt,
-		"--allowedTools", strings.Join(CodeTools, ",")}
+// CodeArgs: how claude runs for a question: the model picked in the settings, everything but the tools that edit.
+func CodeArgs(model string) []string {
+	if model == "" {
+		model = config.DefaultCodeModel
+	}
+	return append(append([]string{"--model", model, "--disallowedTools"}, CodeDeny...), "--append-system-prompt", codePrompt)
 }
 
 // startQuestion runs the agent in the clone with the question; a question asked before goes on with its
@@ -221,14 +280,15 @@ func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string) err
 	if err != nil {
 		return err
 	}
-	args := CodeArgs()
+	dir := threadDir(p, t)
+	args := CodeArgs(d.Config().CodeModel)
 	history := ""
-	if t.Session != "" && orca.HasSession(p.Path, t.Session) {
+	if t.Session != "" && orca.HasSession(dir, t.Session) {
 		args = append([]string{"--resume", t.Session}, args...)
-		history = orca.Transcript(p.Path, t.Session)
+		history = orca.Transcript(dir, t.Session)
 	}
 	d.Chats.Put(chat.Start(chat.Options{
-		ID: t.ID, Worktree: p.Path, Command: command, Args: args, Prompt: text, History: history, Tools: CodeTools,
+		ID: t.ID, Worktree: dir, Command: command, Args: args, Prompt: text, History: history, Deny: CodeDeny,
 		OnLimits:  d.limitsReported,
 		OnSession: func(sid, _ string) { d.touchThread(t.ID, sid) },
 	}))
@@ -247,18 +307,22 @@ func (d *Dispatcher) QuestionChat(id string) (chat.Snapshot, bool) {
 	}
 	p, err := d.codeProject(t.Project)
 	// Its own session only: the clone's other conversations (yours, in your terminal) are not the question's.
-	if err != nil || !orca.HasSession(p.Path, t.Session) {
+	if err != nil || !orca.HasSession(threadDir(p, t), t.Session) {
 		return chat.Snapshot{}, false
 	}
-	return chat.Replay(id, orca.Transcript(p.Path, t.Session)), true
+	return chat.Replay(id, orca.Transcript(threadDir(p, t), t.Session)), true
 }
 
-// CodeFile: a file of the project's clone, for the board to show where the answer points, and its path in the
-// clone. An answer may name a file short ("web.go:186"): then the one tracked file whose path ends so.
+// CodeFile: a file of the project's shared worktree (the clone while there is none), for the board to show where
+// the answer points, and its path there. An answer may name a file short ("web.go:186"): then the one tracked file
+// whose path ends so.
 func (d *Dispatcher) CodeFile(ctx context.Context, project, path string) (text, found string, err error) {
 	p, err := d.codeProject(project)
 	if err != nil {
 		return "", "", err
+	}
+	if dir := askDir(p); exists(filepath.Join(dir, ".git")) {
+		p.Path = dir
 	}
 	full, err := insideClone(p.Path, path)
 	if err != nil && !filepath.IsAbs(path) {

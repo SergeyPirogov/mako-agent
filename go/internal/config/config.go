@@ -52,7 +52,12 @@ type Config struct {
 	Estimate bool
 	// EstimateModel: the agent gets the model the estimate advises, unless one is picked for the task.
 	EstimateModel bool
+	// CodeModel: the model of «Запитати про код», one for every repository.
+	CodeModel string
 }
+
+// DefaultCodeModel: the model of «Запитати про код» when none is picked.
+const DefaultCodeModel = "haiku"
 
 // Reviewer is the agent that reviews another agent's branch with a clean context and writes its remarks; it
 // changes no code. Only Mako's own agents get it: you hand the remarks to their chat from the board.
@@ -284,6 +289,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		Reviewer:      Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model)},
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
+		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
@@ -556,6 +562,9 @@ type rawConfig struct {
 		Enabled  *bool `json:"enabled"`
 		UseModel *bool `json:"useModel"`
 	} `json:"estimate"`
+	CodeAsk struct {
+		Model string `json:"model"`
+	} `json:"codeAsk"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
 }
