@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -73,5 +74,23 @@ func DirSize(dir string) int64 {
 		}
 		return nil
 	})
+	return n
+}
+
+// Unpushed: commits of the worktree's branch that its remote branch (origin/<branch>) does not have yet.
+// Zero when the remote branch is gone (a merged branch is often deleted there): nothing to compare with.
+func Unpushed(ctx context.Context, worktree string) int {
+	name, err := Run(ctx, worktree, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil || name == "HEAD" {
+		return 0
+	}
+	if _, err := Run(ctx, worktree, "rev-parse", "--verify", "-q", "origin/"+name); err != nil {
+		return 0
+	}
+	out, err := Run(ctx, worktree, "rev-list", "--count", "origin/"+name+"..HEAD")
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(out))
 	return n
 }
