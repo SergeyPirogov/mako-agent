@@ -128,7 +128,7 @@ type Orca struct {
 // Terminal is Mako's own terminal: the agent runs in a pseudo-terminal the board shows.
 type Terminal struct {
 	Command string // "claude" when empty
-	Model   string // "" — Claude Code's own default
+	Model   string // "" — Sonnet (dispatch.DefaultModel); a task's own or the estimate's comes first
 	// PermissionMode: how much Claude may do without asking: "auto" (default), "acceptEdits", "default",
 	// "bypassPermissions".
 	PermissionMode string
@@ -300,7 +300,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			When:      reviewWhen(raw.AgentReview.When),
 		},
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
-		EstimateModel: raw.Estimate.UseModel,
+		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
@@ -574,7 +574,7 @@ type rawConfig struct {
 	} `json:"agentReview"`
 	Estimate struct {
 		Enabled  *bool `json:"enabled"`
-		UseModel bool  `json:"useModel"`
+		UseModel *bool `json:"useModel"`
 	} `json:"estimate"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`

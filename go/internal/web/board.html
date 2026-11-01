@@ -1187,10 +1187,15 @@ function estimateHTML(r, card) {
   const advice = [
     e.plan ? chip(plan, "план спочатку", pick(model, !plan), plan ? "Агент почне з плану. Натисніть, щоб скасувати" : "Агент почне з плану: нічого не змінить, доки ви його не затвердите") : "",
     e.split ? `<span class="tchip">розбити на кілька задач</span>` : "",
-    e.model ? chip(model === e.model, `модель <code>${esc(e.model)}</code>`, pick(model === e.model ? "" : e.model, plan), model === e.model ? "Агент почне з цією моделлю. Натисніть, щоб скасувати" : `Агент почне з моделлю ${e.model} замість налаштованої`) : "",
   ].filter(Boolean);
-  const picked = model && model !== e.model ? `<span class="muted">модель для задачі: <code>${esc(model)}</code></span>` : "";
-  const rec = advice.length || e.advice ? `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4>${advice.length ? `<div class="tchips">${advice.join("")}${picked}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>` : "";
+  // Who does the task: Opus estimates how complex it is and advises a model; another one can be picked before the start.
+  // A second click on the picked one goes back to the advice.
+  const models = ["haiku", "sonnet", "opus"].map((m) => {
+    const on = r.startModel === m, advised = e.model === m;
+    const title = model === m ? "Вибрано для задачі. Натисніть, щоб повернутись до поради" : on ? "Агент почне з цією моделлю" : `Агент почне з моделлю ${m}`;
+    return chip(on, `<code>${m}</code>${advised ? ` <span class="muted">радить Opus</span>` : ""}`, pick(model === m ? "" : m, plan), title);
+  });
+  const rec = `<div class="sec done"><h4><span class="ic">→</span>Рекомендація</h4><div class="tchips"><span class="muted">Модель:</span>${models.join("")}</div>${advice.length ? `<div class="tchips">${advice.join("")}</div>` : ""}${e.advice ? `<p>${esc(e.advice)}</p>` : ""}</div>`;
   const questions = e.questions?.trim() ? `<div class="sec warn"><h4><span class="ic">?</span>Що уточнити в трекері</h4>${md(e.questions)}</div>` : "";
   const note = e.state === "running" ? `<span class="muted">оцінюю наново…</span>` : btn("Оцінити ще раз");
   return card("Оцінка наперед", `<div class="tcard-b scores">${scoreRow("Опис задачі", "up", e.clarity)}${size}${scoreRow("Ризик", "down", e.risk)}</div>${questions}${rec}`, "assess", note);
@@ -1902,6 +1907,7 @@ function renderDetail() {
   if (t.meta) chips.push(chip(esc(t.meta), "", "Трекер"));
   if (t.assignees?.length) chips.push(chip(`<span class="k">Виконавці</span>${esc(t.assignees.join(", "))}`));
   if (r.repo) chips.push(chip(`<span class="k">Репо</span>${esc(r.repo)}`));
+  if (r.agentModel && r.column !== "new") chips.push(chip(`<span class="k">Модель</span><code>${esc(r.agentModel)}</code>`, "", "Модель, якою працював агент"));
   const branch = r.branch || r.branchName;
   if (branch) chips.push(chip(`${ICON.pr}<code>${esc(branch)}</code>${copy(branch, "назву гілки")}`, "", "Гілка"));
   if (r.worktree) chips.push(chip(`${ICON.folder}<code>${esc(shortPath(r.worktree))}</code>${copy(r.worktree, "шлях до worktree")}`, "wt", r.worktree));

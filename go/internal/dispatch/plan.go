@@ -105,6 +105,21 @@ func (d *Dispatcher) DefaultModel(r core.Record) string {
 	return modelFor(d.Config(), r)
 }
 
+// DefaultModel: the model of Mako's agent when nothing else names one.
+const DefaultModel = "sonnet"
+
+// StartModel: the model Mako's agent starts a task with: picked for the task, else the estimate's advice when the
+// settings take it, else the configured one, else Sonnet.
+func StartModel(cfg *config.Config, r core.Record) string {
+	if m := modelFor(cfg, r); m != "" {
+		return m
+	}
+	if cfg.Terminal.Model != "" {
+		return cfg.Terminal.Model
+	}
+	return DefaultModel
+}
+
 // Pick takes the estimate's advice for a task not started yet: model ("" the configured one) and «план спочатку».
 func (d *Dispatcher) Pick(id, model string, plan bool) error {
 	r, ok := d.Store.Get(id)

@@ -81,6 +81,27 @@ func TestModelFor(t *testing.T) {
 	}
 }
 
+// The start model: as modelFor, then the configured one, then Sonnet.
+func TestStartModel(t *testing.T) {
+	task := core.Task{ID: "g/a#1", Title: "x", Description: "y"}
+	r := core.Record{Task: task}
+	if m := StartModel(&config.Config{EstimateModel: true}, r); m != "sonnet" {
+		t.Errorf("nothing names one: %q", m)
+	}
+	cfg := &config.Config{EstimateModel: true, Terminal: config.Terminal{Model: "haiku"}}
+	if m := StartModel(cfg, r); m != "haiku" {
+		t.Errorf("configured: %q", m)
+	}
+	r.Estimate = &core.Estimate{State: "done", Size: "big", Model: "opus", For: estimateKey(task)}
+	if m := StartModel(cfg, r); m != "opus" {
+		t.Errorf("estimate: %q", m)
+	}
+	r.Model = "sonnet"
+	if m := StartModel(cfg, r); m != "sonnet" {
+		t.Errorf("picked: %q", m)
+	}
+}
+
 func TestPick(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	d := New(&config.Config{StateDir: t.TempDir()}, store, nil)

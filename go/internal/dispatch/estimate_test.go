@@ -11,11 +11,11 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
-// estimateClaude answers every prompt with an estimate and keeps each prompt, one per line of the log.
+// estimateClaude answers every prompt with an estimate and keeps each call's arguments and prompt, one per line of the log.
 func estimateClaude(t *testing.T) func() []string {
 	dir := t.TempDir()
 	calls := filepath.Join(dir, "calls")
-	script := "#!/bin/sh\n(cat; echo) | tr '\\n' ' ' >> " + calls + "\necho >> " + calls + "\n" +
+	script := "#!/bin/sh\n(echo \"$*\"; cat; echo) | tr '\\n' ' ' >> " + calls + "\necho >> " + calls + "\n" +
 		`echo '{"clarity":{"score":4,"why":"зрозуміло"},"questions":["Яка саме кнопка?"],"size":"big","parts":"web","risk":{"score":2,"why":"UI"},"plan":true,"split":false,"model":"sonnet","advice":"почати з плану"}'` + "\n"
 	os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755)
 	old := writer.Claude
@@ -41,7 +41,8 @@ func TestEstimateNewTask(t *testing.T) {
 		!strings.Contains(e.Questions, "Яка саме кнопка?") || e.For != estimateKey(r.Task) {
 		t.Fatalf("estimate: %+v", e)
 	}
-	if got := calls(); len(got) != 1 || !strings.Contains(got[0], "Кнопка") {
+	// Opus estimates the task, and so picks who does it.
+	if got := calls(); len(got) != 1 || !strings.Contains(got[0], "Кнопка") || !strings.Contains(got[0], "--model_opus") {
 		t.Fatalf("calls: %v", got)
 	}
 

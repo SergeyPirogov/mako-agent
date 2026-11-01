@@ -103,6 +103,8 @@ type recordView struct {
 	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
 	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked ("" the configured one).
 	DefaultModel string `json:"defaultModel,omitempty"`
+	// StartModel: for a task not started yet, the model Mako's agent will start it with.
+	StartModel string `json:"startModel,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
 }
@@ -173,6 +175,7 @@ func (s *Server) Handler() http.Handler {
 			v.Live = s.D.Live(rec.ID)
 			if v.Column == "new" {
 				v.DefaultModel = s.D.DefaultModel(rec)
+				v.StartModel = dispatch.StartModel(s.D.Config(), rec)
 			}
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)

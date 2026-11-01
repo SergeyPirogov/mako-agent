@@ -90,7 +90,7 @@ func (d *Dispatcher) startEstimate(id string) error {
 
 // estimate asks the agent for the estimate and keeps it with the key of the text it read.
 func (d *Dispatcher) estimate(ctx context.Context, id string) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 6*time.Minute) // Opus reads it: slower than Haiku
 	defer cancel()
 	r, ok := d.Store.Get(id)
 	if !ok {
