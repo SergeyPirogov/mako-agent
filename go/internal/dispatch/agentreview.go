@@ -18,22 +18,41 @@ import (
 // The reviewer agent: once the agent's branch is ready (it opened the MR, or ended its turn with the work
 // committed and, unless you open MRs yourself, pushed), a second agent with a clean context reads the task and
 // the branch's diff and writes its remarks. They go to the first agent as a message in its chat; it fixes
-// them, and its next ready branch gets another round, up to the settings' maximum. Only Mako's own agents:
-// Orca's cannot be written to.
+// them, and its next ready branch gets another round, up to the settings' maximum. The board's «Зробити рев'ю»
+// starts such a cycle of up to CycleRounds rounds whatever the settings say. Only Mako's own agents: Orca's
+// cannot be written to.
 
 // ReviewBranch runs the reviewer over the worktree; tests replace it.
 var ReviewBranch = writer.AgentReview
 
-// reviewWanted: the settings ask for a reviewer, the task's agent is Mako's and its rounds are not used up.
+// CycleRounds: the rounds with remarks a cycle started from the board's button gets at most.
+const CycleRounds = 5
+
+// reviewable: the task's agent is Mako's, with a worktree, and its branch is in work or in an open MR.
+func reviewable(r core.Record) bool {
+	if !onTerminal(r) || r.Worktree == "" || r.ArchivedAt != 0 {
+		return false
+	}
+	return r.Status == core.HandedOff || r.Status == core.Done && r.PRURL != "" && r.ReviewState == ""
+}
+
+// reviewWanted: the settings or your button ask for a reviewer, the task's agent is Mako's and its rounds are
+// not used up.
 func (d *Dispatcher) reviewWanted(r core.Record) bool {
-	cfg := d.Config().Reviewer
-	if !cfg.Enabled || !onTerminal(r) || r.Worktree == "" || r.ArchivedAt != 0 {
+	if !reviewable(r) || !d.Config().Reviewer.Enabled && r.ReviewCycle == nil {
 		return false
 	}
-	if r.Status != core.HandedOff && !(r.Status == core.Done && r.PRURL != "" && r.ReviewState == "") {
-		return false
+	list, max := d.rounds(r)
+	return roundsLeft(list, max)
+}
+
+// rounds: the reviewer's rounds that count, and how many with remarks it may have: those of the cycle you
+// started, else all of them by the settings.
+func (d *Dispatcher) rounds(r core.Record) ([]core.AgentReview, int) {
+	if c := r.ReviewCycle; c != nil {
+		return r.AgentReviews[min(c.From, len(r.AgentReviews)):], c.Rounds
 	}
-	return roundsLeft(r.AgentReviews, cfg.MaxRounds)
+	return r.AgentReviews, d.Config().Reviewer.MaxRounds
 }
 
 // roundsLeft: neither a clean review nor the maximum of rounds yet.
@@ -50,18 +69,27 @@ func roundsLeft(list []core.AgentReview, max int) bool {
 	return done < max
 }
 
-// reviewDue: a round for the branch at head, unless one looked at it already (a stale «running» one, from
-// before Mako restarted, does not count).
-func reviewDue(list []core.AgentReview, head string, max int) bool {
-	if !roundsLeft(list, max) {
-		return false
-	}
+// seen: a round looked at the branch at head already. A stale «running» one, from before Mako restarted, does
+// not count; nor, when you press the button (asked), does one skipped for the task's risk or one that failed:
+// the automatic rounds do not retry those, or a failing reviewer would run on every poll.
+func seen(list []core.AgentReview, head string, asked bool) bool {
 	for _, a := range list {
-		if a.Commit == head && a.State != "running" {
-			return false
+		if a.Commit == head && a.State != "running" && !(asked && (a.State == "skipped" || a.State == "failed")) {
+			return true
 		}
 	}
-	return true
+	return false
+}
+
+// replaces: the next round over head goes in place of the last one: one that did not read the branch (still
+// «running», or «skipped»), or one that failed on the same commit.
+func replaces(list []core.AgentReview, head string) bool {
+	n := len(list)
+	if n == 0 {
+		return false
+	}
+	last := list[n-1]
+	return last.State == "running" || last.State == "skipped" || last.State == "failed" && last.Commit == head
 }
 
 // riskGate: whether the settings' When lets the reviewer read a task with this assessment. skip: why not (the
@@ -96,50 +124,138 @@ func reviewed(list []core.AgentReview) bool {
 	return false
 }
 
-// withoutSkipped: the rounds the reviewer did read.
-func withoutSkipped(list []core.AgentReview) []core.AgentReview {
-	out := []core.AgentReview{}
-	for _, a := range list {
-		if a.State != "skipped" {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
-// ReviewNow runs the reviewer the settings skipped for the task's low risk, from the board's button.
+// ReviewNow is the board's «Зробити рев'ю»: the reviewer reads the branch now, whatever the settings and the
+// task's risk, and again after each push of the agent's fixes, up to CycleRounds rounds with remarks.
 func (d *Dispatcher) ReviewNow(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
 		return errors.New("немає такої задачі")
 	}
-	if n := len(r.AgentReviews); n == 0 || r.AgentReviews[n-1].State != "skipped" {
-		return errors.New("рев'ю агентом не пропускали")
+	if !reviewable(r) || !exists(r.Worktree) {
+		return errors.New("рецензент читає лише гілки агентів Mako, що в роботі чи у відкритому MR")
 	}
-	if !d.reviewWanted(r) {
-		return errors.New("рецензента вимкнено в налаштуваннях")
+	// The flag alone may be the quick look whether a round is due, after each turn of the agent: review waits
+	// it out. Only a round in progress is the reviewer at work.
+	d.mu.Lock()
+	busy := d.reviewing[id]
+	d.mu.Unlock()
+	if n := len(r.AgentReviews); busy && n > 0 && r.AgentReviews[n-1].State == "running" {
+		return errors.New("рецензент уже переглядає гілку")
 	}
 	if !d.agentIdle(id) {
-		return errors.New("агент ще працює: рецензент прочитає гілку, коли він закінчить")
+		return errors.New("агент ще працює: зробіть рев'ю, коли він закінчить")
 	}
+	wt, base, err := d.workOf(id)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	head, ready := readyBranch(ctx, wt, base, branchOf(r), d.pushes(r))
+	if !ready {
+		return errors.New("гілка ще не готова до рев'ю: немає комітів, є незакомічене або її не запушено")
+	}
+	if seen(r.AgentReviews, head, true) {
+		return errors.New("рецензент уже бачив цей коміт: агент не змінив гілку після останнього рев'ю")
+	}
+	d.Store.Update(id, func(r *core.Record) {
+		from := len(r.AgentReviews)
+		if replaces(r.AgentReviews, head) {
+			from-- // setReview puts the new round in its place
+		}
+		r.ReviewCycle = &core.ReviewCycle{From: from, Rounds: CycleRounds}
+	})
 	go d.review(id, true)
 	return nil
 }
+
+// ReviewStep: what the board offers about the reviewer: "running" (it reads the branch); "fixing" (the agent
+// works on its remarks); "ready" (the button can start a round: the agent is idle and the branch is ready and
+// not read at this commit); "due" (the settings start that round by themselves); "idle" (the agent is idle,
+// with nothing new for the reviewer); "" (the task is not for it).
+func (d *Dispatcher) ReviewStep(r core.Record) string {
+	if !reviewable(r) {
+		return ""
+	}
+	last := ""
+	if n := len(r.AgentReviews); n > 0 {
+		last = r.AgentReviews[n-1].State
+	}
+	// d.reviewing alone is also the quick look whether a round is due; a stale «running» round is no reviewer.
+	d.mu.Lock()
+	busy := d.reviewing[r.ID]
+	d.mu.Unlock()
+	if busy && last == "running" {
+		return "running"
+	}
+	if !d.agentIdle(r.ID) {
+		if last == "notes" {
+			return "fixing"
+		}
+		return ""
+	}
+	head, ready := d.lookBranch(r)
+	switch {
+	case !ready || seen(r.AgentReviews, head, true):
+		return "idle"
+	case d.reviewWanted(r) && !seen(r.AgentReviews, head, false):
+		return "due"
+	}
+	return "ready"
+}
+
+// branchLook: the worktree's HEAD and whether its branch is ready for a review, as last looked at.
+type branchLook struct {
+	at    time.Time
+	head  string
+	ready bool
+}
+
+// lookBranch: readyBranch for the board, looked at once in 15 seconds so that its polls do not run git.
+func (d *Dispatcher) lookBranch(r core.Record) (string, bool) {
+	d.mu.Lock()
+	l, ok := d.branches[r.ID]
+	d.mu.Unlock()
+	if ok && time.Since(l.at) < 15*time.Second {
+		return l.head, l.ready
+	}
+	l = branchLook{at: time.Now()}
+	if wt, base, err := d.workOf(r.ID); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		l.head, l.ready = readyBranch(ctx, wt, base, branchOf(r), d.pushes(r))
+		cancel()
+	}
+	d.mu.Lock()
+	d.branches[r.ID] = l
+	d.mu.Unlock()
+	return l.head, l.ready
+}
+
+// pushes: the branch must be pushed to be ready: the agent opens the MR, or there is one.
+func (d *Dispatcher) pushes(r core.Record) bool { return d.Config().Orca.MRBy != "me" || r.PRURL != "" }
 
 // maybeReview starts the reviewer on the task's branch when it is due: the agent's turn is over and the branch
 // is ready and not reviewed at this commit, and the task is as risky as the settings ask for.
 func (d *Dispatcher) maybeReview(id string) { d.review(id, false) }
 
-// review runs the reviewer when it is due; manual: you asked for it, whatever the task's risk.
+// review runs the reviewer when it is due; manual: you asked for it (now, or by starting a cycle), whatever
+// the task's risk.
 func (d *Dispatcher) review(id string, manual bool) {
-	// One at a time, and the record read after the one before ends: not a round on what it has replaced.
-	d.mu.Lock()
-	if d.reviewing[id] {
+	// One at a time, and the record read after the one before ends: not a round on what it has replaced. The
+	// one you asked for waits for the other (a quick look whether a round is due, as a rule) instead of being
+	// lost; when that one was a round over the same commit, it finds the commit seen and stops.
+	for wait := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+		d.mu.Lock()
+		if !d.reviewing[id] {
+			d.reviewing[id] = true
+			d.mu.Unlock()
+			break
+		}
 		d.mu.Unlock()
-		return
+		if !manual || time.Now().After(wait) {
+			return
+		}
 	}
-	d.reviewing[id] = true
-	d.mu.Unlock()
 	defer func() {
 		d.mu.Lock()
 		delete(d.reviewing, id)
@@ -156,16 +272,14 @@ func (d *Dispatcher) review(id string, manual bool) {
 		return
 	}
 	cfg := d.Config()
-	push := cfg.Orca.MRBy != "me" || r.PRURL != ""
+	push := d.pushes(r)
 	head, ready := readyBranch(ctx, wt, base, branchOf(r), push)
-	list := r.AgentReviews
-	if manual {
-		list = withoutSkipped(list)
-	}
-	if !ready || !reviewDue(list, head, cfg.Reviewer.MaxRounds) {
+	asked := manual || r.ReviewCycle != nil
+	list, max := d.rounds(r)
+	if !ready || !roundsLeft(list, max) || seen(r.AgentReviews, head, manual) {
 		return
 	}
-	if !manual && !reviewed(r.AgentReviews) && cfg.Reviewer.When != config.ReviewAlways && cfg.Reviewer.When != "" {
+	if !asked && !reviewed(r.AgentReviews) && cfg.Reviewer.When != config.ReviewAlways && cfg.Reviewer.When != "" {
 		// The risk comes from the assessment, made once the MR is found: when the agent opens it, wait for it.
 		if r.PRURL == "" && cfg.Orca.MRBy != "me" {
 			return
@@ -181,13 +295,13 @@ func (d *Dispatcher) review(id string, manual bool) {
 		}
 	}
 	round := 1
-	for _, a := range r.AgentReviews {
+	for _, a := range list {
 		if a.State == "notes" {
 			round++
 		}
 	}
 	d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "running"})
-	d.Log(id, fmt.Sprintf("рецензент переглядає гілку (раунд %d з %d)", round, cfg.Reviewer.MaxRounds))
+	d.Log(id, fmt.Sprintf("рецензент переглядає гілку (раунд %d з %d)", round, max))
 	model := firstOf(cfg.Reviewer.Model, r.Model, cfg.Terminal.Model)
 	notes, err := ReviewBranch(ctx, wt, base, r.Task, model)
 	link := d.BoardURL + "/#" + id
@@ -211,11 +325,13 @@ func (d *Dispatcher) review(id string, manual bool) {
 	}
 }
 
-// setReview puts the round in the task's record: in place of its «running» or «skipped» one, or as a new one.
+// setReview puts the round in the task's record: in place of its «running» or «skipped» one, or of one that
+// failed on the same commit, or as a new one.
 func (d *Dispatcher) setReview(id string, a core.AgentReview) {
 	d.Store.Update(id, func(r *core.Record) {
-		if n := len(r.AgentReviews); n > 0 && (r.AgentReviews[n-1].State == "running" || r.AgentReviews[n-1].State == "skipped") {
+		if replaces(r.AgentReviews, a.Commit) {
 			// A new slice, not a write in place: the copies Store.Get gave out share the old one.
+			n := len(r.AgentReviews)
 			r.AgentReviews = append(r.AgentReviews[:n-1:n-1], a)
 			return
 		}

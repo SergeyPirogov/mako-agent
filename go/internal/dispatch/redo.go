@@ -54,7 +54,7 @@ func (d *Dispatcher) Redo(ctx context.Context, id, note, model string) error {
 			rec.Attempt = max(r.Attempt, 1) + 1
 			rec.RetryNote, rec.LastAttempt, rec.Model = note, last, model
 			rec.PRURL, rec.ReviewState, rec.MergedAt, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", "", ""
-			rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
+			rec.AgentReviews, rec.ReviewCycle, rec.Assessment, rec.Retro = nil, nil, nil, nil
 			rec.Summary, rec.SessionID, rec.FinishedAt, rec.WorktreeKept = "", "", "", 0
 		})
 		d.forgetReview(id)
