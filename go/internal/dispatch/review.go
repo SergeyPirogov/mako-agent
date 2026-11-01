@@ -179,8 +179,8 @@ func (d *Dispatcher) spending(ctx context.Context, id, phase string) context.Con
 	})
 }
 
-var askedLog = map[string]string{"push": "агента попрошено запушити зміни", "open": "агента попрошено відкрити MR",
-	"conflicts": "агента попрошено розвʼязати конфлікти", "rebase": "агента попрошено оновити гілку з основної", "ci": "агента попрошено полагодити CI", "comments": "агента попрошено виправити коментарі"}
+var askedLog = map[string]string{"push": "the agent was asked to push the changes", "open": "the agent was asked to open an MR",
+	"conflicts": "the agent was asked to resolve the conflicts", "rebase": "the agent was asked to update the branch from the base", "ci": "the agent was asked to fix CI", "comments": "the agent was asked to fix the comments"}
 
 // request: what the agent is told for kind, as in AskAgent.
 func (d *Dispatcher) request(ctx context.Context, id, kind string) (string, error) {

@@ -913,7 +913,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 			d.Fault(r.ID, "опис MR не написано", err)
 		}
 		if failed {
-			d.Log(r.ID, "CI не пройшов: у трекері на рев'ю — коли пройде")
+			d.Log(r.ID, "CI failed: the tracker shows it in review once it passes")
 		} else {
 			d.comment(ctx, t, r.Task, d.Config().Comments.OnReview, map[string]string{"branch": branch, "mr": review.URL})
 			d.move(ctx, t, r.Task, trackers.AtReview)

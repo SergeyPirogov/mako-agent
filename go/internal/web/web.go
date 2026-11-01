@@ -151,7 +151,7 @@ func (s *Server) Handler() http.Handler {
 	// The words of the pages: the interface is English only.
 	mux.HandleFunc("GET /api/i18n", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, map[string]any{"lang": i18n.EN, "strings": i18n.Strings(i18n.EN)})
+		writeJSON(w, map[string]any{"strings": i18n.WebStrings()})
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMilli()

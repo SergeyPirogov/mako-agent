@@ -57,7 +57,7 @@ func TestEveryKeyUsedExists(t *testing.T) {
 	for key, where := range used {
 		if ends, ok := families[key]; ok {
 			for _, end := range ends {
-				if _, ok := dict[key+end]; !ok {
+				if !known(key + end) {
 					t.Errorf("%s: no %q", where, key+end)
 				}
 			}
@@ -67,8 +67,17 @@ func TestEveryKeyUsedExists(t *testing.T) {
 			t.Errorf("%s: %q is put together; list its endings in families", where, key)
 			continue
 		}
-		if _, ok := dict[key]; !ok {
+		if !known(key) {
 			t.Errorf("%s: no %q in the dictionary", where, key)
 		}
 	}
+}
+
+// known: the dictionary has key, among the Go texts or the pages' words.
+func known(key string) bool {
+	if _, ok := dict[key]; ok {
+		return true
+	}
+	_, ok := webStrings[key]
+	return ok
 }

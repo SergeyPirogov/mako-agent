@@ -182,7 +182,7 @@ func TestBoardQueueWhy(t *testing.T) {
 		}
 	}
 	res, _ = http.Get(srv.URL + "/")
-	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `"queued", "starting"`) || i18n.T("b.label.starting") == "b.label.starting" {
+	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `"queued", "starting"`) || i18n.T("b.label.starting") != "starting…" {
 		t.Fatal("no \"starting\" state on the board")
 	}
 }

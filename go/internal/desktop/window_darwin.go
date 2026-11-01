@@ -386,7 +386,7 @@ func Notify(n notify.Notice) bool {
 // Relocalize gives the window's menu and dialogs the words of Mako's language now.
 func Relocalize() {
 	words := map[string]string{}
-	for k, v := range i18n.Strings(i18n.EN) {
+	for k, v := range i18n.WebStrings() {
 		if strings.HasPrefix(k, "menu.") || k == "tray.quit" {
 			words[k] = v
 		}

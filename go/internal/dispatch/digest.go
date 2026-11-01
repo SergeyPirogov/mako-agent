@@ -93,7 +93,7 @@ func (d *Dispatcher) Digest(since, now time.Time) core.Digest {
 				waiting[id] = firstOf(clipText(firstLine(a.Message), 140), "агент закінчив: ваш хід")
 			}
 		case "stopped":
-			waiting[id] = firstOf(a.Reason, "агент зупинився")
+			waiting[id] = firstOf(a.Reason, "the agent stopped")
 		}
 	}
 	return core.BuildDigest(all, waiting, since, now)

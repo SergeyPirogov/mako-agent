@@ -74,18 +74,17 @@ func TestI18n(t *testing.T) {
 	d := dispatch.New(&config.Config{StateDir: t.TempDir(), AgentLanguage: "uk"}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Home: t.TempDir()}).Handler())
 	defer srv.Close()
-	res, err := http.Get(srv.URL + "/api/i18n?lang=uk")
+	res, err := http.Get(srv.URL + "/api/i18n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer res.Body.Close()
 	var words struct {
-		Lang    string            `json:"lang"`
 		Strings map[string]string `json:"strings"`
 	}
 	json.NewDecoder(res.Body).Decode(&words)
-	if words.Lang != "en" || words.Strings["s.save"] != "Save" {
-		t.Fatalf("en: %s %q", words.Lang, words.Strings["s.save"])
+	if words.Strings["s.save"] != "Save" {
+		t.Fatalf("en: %q", words.Strings["s.save"])
 	}
 }
 

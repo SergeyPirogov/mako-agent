@@ -1,6 +1,6 @@
 // Package i18n: Mako's interface is in English; what is left of other languages is the agent's — the language
-// it is asked to write in (agentLanguage) — and the check for tasks written in Russian. One dictionary serves
-// Go and the web pages (GET /api/i18n).
+// it is asked to write in (agentLanguage) — and the check for tasks written in Russian. The web pages get their
+// English words from GET /api/i18n.
 package i18n
 
 import (
@@ -53,13 +53,14 @@ func TA(key string, args ...any) string { return In(AgentLanguage(), key, args..
 
 // In: the text for key in lang, for what the agent writes in its agentLanguage.
 func In(lang, key string, args ...any) string {
-	pair, ok := dict[key]
-	if !ok {
+	var text string
+	if pair, ok := dict[key]; ok {
+		text = pair[0]
+		if lang == UK {
+			text = pair[1]
+		}
+	} else if text, ok = webStrings[key]; !ok {
 		return key
-	}
-	text := pair[0]
-	if lang == UK {
-		text = pair[1]
 	}
 	if len(args) == 0 {
 		return text
@@ -67,11 +68,11 @@ func In(lang, key string, args ...any) string {
 	return fmt.Sprintf(text, args...)
 }
 
-// Strings: the whole dictionary in lang, for the web pages.
-func Strings(lang string) map[string]string {
-	out := make(map[string]string, len(dict))
-	for k := range dict {
-		out[k] = In(lang, k)
+// WebStrings: the words of the web pages (English only), by key.
+func WebStrings() map[string]string {
+	out := make(map[string]string, len(webStrings))
+	for k, v := range webStrings {
+		out[k] = v
 	}
 	return out
 }

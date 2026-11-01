@@ -161,7 +161,7 @@ func (d *Dispatcher) tell(r core.Record, a Agent) {
 		d.Log(r.ID, "агент закінчив")
 		notify.Inform(notify.Finished, i18n.T("notify.finished", r.ID), firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
 	case "stopped":
-		d.Log(r.ID, "агент зупинився"+orBlank(": ", a.Reason))
+		d.Log(r.ID, "the agent stopped"+orBlank(": ", a.Reason))
 		notify.Inform(notify.Stopped, i18n.T("notify.stopped", r.ID), firstOf(a.Reason, r.Task.Title), link)
 	}
 }

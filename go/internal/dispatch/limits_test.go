@@ -14,7 +14,7 @@ import (
 func TestLimitHold(t *testing.T) {
 	now := time.Unix(1000, 0)
 	l := chat.Limits{FiveHour: &chat.Window{Used: 0.9, ResetsAt: 2000}, Week: &chat.Window{Used: 0.5, ResetsAt: 9000}}
-	if h := limitHold(l, 85, now); h == nil || h.Window != "5 год" || h.Used != 90 || h.ResetsAt != 2000 {
+	if h := limitHold(l, 85, now); h == nil || h.Window != "5 h" || h.Used != 90 || h.ResetsAt != 2000 {
 		t.Fatalf("5 hours past the threshold: %+v", h)
 	}
 	if h := limitHold(l, 95, now); h != nil {
@@ -27,7 +27,7 @@ func TestLimitHold(t *testing.T) {
 		t.Fatalf("the window has reset: %+v", h)
 	}
 	l.Week.Used = 0.97
-	if h := limitHold(l, 85, now); h == nil || h.Window != "тиждень" || h.ResetsAt != 9000 {
+	if h := limitHold(l, 85, now); h == nil || h.Window != "week" || h.ResetsAt != 9000 {
 		t.Fatalf("both full, the later reset: %+v", h)
 	}
 }
@@ -48,7 +48,7 @@ func TestQueueWaitsForLimit(t *testing.T) {
 	if d.LimitHold() == nil {
 		t.Fatal("the board shows no hold")
 	}
-	if why := d.QueueReason(); !strings.HasPrefix(why, "Claude limit (5 год) used up to 90%") || d.Starting("grp/app#5") != nil {
+	if why := d.QueueReason(); !strings.HasPrefix(why, "Claude limit (5 h) used up to 90%") || d.Starting("grp/app#5") != nil {
 		t.Fatalf("queued for %q", why)
 	}
 	for time.Now().Unix() <= reset {

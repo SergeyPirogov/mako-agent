@@ -127,12 +127,12 @@ func (d *Dispatcher) estimate(ctx context.Context, id string) {
 	e.At, e.For = now(), key
 	if err != nil {
 		// Quietly: the task just has no estimate. The journal says why.
-		d.Log(id, "задачу не оцінено наперед: "+err.Error())
+		d.Log(id, "the task was not estimated upfront: "+err.Error())
 		e = core.Estimate{At: e.At, For: key, State: "failed", Error: err.Error()}
 	} else {
-		d.Log(id, "агент оцінив задачу наперед: "+sizeName[e.Size])
+		d.Log(id, "the agent estimated the task upfront: "+sizeName[e.Size])
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Estimate = &e })
 }
 
-var sizeName = map[string]string{"small": "мала", "medium": "середня", "big": "велика"}
+var sizeName = map[string]string{"small": "small", "medium": "medium", "big": "large"}
