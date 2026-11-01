@@ -221,12 +221,35 @@ type conversationCache struct {
 	mod   time.Time
 	size  int64
 	turns []Turn
+	used  uint64 // convTick at the last use, for eviction
 }
+
+// convCacheMax bounds how many transcripts stay parsed in memory.
+const convCacheMax = 64
 
 var (
 	convMu    sync.Mutex
 	convCache = map[string]conversationCache{}
+	convTick  uint64
 )
+
+// storeConv puts c in the cache, evicting the least recently used entries beyond convCacheMax.
+// The caller holds convMu.
+func storeConv(path string, c conversationCache) {
+	convTick++
+	c.used = convTick
+	convCache[path] = c
+	for len(convCache) > convCacheMax {
+		oldest, first := "", true
+		var oldestUsed uint64
+		for k, v := range convCache {
+			if first || v.used < oldestUsed {
+				oldest, oldestUsed, first = k, v.used, false
+			}
+		}
+		delete(convCache, oldest)
+	}
+}
 
 // newestSession: the newest Claude Code transcript of a session started in worktree.
 func newestSession(worktree string) (string, os.FileInfo) {
@@ -258,11 +281,14 @@ func Conversation(worktree string, limit int) []Turn {
 	}
 	convMu.Lock()
 	c, ok := convCache[path]
+	if ok {
+		storeConv(path, c)
+	}
 	convMu.Unlock()
 	if !ok || !c.mod.Equal(info.ModTime()) || c.size != info.Size() {
 		c = conversationCache{mod: info.ModTime(), size: info.Size(), turns: readConversation(path, info.Size())}
 		convMu.Lock()
-		convCache[path] = c
+		storeConv(path, c)
 		convMu.Unlock()
 	}
 	if len(c.turns) > limit {
