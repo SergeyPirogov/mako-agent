@@ -311,7 +311,7 @@ func (d *Dispatcher) resume(id, message string) error {
 			return err
 		}
 		cfg := d.Config()
-		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo)}
+		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo), Language: cfg.AgentLanguage}
 		prompt, cont = orca.FullPrompt(j, cfg.Orca), false
 		d.notePrompt(id, prompt)
 	}

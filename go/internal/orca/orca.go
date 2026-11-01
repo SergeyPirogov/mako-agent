@@ -31,6 +31,8 @@ type Job struct {
 	// Checks: the repo's checks Mako runs before it opens the MR itself (Mako's own agent only); none: the agent
 	// opens it.
 	Checks []string
+	// Language: the agent language (agentLanguage) the agent is told to write in; "" is English.
+	Language string
 }
 
 // Result: where Orca put the work. Branch may differ from Job.Branch: Orca suffixes a taken name.

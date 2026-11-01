@@ -189,13 +189,13 @@ func (d *Dispatcher) request(ctx context.Context, id, kind string) (string, erro
 	branch := branchOf(r)
 	switch kind {
 	case "push":
-		return i18n.T("agent.push", branch), nil
+		return i18n.TA("agent.push", branch), nil
 	case "open":
-		return i18n.T("agent.open", branch, base), nil
+		return i18n.TA("agent.open", branch, base), nil
 	case "rebase":
-		return i18n.T("agent.rebase", branch, base, base, base), nil
+		return i18n.TA("agent.rebase", branch, base, base, base), nil
 	case "conflicts":
-		return i18n.T("agent.conflicts", r.PRURL, base, branch, base), nil
+		return i18n.TA("agent.conflicts", r.PRURL, base, branch, base), nil
 	case "ci", "comments":
 		c, err := d.Review(ctx, id)
 		if err != nil {
@@ -221,14 +221,14 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString(i18n.T("agent.ci", url) + "\n")
+	b.WriteString(i18n.TA("agent.ci", url) + "\n")
 	for i, j := range c.Failed {
-		b.WriteString("\n" + i18n.T("agent.ciJob", j.Name, j.URL) + "\n")
+		b.WriteString("\n" + i18n.TA("agent.ciJob", j.Name, j.URL) + "\n")
 		if i >= 2 {
 			continue // the first ones' logs are enough to start with
 		}
 		if log, err := desk.JobLog(ctx, url, j, 60); err == nil && log != "" {
-			b.WriteString(i18n.T("agent.ciLog") + "\n```\n" + log + "\n```\n")
+			b.WriteString(i18n.TA("agent.ciLog") + "\n```\n" + log + "\n```\n")
 		}
 	}
 	return b.String(), nil
@@ -236,7 +236,7 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 
 func commentsRequest(url, branch string, threads []trackers.Thread) string {
 	var b strings.Builder
-	b.WriteString(i18n.T("agent.comments", url, branch) + "\n")
+	b.WriteString(i18n.TA("agent.comments", url, branch) + "\n")
 	for i, t := range threads {
 		where := ""
 		if t.Path != "" {

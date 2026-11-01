@@ -26,7 +26,7 @@ func (l *Localized) UnmarshalJSON(data []byte) error {
 }
 
 // In: the version in lang, trimmed; "" when it is not written. «-» (none) in one language is «-» in both: a
-// comment turned off stays off whatever the language.
+// comment turned off stays off whatever the language. Only the agent's language picks a version.
 func (l Localized) In(lang string) string {
 	en, uk := strings.TrimSpace(l.EN), strings.TrimSpace(l.UK)
 	if en == "-" || uk == "-" {

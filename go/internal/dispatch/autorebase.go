@@ -133,13 +133,13 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 
 // conflictRequest: what the agent is told when its branch conflicts with the base branch.
 func conflictRequest(url, branch, base, mode string, files []string) string {
-	push := i18n.T("agent.pushForce")
-	how := i18n.T("agent.howRebase", branch, base)
+	push := i18n.TA("agent.pushForce")
+	how := i18n.TA("agent.howRebase", branch, base)
 	if mode == "merge" {
-		push = i18n.T("agent.pushPlain")
-		how = i18n.T("agent.howMerge", base, branch)
+		push = i18n.TA("agent.pushPlain")
+		how = i18n.TA("agent.howMerge", base, branch)
 	}
-	return i18n.T("agent.conflictBehind", branch, url, base, strings.Join(files, ", "), base, how, push)
+	return i18n.TA("agent.conflictBehind", branch, url, base, strings.Join(files, ", "), base, how, push)
 }
 
 func commits(n int) string {

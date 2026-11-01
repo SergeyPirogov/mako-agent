@@ -49,7 +49,7 @@ func TestBuildDigest(t *testing.T) {
 	if d.Waiting[0].Note != "дозволити Bash?" || !d.Review[0].New || d.Review[1].New || d.Failed[0].Note != "впало" {
 		t.Fatalf("details %+v", d)
 	}
-	if d.Count() != 6 || d.Line() != "чекає на вас: 2 · MR до мерджу: 2 · не вдалося: 1 · змерджено: 1" {
+	if d.Count() != 6 || d.Line() != "waiting for you: 2 · MRs to merge: 2 · failed: 1 · merged: 1" {
 		t.Fatalf("count %d, line %q", d.Count(), d.Line())
 	}
 	if empty := BuildDigest(nil, nil, since, now); empty.Count() != 0 || empty.Line() != "" || empty.Waiting == nil {

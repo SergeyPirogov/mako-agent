@@ -58,7 +58,6 @@ type Server struct {
 }
 
 type stateReply struct {
-	Language string       `json:"language"` // Mako's language: the board loads its words again when it changes
 	Version  string       `json:"version"`
 	Now      int64        `json:"now"`
 	WipLimit int          `json:"wipLimit"`
@@ -149,18 +148,14 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Write(themeJS)
 	})
-	// The words of the pages in Mako's language (or ?lang=), and the language itself.
+	// The words of the pages: the interface is English only.
 	mux.HandleFunc("GET /api/i18n", func(w http.ResponseWriter, r *http.Request) {
-		lang := r.URL.Query().Get("lang")
-		if !i18n.Supported(lang) {
-			lang = i18n.Lang()
-		}
 		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, map[string]any{"lang": lang, "strings": i18n.Strings(lang)})
+		writeJSON(w, map[string]any{"lang": i18n.EN, "strings": i18n.Strings(i18n.EN)})
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMilli()
-		reply := stateReply{Language: i18n.Lang(), Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
+		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()

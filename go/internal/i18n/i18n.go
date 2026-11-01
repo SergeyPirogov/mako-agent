@@ -1,5 +1,6 @@
-// Package i18n: the language Mako speaks — its interface, its notifications and comments, and what it asks the
-// agents to write. One dictionary serves Go and the web pages (GET /api/i18n).
+// Package i18n: Mako's interface is in English; what is left of other languages is the agent's — the language
+// it is asked to write in (agentLanguage) — and the check for tasks written in Russian. One dictionary serves
+// Go and the web pages (GET /api/i18n).
 package i18n
 
 import (
@@ -16,35 +17,41 @@ const (
 	UK = "uk"
 )
 
-// Default: the language of a config that names none.
+// Default: the agent language of a config that names none.
 const Default = EN
 
-var current atomic.Value // string
-
-// Supported says Mako speaks lang.
+// Supported says Mako can ask the agents to write in lang.
 func Supported(lang string) bool { return lang == EN || lang == UK }
 
-// SetLang: the language from now on (the settings' "language"); an unknown one is English.
-func SetLang(lang string) {
+// T: the text for key in the interface's language — English, the only one — formatted with args like
+// fmt.Sprintf; the key itself when the dictionary has none. What the agent writes goes through In with the
+// settings' agentLanguage.
+func T(key string, args ...any) string { return In(EN, key, args...) }
+
+var agentLang atomic.Value // string
+
+// SetAgentLanguage: the language the agents write in from now on (the settings' agentLanguage); an unknown one
+// is English.
+func SetAgentLanguage(lang string) {
 	if !Supported(lang) {
 		lang = Default
 	}
-	current.Store(lang)
+	agentLang.Store(lang)
 }
 
-// Lang: the language Mako speaks now.
-func Lang() string {
-	if l, _ := current.Load().(string); l != "" {
+// AgentLanguage: the language the agents write in now.
+func AgentLanguage() string {
+	if l, _ := agentLang.Load().(string); l != "" {
 		return l
 	}
 	return Default
 }
 
-// T: the text for key in the current language, formatted with args like fmt.Sprintf; the key itself when the
-// dictionary has none.
-func T(key string, args ...any) string { return In(Lang(), key, args...) }
+// TA: T in the agent's language — for what Mako writes on the agent's behalf (merge request texts, review
+// reports, tracker comments, commits, the instructions given to the agent).
+func TA(key string, args ...any) string { return In(AgentLanguage(), key, args...) }
 
-// In: T in lang.
+// In: the text for key in lang, for what the agent writes in its agentLanguage.
 func In(lang, key string, args ...any) string {
 	pair, ok := dict[key]
 	if !ok {
@@ -69,14 +76,6 @@ func Strings(lang string) map[string]string {
 	return out
 }
 
-// Name: what the language is called, in itself.
-func Name(lang string) string {
-	if lang == UK {
-		return "Українська"
-	}
-	return "English"
-}
-
 // EnglishName: what the language is called in English, as the agents are asked to write in it.
 func EnglishName(lang string) string {
 	if lang == UK {
@@ -85,20 +84,10 @@ func EnglishName(lang string) string {
 	return "English"
 }
 
-// Plural: the form for n in the current language: in English one (1) or many; in Ukrainian one (1, 21), few
-// (2-4, 22-24) or many (5-20, 25…).
+// Plural: the form for n in English: one (1) or many.
 func Plural(n int, one, few, many string) string {
-	if Lang() == EN {
-		if n == 1 {
-			return one
-		}
-		return many
-	}
-	switch {
-	case n%10 == 1 && n%100 != 11:
+	if n == 1 {
 		return one
-	case n%10 >= 2 && n%10 <= 4 && (n%100 < 12 || n%100 > 14):
-		return few
 	}
 	return many
 }

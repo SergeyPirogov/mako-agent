@@ -309,7 +309,7 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		return
 	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
-		if err := t.Comment(ctx, r.Task, i18n.T("comment.summary")+"\n\n"+text); err != nil {
+		if err := t.Comment(ctx, r.Task, i18n.TA("comment.summary")+"\n\n"+text); err != nil {
 			d.Fault(r.ID, "підсумок у задачу не додано", err)
 		}
 	}

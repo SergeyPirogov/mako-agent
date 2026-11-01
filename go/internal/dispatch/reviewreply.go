@@ -106,7 +106,7 @@ func (d *Dispatcher) collectReply(id string, ask bool) {
 			d.mu.Lock()
 			d.fixing[id] = time.Now()
 			d.mu.Unlock()
-			if err := d.tellAgent(id, i18n.T("agent.reviewReportAgain", strings.Join(ids, ", "))); err != nil {
+			if err := d.tellAgent(id, i18n.TA("agent.reviewReportAgain", strings.Join(ids, ", "))); err != nil {
 				d.mu.Lock()
 				delete(d.fixing, id)
 				d.mu.Unlock()
@@ -259,7 +259,7 @@ func (d *Dispatcher) publishReview(ctx context.Context, id string, round int) {
 				open = append(open, m)
 			}
 		}
-		text += "\n\n" + i18n.T("comment.reviewHuman", round)
+		text += "\n\n" + i18n.TA("comment.reviewHuman", round)
 		if len(open) > 0 {
 			text += "\n\n" + writer.RemarksList(open)
 		}

@@ -114,7 +114,7 @@ func FullPrompt(j Job, o config.Orca) string {
 	if shots := Screenshots(j); shots != "" {
 		parts = append(parts, shots)
 	}
-	parts = append(parts, i18n.AgentNote(i18n.Lang()))
+	parts = append(parts, i18n.AgentNote(j.Language))
 	return strings.Join(append(parts, Instructions(o.Instructions, o.MRBy, j)), "\n\n")
 }
 

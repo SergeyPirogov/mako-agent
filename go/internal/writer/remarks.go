@@ -172,9 +172,9 @@ func Numbered(remarks []core.Remark, next int) []core.Remark {
 // weightWord: the weight as people read it.
 func weightWord(w string) string {
 	if w == core.Must {
-		return i18n.T("review.must")
+		return i18n.TA("review.must")
 	}
-	return i18n.T("review.should")
+	return i18n.TA("review.should")
 }
 
 // RemarkLine: a remark in the reviewer's format, «R2 [треба] pay.go:42 — text».
@@ -203,24 +203,24 @@ func RemarksList(remarks []core.Remark) string {
 func replyWord(r string) string {
 	switch r {
 	case core.Fixed:
-		return "✅ " + i18n.T("review.fixed")
+		return "✅ " + i18n.TA("review.fixed")
 	case core.NotFixed:
-		return "❌ " + i18n.T("review.notFixed")
+		return "❌ " + i18n.TA("review.notFixed")
 	case core.Partly:
-		return "◐ " + i18n.T("review.partly")
+		return "◐ " + i18n.TA("review.partly")
 	}
-	return "⏳ " + i18n.T("review.noReply")
+	return "⏳ " + i18n.TA("review.noReply")
 }
 
 // verdictWord: the next round's verdict as people read it.
 func verdictWord(v string) string {
 	switch v {
 	case core.Closed:
-		return "✅ " + i18n.T("review.closed")
+		return "✅ " + i18n.TA("review.closed")
 	case core.Accepted:
-		return "✅ " + i18n.T("review.accepted")
+		return "✅ " + i18n.TA("review.accepted")
 	case core.Open:
-		return "❌ " + i18n.T("review.open")
+		return "❌ " + i18n.TA("review.open")
 	}
 	return "⏳"
 }
@@ -228,9 +228,9 @@ func verdictWord(v string) string {
 // ReviewComment: the round as a comment for the tracker: its verdicts on the earlier remarks, then its own.
 func ReviewComment(round int, a core.AgentReview) string {
 	var b strings.Builder
-	b.WriteString(i18n.T("comment.review", round) + "\n")
+	b.WriteString(i18n.TA("comment.review", round) + "\n")
 	if len(a.Checks) > 0 {
-		b.WriteString("\n" + i18n.T("comment.reviewChecks") + "\n")
+		b.WriteString("\n" + i18n.TA("comment.reviewChecks") + "\n")
 		for _, c := range a.Checks {
 			line := "- " + c.ID + " — " + verdictWord(c.Verdict)
 			if c.Note != "" {
@@ -242,7 +242,7 @@ func ReviewComment(round int, a core.AgentReview) string {
 	if len(a.Remarks) > 0 {
 		b.WriteString("\n" + RemarksList(a.Remarks) + "\n")
 	} else if a.State == "clean" {
-		b.WriteString("\n" + i18n.T("comment.reviewClean") + "\n")
+		b.WriteString("\n" + i18n.TA("comment.reviewClean") + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -250,9 +250,9 @@ func ReviewComment(round int, a core.AgentReview) string {
 // ReplyComment: the agent's report on the remarks, as a comment for the tracker; link is the reviewer's comment.
 func ReplyComment(a core.AgentReview, link string) string {
 	var b strings.Builder
-	b.WriteString(i18n.T("comment.reviewReply"))
+	b.WriteString(i18n.TA("comment.reviewReply"))
 	if link != "" {
-		b.WriteString(" " + i18n.T("comment.reviewReplyTo", link))
+		b.WriteString(" " + i18n.TA("comment.reviewReplyTo", link))
 	}
 	b.WriteString("\n\n")
 	answered := false
@@ -265,10 +265,10 @@ func ReplyComment(a core.AgentReview, link string) string {
 		b.WriteString(line + "\n")
 	}
 	if !answered {
-		b.WriteString("\n" + i18n.T("comment.reviewNoReport") + "\n")
+		b.WriteString("\n" + i18n.TA("comment.reviewNoReport") + "\n")
 	}
 	if a.Unverified {
-		b.WriteString("\n⚠️ " + i18n.T("comment.reviewUnverified") + "\n")
+		b.WriteString("\n⚠️ " + i18n.TA("comment.reviewUnverified") + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

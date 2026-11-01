@@ -8,6 +8,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	i18n.SetLang(i18n.UK) // what the tests expect Mako to say is Ukrainian
+	i18n.SetAgentLanguage(i18n.UK) // what the agents write in these tests is Ukrainian
 	os.Exit(m.Run())
 }

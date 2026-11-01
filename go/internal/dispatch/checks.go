@@ -223,10 +223,10 @@ func (d *Dispatcher) openMR(ctx context.Context, id string, repo *config.Repo, b
 func mrDescription(r core.Record, summary string) string {
 	var b strings.Builder
 	if summary = strings.TrimSpace(summary); summary != "" {
-		b.WriteString(i18n.T("mr.whatChanged") + "\n" + summary + "\n\n")
+		b.WriteString(i18n.TA("mr.whatChanged") + "\n" + summary + "\n\n")
 	}
 	if r.Checks != nil && len(r.Checks.Results) > 0 {
-		b.WriteString(i18n.T("mr.howChecked") + "\n")
+		b.WriteString(i18n.TA("mr.howChecked") + "\n")
 		for _, c := range r.Checks.Results {
 			b.WriteString(fmt.Sprintf("- ✓ `%s`\n", c.Command))
 		}
@@ -243,18 +243,18 @@ func mrDescription(r core.Record, summary string) string {
 // checksRequest: the failed checks, as Mako hands them to the agent.
 func checksRequest(results []core.CheckResult, fails, tries int) string {
 	var b strings.Builder
-	b.WriteString(i18n.T("agent.checksFailed", fails, tries, checksLine(results)) + "\n")
+	b.WriteString(i18n.TA("agent.checksFailed", fails, tries, checksLine(results)) + "\n")
 	for _, c := range results {
 		if c.OK {
 			continue
 		}
-		what := i18n.T("agent.checkFell")
+		what := i18n.TA("agent.checkFell")
 		if c.TimedOut {
-			what = i18n.T("agent.checkTimedOut", c.Seconds)
+			what = i18n.TA("agent.checkTimedOut", c.Seconds)
 		}
-		b.WriteString("\n" + i18n.T("agent.checkTail", c.Command, what) + "\n```\n" + c.Tail + "\n```\n")
+		b.WriteString("\n" + i18n.TA("agent.checkTail", c.Command, what) + "\n```\n" + c.Tail + "\n```\n")
 	}
-	b.WriteString("\n" + i18n.T("agent.checksFix"))
+	b.WriteString("\n" + i18n.TA("agent.checksFix"))
 	return b.String()
 }
 
