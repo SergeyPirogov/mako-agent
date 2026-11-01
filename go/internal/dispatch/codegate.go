@@ -16,17 +16,17 @@ import (
 func codeGate(tool string, input json.RawMessage) string {
 	switch {
 	case slices.Contains(CodeDeny, tool):
-		return "тут не можна змінювати код; читай, шукай і запускай команди, але файлів не змінюй."
+		return "code cannot be changed here; read, search and run commands, but do not change files."
 	case tool == "ExitPlanMode" || tool == "EnterPlanMode":
-		return "тут немає режиму плану: просто відповідай."
+		return "there is no plan mode here: just answer."
 	case tool == "Bash":
 		var in struct {
 			Command string `json:"command"`
 		}
 		json.Unmarshal(input, &in)
 		if why := refusedCommand(in.Command); why != "" {
-			return why + " Тут можна читати, шукати й запускати тести чи збірку, але не змінювати репозиторій і файли; " +
-				"не обходь цього іншими командами."
+			return why + " Here you can read, search and run tests or a build, but not change the repository or files; " +
+				"do not work around this with other commands."
 		}
 	}
 	return ""
@@ -59,7 +59,7 @@ func refusedCommand(cmd string) string {
 
 func refusedLine(cmd string, depth int) string {
 	if depth > 5 {
-		return "Mako не розбирає такої вкладеної команди."
+		return "Mako does not parse such a nested command."
 	}
 	for _, m := range substitution.FindAllStringSubmatch(cmd, -1) {
 		if why := refusedLine(m[1]+m[2], depth+1); why != "" {
@@ -68,7 +68,7 @@ func refusedLine(cmd string, depth int) string {
 	}
 	segments, writes := splitShell(substitution.ReplaceAllString(cmd, "x"))
 	if len(writes) > 0 {
-		return "Mako не дає писати у файли (" + writes[0] + ")."
+		return "Mako does not allow writing to files (" + writes[0] + ")."
 	}
 	for _, words := range segments {
 		if why := refusedWords(words, depth); why != "" {
@@ -91,7 +91,7 @@ func refusedWords(words []string, depth int) string {
 	name, args := filepath.Base(words[0]), words[1:]
 	switch {
 	case slices.Contains(fileWrites, name):
-		return "Mako не запускає тут " + name + "."
+		return "Mako does not run " + name + " here."
 	case name == "eval":
 		return refusedLine(strings.Join(args, " "), depth+1)
 	case slices.Contains(shells, name):
@@ -101,16 +101,16 @@ func refusedWords(words []string, depth int) string {
 			}
 		}
 		if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-			return "Mako не запускає тут скриптів через " + name + ": запустіть сам скрипт."
+			return "Mako does not run scripts through " + name + " here: run the script itself."
 		}
 	case (name == "sed" || name == "gsed" || name == "perl") && slices.ContainsFunc(args, func(a string) bool {
 		return a == "--in-place" || strings.HasPrefix(a, "--in-place=") || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "i")
 	}):
-		return "Mako не дає змінювати файли через " + name + " -i."
+		return "Mako does not allow changing files through " + name + " -i."
 	case name == "find" && slices.ContainsFunc(args, func(a string) bool {
 		return a == "-delete" || a == "-exec" || a == "-execdir" || a == "-ok" || a == "-fprint"
 	}):
-		return "Mako не запускає тут find з -delete чи -exec."
+		return "Mako does not run find with -delete or -exec here."
 	case name == "git":
 		return refusedGit(args)
 	}
@@ -138,7 +138,7 @@ func refusedGit(args []string) string {
 				continue
 			}
 			if positional++; positional > 1 && strings.Contains(a, ":") {
-				return "Mako не запускає тут git fetch у локальні гілки (" + a + "): worktree ділить гілки з клоном."
+				return "Mako does not run git fetch into local branches here (" + a + "): the worktree shares branches with the clone."
 			}
 		}
 		return ""
@@ -146,7 +146,7 @@ func refusedGit(args []string) string {
 	if !slices.Contains(gitWrites, sub) || readOnlyListing(args) {
 		return ""
 	}
-	return "Mako не запускає тут git " + sub + ": worktree ділить гілки й .git з клоном."
+	return "Mako does not run git " + sub + " here: the worktree shares branches and .git with the clone."
 }
 
 func isAssignment(w string) bool {

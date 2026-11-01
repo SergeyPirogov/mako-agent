@@ -70,13 +70,13 @@ func AnswersComment(questions []string, answers map[string]string) string {
 func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []Answer) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if !isNew(r) {
-		return errors.New("відповісти на питання оцінки можна лише в новій задачі")
+		return errors.New("assessment questions can only be answered in a new task")
 	}
 	if r.Estimate == nil || strings.TrimSpace(r.Estimate.Questions) == "" {
-		return errors.New("в оцінці немає питань")
+		return errors.New("the assessment has no questions")
 	}
 	qs := SplitQuestions(r.Estimate.Questions)
 	byQ := map[string]string{}
@@ -85,17 +85,17 @@ func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []A
 			continue
 		}
 		if !slices.Contains(qs, strings.TrimSpace(a.Q)) {
-			return errors.New("питання оцінки змінились: перегляньте відповіді й надішліть ще раз")
+			return errors.New("assessment questions changed: review the answers and send again")
 		}
 		byQ[strings.TrimSpace(a.Q)] = a.A
 	}
 	text := AnswersComment(qs, byQ)
 	if text == "" {
-		return errors.New("немає відповідей")
+		return errors.New("no answers")
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
-		return errors.New("трекер " + r.Task.TrackerID + " прибрано з налаштувань")
+		return errors.New("tracker " + r.Task.TrackerID + " was removed from settings")
 	}
 	if err := t.Comment(ctx, r.Task, text); err != nil {
 		return err
@@ -107,7 +107,7 @@ func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []A
 	d.Store.Update(id, func(r *core.Record) {
 		r.Task.Comments = append(r.Task.Comments, core.Comment{Author: me, Body: text})
 	})
-	d.Log(id, "відповіді на питання оцінки надіслано в трекер")
+	d.Log(id, "answers to the assessment questions sent to the tracker")
 	if d.startEstimate(id) == nil {
 		d.goEstimate(id)
 	}
@@ -119,7 +119,7 @@ func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []A
 func (d *Dispatcher) refresh(ctx context.Context, t trackers.Tracker, id string) (core.Task, bool) {
 	tasks, err := t.FetchMine(ctx)
 	if err != nil {
-		d.Log(id, "не вдалось перечитати задачу з трекера перед стартом, беру збережену: "+err.Error())
+		d.Log(id, "could not re-read the task from the tracker before start, using the saved one: "+err.Error())
 		return core.Task{}, false
 	}
 	for _, task := range tasks {
@@ -130,11 +130,11 @@ func (d *Dispatcher) refresh(ctx context.Context, t trackers.Tracker, id string)
 				fresh = r.Task
 			})
 			if task.CommentsUnread {
-				d.Log(id, "трекер не віддав коментарі задачі, агент отримає збережені")
+				d.Log(id, "tracker did not return the task comments, the agent will get the saved ones")
 			}
 			return fresh, true
 		}
 	}
-	d.Log(id, "задачі вже немає в пошуку трекера, агент отримає її збережений текст")
+	d.Log(id, "the task is no longer in tracker search, the agent will get its saved text")
 	return core.Task{}, false
 }

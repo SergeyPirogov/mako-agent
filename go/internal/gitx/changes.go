@@ -103,7 +103,7 @@ func Changes(ctx context.Context, worktree, baseBranch string) (*ChangeSet, erro
 // the entire file around the changes, not 3 lines of context.
 func FileDiff(ctx context.Context, worktree, baseBranch, path string, whole bool) (string, error) {
 	if path == "" || strings.HasPrefix(path, ":") || strings.HasPrefix(path, "-") {
-		return "", fmt.Errorf("немає такого файла")
+		return "", fmt.Errorf("no such file")
 	}
 	// Only a file git lists as untracked is read from disk: nothing outside the worktree.
 	if out, _ := Run(ctx, worktree, "-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard", "--", path); out == path {

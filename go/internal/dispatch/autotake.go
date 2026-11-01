@@ -65,12 +65,12 @@ func (d *Dispatcher) autoTake(ctx context.Context, id string) {
 		why = ""
 	}
 	if n.AutoTake && !r.PostponedByYou && why == "" {
-		d.take(ctx, id, "взято в роботу автоматично")
+		d.take(ctx, id, "taken into work automatically")
 		return
 	}
 	if why != r.AutoSkip {
 		if why != "" {
-			d.Log(id, "не беру сам: "+why)
+			d.Log(id, "not taking it myself: "+why)
 		}
 		d.Store.Update(id, func(r *core.Record) { r.AutoSkip = why })
 	}

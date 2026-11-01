@@ -183,7 +183,7 @@ echo "$more" > more.json
 	s := d.Chats.Get(r.ID)
 	waitFor(t, func() bool { st, _, _ := s.State(); return st == "waiting" }, "the chat is not waiting")
 	d.watchTerminals(time.Now())
-	if a := d.Agents()[r.ID]; a.State != "waiting" || a.Reason != "дозвіл на Bash: npm test" || !a.Live {
+	if a := d.Agents()[r.ID]; a.State != "waiting" || a.Reason != "permission for Bash: npm test" || !a.Live {
 		t.Fatalf("agent %+v", a)
 	}
 	// The chat names the model exactly: it takes the place of the alias Mako asked for.

@@ -33,31 +33,31 @@ func kinds(fs []Finding) string {
 
 func TestEachKind(t *testing.T) {
 	for _, c := range []struct{ name, file, line, kind string }{
-		{"github classic", "app/main.go", `token := "ghp_` + rnd(36, alnum) + `"`, "GitHub-токен"},
-		{"github fine-grained", "deploy.sh", `export GH=github_pat_` + rnd(82, alnum+"_"), "GitHub-токен"},
-		{"gitlab", "ci/run.py", `TOKEN = "glpat-` + rnd(20, alnum+"-_") + `"`, "GitLab-токен"},
+		{"github classic", "app/main.go", `token := "ghp_` + rnd(36, alnum) + `"`, "GitHub token"},
+		{"github fine-grained", "deploy.sh", `export GH=github_pat_` + rnd(82, alnum+"_"), "GitHub token"},
+		{"gitlab", "ci/run.py", `TOKEN = "glpat-` + rnd(20, alnum+"-_") + `"`, "GitLab token"},
 		{"aws access key", "infra/main.tf", `access_key = "AKIA` + rnd(16, upnum) + `"`, "AWS access key"},
 		{"aws secret key", "aws.cfg", `aws_secret_access_key = ` + rnd(40, b64), "AWS secret key"},
-		{"slack token", "bot.js", `const slack = "xoxb-` + rnd(12, "0123456789") + "-" + rnd(24, alnum) + `"`, "Slack-токен"},
+		{"slack token", "bot.js", `const slack = "xoxb-` + rnd(12, "0123456789") + "-" + rnd(24, alnum) + `"`, "Slack token"},
 		{"slack webhook", "notify.rb", `URL = "https://hooks.slack.com/services/T` + rnd(8, upnum) + "/B" + rnd(8, upnum) + "/" + rnd(24, alnum) + `"`, "Slack webhook"},
-		{"anthropic", "agent.ts", `const key = "sk-ant-api03-` + rnd(90, alnum+"-_") + `"`, "Anthropic-ключ"},
-		{"openai", "llm.py", `client = OpenAI(api_key="sk-proj-` + rnd(48, alnum) + `")`, "OpenAI-ключ"},
+		{"anthropic", "agent.ts", `const key = "sk-ant-api03-` + rnd(90, alnum+"-_") + `"`, "Anthropic key"},
+		{"openai", "llm.py", `client = OpenAI(api_key="sk-proj-` + rnd(48, alnum) + `")`, "OpenAI key"},
 		{"google", "maps.js", `const k = "AIza` + rnd(35, alnum+"-_") + `"`, "Google API key"},
-		{"stripe", "pay.go", `stripe.Key = "sk_live_` + rnd(24, alnum) + `"`, "Stripe-ключ"},
-		{"npm", ".npmrc", `//registry.npmjs.org/:_authToken=npm_` + rnd(36, alnum), "npm-токен"},
-		{"telegram", "bot.go", `bot := "123456789:AA` + rnd(33, alnum+"_-") + `"`, "Telegram-бот"},
-		{"private key", "id_rsa", "-----BEGIN " + "OPENSSH PRIVATE KEY-----", "приватний ключ"},
-		{"password in code", "db/conn.go", `password := "` + rnd(14, alnum) + `"`, "пароль чи секрет у коді (password)"},
-		{"password in yaml", "config/prod.yml", `  db_password: ` + rnd(12, alnum), "пароль чи секрет у коді (db_password)"},
-		{"secret in json", "settings.json", `"client_secret": "` + rnd(20, alnum) + `",`, "пароль чи секрет у коді (client_secret)"},
-		{"high entropy", "app/keys.go", `var signing = []byte("` + rnd(48, b64) + `")`, "випадковий рядок, схожий на ключ"},
+		{"stripe", "pay.go", `stripe.Key = "sk_live_` + rnd(24, alnum) + `"`, "Stripe key"},
+		{"npm", ".npmrc", `//registry.npmjs.org/:_authToken=npm_` + rnd(36, alnum), "npm token"},
+		{"telegram", "bot.go", `bot := "123456789:AA` + rnd(33, alnum+"_-") + `"`, "Telegram bot"},
+		{"private key", "id_rsa", "-----BEGIN " + "OPENSSH PRIVATE KEY-----", "private key"},
+		{"password in code", "db/conn.go", `password := "` + rnd(14, alnum) + `"`, "password or secret in code (password)"},
+		{"password in yaml", "config/prod.yml", `  db_password: ` + rnd(12, alnum), "password or secret in code (db_password)"},
+		{"secret in json", "settings.json", `"client_secret": "` + rnd(20, alnum) + `",`, "password or secret in code (client_secret)"},
+		{"high entropy", "app/keys.go", `var signing = []byte("` + rnd(48, b64) + `")`, "random string that looks like a key"},
 	} {
 		got := Line(c.file, c.line)
 		if len(got) != 1 || got[0].Kind != c.kind {
 			t.Errorf("%s: %q → %s, want %s", c.name, c.line, kinds(got), c.kind)
 			continue
 		}
-		if c.kind != "приватний ключ" && !strings.Contains(got[0].Masked, "…(") {
+		if c.kind != "private key" && !strings.Contains(got[0].Masked, "…(") {
 			t.Errorf("%s: masked %q", c.name, got[0].Masked)
 		}
 	}
@@ -160,14 +160,14 @@ func TestScanDiff(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("findings %+v", got)
 	}
-	if f := got[0]; f.File != "app/main.go" || f.Line != 12 || f.Commit != "01234567" || f.Kind != "GitHub-токен" || strings.Contains(f.Masked, token[6:]) {
+	if f := got[0]; f.File != "app/main.go" || f.Line != 12 || f.Commit != "01234567" || f.Kind != "GitHub token" || strings.Contains(f.Masked, token[6:]) {
 		t.Errorf("token %+v", f)
 	}
-	if f := got[1]; f.File != ".env" || f.Kind != ".env-файл" || f.Line != 0 {
+	if f := got[1]; f.File != ".env" || f.Kind != ".env file" || f.Line != 0 {
 		t.Errorf("env %+v", f)
 	}
 	// «Це не секрет» for the token's line: only the .env file is left.
-	if left := Scan(diff, map[string]bool{got[0].Key: true}); len(left) != 1 || left[0].Kind != ".env-файл" {
+	if left := Scan(diff, map[string]bool{got[0].Key: true}); len(left) != 1 || left[0].Kind != ".env file" {
 		t.Errorf("allowed %+v", left)
 	}
 	// A changed line is a new one.

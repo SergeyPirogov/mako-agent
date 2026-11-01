@@ -92,12 +92,12 @@ func TestGitHubUploadRepo(t *testing.T) {
 			uploads:  `{"private":true,"default_branch":"trunk"}`,
 			wantLink: "/acme/mako-uploads/blob/trunk/.mako/uploads/app/"},
 		{name: "public repo private project", project: `{"name":"app","private":true,"owner":{"login":"acme","type":"Organization"}}`,
-			uploads: `{"private":false,"default_branch":"main"}`, wantErr: "публічний, а проєкт приватний"},
+			uploads: `{"private":false,"default_branch":"main"}`, wantErr: "is public but the project is private"},
 		{name: "no rights", project: `{"name":"app","private":true,"owner":{"login":"acme","type":"Organization"}}`,
 			create: "403", createPath: "/orgs/acme/repos", wantPrivate: true,
-			wantErr: "створіть acme/mako-uploads вручну або дайте токену право створювати репозиторії"},
+			wantErr: "create acme/mako-uploads manually or give the token permission to create repositories"},
 		{name: "someone else's user repo", project: `{"name":"app","private":false,"owner":{"login":"other","type":"User"}}`,
-			wantErr: "створіть other/mako-uploads вручну"},
+			wantErr: "create other/mako-uploads manually"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

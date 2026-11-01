@@ -112,7 +112,7 @@ func (d *Dispatcher) maybeCheck(id string) {
 		c.At, c.Commit, c.State, c.Results, c.Error = now(), head, "running", nil, ""
 		rec.Checks = c
 	})
-	d.Log(id, "перевірка перед MR: "+strings.Join(repo.Checks, "; "))
+	d.Log(id, "check before MR: "+strings.Join(repo.Checks, "; "))
 	results := make([]core.CheckResult, 0, len(repo.Checks))
 	passed := true
 	for _, command := range repo.Checks {
@@ -138,17 +138,17 @@ func (d *Dispatcher) maybeCheck(id string) {
 		}
 		fails, attention = c.Fails, c.Attention
 	})
-	d.Log(id, "перевірка: "+checksLine(results))
+	d.Log(id, "check: "+checksLine(results))
 	link := d.BoardURL + "/#" + id
 	switch {
 	case passed:
 		d.openMR(ctx, id, repo, base)
 	case attention:
-		d.Log(id, fmt.Sprintf("перевірка не пройшла %d раз(и) поспіль: MR не відкрито, задача потребує уваги", fails))
+		d.Log(id, fmt.Sprintf("check failed %d time(s) in a row: MR not opened, the task needs attention", fails))
 		notify.Inform(notify.Stopped, i18n.T("notify.attention", id), i18n.T("notify.checksFailed", checksLine(results)), link)
 	default:
 		if err := d.tellAgent(id, checksRequest(results, fails, term.CheckTries())); err != nil {
-			d.Fault(id, "результат перевірки не передано агенту", err)
+			d.Fault(id, "check result not sent to the agent", err)
 		}
 	}
 }
@@ -162,7 +162,7 @@ func (d *Dispatcher) openMR(ctx context.Context, id string, repo *config.Repo, b
 				rec.Checks.Error = err.Error()
 			}
 		})
-		d.Fault(id, "MR не відкрито", err)
+		d.Fault(id, "MR not opened", err)
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
@@ -177,10 +177,10 @@ func (d *Dispatcher) openMR(ctx context.Context, id string, repo *config.Repo, b
 	// Mako's own push goes past the agent's push guard: the same look for secrets first. «Це не секрет» on the
 	// card lets the next round push; a new commit is checked again.
 	if found, err := d.CheckSecrets(ctx, id); err == nil && len(found) > 0 {
-		const held = "пуш зупинено: у змінах схоже на секрети"
+		const held = "push stopped: the changes look like they contain secrets"
 		if r.Checks == nil || r.Checks.Error != held {
 			if err := d.tellAgent(id, secretsRequest(found)); err != nil {
-				d.Fault(id, "знахідки перевірки на секрети не передано агенту", err)
+				d.Fault(id, "secret-scan findings not sent to the agent", err)
 			}
 		}
 		d.Store.Update(id, func(rec *core.Record) {
@@ -215,7 +215,7 @@ func (d *Dispatcher) openMR(ctx context.Context, id string, repo *config.Repo, b
 			rec.Checks.Error = ""
 		}
 	})
-	d.Log(id, "перевірка пройшла, Mako відкрив MR: "+review.URL)
+	d.Log(id, "check passed, Mako opened the MR: "+review.URL)
 	d.Wake()
 }
 
@@ -280,15 +280,15 @@ var (
 	buildCmd = regexp.MustCompile(`(?i)\bbuild\b|compile|\bmake\b|tsc\b`)
 )
 
-// checkName: what a check is, for the card: «тести», «лінт», «збірка», or the command itself.
+// checkName: what a check is, for the card: "tests", "lint", "build", or the command itself.
 func checkName(command string) string {
 	switch {
 	case testCmd.MatchString(command):
-		return "тести"
+		return "tests"
 	case lintCmd.MatchString(command):
-		return "лінт"
+		return "lint"
 	case buildCmd.MatchString(command):
-		return "збірка"
+		return "build"
 	}
 	return clipText(command, 40)
 }
@@ -308,7 +308,7 @@ func runCheck(ctx context.Context, dir, command string, timeout time.Duration) (
 	err := cmd.Run()
 	text := buf.String()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return false, true, text + fmt.Sprintf("\n(перервано через %s)", timeout)
+		return false, true, text + fmt.Sprintf("\n(interrupted after %s)", timeout)
 	}
 	if err != nil {
 		return false, false, text + "\n(" + err.Error() + ")"

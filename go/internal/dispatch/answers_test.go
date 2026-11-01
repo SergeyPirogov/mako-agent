@@ -128,7 +128,7 @@ func TestAnswerQuestionsChangedMeanwhile(t *testing.T) {
 	d, f, _ := setup(t)
 	newWithQuestions(t, d)
 	err := d.AnswerQuestions(context.Background(), "grp/app#5", []Answer{{Q: "Яка саме кнопка?", A: "«Оплатити»"}, {Q: "Старе питання?", A: "так"}})
-	if err == nil || !strings.Contains(err.Error(), "змінились") || len(f.notes) != 0 {
+	if err == nil || !strings.Contains(err.Error(), "changed") || len(f.notes) != 0 {
 		t.Fatalf("error %v, notes %q", err, f.notes)
 	}
 }

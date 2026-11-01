@@ -45,10 +45,10 @@ type Heavy struct {
 
 // The growth sources that are not tools.
 const (
-	SourceReplies   = "Відповіді"
-	SourceMessages  = "Повідомлення"
-	SourceOther     = "Інше"
-	SourceSubagents = "Субагенти"
+	SourceReplies   = "Replies"
+	SourceMessages  = "Messages"
+	SourceOther     = "Other"
+	SourceSubagents = "Subagents"
 )
 
 // TopHeavy: the most a run (and the statistics) keep of the files and the commands.

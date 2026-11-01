@@ -43,7 +43,7 @@ func TestSummarize(t *testing.T) {
 	if st.Cost != 4 || st.Priced != 3 {
 		t.Fatalf("cost %v over %d", st.Cost, st.Priced)
 	}
-	want := []Reason{{"MR закрито без мерджу", 2}, {"Скасовано", 1}, {"не вдалось клонувати", 1}}
+	want := []Reason{{"MR закрито без мерджу", 2}, {"Cancelled", 1}, {"не вдалось клонувати", 1}}
 	if len(st.Reasons) != len(want) {
 		t.Fatalf("reasons %+v", st.Reasons)
 	}
@@ -213,7 +213,7 @@ func TestSummarizeFlow(t *testing.T) {
 	if st.Ended != 5 || st.Clean != 1 || st.Cancelled != 2 || st.LeadSeconds != 3*3600 {
 		t.Fatalf("ended %d, clean %d, cancelled %d, lead %v", st.Ended, st.Clean, st.Cancelled, st.LeadSeconds)
 	}
-	if st.Reasons[0] != (Reason{"Скасовано", 2}) {
+	if st.Reasons[0] != (Reason{"Cancelled", 2}) {
 		t.Fatalf("reasons %+v", st.Reasons)
 	}
 	if len(st.Days) != 14 || st.Days[0].Date != "2026-09-25" {

@@ -156,7 +156,7 @@ func TestFailureReportedOnce(t *testing.T) {
 		}
 	}
 	st := u.Status()
-	if st.Error != "збірка не вдалась: go build: exit status 1" || st.Issue != "https://github.com/me/mako/issues/9" {
+	if st.Error != "build failed: go build: exit status 1" || st.Issue != "https://github.com/me/mako/issues/9" {
 		t.Fatalf("status %+v", st)
 	}
 	if len(bodies) != 1 || !strings.Contains(bodies[0], "main.go:1: oops") {

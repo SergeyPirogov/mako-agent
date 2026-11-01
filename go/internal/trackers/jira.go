@@ -23,10 +23,10 @@ type Jira struct {
 
 func NewJira(t *config.Tracker, email, token string) (*Jira, error) {
 	if t.BaseURL == "" {
-		return nil, fmt.Errorf("немає адреси Jira: вкажіть її в налаштуваннях або JIRA_BASE_URL у .env")
+		return nil, fmt.Errorf("no Jira URL: set it in settings or JIRA_BASE_URL in .env")
 	}
 	if email == "" || token == "" {
-		return nil, missing("JIRA_EMAIL і JIRA_API_TOKEN", "токен: id.atlassian.com → Security → API tokens")
+		return nil, missing("JIRA_EMAIL and JIRA_API_TOKEN", "token: id.atlassian.com → Security → API tokens")
 	}
 	auth := base64.StdEncoding.EncodeToString([]byte(email + ":" + token))
 	return &Jira{cfg: t, base: t.BaseURL, headers: map[string]string{"Authorization": "Basic " + auth}}, nil
@@ -40,9 +40,9 @@ func (j *Jira) do(ctx context.Context, method, path string, body, out any) error
 	return call(ctx, method, j.base+path, j.headers, body, out, func(status int, _ string) string {
 		switch status {
 		case 401:
-			return "Jira не прийняла дані входу (401): перевірте JIRA_EMAIL і API-токен (id.atlassian.com → Security → API tokens)"
+			return "Jira rejected the credentials (401): check JIRA_EMAIL and the API token (id.atlassian.com → Security → API tokens)"
 		case 403:
-			return "Jira заборонила дію (403): у вашого акаунта немає потрібних прав у цьому проєкті"
+			return "Jira forbade the action (403): your account lacks the required permissions in this project"
 		}
 		return ""
 	})
@@ -222,7 +222,7 @@ func (j *Jira) transition(ctx context.Context, t core.Task, name string) (string
 			return name, j.do(ctx, "POST", "/rest/api/3/issue/"+t.ID+"/transitions", map[string]any{"transition": map[string]string{"id": tr.ID}}, nil)
 		}
 	}
-	return "", fmt.Errorf("%s: у Jira немає переходу в «%s» з поточного статусу", t.ID, name)
+	return "", fmt.Errorf("%s: Jira has no transition to \"%s\" from the current status", t.ID, name)
 }
 
 // adfToText flattens Atlassian Document Format into plain text good enough for a prompt.

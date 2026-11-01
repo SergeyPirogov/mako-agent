@@ -93,7 +93,7 @@ func (d *Dispatcher) CheckBlocked(ctx context.Context) {
 		if branch == "" {
 			branch = r.BranchName
 		}
-		d.Log(r.ID, "CI пройшов: задача на рев'ю")
+		d.Log(r.ID, "CI passed: task is in review")
 		d.Store.Update(r.ID, func(r *core.Record) { r.AwaitingCI = false })
 		d.comment(ctx, t, r.Task, d.Config().Comments.OnReview, map[string]string{"branch": branch, "mr": r.PRURL})
 		d.move(ctx, t, r.Task, trackers.AtReview)

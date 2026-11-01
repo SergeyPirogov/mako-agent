@@ -24,13 +24,13 @@ func (d *Dispatcher) Assess(id string) error {
 func (d *Dispatcher) startAssess(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if r.Status != core.Done {
-		return errors.New("оцінити можна лише виконану задачу")
+		return errors.New("only a completed task can be assessed")
 	}
 	if a := r.Assessment; a != nil && a.State == "running" && !stale(a.At) {
-		return errors.New("задачу вже оцінюють")
+		return errors.New("the task is already being assessed")
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Assessment = &core.Assessment{At: now(), State: "running"} })
 	return nil
@@ -58,10 +58,10 @@ func (d *Dispatcher) assess(ctx context.Context, id string) {
 	a, err := writer.Assess(d.spending(ctx, id, core.PhaseAssess), dir, base, r.Task, d.agentWords(ctx, r), r.Summary)
 	a.At = now()
 	if err != nil {
-		d.Fault(id, "задачу не оцінено", err)
+		d.Fault(id, "task not assessed", err)
 		a = core.Assessment{At: a.At, State: "failed", Error: err.Error()}
 	} else {
-		d.Log(id, "агент оцінив задачу")
+		d.Log(id, "agent assessed the task")
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Assessment = &a })
 }

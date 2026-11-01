@@ -65,7 +65,7 @@ func CIRunning(ci string) bool {
 // holdForCI: no merge while CI is still running, even where the code host itself would allow it.
 func holdForCI(c *ReviewCheck) {
 	if c.Mergeable && CIRunning(c.CI) {
-		c.Mergeable, c.Blocked = false, "CI ще йде"
+		c.Mergeable, c.Blocked = false, "CI is still running"
 	}
 }
 
@@ -81,10 +81,10 @@ func tail(log string, n int) string {
 // --- GitLab
 
 var glBlocked = map[string]string{
-	"ci_must_pass": "спершу має пройти CI", "ci_still_running": "CI ще йде", "discussions_not_resolved": "є нерозвʼязані коментарі",
-	"not_approved": "потрібен апрув", "conflict": "конфлікти з основною гілкою", "draft_status": "MR — чернетка",
-	"need_rebase": "потрібен rebase", "checking": "GitLab ще перевіряє", "unchecked": "GitLab ще перевіряє",
-	"blocked_status": "MR заблоковано іншим", "requested_changes": "рецензент попросив зміни", "not_open": "MR не відкритий",
+	"ci_must_pass": "CI must pass first", "ci_still_running": "CI is still running", "discussions_not_resolved": "there are unresolved comments",
+	"not_approved": "approval needed", "conflict": "conflicts with the base branch", "draft_status": "MR is a draft",
+	"need_rebase": "rebase needed", "checking": "GitLab is still checking", "unchecked": "GitLab is still checking",
+	"blocked_status": "MR is blocked by another", "requested_changes": "reviewer requested changes", "not_open": "MR is not open",
 }
 
 func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewCheck, error) {
@@ -160,7 +160,7 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 func (g *GitLab) JobLog(ctx context.Context, reviewURL string, job Job, lines int) (string, error) {
 	m := mrURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return "", fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+		return "", fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	var log string
 	if err := g.do(ctx, "GET", fmt.Sprintf("%s/jobs/%d/trace", project(m[1]), job.ID), nil, &log); err != nil {
@@ -172,7 +172,7 @@ func (g *GitLab) JobLog(ctx context.Context, reviewURL string, job Job, lines in
 func (g *GitLab) Merge(ctx context.Context, reviewURL string) error {
 	m := mrURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+		return fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2]+"/merge", map[string]any{"should_remove_source_branch": true}, nil)
 }
@@ -180,7 +180,7 @@ func (g *GitLab) Merge(ctx context.Context, reviewURL string) error {
 func (g *GitLab) Close(ctx context.Context, reviewURL string) error {
 	m := mrURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+		return fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2], map[string]any{"state_event": "close"}, nil)
 }
@@ -188,8 +188,8 @@ func (g *GitLab) Close(ctx context.Context, reviewURL string) error {
 // --- GitHub
 
 var ghBlocked = map[string]string{
-	"blocked": "потрібні перевірки або апрув", "behind": "гілка відстала від основної", "dirty": "конфлікти з основною гілкою",
-	"draft": "PR — чернетка", "unknown": "GitHub ще перевіряє",
+	"blocked": "checks or approval needed", "behind": "branch is behind the base", "dirty": "conflicts with the base branch",
+	"draft": "PR is a draft", "unknown": "GitHub is still checking",
 }
 
 func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewCheck, error) {
@@ -249,7 +249,7 @@ func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 	if c.State == "open" && !c.Mergeable {
 		c.Blocked = ghBlocked[p.MergeableState]
 		if c.Blocked == "" {
-			c.Blocked = "GitHub ще перевіряє"
+			c.Blocked = "GitHub is still checking"
 		}
 	}
 	holdForCI(c)
@@ -267,7 +267,7 @@ func (g *GitHub) graphqlURL() string {
 func (g *GitHub) JobLog(ctx context.Context, reviewURL string, job Job, lines int) (string, error) {
 	m := prURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return "", fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+		return "", fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
 	// A check run of GitHub Actions is its job: the log is there; other checks have none.
 	var log string
@@ -280,7 +280,7 @@ func (g *GitHub) JobLog(ctx context.Context, reviewURL string, job Job, lines in
 func (g *GitHub) Merge(ctx context.Context, reviewURL string) error {
 	m := prURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+		return fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
 	return g.do(ctx, "PUT", "/repos/"+m[1]+"/pulls/"+m[2]+"/merge", map[string]any{}, nil)
 }
@@ -288,7 +288,7 @@ func (g *GitHub) Merge(ctx context.Context, reviewURL string) error {
 func (g *GitHub) Close(ctx context.Context, reviewURL string) error {
 	m := prURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+		return fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
 	return g.do(ctx, "PATCH", "/repos/"+m[1]+"/pulls/"+m[2], map[string]any{"state": "closed"}, nil)
 }

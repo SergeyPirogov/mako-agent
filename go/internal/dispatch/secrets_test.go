@@ -69,7 +69,7 @@ func TestGuardPush(t *testing.T) {
 	a := d.GuardPush(ctx, id, hookFor("git push -u origin feature/5"))
 	out, _ := a["hookSpecificOutput"].(map[string]any)
 	reason, _ := out["permissionDecisionReason"].(string)
-	if out["permissionDecision"] != "deny" || !strings.Contains(reason, "main.go:3") || !strings.Contains(reason, "GitHub-токен") || strings.Contains(reason, token) {
+	if out["permissionDecision"] != "deny" || !strings.Contains(reason, "main.go:3") || !strings.Contains(reason, "GitHub token") || strings.Contains(reason, token) {
 		t.Fatalf("answer %v", a)
 	}
 	r, _ := d.Store.Get(id)
@@ -96,7 +96,7 @@ func TestGuardPush(t *testing.T) {
 	os.WriteFile(filepath.Join(wt, ".env"), []byte("DEBUG=1\n"), 0o644)
 	a = d.GuardPush(ctx, id, hookFor("git add -A && git commit -m env && gh pr create --fill"))
 	out, _ = a["hookSpecificOutput"].(map[string]any)
-	if reason, _ := out["permissionDecisionReason"].(string); !strings.Contains(reason, ".env — .env-файл") {
+	if reason, _ := out["permissionDecisionReason"].(string); !strings.Contains(reason, ".env — .env file") {
 		t.Fatalf("env %v", a)
 	}
 	// Gone again: the card is clean.

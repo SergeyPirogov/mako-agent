@@ -87,13 +87,13 @@ func (d *Dispatcher) WaitEstimates() { d.estimates.Wait() }
 func (d *Dispatcher) startEstimate(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if !isNew(r) {
-		return errors.New("оцінити наперед можна лише нову задачу")
+		return errors.New("only a new task can be estimated in advance")
 	}
 	if e := r.Estimate; e != nil && e.State == "running" && !stale(e.At) {
-		return errors.New("задачу вже оцінюють")
+		return errors.New("the task is already being assessed")
 	}
 	key := EstimateKey(r.Task)
 	d.Store.Update(id, func(r *core.Record) {

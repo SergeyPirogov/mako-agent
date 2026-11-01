@@ -11,10 +11,10 @@ import (
 
 // ErrBranchMoved: origin has commits of the branch the worktree does not: someone pushed it from elsewhere,
 // and a force push would drop them.
-var ErrBranchMoved = errors.New("гілку на origin оновили не з цього worktree")
+var ErrBranchMoved = errors.New("the branch on origin was updated from another worktree")
 
 // ErrDirty: the worktree has uncommitted changes; they are not Mako's to move.
-var ErrDirty = errors.New("у worktree є незакомічені зміни")
+var ErrDirty = errors.New("the worktree has uncommitted changes")
 
 // Sync is what UpdateFromBase did.
 type Sync struct {

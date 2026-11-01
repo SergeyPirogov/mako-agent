@@ -110,13 +110,13 @@ func (d *Dispatcher) collectReply(id string, ask bool) {
 				d.mu.Lock()
 				delete(d.fixing, id)
 				d.mu.Unlock()
-				d.Fault(id, "агента не попрошено про звіт по зауваженнях", err)
+				d.Fault(id, "the agent was not asked for a report on the comments", err)
 				return
 			}
-			d.Log(id, "агент не написав звіту по зауваженнях: попрошено дописати")
+			d.Log(id, "the agent did not write a report on the comments: asked to finish it")
 			return
 		}
-		d.Log(id, "агент так і не написав звіту по зауваженнях")
+		d.Log(id, "the agent still did not write a report on the comments")
 	}
 	fixed := false
 	for _, a := range report {
@@ -137,10 +137,10 @@ func (d *Dispatcher) collectReply(id string, ask bool) {
 		})
 	})
 	if len(report) > 0 {
-		d.Log(id, "агент відповів по зауваженнях рецензента")
+		d.Log(id, "the agent replied to the reviewer's comments")
 	}
 	if unverified {
-		d.Log(id, "агент пише «виправлено», але в гілці немає нових комітів після зауважень")
+		d.Log(id, "the agent says \"fixed\", but the branch has no new commits since the comments")
 	}
 	d.publishReply(ctx, id)
 }
@@ -216,7 +216,7 @@ func (d *Dispatcher) sayReview(ctx context.Context, r core.Record, text string, 
 			err = t.Comment(ctx, r.Task, text)
 		}
 		if err != nil {
-			d.Fault(r.ID, "коментар рев'ю в задачу не додано", err)
+			d.Fault(r.ID, "the review comment was not added to the task", err)
 		}
 	}
 	if mr && r.PRURL != "" {
@@ -229,11 +229,11 @@ func (d *Dispatcher) sayReview(ctx context.Context, r core.Record, text string, 
 			if c, ok := host.(trackers.ReviewCommenter); ok {
 				mrURL, err = c.CommentReview(ctx, r.PRURL, text)
 			} else {
-				err = errors.New("код-хост репозиторію не вміє коментувати MR")
+				err = errors.New("the repository code host cannot comment on MRs")
 			}
 		}
 		if err != nil {
-			d.Fault(r.ID, "коментар рев'ю в MR не додано", err)
+			d.Fault(r.ID, "the review comment was not added to the MR", err)
 		}
 	}
 	return issueURL, mrURL

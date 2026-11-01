@@ -65,13 +65,13 @@ func lastReview(r core.Record) core.AgentReview {
 func (d *Dispatcher) ReviewNow(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if !reviewable(r) || !exists(r.Worktree) {
-		return errors.New("рецензент читає лише гілки агентів Mako, що в роботі чи у відкритому MR")
+		return errors.New("the reviewer only reads Mako agent branches that are in progress or in an open MR")
 	}
 	if !d.agentIdle(id) {
-		return errors.New("агент ще працює: зробіть рев'ю, коли він закінчить")
+		return errors.New("the agent is still working: review when it finishes")
 	}
 	wt, base, err := d.workOf(id)
 	if err != nil {
@@ -81,17 +81,17 @@ func (d *Dispatcher) ReviewNow(id string) error {
 	defer cancel()
 	head, ready := readyBranch(ctx, wt, base, branchOf(r), d.pushes(r))
 	if !ready {
-		return errors.New("гілка ще не готова до рев'ю: немає комітів, є незакомічене або її не запушено")
+		return errors.New("the branch is not ready for review: no commits, uncommitted changes, or not pushed")
 	}
 	if seen(r.AgentReviews, head) {
-		return errors.New("рецензент уже бачив цей коміт: агент не змінив гілку після останнього рев'ю")
+		return errors.New("the reviewer has already seen this commit: the agent has not changed the branch since the last review")
 	}
 	d.mu.Lock()
 	busy := d.reviewing[id]
 	d.reviewing[id] = true
 	d.mu.Unlock()
 	if busy {
-		return errors.New("рецензент уже переглядає гілку")
+		return errors.New("the reviewer is already reviewing the branch")
 	}
 	d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "running"})
 	go d.review(id, wt, base, head)
@@ -103,19 +103,19 @@ func (d *Dispatcher) ReviewNow(id string) error {
 func (d *Dispatcher) SkipReview(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if !reviewable(r) {
-		return errors.New("рев'ю пропускається лише для агентів Mako, що в роботі чи у відкритому MR")
+		return errors.New("review can only be skipped for Mako agents that are in progress or in an open MR")
 	}
 	d.mu.Lock()
 	busy := d.reviewing[id]
 	d.mu.Unlock()
 	if busy {
-		return errors.New("рецензент уже переглядає гілку")
+		return errors.New("the reviewer is already reviewing the branch")
 	}
 	if last := lastReview(r); last.State == "notes" && !last.Sent {
-		return errors.New("зауваження рецензента ще чекають: передайте їх агенту або залиште")
+		return errors.New("reviewer remarks are still pending: send them to the agent or leave them")
 	}
 	wt, _, err := d.workOf(id)
 	if err != nil {
@@ -125,10 +125,10 @@ func (d *Dispatcher) SkipReview(id string) error {
 	defer cancel()
 	head, err := gitx.Run(ctx, wt, "rev-parse", "HEAD")
 	if head = strings.TrimSpace(head); err != nil || head == "" {
-		return errors.New("не вдалось прочитати гілку")
+		return errors.New("could not read the branch")
 	}
 	d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "skipped", Reason: SkippedByYou})
-	d.Log(id, "рев'ю пропущено")
+	d.Log(id, "review skipped")
 	return nil
 }
 
@@ -146,7 +146,7 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	r, _ := d.Store.Get(id)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
-	d.Log(id, "рецензент переглядає гілку")
+	d.Log(id, "reviewer is reviewing the branch")
 	cfg := d.Config()
 	model := firstOf(cfg.Reviewer.Model, r.Model, cfg.Terminal.Model)
 	prior := core.OpenRemarks(r.AgentReviews)
@@ -154,16 +154,16 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	link := d.BoardURL + "/#" + id
 	if err != nil {
 		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "failed", Error: err.Error()})
-		d.Fault(id, "рецензент не впорався", err)
+		d.Fault(id, "reviewer failed", err)
 		return
 	}
 	a := judge(notes, prior, core.NextRemark(r.AgentReviews))
 	a.At, a.Commit = now(), head
 	if a.State == "clean" {
-		d.Log(id, "рецензент не має зауважень: рев'ю агентом пройдено")
+		d.Log(id, "reviewer has no remarks: agent review passed")
 		notify.Inform(notify.AgentReview, i18n.T("notify.reviewPassed", id), r.Task.Title, link)
 	} else {
-		d.Log(id, "рецензент залишив зауваження: вони в задачі, «Виправити» передасть їх агенту")
+		d.Log(id, "reviewer left remarks: they are in the task, \"Fix\" will pass them to the agent")
 		notify.Inform(notify.AgentReview, i18n.T("notify.reviewNotes", id), clipText(firstLine(notes), 140), link)
 	}
 	rounds := core.ReviewedRounds(r.AgentReviews)
@@ -246,16 +246,16 @@ func escalated(rounds []core.AgentReview) bool {
 func (d *Dispatcher) FixReview(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if !reviewable(r) {
-		return errors.New("зауваження рецензента передаються лише агентам Mako, що в роботі чи у відкритому MR")
+		return errors.New("reviewer remarks can only be sent to Mako agents that are in progress or in an open MR")
 	}
 	if !exists(r.Worktree) {
-		return errors.New("worktree агента видалено: зауваження нікому передати")
+		return errors.New("agent worktree was deleted: nobody to send the remarks to")
 	}
 	if !d.agentIdle(id) {
-		return errors.New("агент ще працює: передайте зауваження, коли він закінчить")
+		return errors.New("the agent is still working: send the remarks when it finishes")
 	}
 	// Taken in the record first: a second press finds them sent.
 	var last core.AgentReview
@@ -269,9 +269,9 @@ func (d *Dispatcher) FixReview(id string) error {
 	})
 	if last.State != "notes" {
 		if l := lastReview(r); l.State == "notes" && l.Sent {
-			return errors.New("зауваження вже передано агенту")
+			return errors.New("remarks were already sent to the agent")
 		}
-		return errors.New("немає зауважень рецензента")
+		return errors.New("no reviewer remarks")
 	}
 	head := ""
 	if wt, _, err := d.workOf(id); err == nil {
@@ -296,9 +296,9 @@ func (d *Dispatcher) FixReview(id string) error {
 				r.AgentReviews = markSent(r.AgentReviews, false)
 			}
 		})
-		return errors.New("зауваження не передано агенту: " + err.Error())
+		return errors.New("remarks not sent to the agent: " + err.Error())
 	}
-	d.Log(id, "зауваження рецензента передано агенту")
+	d.Log(id, "reviewer remarks sent to the agent")
 	return nil
 }
 

@@ -35,10 +35,10 @@ func TestOutageSaysWhichTrackerAndWhy(t *testing.T) {
 		}
 		return outage(gl, err)
 	}
-	if got := status(503); got != "GitLab · 127.0.0.1: сервіс не працює (503), спробую пізніше" {
+	if got := status(503); got != "GitLab · 127.0.0.1: the service is down (503), will try later" {
 		t.Errorf("503: %q", got)
 	}
-	if got := status(401); !strings.Contains(got, "перевірте токен") {
+	if got := status(401); !strings.Contains(got, "check the token") {
 		t.Errorf("401: %q", got)
 	}
 
@@ -48,18 +48,18 @@ func TestOutageSaysWhichTrackerAndWhy(t *testing.T) {
 	l.Close()
 	gl := gitlabAt(t, "http://"+addr)
 	_, err := gl.FetchMine(ctx)
-	if got := outage(gl, err); !strings.HasPrefix(got, "GitLab · 127.0.0.1: сервіс не приймає з'єднань") {
+	if got := outage(gl, err); !strings.HasPrefix(got, "GitLab · 127.0.0.1: the service refuses connections") {
 		t.Errorf("refused: %q (%v)", got, err)
 	}
 
 	// The host is not found (no internet, the VPN's DNS is gone): the host from the request is named.
 	dns := &url.Error{Op: "Get", URL: "https://git.example.app/api/v4/issues", Err: &net.OpError{Op: "dial", Net: "tcp",
 		Err: &net.DNSError{Err: "no such host", Name: "git.example.app", IsNotFound: true}}}
-	if got := outage(gitlabAt(t, "https://git.example.app"), dns); got != "GitLab · git.example.app: сервер не знайдено — перевірте інтернет чи VPN" {
+	if got := outage(gitlabAt(t, "https://git.example.app"), dns); got != "GitLab · git.example.app: server not found — check the internet or VPN" {
 		t.Errorf("dns: %q", got)
 	}
 	timeout := &url.Error{Op: "Get", URL: "https://git.example.app/x", Err: context.DeadlineExceeded}
-	if got := outageReason(timeout); !strings.Contains(got, "не відповідає") {
+	if got := outageReason(timeout); !strings.Contains(got, "is not responding") {
 		t.Errorf("timeout: %q", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestOutageNamesUnknownAssignee(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = gh.FetchMine(context.Background())
-	if got := outage(gh, err); !strings.Contains(got, "користувача «SergeyPirgov» немає") {
+	if got := outage(gh, err); !strings.Contains(got, "user \"SergeyPirgov\" does not exist") {
 		t.Errorf("got %q (%v)", got, err)
 	}
 }

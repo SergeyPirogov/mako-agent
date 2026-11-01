@@ -13,25 +13,25 @@ func TestWhyNot(t *testing.T) {
 		"web_url": f.base + "/grp/app/-/issues/6", "assignees": []any{}, "references": map[string]string{"full": "grp/app#6"}}
 
 	w, err := d.WhyNot(ctx, f.base+"/grp/app/-/issues/5")
-	if err != nil || w.ID != "grp/app#5" || w.OnBoard || !strings.Contains(w.Verdict, "підходить") {
+	if err != nil || w.ID != "grp/app#5" || w.OnBoard || !strings.Contains(w.Verdict, "matches the search") {
 		t.Fatalf("a fitting task: %+v %v", w, err)
 	}
 	w, err = d.WhyNot(ctx, f.base+"/grp/app/-/issues/6")
-	if err != nil || !strings.Contains(w.Verdict, "немає мітки «claude-agent»") {
+	if err != nil || !strings.Contains(w.Verdict, "missing the label \"claude-agent\"") {
 		t.Fatalf("a task without the label: %+v %v", w, err)
 	}
 	d.SetPaused(true)
 	w, _ = d.WhyNot(ctx, f.base+"/grp/app/-/issues/5")
-	if !strings.Contains(w.Verdict, "на паузі") {
+	if !strings.Contains(w.Verdict, "is paused") {
 		t.Errorf("paused: %+v", w)
 	}
 	d.SetPaused(false)
 	d.Poll(ctx)
 	w, err = d.WhyNot(ctx, f.base+"/grp/app/-/issues/5")
-	if err != nil || !w.OnBoard || !strings.Contains(w.Verdict, "«Нові»") {
+	if err != nil || !w.OnBoard || !strings.Contains(w.Verdict, "\"New\"") {
 		t.Errorf("a task on the board: %+v %v", w, err)
 	}
-	if _, err := d.WhyNot(ctx, "https://jira.example.com/browse/X-1"); err == nil || !strings.Contains(err.Error(), "жодного трекера") {
+	if _, err := d.WhyNot(ctx, "https://jira.example.com/browse/X-1"); err == nil || !strings.Contains(err.Error(), "any tracker") {
 		t.Errorf("a foreign link: %v", err)
 	}
 }

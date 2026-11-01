@@ -136,7 +136,7 @@ func (d *Dispatcher) cancelled(ctx context.Context, id, repoPath, worktree, bran
 	d.endSteps(id)
 	d.StopTerminal(id)
 	if worktree == "" {
-		d.Log(id, "запуск скасовано")
+		d.Log(id, "start cancelled")
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
@@ -164,11 +164,11 @@ func (d *Dispatcher) cancelled(ctx context.Context, id, repoPath, worktree, bran
 		err = d.RemoveWorkspace(ctx, repoPath, worktree, branch)
 	}
 	if err != nil {
-		d.Fault(id, "запуск скасовано, але worktree лишився", err)
+		d.Fault(id, "start cancelled, but the worktree was left behind", err)
 		return
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Worktree = "" })
-	d.Log(id, "запуск скасовано, worktree прибрано")
+	d.Log(id, "start cancelled, worktree removed")
 }
 
 // QueueReason: why a task taken and not being started waits in the queue: Mako waits to update, a Claude limit,

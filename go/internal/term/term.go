@@ -343,17 +343,17 @@ func toolLine(name string, input json.RawMessage) string {
 
 var permission = regexp.MustCompile(`(?i)needs your permission to use (.+)$`)
 
-// Humanize: Claude Code's notifications in Ukrainian; others as they are.
+// Humanize: Claude Code's notifications in short form; others as they are.
 func Humanize(m string) string {
 	switch {
 	case permission.MatchString(m):
-		return "дозвіл на " + permission.FindStringSubmatch(m)[1]
+		return "permission for " + permission.FindStringSubmatch(m)[1]
 	case regexp.MustCompile(`(?i)waiting for your input`).MatchString(m):
-		return "чекає на вашу відповідь"
+		return "waiting for your reply"
 	case regexp.MustCompile(`(?i)needs your (approval|attention)`).MatchString(m):
-		return "потрібне ваше рішення"
+		return "needs your decision"
 	case m == "":
-		return "питання або дозвіл"
+		return "question or permission"
 	}
 	return m
 }
@@ -497,7 +497,7 @@ func Resolve(command string) (string, error) {
 	if strings.Contains(command, "/") {
 		command = expandHome(command)
 		if _, err := os.Stat(command); err != nil {
-			return "", fmt.Errorf("немає %s", command)
+			return "", fmt.Errorf("no %s", command)
 		}
 		return command, nil
 	}
@@ -510,7 +510,7 @@ func Resolve(command string) (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("не знайдено команду «%s»: вкажіть повний шлях у Налаштуваннях → Агент (%w)", command, ErrNoCommand)
+	return "", fmt.Errorf("command \"%s\" not found: set the full path in Settings → Agent (%w)", command, ErrNoCommand)
 }
 
 func expandHome(p string) string {

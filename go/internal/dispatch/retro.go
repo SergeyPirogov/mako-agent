@@ -26,13 +26,13 @@ func (d *Dispatcher) Retro(id string) error {
 func (d *Dispatcher) startRetro(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if r.ReviewState != "merged" {
-		return errors.New("ретро — для змердженої задачі")
+		return errors.New("a retro is for a merged task")
 	}
 	if x := r.Retro; x != nil && x.State == "running" && !stale(x.At) {
-		return errors.New("ретро вже пишеться")
+		return errors.New("the retro is already being written")
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Retro = &core.Retro{At: now(), State: "running"} })
 	return nil
@@ -53,10 +53,10 @@ func (d *Dispatcher) retro(ctx context.Context, id string) {
 	x, err := writer.Retro(d.spending(ctx, id, core.PhaseAssess), dir, r.Task, d.story(r))
 	x.At = now()
 	if err != nil {
-		d.Fault(id, "ретро не написано", err)
+		d.Fault(id, "the retro was not written", err)
 		x = core.Retro{At: x.At, State: "failed", Error: err.Error()}
 	} else {
-		d.Log(id, "ретро задачі написано")
+		d.Log(id, "the task retro was written")
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Retro = &x })
 }

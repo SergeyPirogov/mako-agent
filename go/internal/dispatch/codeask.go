@@ -111,7 +111,7 @@ func (d *Dispatcher) codeProject(key string) (CodeProject, error) {
 			return p, nil
 		}
 	}
-	return CodeProject{}, errors.New("немає клону цього проєкту на цьому Mac")
+	return CodeProject{}, errors.New("there is no clone of this project on this Mac")
 }
 
 func (d *Dispatcher) threadsFile() string {
@@ -170,7 +170,7 @@ func IsQuestion(id string) bool { return strings.HasPrefix(id, "ask-") }
 func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return "", errors.New("напишіть питання")
+		return "", errors.New("write a question")
 	}
 	p, err := d.codeProject(project)
 	if err != nil {
@@ -179,7 +179,7 @@ func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 	if thread != "" {
 		t, ok := d.thread(thread)
 		if !ok || t.Project != project {
-			return "", errors.New("немає такого питання")
+			return "", errors.New("no such question")
 		}
 		d.touchThread(thread, "")
 		if s := d.Chats.Get(thread); s != nil && s.Running() {
@@ -343,10 +343,10 @@ func (d *Dispatcher) CodeFile(ctx context.Context, project, path string) (text, 
 	}
 	st, err := os.Stat(full)
 	if err != nil || st.IsDir() {
-		return "", "", fmt.Errorf("немає файлу %s", path)
+		return "", "", fmt.Errorf("no such file %s", path)
 	}
 	if st.Size() > 2<<20 {
-		return "", "", fmt.Errorf("%s завеликий, щоб показати", path)
+		return "", "", fmt.Errorf("%s is too large to show", path)
 	}
 	b, err := os.ReadFile(full)
 	root, _ := filepath.EvalSymlinks(p.Path)
@@ -389,10 +389,10 @@ func insideClone(root, path string) (string, error) {
 	}
 	full, err = filepath.EvalSymlinks(full)
 	if err != nil {
-		return "", fmt.Errorf("немає файлу %s", path)
+		return "", fmt.Errorf("no such file %s", path)
 	}
 	if rel, err := filepath.Rel(root, full); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%s поза клоном проєкту", path)
+		return "", fmt.Errorf("%s is outside the project clone", path)
 	}
 	return full, nil
 }

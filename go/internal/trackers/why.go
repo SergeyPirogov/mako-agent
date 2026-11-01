@@ -49,16 +49,16 @@ func searchChecks(ctx context.Context, t Tracker, f issueFacts) []Check {
 		checks = append(checks, Check{OK: ok, Text: map[bool]string{true: yes, false: no}[ok]})
 	}
 
-	add(f.Open, "Задача відкрита", "Задача закрита: Mako шукає лише відкриті")
+	add(f.Open, "The task is open", "The task is closed: Mako only looks for open ones")
 
 	listed := cfg.Projects[f.Project] != nil
 	switch {
 	case listed:
-		add(true, "Проєкт "+f.Project+" є в налаштуваннях трекера", "")
+		add(true, "Project "+f.Project+" is in the tracker settings", "")
 	case cfg.AllProjects:
-		add(true, "Проєкту "+f.Project+" немає в налаштуваннях, але ввімкнено «Мої задачі з усіх проєктів»", "")
+		add(true, "Project "+f.Project+" is not in the settings, but \"My tasks from all projects\" is on", "")
 	default:
-		add(false, "", "Проєкту "+f.Project+" немає в налаштуваннях трекера, а «Мої задачі з усіх проєктів» вимкнено: додайте проєкт у налаштуваннях")
+		add(false, "", "Project "+f.Project+" is not in the tracker settings and \"My tasks from all projects\" is off: add the project in settings")
 	}
 
 	if cfg.Trigger != "" {
@@ -66,7 +66,7 @@ func searchChecks(ctx context.Context, t Tracker, f issueFacts) []Check {
 		for _, l := range f.Labels {
 			has = has || strings.EqualFold(l, cfg.Trigger)
 		}
-		add(has, "Є мітка «"+cfg.Trigger+"»", "Немає мітки «"+cfg.Trigger+"»: Mako бере лише задачі з нею. Додайте мітку або вимкніть її в налаштуваннях")
+		add(has, "Has the label \""+cfg.Trigger+"\"", "Missing the label \""+cfg.Trigger+"\": Mako only takes tasks that have it. Add the label or turn it off in settings")
 	}
 
 	me, meErr := t.Me(ctx)
@@ -80,9 +80,9 @@ func searchChecks(ctx context.Context, t Tracker, f issueFacts) []Check {
 	}
 	whom := func() string {
 		if len(f.Assignees) == 0 {
-			return "ні на кого не призначена"
+			return "not assigned to anyone"
 		}
-		return "призначена на " + strings.Join(f.Assignees, ", ")
+		return "assigned to " + strings.Join(f.Assignees, ", ")
 	}
 	// Who the search wants the task assigned to: me in all projects, the configured assignee in listed ones.
 	want := ""
@@ -97,15 +97,15 @@ func searchChecks(ctx context.Context, t Tracker, f issueFacts) []Check {
 	if strings.EqualFold(want, "me") {
 		want = me
 		if meErr != nil {
-			add(false, "", "Не вдалося дізнатися, хто ви в трекері: "+meErr.Error())
+			add(false, "", "Could not find out who you are in the tracker: "+meErr.Error())
 			return checks
 		}
 	}
 	if want != "" {
-		add(assigned(want), "Задача призначена на "+want, "Задача "+whom()+", а Mako шукає задачі, призначені на "+want)
+		add(assigned(want), "The task is assigned to "+want, "The task is "+whom()+", and Mako looks for tasks assigned to "+want)
 	}
 	if cfg.SkipOthersTasks && me != "" && len(f.Assignees) > 0 {
-		add(assigned(me), "Задача не чужа", "Задача "+whom()+", а ввімкнено «Пропускати чужі задачі»")
+		add(assigned(me), "The task is not someone else's", "The task is "+whom()+", and \"Skip tasks assigned to others\" is on")
 	}
 	return checks
 }
@@ -119,19 +119,19 @@ func (g *GitHub) Why(ctx context.Context, link string) (*core.Task, []Check, err
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) < 4 || (parts[2] != "issues" && parts[2] != "pull") {
-		return nil, nil, fmt.Errorf("не схоже на посилання на issue GitHub: %s (потрібно …/owner/repo/issues/N)", link)
+		return nil, nil, fmt.Errorf("not a GitHub issue link: %s (expected …/owner/repo/issues/N)", link)
 	}
 	repo := parts[0] + "/" + parts[1]
 	var is ghIssue
 	if err := g.do(ctx, "GET", "/repos/"+repo+"/issues/"+parts[3], nil, &is); err != nil {
 		if isStatus(err, 404) || isStatus(err, 410) {
-			return nil, nil, fmt.Errorf("GitHub не знайшов %s#%s: задачу видалено або токен не має доступу до репозиторію", repo, parts[3])
+			return nil, nil, fmt.Errorf("GitHub did not find %s#%s: the task was deleted or the token has no access to the repository", repo, parts[3])
 		}
 		return nil, nil, err
 	}
 	t := g.toTask(repo, is)
 	if is.PullRequest != nil {
-		return &t, []Check{{Text: "Це pull request, а не issue: Mako бере в роботу лише issues"}}, nil
+		return &t, []Check{{Text: "This is a pull request, not an issue: Mako only works on issues"}}, nil
 	}
 	return &t, searchChecks(ctx, g, issueFacts{Project: repo, Open: is.State == "open", Labels: t.Labels, Assignees: t.Assignees}), nil
 }
@@ -146,23 +146,23 @@ func (g *GitLab) Why(ctx context.Context, link string) (*core.Task, []Check, err
 	path := strings.Trim(u.Path, "/")
 	i := strings.Index(path, "/-/")
 	if i < 0 {
-		return nil, nil, fmt.Errorf("не схоже на посилання на задачу GitLab: %s (потрібно …/group/app/-/issues/N)", link)
+		return nil, nil, fmt.Errorf("not a GitLab issue link: %s (expected …/group/app/-/issues/N)", link)
 	}
 	projectPath, rest := path[:i], strings.Split(path[i+3:], "/")
 	if len(rest) < 2 {
-		return nil, nil, fmt.Errorf("не схоже на посилання на задачу GitLab: %s", link)
+		return nil, nil, fmt.Errorf("not a GitLab issue link: %s", link)
 	}
 	if rest[0] == "merge_requests" {
 		return &core.Task{ID: projectPath + "!" + rest[1], URL: link, Project: projectPath, TrackerID: g.cfg.ID},
-			[]Check{{Text: "Це merge request, а не задача: Mako бере в роботу лише issues"}}, nil
+			[]Check{{Text: "This is a merge request, not an issue: Mako only works on issues"}}, nil
 	}
 	if rest[0] != "issues" && rest[0] != "work_items" {
-		return nil, nil, fmt.Errorf("не схоже на посилання на задачу GitLab: %s (потрібно …/-/issues/N)", link)
+		return nil, nil, fmt.Errorf("not a GitLab issue link: %s (expected …/-/issues/N)", link)
 	}
 	var is glIssue
 	if err := g.do(ctx, "GET", project(projectPath)+"/issues/"+rest[1], nil, &is); err != nil {
 		if isStatus(err, 404) {
-			return nil, nil, fmt.Errorf("GitLab не знайшов %s#%s: задачу видалено або токен не має доступу до проєкту", projectPath, rest[1])
+			return nil, nil, fmt.Errorf("GitLab did not find %s#%s: the task was deleted or the token has no access to the project", projectPath, rest[1])
 		}
 		return nil, nil, err
 	}
@@ -186,14 +186,14 @@ func (j *Jira) Why(ctx context.Context, link string) (*core.Task, []Check, error
 		key = strings.Trim(u.Path[i+len("/browse/"):], "/")
 	}
 	if key == "" {
-		return nil, nil, fmt.Errorf("не схоже на посилання на задачу Jira: %s (потрібно …/browse/KEY-1)", link)
+		return nil, nil, fmt.Errorf("not a Jira issue link: %s (expected …/browse/KEY-1)", link)
 	}
 	found, err := j.search(ctx, "key = "+key, 1)
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(found) == 0 {
-		return nil, nil, fmt.Errorf("Jira не знайшла %s: задачу видалено або у вас немає до неї доступу", key)
+		return nil, nil, fmt.Errorf("Jira did not find %s: the task was deleted or you have no access to it", key)
 	}
 	t := found[0]
 	var is jiraIssue
@@ -203,8 +203,8 @@ func (j *Jira) Why(ctx context.Context, link string) (*core.Task, []Check, error
 	var checks []Check
 	done := is.Fields.Status.StatusCategory.Key == "done"
 	checks = append(checks, map[bool]Check{
-		true:  {Text: "Задача вже в статусі «Done»"},
-		false: {OK: true, Text: "Задача не закрита"},
+		true:  {Text: "The task is already in the \"Done\" status"},
+		false: {OK: true, Text: "The task is not closed"},
 	}[done])
 
 	jql := j.cfg.JQL
@@ -217,12 +217,12 @@ func (j *Jira) Why(ctx context.Context, link string) (*core.Task, []Check, error
 	}
 	match, err := j.search(ctx, "key = "+key+" AND ("+strings.TrimSpace(filter)+")", 1)
 	if err != nil {
-		return &t, append(checks, Check{Text: "Запит JQL не виконався: " + err.Error()}), nil
+		return &t, append(checks, Check{Text: "The JQL query failed: " + err.Error()}), nil
 	}
 	if len(match) == 0 {
-		return &t, append(checks, Check{Text: "Задача не підходить під запит JQL: " + jql + ". Найчастіше вона не призначена на вас"}), nil
+		return &t, append(checks, Check{Text: "The task does not match the JQL query: " + jql + ". Most often it is not assigned to you"}), nil
 	}
-	checks = append(checks, Check{OK: true, Text: "Задача підходить під запит JQL"})
+	checks = append(checks, Check{OK: true, Text: "The task matches the JQL query"})
 	// FetchMine reads the first 50 of the search.
 	all, err := j.search(ctx, jql, 50)
 	if err == nil {
@@ -231,13 +231,13 @@ func (j *Jira) Why(ctx context.Context, link string) (*core.Task, []Check, error
 			in = in || x.ID == key
 		}
 		checks = append(checks, map[bool]Check{
-			true:  {OK: true, Text: "Задача серед перших 50, що знаходить запит"},
-			false: {Text: "Запит знаходить понад 50 задач, а ця не серед перших 50: звузьте JQL"},
+			true:  {OK: true, Text: "The task is among the first 50 the query returns"},
+			false: {Text: "The query returns more than 50 tasks and this one is not among the first 50: narrow the JQL"},
 		}[in])
 	}
 	if j.cfg.SkipOthersTasks && len(t.Assignees) > 0 {
 		if me, err := j.Me(ctx); err == nil && t.Assignees[0] != me {
-			checks = append(checks, Check{Text: "Задача призначена на іншу людину, а ввімкнено «Пропускати чужі задачі»"})
+			checks = append(checks, Check{Text: "The task is assigned to someone else, and \"Skip other people's tasks\" is on"})
 		}
 	}
 	return &t, checks, nil

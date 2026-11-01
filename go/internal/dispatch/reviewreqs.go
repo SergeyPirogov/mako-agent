@@ -38,7 +38,7 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 	d.mu.Unlock()
 	found, err := inbox.ToReview(ctx)
 	if err != nil {
-		d.Fault(t.ID(), "пошук MR на рев'ю не вдався", err)
+		d.Fault(t.ID(), "searching for MRs to review failed", err)
 		return
 	}
 	// The first search of a tracker (a new Mako, the switch just turned on) only fills the list: no
@@ -90,7 +90,7 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 			r.Since, r.Updated, r.State = since, updated, "open"
 		})
 		if !known {
-			d.Log(f.ID, "вас призначили рев'ювером: "+f.Title)
+			d.Log(f.ID, "you were assigned as reviewer: "+f.Title)
 		}
 		if !known && !first {
 			notify.Show(notify.Notice{Kind: notify.ReviewAsked, Title: i18n.T("notify.reviewAsked", f.Ref),
@@ -106,7 +106,7 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 		switch {
 		case err != nil:
 		case st == "open":
-			d.Log(r.ID, "вас більше не просять рев'ювити, прибираю")
+			d.Log(r.ID, "you are no longer asked to review, removing")
 			d.Reviews.Delete(r.ID)
 		default:
 			d.finishReview(r.ID, st)
@@ -151,7 +151,7 @@ func (d *Dispatcher) finishReview(id, why string) {
 	d.Reviews.Update(id, func(r *core.ReviewRequest) {
 		r.State, r.Done, r.DoneAt, r.Updated = "done", why, now(), false
 	})
-	d.Log(id, map[string]string{"merged": "MR змерджено", "closed": "MR закрито", "approved": "ви схвалили MR"}[why]+": рев'ю готове")
+	d.Log(id, map[string]string{"merged": "MR merged", "closed": "MR closed", "approved": "you approved the MR"}[why]+": review done")
 	notify.Withdraw("review-asked:" + id)
 }
 
@@ -184,16 +184,16 @@ type ReviewRequestView struct {
 // ReviewRequest reads the MR from its code host for the card, and takes «оновлено» off it: it is seen now.
 func (d *Dispatcher) ReviewRequest(ctx context.Context, id string) (*ReviewRequestView, error) {
 	if d.Reviews == nil {
-		return nil, fmt.Errorf("немає такого MR на рев'ю: %s", id)
+		return nil, fmt.Errorf("no such MR to review: %s", id)
 	}
 	r, ok := d.Reviews.Get(id)
 	if !ok {
-		return nil, fmt.Errorf("немає такого MR на рев'ю: %s", id)
+		return nil, fmt.Errorf("no such MR to review: %s", id)
 	}
 	t := d.tracker(r.TrackerID)
 	inbox, ok := t.(trackers.ReviewInbox)
 	if !ok || !t.Config().ReviewRequests {
-		return nil, fmt.Errorf("трекер %s не вміє показувати MR", r.TrackerID)
+		return nil, fmt.Errorf("tracker %s cannot show MRs", r.TrackerID)
 	}
 	v := &ReviewRequestView{Files: []trackers.ReviewFile{}, Item: r}
 	if c, err := inbox.CheckReview(ctx, r.URL); err == nil {

@@ -151,7 +151,7 @@ func (s *Session) run() {
 		}
 	}
 	if r := s.o.SetupDone; r != nil {
-		s.add(Item{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: mustJSON(map[string]string{"command": r.Command}), Status: "running"})
+		s.add(Item{Kind: "tool", ID: "setup", Tool: "Setup", Input: mustJSON(map[string]string{"command": r.Command}), Status: "running"})
 		s.finishTool("setup", tail(r.Output, maxOutput), r.Failed)
 	}
 	args := append([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -176,7 +176,7 @@ func (s *Session) run() {
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		s.add(Item{Kind: "error", Text: "агент не запустився: " + err.Error()})
+		s.add(Item{Kind: "error", Text: "agent failed to start: " + err.Error()})
 		s.end()
 		return
 	}
@@ -200,7 +200,7 @@ func (s *Session) run() {
 		if msg == "" {
 			msg = err.Error()
 		}
-		s.add(Item{Kind: "error", Text: "агент завершився: " + tail(msg, 600)})
+		s.add(Item{Kind: "error", Text: "agent exited: " + tail(msg, 600)})
 	}
 	s.end()
 }
@@ -367,7 +367,7 @@ func (s *Session) handle(line []byte) {
 		}
 		json.Unmarshal(e.Request, &r)
 		if r.Subtype != "can_use_tool" {
-			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": e.RequestID, "error": "Mako не підтримує " + r.Subtype}})
+			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": e.RequestID, "error": "Mako does not support " + r.Subtype}})
 			return
 		}
 		if s.o.Gate != nil && r.ToolName != "AskUserQuestion" {
@@ -471,7 +471,7 @@ func (s *Session) finishTool(id, output string, failed bool) {
 			it.Output, it.Status = output, "ok"
 			if failed {
 				it.Status = "error"
-				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) || strings.Contains(output, Refused) {
+				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "The developer did not allow") || strings.Contains(output, "Розробник не дозволив") /* cyrillic-ok */ || strings.Contains(output, planRevision) || strings.Contains(output, Refused) {
 					it.Status = "denied"
 				}
 			}
@@ -524,10 +524,10 @@ func userMessage(text string) map[string]any {
 }
 
 // errNotStarted: the agent's process is not up yet (its history or setup is still being shown); it is no reason to stop it.
-var errNotStarted = errors.New("агент ще не запустився")
+var errNotStarted = errors.New("agent has not started yet")
 
 // ErrClosed: the agent is stopped or stopping, so it cannot take a message; resuming its conversation can.
-var ErrClosed = errors.New("агент не запущений")
+var ErrClosed = errors.New("agent is not running")
 
 // Send is a message from you; Claude reads it after its current step.
 func (s *Session) Send(text string) error {
@@ -577,7 +577,7 @@ func (s *Session) Permit(requestID, decision string) error {
 	}
 	s.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("на цей запит уже відповіли")
+		return fmt.Errorf("this request was already answered")
 	}
 	resp := map[string]any{"behavior": "allow", "updatedInput": input}
 	switch decision {
@@ -586,7 +586,7 @@ func (s *Session) Permit(requestID, decision string) error {
 			resp["updatedPermissions"] = suggestions
 		}
 	case "deny":
-		resp = map[string]any{"behavior": "deny", "message": "Розробник не дозволив це зробити."}
+		resp = map[string]any{"behavior": "deny", "message": "The developer did not allow this."}
 	}
 	return s.reply(requestID, resp, func(it *Item) {
 		it.Status = map[string]string{"allow": "allowed", "always": "always", "deny": "denied"}[decision]
@@ -599,10 +599,10 @@ func (s *Session) Answer(requestID string, answers map[string]string) error {
 	raw, ok := s.pending[requestID]
 	s.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("на це питання вже відповіли")
+		return fmt.Errorf("this question was already answered")
 	}
 	if len(answers) == 0 {
-		return fmt.Errorf("немає відповіді")
+		return fmt.Errorf("no answer")
 	}
 	input := map[string]any{}
 	json.Unmarshal(raw, &input)
@@ -621,7 +621,7 @@ func (s *Session) ApprovePlan(requestID, mode string) error {
 	input, ok := s.pending[requestID]
 	s.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("на цей план уже відповіли")
+		return fmt.Errorf("this plan was already answered")
 	}
 	resp := map[string]any{"behavior": "allow", "updatedInput": input,
 		"updatedPermissions": []map[string]any{{"type": "setMode", "mode": mode, "destination": "session"}}}
@@ -635,23 +635,23 @@ func (s *Session) ApprovePlan(requestID, mode string) error {
 func (s *Session) RevisePlan(requestID, notes string) error {
 	notes = strings.TrimSpace(notes)
 	if notes == "" {
-		return fmt.Errorf("напишіть, що поправити в плані")
+		return fmt.Errorf("write what to change in the plan")
 	}
 	s.mu.Lock()
 	_, ok := s.pending[requestID]
 	s.mu.Unlock()
 	if !ok {
-		return fmt.Errorf("на цей план уже відповіли")
+		return fmt.Errorf("this plan was already answered")
 	}
 	resp := map[string]any{"behavior": "deny", "message": planRevision + "\n\n" + notes +
-		"\n\nОнови план з урахуванням цього й подай його знову; нічого не змінюй, доки план не затверджено."}
+		"\n\nUpdate the plan to account for this and submit it again; change nothing until the plan is approved."}
 	return s.reply(requestID, resp, func(it *Item) { it.Status, it.Text = "revised", notes })
 }
 
-const planRevision = "Розробник просить поправити план:"
+const planRevision = "The developer asks to revise the plan:"
 
 // Refused: how the reason an Options.Gate denies a tool begins.
-const Refused = "Mako не дозволяє цього тут: "
+const Refused = "Mako does not allow this here: "
 
 // Asked: the request the agent waits on (a permission or AskUserQuestion), nil when there is none.
 func (s *Session) Asked() *Item {
@@ -696,11 +696,11 @@ func Choices(it Item) (question string, options []string, ok bool) {
 func (s *Session) Choose(requestID string, option int) error {
 	it := s.Asked()
 	if it == nil || it.ID != requestID {
-		return fmt.Errorf("на це питання вже відповіли")
+		return fmt.Errorf("this question was already answered")
 	}
 	q, options, ok := Choices(*it)
 	if !ok || option < 0 || option >= len(options) {
-		return fmt.Errorf("такої відповіді немає")
+		return fmt.Errorf("there is no such answer")
 	}
 	return s.Answer(requestID, map[string]string{q: options[option]})
 }
@@ -762,7 +762,7 @@ func (s *Session) SetMode(mode string) error {
 		ok = ok || m == mode
 	}
 	if !ok {
-		return fmt.Errorf("невідомий режим %q", mode)
+		return fmt.Errorf("unknown mode %q", mode)
 	}
 	if err := s.write(map[string]any{"type": "control_request", "request_id": randomID(), "request": map[string]any{"subtype": "set_permission_mode", "mode": mode}}); err != nil {
 		return err

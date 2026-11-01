@@ -582,7 +582,7 @@ func TestAnswersErrorReachesCard(t *testing.T) {
 		Error string `json:"error"`
 	}
 	json.NewDecoder(res.Body).Decode(&reply)
-	if reply.OK || !strings.Contains(reply.Error, "трекер gone") {
+	if reply.OK || !strings.Contains(reply.Error, "tracker gone") {
 		t.Fatalf("reply %+v", reply)
 	}
 }

@@ -74,7 +74,7 @@ var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,99}$`)
 // CheckModel: an error unless name can be a model's name.
 func CheckModel(name string) error {
 	if !modelName.MatchString(name) {
-		return fmt.Errorf("модель %q: лише літери, цифри й . _ - [ ], не з дефіса", name)
+		return fmt.Errorf("model %q: only letters, digits and . _ - [ ], not starting with a hyphen", name)
 	}
 	return nil
 }
@@ -113,8 +113,8 @@ type Comments struct {
 
 // The built-in comments, by language.
 var (
-	DefaultCommentOnStart  = Localized{EN: "Took the task. Branch {branch}. I'll open an MR once it's ready.", UK: "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR."}
-	DefaultCommentOnReview = Localized{EN: "Opened an MR: {mr}", UK: "Відкрив MR: {mr}"}
+	DefaultCommentOnStart  = Localized{EN: "Took the task. Branch {branch}. I'll open an MR once it's ready.", UK: "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR."} // cyrillic-ok: Ukrainian default of the uk slot
+	DefaultCommentOnReview = Localized{EN: "Opened an MR: {mr}", UK: "Відкрив MR: {mr}"}                                                                                                // cyrillic-ok: Ukrainian default of the uk slot
 )
 
 type Notifications struct {
@@ -227,7 +227,7 @@ type Repo struct {
 }
 
 // ErrMissing: there is no mako.config.json yet (first start).
-var ErrMissing = errors.New("Mako ще не налаштований")
+var ErrMissing = errors.New("Mako is not set up yet")
 
 // Load reads mako.config.json and .env from home. When the file is missing or wrong it still returns a config
 // with the defaults, so Mako starts and the settings page can fix it; the error says what is wrong.
@@ -377,11 +377,11 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		break
 	}
 	if err := CheckModel(c.CodeModel); err != nil {
-		return nil, fmt.Errorf("«Запитати про код»: %w", err)
+		return nil, fmt.Errorf("\"Ask about the code\": %w", err)
 	}
 	morning, err := clock(orStr(strings.TrimSpace(raw.Notifications.MorningDigest), DefaultMorningDigest))
 	if err != nil {
-		return nil, fmt.Errorf("ранковий підсумок: %w", err)
+		return nil, fmt.Errorf("morning digest: %w", err)
 	}
 	c.Notifications.MorningMin = morning
 	for kind, on := range raw.Notifications.Events {
@@ -392,7 +392,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	for i, rt := range raw.Trackers {
 		t, err := c.tracker(rt)
 		if err != nil {
-			return nil, fmt.Errorf("трекер %d: %w", i+1, err)
+			return nil, fmt.Errorf("tracker %d: %w", i+1, err)
 		}
 		c.Trackers = append(c.Trackers, t)
 	}
@@ -417,7 +417,7 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 	switch t.Type {
 	case "gitlab", "github", "jira":
 	default:
-		return nil, fmt.Errorf("невідомий тип трекера %q", t.Type)
+		return nil, fmt.Errorf("unknown tracker type %q", t.Type)
 	}
 	// labels.trigger: missing → "claude-agent"; null → no label needed (all of my tasks).
 	if rt.Labels != nil {
@@ -445,7 +445,7 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 	for key, rp := range rt.Projects {
 		var p rawProject
 		if err := json.Unmarshal(rp, &p); err != nil {
-			return nil, fmt.Errorf("проєкт %s: %w", key, err)
+			return nil, fmt.Errorf("project %s: %w", key, err)
 		}
 		project := &Project{Key: key, Repos: map[string]*Repo{}, Default: p.Default}
 		repos := p.Repos
@@ -468,7 +468,7 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 		t.Projects[key] = project
 	}
 	if len(t.Projects) == 0 && !t.AllProjects {
-		return nil, fmt.Errorf("%s: додайте проєкт або увімкніть «Мої задачі з усіх проєктів»", t.ID)
+		return nil, fmt.Errorf("%s: add a project or turn on \"My tasks from all projects\"", t.ID)
 	}
 	return t, nil
 }
@@ -665,7 +665,7 @@ func clock(s string) (int, error) {
 	}
 	var h, m int
 	if n, err := fmt.Sscanf(s, "%d:%d", &h, &m); err != nil || n != 2 || h < 0 || h > 23 || m < 0 || m > 59 {
-		return 0, fmt.Errorf("%q: потрібен час ГГ:ХХ, наприклад 09:00, або «-»", s)
+		return 0, fmt.Errorf("%q: expected a time HH:MM, for example 09:00, or \"-\"", s)
 	}
 	return h*60 + m, nil
 }

@@ -150,7 +150,7 @@ func (d *Dispatcher) tell(r core.Record, a Agent) {
 	link := d.BoardURL + "/#" + r.ID
 	switch a.State {
 	case "waiting":
-		d.Log(r.ID, "агент чекає на вас"+orBlank(": ", a.Reason))
+		d.Log(r.ID, "agent is waiting for you"+orBlank(": ", a.Reason))
 		question := ""
 		if a.Asked != nil {
 			question, _, _ = chat.Choices(*a.Asked)
@@ -158,7 +158,7 @@ func (d *Dispatcher) tell(r core.Record, a Agent) {
 		notify.Show(notify.Notice{Kind: notify.Waiting, Title: i18n.T("notify.waiting", r.ID), Message: firstOf(question, a.Reason, lastLine(a.Screen, ""), r.Task.Title),
 			URL: link, Tag: waitTag(r.ID), Actions: askActions(r.ID, a.Asked)})
 	case "done":
-		d.Log(r.ID, "агент закінчив")
+		d.Log(r.ID, "agent finished")
 		notify.Inform(notify.Finished, i18n.T("notify.finished", r.ID), firstOf(clipText(firstLine(a.Message), 140), r.Task.Title), link)
 	case "stopped":
 		d.Log(r.ID, "the agent stopped"+orBlank(": ", a.Reason))
@@ -166,7 +166,7 @@ func (d *Dispatcher) tell(r core.Record, a Agent) {
 	}
 }
 
-// waitTag names the task's «агент чекає на вас» notification: a new one replaces it, an answer takes it away.
+// waitTag names the task's «agent is waiting for you» notification: a new one replaces it, an answer takes it away.
 func waitTag(id string) string { return "wait:" + id }
 
 func askedID(it *chat.Item) string {
@@ -213,7 +213,7 @@ func (d *Dispatcher) look(ctx context.Context, o config.Orca, r core.Record, ws 
 	w := orca.FindWorkspace(ws, r.Worktree, branchOf(r))
 	if w == nil {
 		a.State = "missing"
-		a.Error = fmt.Sprintf("В Orca немає workspace %s (гілка %s): його видалили або перенесли", r.Worktree, branchOf(r))
+		a.Error = fmt.Sprintf("Orca has no workspace %s (branch %s): it was deleted or moved", r.Worktree, branchOf(r))
 		return a
 	}
 	row := w.MainAgent()
@@ -241,19 +241,19 @@ func (d *Dispatcher) look(ctx context.Context, o config.Orca, r core.Record, ws 
 		case row.AgentWait != nil && row.AgentWait.Reason != "" && row.AgentWait.Reason != "permission":
 			a.Reason = waitReason(row.AgentWait)
 		case a.Tool != "":
-			a.Reason = "дозвіл на " + a.Tool
+			a.Reason = "permission for " + a.Tool
 		case w.Status == "permission" || row.State == "blocked":
-			a.Reason = "просить дозволу"
+			a.Reason = "asks for permission"
 		default:
-			a.Reason = "питання"
+			a.Reason = "question"
 		}
 	case row.State == "working":
 		a.State = "working"
 	case row.Interrupted || w.SidebarStatus == "interrupted" || w.SidebarStatus == "failed":
 		a.State = "stopped"
-		a.Reason = map[string]string{"failed": "помилка"}[w.SidebarStatus]
+		a.Reason = map[string]string{"failed": "error"}[w.SidebarStatus]
 		if a.Reason == "" {
-			a.Reason = "перервано"
+			a.Reason = "interrupted"
 		}
 	default: // "done"
 		a.State, a.Tool = "done", ""
@@ -277,7 +277,7 @@ func (d *Dispatcher) look(ctx context.Context, o config.Orca, r core.Record, ws 
 func (d *Dispatcher) FocusAgent(ctx context.Context, id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok || r.Worktree == "" || onTerminal(r) {
-		return fmt.Errorf("задача не в Orca")
+		return fmt.Errorf("task is not in Orca")
 	}
 	o := d.Config().Orca
 	ts, _, err := d.Term.List(ctx, o, r.Worktree, branchOf(r))
@@ -300,17 +300,17 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 	o := d.Config().Orca
 	text, err := writer.TaskSummary(d.spending(ctx, r.ID, core.PhaseWork), r.Worktree, baseBranch, r.Task, d.agentWords(ctx, r), reviewURL)
 	if err != nil {
-		d.Fault(r.ID, "підсумок не написано", err)
+		d.Fault(r.ID, "summary not written", err)
 		return
 	}
 	d.Store.Update(r.ID, func(r *core.Record) { r.Summary = text })
-	d.Log(r.ID, "підсумок роботи агента написано")
+	d.Log(r.ID, "agent work summary written")
 	if !o.SummaryComment {
 		return
 	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
 		if err := t.Comment(ctx, r.Task, i18n.TA("comment.summary")+"\n\n"+text); err != nil {
-			d.Fault(r.ID, "підсумок у задачу не додано", err)
+			d.Fault(r.ID, "summary not added to the task", err)
 		}
 	}
 }
@@ -363,12 +363,12 @@ func branchOf(r core.Record) string {
 }
 
 var waitReasons = map[string]string{
-	"permission": "просить дозволу",
+	"permission": "asks for permission",
 }
 
 func waitReason(w *orca.Wait) string {
 	if w.Reason == "" {
-		return "питання або дозвіл"
+		return "question or permission"
 	}
 	if r, ok := waitReasons[w.Reason]; ok {
 		return r

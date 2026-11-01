@@ -26,7 +26,7 @@ var LessonFrom = writer.Lesson
 // Ukrainian one (LegacyLessonsHeading) keeps adding to that.
 const (
 	LessonsHeading       = "## Review lessons"
-	LegacyLessonsHeading = "## Уроки з рев'ю"
+	LegacyLessonsHeading = "## Уроки з рев'ю" // cyrillic-ok: matches the heading in already-saved CLAUDE.md files
 )
 
 // A message this short is a «carry on» or a quick reply, not a correction.
@@ -63,7 +63,7 @@ func (d *Dispatcher) suggestLesson(id, message string) {
 		return
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Lesson = &core.Lesson{Rule: rule, From: clipText(message, 300)} })
-	d.Log(id, "Mako пропонує урок для CLAUDE.md: "+rule)
+	d.Log(id, "Mako suggests a lesson for CLAUDE.md: "+rule)
 }
 
 // SaveLesson answers the board's offer: "branch" commits the rule to CLAUDE.md in the task's branch, "base" to
@@ -71,7 +71,7 @@ func (d *Dispatcher) suggestLesson(id, message string) {
 func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return fmt.Errorf("немає такої задачі")
+		return fmt.Errorf("no such task")
 	}
 	if to == "no" {
 		d.Store.Update(id, func(r *core.Record) { r.Lesson = nil })
@@ -79,11 +79,11 @@ func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error 
 	}
 	rule = strings.Join(strings.Fields(rule), " ")
 	if rule == "" {
-		return fmt.Errorf("правило порожнє")
+		return fmt.Errorf("the rule is empty")
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
-		return fmt.Errorf("трекер %s прибрано з налаштувань", r.Task.TrackerID)
+		return fmt.Errorf("tracker %s was removed from settings", r.Task.TrackerID)
 	}
 	repo, err := d.route(t, r.Task)
 	if err != nil {
@@ -101,10 +101,10 @@ func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error 
 		if hash, err = commitLesson(ctx, wt, rule, msg); err != nil {
 			return err
 		}
-		d.Log(id, fmt.Sprintf("урок записано в CLAUDE.md гілки %s (піде в MR з наступним пушем): %s", branch, rule))
+		d.Log(id, fmt.Sprintf("lesson written to CLAUDE.md on branch %s (goes into the MR with the next push): %s", branch, rule))
 	case "base":
 		if !exists(repo.Path) {
-			return fmt.Errorf("репозиторію %s немає", repo.Path)
+			return fmt.Errorf("repository %s does not exist", repo.Path)
 		}
 		branch = repo.BaseBranch
 		if branch == "" {
@@ -113,9 +113,9 @@ func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error 
 		if hash, err = lessonToBase(ctx, repo.Path, branch, rule, msg); err != nil {
 			return err
 		}
-		d.Log(id, fmt.Sprintf("урок записано в CLAUDE.md і запушено в %s: %s", branch, rule))
+		d.Log(id, fmt.Sprintf("lesson written to CLAUDE.md and pushed to %s: %s", branch, rule))
 	default:
-		return fmt.Errorf("невідомо, куди зберегти: %q", to)
+		return fmt.Errorf("unknown where to save: %q", to)
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Lesson = nil })
 	return d.keepLesson(core.SavedLesson{TrackerID: r.Task.TrackerID, Project: r.Task.Project, Repo: repo.Name, Rule: rule, Task: r.Task.ID,
@@ -143,7 +143,7 @@ func lessonToBase(ctx context.Context, repoPath, base, rule, msg string) (string
 		return "", err
 	}
 	if _, err := gitx.Run(ctx, wt, "push", "origin", "HEAD:refs/heads/"+base); err != nil {
-		return "", fmt.Errorf("не вдалось запушити в %s (захищена гілка?): %w", base, err)
+		return "", fmt.Errorf("could not push to %s (protected branch?): %w", base, err)
 	}
 	return hash, nil
 }

@@ -53,7 +53,7 @@ func TestGitLabReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.State != "open" || c.CI != "failed" || len(c.Failed) != 1 || c.Failed[0].Name != "e2e" || c.Mergeable || c.Blocked != "спершу має пройти CI" {
+	if c.State != "open" || c.CI != "failed" || len(c.Failed) != 1 || c.Failed[0].Name != "e2e" || c.Mergeable || c.Blocked != "CI must pass first" {
 		t.Fatalf("check %+v", c)
 	}
 	if len(c.Jobs) != 3 || c.Jobs[0].Name != "build" || c.Jobs[2].Stage != "test" || !c.Jobs[2].AllowFailure {
@@ -92,11 +92,11 @@ func TestReviewHeldWhileCIRuns(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 	gl, _ := NewGitLab(&config.Tracker{BaseURL: srv.URL}, "tok")
-	if c, err := gl.CheckReview(ctx, srv.URL+"/grp/app/-/merge_requests/9"); err != nil || c.Mergeable || c.Blocked != "CI ще йде" {
+	if c, err := gl.CheckReview(ctx, srv.URL+"/grp/app/-/merge_requests/9"); err != nil || c.Mergeable || c.Blocked != "CI is still running" {
 		t.Fatalf("gitlab %+v %v", c, err)
 	}
 	gh, _ := NewGitHub(&config.Tracker{APIURL: srv.URL}, "tok")
-	if c, err := gh.CheckReview(ctx, "https://github.com/o/r/pull/5"); err != nil || c.CI != "running" || c.Mergeable || c.Blocked != "CI ще йде" {
+	if c, err := gh.CheckReview(ctx, "https://github.com/o/r/pull/5"); err != nil || c.CI != "running" || c.Mergeable || c.Blocked != "CI is still running" {
 		t.Fatalf("github %+v %v", c, err)
 	}
 }

@@ -59,13 +59,13 @@ func (d *Dispatcher) AutoFix(ctx context.Context, now time.Time) {
 		seen[kind] = key
 		if err := d.autoAsk(ctx, r.ID, kind); err != nil {
 			// Said once: the same problem is not tried again every round; the ✨ button still is there.
-			d.Log(r.ID, "автофікс MR не вдався: "+err.Error())
+			d.Log(r.ID, "MR autofix failed: "+err.Error())
 			d.Store.Update(r.ID, func(rec *core.Record) { rec.AutoFixed = seen })
 			continue
 		}
 		d.Store.Update(r.ID, func(rec *core.Record) { rec.AutoFixed, rec.AutoFixes = seen, rec.AutoFixes+1 })
 		if r.AutoFixes+1 >= autoFixLimit {
-			d.Log(r.ID, fmt.Sprintf("автофікс MR: це %d-й запит, далі — лише кнопками ✨", autoFixLimit))
+			d.Log(r.ID, fmt.Sprintf("MR autofix: this is request #%d, from here on only via the ✨ buttons", autoFixLimit))
 		}
 	}
 }
@@ -85,7 +85,7 @@ func (d *Dispatcher) autoAsk(ctx context.Context, id, kind string) error {
 		return err
 	}
 	d.asked(id, kind)
-	d.Log(id, "автофікс: "+askedLog[kind])
+	d.Log(id, "autofix: "+askedLog[kind])
 	return nil
 }
 

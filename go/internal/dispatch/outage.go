@@ -31,7 +31,7 @@ func outage(t trackers.Tracker, err error) string {
 		who += " · " + host
 	}
 	if login := t.Config().Assignee; badAssignee(err) && login != "" {
-		return who + fmt.Sprintf(": користувача «%s» немає — виправте «Лише призначені на» в налаштуваннях", login)
+		return who + fmt.Sprintf(": user \"%s\" does not exist — fix \"Only assigned to\" in the settings", login)
 	}
 	return who + ": " + outageReason(err)
 }
@@ -49,13 +49,13 @@ func classify(err error) (reason string, outside bool) {
 	if errors.As(err, &he) {
 		switch {
 		case he.Status == 401 || he.Status == 403:
-			return "доступ не дано — перевірте токен у налаштуваннях", false
+			return "access denied — check the token in the settings", false
 		case he.Status == 429:
-			return "забагато запитів, сервіс просить зачекати", true
+			return "too many requests, the service asks to wait", true
 		case he.Status >= 500:
-			return fmt.Sprintf("сервіс не працює (%d), спробую пізніше", he.Status), true
+			return fmt.Sprintf("the service is down (%d), will try later", he.Status), true
 		}
-		return fmt.Sprintf("сервіс відповів помилкою %d", he.Status), false
+		return fmt.Sprintf("the service answered with error %d", he.Status), false
 	}
 	var dns *net.DNSError
 	var cert x509.UnknownAuthorityError
@@ -64,25 +64,25 @@ func classify(err error) (reason string, outside bool) {
 	var oe *net.OpError
 	switch {
 	case errors.Is(err, context.Canceled):
-		return "пошук перервано", true
+		return "search interrupted", true
 	case errors.As(err, &dns):
-		return "сервер не знайдено — перевірте інтернет чи VPN", true
+		return "server not found — check the internet or VPN", true
 	case errors.Is(err, syscall.ECONNREFUSED):
-		return "сервіс не приймає з'єднань — він лежить чи потрібен VPN", true
+		return "the service refuses connections — it is down or needs a VPN", true
 	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.ENETDOWN),
 		errors.Is(err, syscall.EADDRNOTAVAIL), strings.Contains(err.Error(), "can't assign requested address"):
-		return "мережа недоступна — перевірте інтернет чи VPN", true
+		return "network unreachable — check the internet or VPN", true
 	case errors.Is(err, syscall.ECONNRESET):
-		return "з'єднання обірвалось — перевірте інтернет чи VPN", true
+		return "connection dropped — check the internet or VPN", true
 	// Only the network's own timeouts: a deadline Mako set itself (an agent, a reviewer) is not the network.
 	case errors.As(err, &ue) && ue.Timeout(), errors.As(err, &oe) && oe.Timeout():
-		return "сервіс не відповідає — перевірте інтернет чи VPN", true
+		return "the service is not responding — check the internet or VPN", true
 	case errors.As(err, &cert), errors.As(err, &host), strings.Contains(err.Error(), "x509:"):
-		return "сертифікат сервера не прийнято", false
+		return "the server certificate was not accepted", false
 	case errors.Is(err, context.DeadlineExceeded):
-		return "сервіс не відповідає — перевірте інтернет чи VPN", false
+		return "the service is not responding — check the internet or VPN", false
 	}
-	return "пошук не вдався", false
+	return "search failed", false
 }
 
 // TrackerHost: the tracker's web host, "" when it cannot be told.

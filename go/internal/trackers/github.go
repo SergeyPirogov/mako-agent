@@ -62,7 +62,7 @@ func GitHubToken(cfg *config.Config) string {
 
 func NewGitHub(t *config.Tracker, token string) (*GitHub, error) {
 	if token == "" {
-		return nil, missing("GITHUB_TOKEN", "або увійдіть: gh auth login")
+		return nil, missing("GITHUB_TOKEN", "or sign in: gh auth login")
 	}
 	api := "https://api.github.com"
 	if t.APIURL != "" {
@@ -87,9 +87,9 @@ func (g *GitHub) do(ctx context.Context, method, path string, body, out any) err
 	return call(ctx, method, g.api+path, g.headers, body, out, func(status int, _ string) string {
 		switch status {
 		case 401:
-			return "GitHub не прийняв токен (401): перевірте GITHUB_TOKEN або gh auth login"
+			return "GitHub rejected the token (401): check GITHUB_TOKEN or gh auth login"
 		case 403:
-			return "GitHub заборонив дію (403): токену бракує прав (repo) або вичерпано ліміт запитів"
+			return "GitHub forbade the action (403): the token lacks permissions (repo) or the rate limit is exhausted"
 		}
 		return ""
 	})
@@ -332,7 +332,7 @@ func (g *GitHub) FindReview(ctx context.Context, repo, branch string) (*Review, 
 func (g *GitHub) pull(ctx context.Context, reviewURL string) (string, *ghPull, error) {
 	m := prURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return "", nil, fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+		return "", nil, fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
 	path := "/repos/" + m[1] + "/pulls/" + m[2]
 	var p ghPull
@@ -361,7 +361,7 @@ func (g *GitHub) ReadReview(ctx context.Context, reviewURL string) (string, stri
 func (g *GitHub) DescribeReview(ctx context.Context, reviewURL, title, description string) error {
 	m := prURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+		return fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
 	return g.do(ctx, "PATCH", "/repos/"+m[1]+"/pulls/"+m[2], map[string]any{"title": title, "body": description}, nil)
 }
@@ -442,7 +442,7 @@ func (g *GitHub) uploadRepo(ctx context.Context, target string, org, private boo
 		err := g.do(ctx, "GET", "/repos/"+target, nil, &r)
 		if err == nil {
 			if private && !r.Private {
-				return "", fmt.Errorf("%s публічний, а проєкт приватний: скриншоти туди не вантажу — зробіть %s приватним", target, target)
+				return "", fmt.Errorf("%s is public but the project is private: not uploading screenshots there — make %s private", target, target)
 			}
 			if r.DefaultBranch == "" {
 				return "main", nil
@@ -465,7 +465,7 @@ func (g *GitHub) uploadRepo(ctx context.Context, target string, org, private boo
 func (g *GitHub) createUploadRepo(ctx context.Context, target string, org, private bool) (string, error) {
 	owner, name, _ := strings.Cut(target, "/")
 	cantCreate := func(err error) error {
-		return fmt.Errorf("не вдалося створити %s: створіть %s вручну або дайте токену право створювати репозиторії (%v)", target, target, err)
+		return fmt.Errorf("could not create %s: create %s manually or give the token permission to create repositories (%v)", target, target, err)
 	}
 	path := "/orgs/" + owner + "/repos"
 	if !org {
@@ -474,7 +474,7 @@ func (g *GitHub) createUploadRepo(ctx context.Context, target string, org, priva
 			return "", err
 		}
 		if !strings.EqualFold(me, owner) {
-			return "", cantCreate(fmt.Errorf("токен належить %s, а не %s", me, owner))
+			return "", cantCreate(fmt.Errorf("the token belongs to %s, not %s", me, owner))
 		}
 		path = "/user/repos"
 	}

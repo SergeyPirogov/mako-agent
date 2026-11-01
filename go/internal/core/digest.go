@@ -81,7 +81,7 @@ func BuildDigest(records []Record, waiting map[string]string, since, now time.Ti
 				d.Waiting = append(d.Waiting, item)
 			}
 		case col == "new" && !r.Postponed(now.UnixMilli()):
-			item.Note, item.MR = "нова задача: взяти в роботу?", ""
+			item.Note, item.MR = "new task: take it on?", ""
 			d.Waiting = append(d.Waiting, item)
 		}
 	}

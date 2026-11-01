@@ -97,14 +97,14 @@ func Hand(ctx context.Context, o config.Orca, j Job, log func(string)) (*Result,
 		if fail != nil {
 			if path, branch := findWorkspace(ctx, command, j); branch != "" {
 				mark(ctx, command, j.Repo.Path, path, branch, "in-progress")
-				return &Result{Worktree: path, Branch: branch, Note: "Orca не підтвердила, що промпт дійшов до агента, перевірте його в Orca"}, nil
+				return &Result{Worktree: path, Branch: branch, Note: "Orca did not confirm the prompt reached the agent, check it in Orca"}, nil
 			}
 		}
 	}
 	if fail != nil {
 		return nil, errors.New(fail.explain())
 	}
-	res := &Result{Branch: j.Branch, Note: fmt.Sprintf("Orca workspace %s, агент %s", j.Task.Slug, agent)}
+	res := &Result{Branch: j.Branch, Note: fmt.Sprintf("Orca workspace %s, agent %s", j.Task.Slug, agent)}
 	var reply struct {
 		Path     string `json:"path"`
 		Branch   string `json:"branch"`
@@ -175,7 +175,7 @@ func Resolve(configured string) (string, error) {
 		if p, err := exec.LookPath(config.Expand(configured)); err == nil {
 			return p, nil
 		}
-		return "", fmt.Errorf("Orca CLI не знайдено за шляхом «%s». Перевірте команду Orca в налаштуваннях", configured)
+		return "", fmt.Errorf("Orca CLI not found at \"%s\". Check the Orca command in the settings", configured)
 	}
 	name := "orca"
 	if runtime.GOOS == "linux" {
@@ -193,8 +193,8 @@ func Resolve(configured string) (string, error) {
 			}
 		}
 	}
-	return "", errors.New("Orca CLI не знайдено. Встановіть Orca (onorca.dev) і зареєструйте CLI: Orca → Settings → General → Orca CLI, " +
-		"або вкажіть повний шлях у налаштуваннях Mako (orca.command)")
+	return "", errors.New("Orca CLI not found. Install Orca (onorca.dev) and register the CLI: Orca → Settings → General → Orca CLI, " +
+		"or set the full path in the Mako settings (orca.command)")
 }
 
 // ensureRunning: the CLI talks to the Orca app, so a closed app fails every hand-off. On macOS Mako opens
@@ -208,11 +208,11 @@ func ensureRunning(ctx context.Context, command, repoPath string, log func(strin
 		return nil
 	}
 	if runtime.GOOS != "darwin" {
-		return errors.New("Orca не запущена. Відкрийте Orca і натисніть «Повторити»")
+		return errors.New("Orca is not running. Open Orca and press \"Retry\"")
 	}
-	log("Orca не запущена: відкриваю її і чекаю")
+	log("Orca is not running: opening it and waiting")
 	if err := exec.Command("open", "-a", "Orca").Run(); err != nil {
-		return errors.New("Orca не запущена, і Mako не зміг її відкрити. Відкрийте Orca і натисніть «Повторити»")
+		return errors.New("Orca is not running and Mako could not open it. Open Orca and press \"Retry\"")
 	}
 	for i := 0; i < 30; i++ {
 		select {
@@ -269,7 +269,7 @@ func parseFailure(out string) *failure {
 		}
 	}
 	if text == "" {
-		text = "orca завершився з помилкою"
+		text = "orca exited with an error"
 	}
 	return &failure{Message: text}
 }
@@ -279,20 +279,20 @@ var errorCode = regexp.MustCompile(`^[a-z_]+$`)
 func (f *failure) explain() string {
 	var lines []string
 	if f.Code == unknownOutcome {
-		lines = append(lines, "Orca не змогла підтвердити запуск агента, а workspace задачі не знайдено.")
+		lines = append(lines, "Orca could not confirm the agent started, and the task workspace was not found.")
 	} else if f.Code != "" {
-		lines = append(lines, fmt.Sprintf("Orca не створила workspace (%s): %s", f.Code, f.Message))
+		lines = append(lines, fmt.Sprintf("Orca did not create the workspace (%s): %s", f.Code, f.Message))
 	} else {
-		lines = append(lines, "Orca не створила workspace: "+f.Message)
+		lines = append(lines, "Orca did not create the workspace: "+f.Message)
 	}
 	if c := strings.TrimSpace(f.Data.Cause); c != "" && !errorCode.MatchString(c) {
-		lines = append(lines, "Причина від Orca: "+c)
+		lines = append(lines, "Reason from Orca: "+c)
 	}
 	for _, s := range f.Data.NextSteps {
-		lines = append(lines, "Orca радить: "+s)
+		lines = append(lines, "Orca suggests: "+s)
 	}
 	if f.Code == unknownOutcome {
-		lines = append(lines, "Перевірте: Orca запущена й оновлена (CLI і застосунок мають збігатися), а репозиторій доданий в Orca. Потім натисніть «Повторити».")
+		lines = append(lines, "Check: Orca is running and up to date (the CLI and the app must match), and the repository is added in Orca. Then press \"Retry\".")
 	}
 	return strings.Join(lines, "\n")
 }

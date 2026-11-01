@@ -72,11 +72,11 @@ func New(t *config.Tracker, cfg *config.Config) (Tracker, error) {
 	case "jira":
 		return NewJira(t, cfg.Get("JIRA_EMAIL"), cfg.Get("JIRA_API_TOKEN"))
 	}
-	return nil, fmt.Errorf("невідомий тип трекера %q", t.Type)
+	return nil, fmt.Errorf("unknown tracker type %q", t.Type)
 }
 
 func missing(name, where string) error {
-	return fmt.Errorf("немає %s: додайте його в .env (%s)", name, where)
+	return fmt.Errorf("%s is missing: add it to .env (%s)", name, where)
 }
 
 // NewIssue is a task written on the board: «+ Задача».

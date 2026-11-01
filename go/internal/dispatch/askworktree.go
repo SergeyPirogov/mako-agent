@@ -92,7 +92,7 @@ func (d *Dispatcher) prepareAskLocked(p CodeProject, refresh bool) (string, stri
 		gitx.Run(ctx, p.Path, "worktree", "prune")
 		if _, err := gitx.Run(ctx, p.Path, "worktree", "add", "--detach", dir, askRef(ctx, p)); err != nil {
 			os.RemoveAll(dir)
-			return "", "", errors.New("не вдалося створити worktree для питань: " + err.Error())
+			return "", "", errors.New("could not create the worktree for questions: " + err.Error())
 		}
 		repo := p.repo
 		if repo == nil {
@@ -112,7 +112,7 @@ func (d *Dispatcher) prepareAskLocked(p CodeProject, refresh bool) (string, stri
 		return dir, "", nil
 	}
 	if _, err := gitx.Run(ctx, dir, "checkout", "--detach", askRef(ctx, p)); err != nil {
-		return "", "", errors.New("не вдалося оновити worktree для питань: " + err.Error())
+		return "", "", errors.New("could not update the worktree for questions: " + err.Error())
 	}
 	return dir, "", nil
 }
@@ -132,12 +132,12 @@ func (d *Dispatcher) launchQuestion(p CodeProject, t CodeThread, text, setup str
 	go func() {
 		res := d.runSetup(context.Background(), t.ID, threadDir(p, t), setup)
 		if res.Failed {
-			log.Printf("[%s] підготовка worktree для питань не вдалась, агент стартує все одно:\n%s", t.ID, tailLines(res.Output, 10))
+			log.Printf("[%s] preparing the worktree for questions failed, the agent starts anyway:\n%s", t.ID, tailLines(res.Output, 10))
 		}
 		err := d.startQuestion(p, t, text, res)
 		askSetups.Delete(t.ID)
 		if err != nil {
-			log.Printf("[%s] агент не стартував: %v", t.ID, err)
+			log.Printf("[%s] agent did not start: %v", t.ID, err)
 		}
 	}()
 	return nil
@@ -154,7 +154,7 @@ func setupChat(id string) (chat.Snapshot, bool) {
 	// A version no session has: the board reads the conversation anew when the agent starts.
 	return chat.Snapshot{Version: -2, State: "working", Live: true, Items: []chat.Item{
 		{Kind: "user", Text: s.prompt},
-		{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: input, Status: "running"},
+		{Kind: "tool", ID: "setup", Tool: "Setup", Input: input, Status: "running"},
 	}}, true
 }
 

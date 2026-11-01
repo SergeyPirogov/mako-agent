@@ -31,7 +31,7 @@ func (g *GitHub) CommentLink(ctx context.Context, t core.Task, text string) (str
 func (g *GitHub) CommentReview(ctx context.Context, reviewURL, text string) (string, error) {
 	m := prURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return "", fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+		return "", fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
 	var c struct {
 		HTMLURL string `json:"html_url"`
@@ -61,7 +61,7 @@ func (g *GitLab) CommentLink(ctx context.Context, t core.Task, text string) (str
 func (g *GitLab) CommentReview(ctx context.Context, reviewURL, text string) (string, error) {
 	m := mrURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return "", fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+		return "", fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	var n glNote
 	err := g.do(ctx, "POST", project(m[1])+"/merge_requests/"+m[2]+"/notes", map[string]any{"body": text}, &n)

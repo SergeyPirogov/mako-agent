@@ -54,7 +54,7 @@ func TestHooks(t *testing.T) {
 	s := &Session{state: "working", subs: map[chan Event]struct{}{}}
 	steps := []struct{ body, state, reason, tool string }{
 		{`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm test\nmore"}}`, "working", "", "Bash: npm test"},
-		{`{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}`, "waiting", "дозвіл на Bash", ""},
+		{`{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}`, "waiting", "permission for Bash", ""},
 		{`{"hook_event_name":"PostToolUse","tool_name":"Bash"}`, "working", "", ""},
 		{`{"hook_event_name":"Stop"}`, "done", "", ""},
 	}

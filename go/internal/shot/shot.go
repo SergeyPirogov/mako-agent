@@ -47,7 +47,7 @@ func FindChrome() (string, error) {
 			return p, nil
 		}
 	}
-	return "", errors.New("не знайшов Chrome чи Chromium: встановіть його або вкажіть шлях у CHROME")
+	return "", errors.New("Chrome or Chromium not found: install it or set the path in CHROME")
 }
 
 // Capture photographs url with headless Chrome into out (PNG), the window width×height; wait is how long the
@@ -85,7 +85,7 @@ func Capture(ctx context.Context, chrome, url, out string, width, height int, wa
 		if err == nil {
 			err = statErr
 		}
-		return fmt.Errorf("Chrome не зробив скриншот: %v\n%s", err, tail(string(msg), 800))
+		return fmt.Errorf("Chrome did not take a screenshot: %v\n%s", err, tail(string(msg), 800))
 	}
 	if window != width {
 		return crop(out, width, height)
@@ -111,7 +111,7 @@ func crop(path string, width, height int) error {
 		SubImage(image.Rectangle) image.Image
 	})
 	if !ok {
-		return errors.New("скриншот не вдалося обрізати")
+		return errors.New("could not crop the screenshot")
 	}
 	part := sub.SubImage(image.Rect(0, 0, width, height).Intersect(img.Bounds()))
 	f, err = os.Create(path)
@@ -217,7 +217,7 @@ func Build(ctx context.Context, module, bin string) error {
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/mako")
 	cmd.Dir = module
 	if msg, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("збірка Mako з %s: %v\n%s", module, err, tail(string(msg), 2000))
+		return fmt.Errorf("build of Mako from %s: %v\n%s", module, err, tail(string(msg), 2000))
 	}
 	return nil
 }
@@ -249,9 +249,9 @@ func Serve(ctx context.Context, bin, home string, port int) (stop func(), err er
 		case <-exited:
 			msg := out.String()
 			if strings.Contains(msg, "flag provided but not defined") {
-				return nil, errors.New("ця версія Mako ще не вміє працювати лише для читання (-readonly): скриншот «до» з неї не зробити")
+				return nil, errors.New("this version of Mako cannot run read-only (-readonly) yet: cannot take the \"before\" screenshot from it")
 			}
-			return nil, fmt.Errorf("Mako не запустився:\n%s", tail(msg, 2000))
+			return nil, fmt.Errorf("Mako failed to start:\n%s", tail(msg, 2000))
 		case <-ctx.Done():
 			stop()
 			return nil, ctx.Err()
@@ -266,7 +266,7 @@ func Serve(ctx context.Context, bin, home string, port int) (stop func(), err er
 		time.Sleep(200 * time.Millisecond)
 	}
 	stop()
-	return nil, fmt.Errorf("Mako не відповів за 30 с:\n%s", tail(out.String(), 2000))
+	return nil, fmt.Errorf("Mako did not respond within 30 s:\n%s", tail(out.String(), 2000))
 }
 
 func tail(s string, n int) string {
