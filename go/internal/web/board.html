@@ -180,7 +180,7 @@ const cardStatus = (r) => {
   // Left in «Нові» by auto-take: why, in the row («велика», «є питання до опису»).
   if (r.column === "new" && r.autoSkip) return [r.autoSkip, "", `Не взято автоматично: ${r.autoSkip}`];
   if (st === "review" && r.ciWait) return ["MR · CI біжить", "warn", "MR відкрито, CI ще виконується: на рев'ю він піде, коли CI пройде"];
-  if (st === "review") return !r.agentReviews?.length && highRisk(r) ? ["MR на рев'ю · високий ризик", "warn", HIGH_RISK] : ["MR на рев'ю", ""];
+  if (st === "review") return !r.agentReviews?.length && adviseReview(r) ? ["MR на рев'ю · радять рев'ю", "warn", ADVISE + (r.assessment.review?.why ? `: ${r.assessment.review.why}` : "")] : ["MR на рев'ю", ""];
   if (st === "starting") return [LABEL[st], "", `Запускаю: ${startStep(r)?.label ?? "готую старт"}`];
   if (st === "queued") return [LABEL[st], "", r.queueWhy ? `У черзі: ${r.queueWhy}` : ""];
   return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
@@ -590,7 +590,7 @@ function renderAsk(q) {
   if (!v) ci = `<div class="muted mr-none">Читаю MR…</div>`;
   else if (c?.ci) {
     const [icon, text] = CI[c.ci] ?? ["run", `CI: ${c.ci}`];
-    ci = row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl) + stagesHTML(c.jobs);
+    ci = row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl) + jobsHTML(c.jobs);
   } else if (c) ci = `<div class="muted mr-none">CI немає</div>`;
   const threads = c?.threads?.length ? c.threads.map((th) => `<div class="cmt"><span class="av">${esc(initials(th.author))}</span><div><b>${esc(th.author)}</b>${th.path ? ` <a href="${esc(th.url)}" target="_blank" rel="noopener"><code>${esc(th.path)}${th.line ? `:${th.line}` : ""}</code></a>` : ` <a href="${esc(th.url)}" target="_blank" rel="noopener">↗</a>`}<div class="md">${md(th.body)}</div></div></div>`).join("")
     : `<div class="tcard-b muted">${v ? "Нерозвʼязаних обговорень немає" : "…"}</div>`;
@@ -1037,6 +1037,8 @@ const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : n 
 // One line of a card: a status icon, what it is (a link when it has one), and the button that fixes it.
 const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
   ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>` : `<span>${esc(text)}</span>`}${btn}</div>`;
+// A section of a card: its name (and a note to it on the right), then its lines.
+const sec = (title, body, note = "") => `<div class="mr-sec"><div class="mr-sec-h"><span class="files-h-t">${esc(title)}</span>${note ? `<span class="mr-sec-n">${esc(note)}</span>` : ""}</div>${body}</div>`;
 // The tracker's priority in words ("Highest", "P1", "urgent") as a tone: hot, high, mid (unknown) or low.
 function prioTone(p) {
   const s = String(p).toLowerCase();
@@ -1073,10 +1075,11 @@ function branchCard(r, term) {
     </div>${rows}</div>`;
 }
 
-// The pipeline as GitLab draws it: a line per stage, its jobs with their state.
-const JOB = { success: ["ok", "✓"], failed: ["bad", "✗"], running: ["run", "⟳"], pending: ["wait", "◷"], created: ["wait", "◷"],
-  preparing: ["wait", "◷"], waiting_for_resource: ["wait", "◷"], scheduled: ["wait", "◷"], manual: ["idle", "▶"], canceled: ["idle", "⊘"], skipped: ["idle", "⊘"] };
-function stagesHTML(jobs) {
+// The pipeline's jobs, a line each with its state in words, under their stage's name (GitLab has stages).
+const JOB = { success: ["ok", "✓", "пройшов"], failed: ["bad", "✗", "впав"], running: ["run", "⟳", "іде"], pending: ["wait", "◷", "чекає"],
+  created: ["wait", "◷", "чекає"], preparing: ["wait", "◷", "готується"], waiting_for_resource: ["wait", "◷", "чекає"], scheduled: ["wait", "◷", "заплановано"],
+  manual: ["idle", "▶", "вручну"], canceled: ["idle", "⊘", "скасовано"], skipped: ["idle", "⊘", "пропущено"] };
+function jobsHTML(jobs) {
   if (!jobs?.length) return "";
   const stages = [];
   for (const j of jobs) {
@@ -1086,8 +1089,8 @@ function stagesHTML(jobs) {
   }
   return `<div class="stages">${stages.map((st) => `<div class="stage">${st.name ? `<span class="stage-name">${esc(st.name)}</span>` : ""}${st.jobs.map((j) => {
     const allowed = j.status === "failed" && j.allowFailure;
-    const [cls, mark] = allowed ? ["warn", "!"] : JOB[j.status] ?? ["idle", "•"];
-    return `<a class="job ${cls}" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.name)}: ${esc(j.status)}${allowed ? " (дозволено падати)" : ""}"><span class="jm">${mark}</span>${esc(j.name)}</a>`;
+    const [cls, mark, word] = allowed ? ["warn", "!", "впав, дозволено"] : JOB[j.status] ?? ["idle", "•", j.status];
+    return `<a class="job ${cls}" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.name)}: ${esc(word)}"><span class="jm">${mark}</span><span class="jn">${esc(j.name)}</span><span class="js">${esc(word)}</span></a>`;
   }).join("")}</div>`).join("")}</div>`;
 }
 
@@ -1104,16 +1107,20 @@ function mrCard(r, term) {
   else if (c.state === "open") {
     if (c.ci) {
       const [icon, text] = CI[c.ci] ?? ["run", `CI: ${c.ci}`];
-      rows += row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl,
-        c.ci === "failed" && c.failed.length ? fix("ci", "Агент полагодить CI у терміналі") : "") + stagesHTML(c.jobs);
-    }
+      const n = c.jobs?.length || 0;
+      rows += sec("CI", row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl,
+        c.ci === "failed" && c.failed.length ? fix("ci", "Агент полагодить CI у терміналі") : "") + jobsHTML(c.jobs),
+        n ? `${n} ${plural(n, "джоб", "джоби", "джобів")}` : "");
+    } else rows += sec("CI", row("idle", "CI немає"));
+    let merging = "";
     if (c.threads.length) {
       const n = c.threads.length;
-      rows += row("talk", `${n} ${plural(n, "коментар", "коментарі", "коментарів")} рев'ю`, c.threads[0].url, fix("comments", "Агент виправить коментарі у терміналі"));
+      merging += row("talk", `${n} ${plural(n, "коментар", "коментарі", "коментарів")} рев'ю`, c.threads[0].url, fix("comments", "Агент виправить коментарі у терміналі"));
     }
-    rows += c.conflicts ? row("bad", "Конфлікти з основною гілкою", "", fix("conflicts", "Агент розвʼяже конфлікти у терміналі")) : row("ok", "Без конфліктів");
+    merging += c.conflicts ? row("bad", "Конфлікти з основною гілкою", "", fix("conflicts", "Агент розвʼяже конфлікти у терміналі")) : row("ok", "Без конфліктів");
+    rows += sec("Злиття", merging);
   }
-  rows += reviewerRow(r);
+  rows += reviewSection(r);
   // The MR's own actions sit in its header, as icons: open it, update it, merge it.
   const icon = (attr, label, name, cls = "", disabled = false) =>
     `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
@@ -1162,20 +1169,39 @@ function checksHTML(r, card) {
 const REVIEW_STATE = { running: ["run", "Рецензент-агент переглядає гілку…"], notes: ["talk", "Рецензент залишив зауваження"],
   clean: ["ok", "Рев'ю агентом пройдено"], failed: ["bad", "Рев'ю агентом не вдалось"], skipped: ["idle", "Рев'ю агентом пропущено"] };
 const skippedText = (a) => `Рев'ю агентом пропущено${a.reason ? `: ${a.reason}` : ""}`;
-const reviewBtn = (label, title = "Рецензент-агент прочитає задачу й diff гілки і залишить зауваження в задачі; агенту їх передасте ви кнопкою «Виправити»") =>
-  `<button type="button" class="ghost" data-a="agentreview" title="${esc(title)}">${label}</button>`;
+const reviewBtn = (label, cls = "ghost", title = "Рецензент-агент прочитає задачу й diff гілки і залишить зауваження в задачі; агенту їх передасте ви кнопкою «Виправити»") =>
+  `<button type="button" class="${cls}" data-a="agentreview" title="${esc(title)}">${label}</button>`;
+const skipBtn = () => `<button type="button" class="ghost" data-a="reviewskip" title="Рев'ю не потрібне: рецензент не запускатиметься, поки ви не передумаєте">Пропустити</button>`;
 const reviewFixBtn = () => `<button type="button" class="ghost" data-a="reviewfix" title="Передати зауваження рецензента агенту: він виправить, і можна зробити рев'ю ще раз">Виправити</button>`;
-// High risk by the agent's assessment of the finished task (4–5 of 5): a review is advised.
-const highRisk = (r) => r.assessment?.state === "done" && (r.assessment.risk?.value ?? 0) >= 4;
-const HIGH_RISK = "Задача високого ризику, краще зробити рев'ю";
-function reviewerRow(r) {
+// The agent's advice from its assessment of the finished task: true (do a review), false (not needed), null (none
+// yet). An older assessment without it goes by the risk: 4–5 of 5 advise one.
+function adviseReview(r) {
+  const a = r.assessment;
+  if (a?.state !== "done") return null;
+  return a.review ? a.review.need : (a.risk?.value ?? 0) >= 4;
+}
+const ADVISE = "Агент радить зробити рев'ю";
+// «Рев'ю» in the MR card: what the agent advises, what the reviewer did, and your choice: «Робити» or «Пропустити».
+function reviewSection(r) {
+  const a = r.assessment, need = adviseReview(r);
+  let advice = "";
+  if (a?.state === "running") advice = row("run", "Агент оцінює, чи потрібне рев'ю…");
+  else if (need !== null) {
+    const why = a.review?.why || (need ? a.risk?.why : "") || "";
+    advice = need ? row("talk", ADVISE + (why ? `: ${why}` : "")) : row("ok", "Агент вважає, що рев'ю не потрібне" + (why ? `: ${why}` : ""));
+  }
+  const body = advice + reviewerRow(r, need);
+  return body ? sec("Рев'ю", body, need === true && !r.agentReviews?.length ? "радять" : "") : "";
+}
+function reviewerRow(r, need) {
   const last = r.agentReviews?.at(-1), step = r.reviewStep, ready = step === "ready";
+  const choice = (label = "Робити") => ready ? `<div class="mr-actions">${reviewBtn(label, "primary")}${skipBtn()}</div>` : "";
   if (step === "running") return row("run", REVIEW_STATE.running[1], "");
-  if (!last) return ready ? (highRisk(r) ? row("talk", HIGH_RISK, "", reviewBtn("Рев'ю")) : row("idle", "Рев'ю рецензентом не робилось", "", reviewBtn("Рев'ю"))) : "";
+  if (!last) return ready ? (need === null ? row("idle", "Рев'ю рецензентом не робилось") : "") + choice() : "";
   switch (last.state) {
     // Left by a restart of Mako in the middle of a round.
     case "running": return row("bad", "Рев'ю агентом перервано", "", ready ? reviewBtn("Спробувати ще") : "");
-    case "skipped": return row("idle", skippedText(last), "", ready ? reviewBtn("Рев'ю") : "");
+    case "skipped": return row("idle", last.reason === "пропущено вами" ? "Рев'ю пропущено вами" : skippedText(last), "", ready ? reviewBtn("Все ж зробити") : "");
     case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Спробувати ще") : "");
     case "notes":
       if (step === "notes") return row("talk", "Рецензент залишив зауваження: вони в задачі", "", reviewFixBtn());

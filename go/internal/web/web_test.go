@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -570,5 +571,17 @@ func TestForeignHostRefused(t *testing.T) {
 		if rec.Code != want {
 			t.Errorf("Host %s: got %d, want %d", host, rec.Code, want)
 		}
+	}
+}
+
+// The board's script is one classic script: a function declared twice there is not an error but the last one
+// wins, silently, as the stats' stagesHTML once hid the MR card's CI jobs.
+func TestBoardFunctionsOnce(t *testing.T) {
+	seen := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^(?:async )?function (\w+)\(`).FindAllStringSubmatch(string(board), -1) {
+		if seen[m[1]] {
+			t.Errorf("function %s is declared twice in board.html", m[1])
+		}
+		seen[m[1]] = true
 	}
 }
