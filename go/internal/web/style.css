@@ -104,12 +104,12 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .group .n { color: var(--faint); margin-left: 2px; }
 .group .chev { flex: none; align-self: center; margin-top: 8px; transition: transform .15s; }
 .group.folded .chev { transform: rotate(-90deg); }
-.item { display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; height: 48px; text-align: left; border: 0; border-radius: 0;
-  background: none; padding: 0 10px; border-left: 2px solid transparent; }
+.item { display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; min-height: 48px; text-align: left; border: 0; border-radius: 0;
+  background: none; padding: 5px 10px; border-left: 2px solid transparent; }
 .item:hover { background: var(--hover); }
 .item:active { transform: none; }
 .item.sel { background: var(--sel); border-left-color: var(--accent); }
-.item .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 18px; }
+.item .t { display: block; overflow-wrap: anywhere; white-space: normal; line-height: 18px; }
 .item .m { display: flex; gap: 6px; align-items: center; height: 16px; font-size: 11.5px; color: var(--mute); min-width: 0; }
 .item .m > * { flex: none; white-space: nowrap; }
 .item .m > .say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
