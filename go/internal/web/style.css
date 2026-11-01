@@ -728,11 +728,11 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
 .menu-pop button:hover { background: var(--hover); }
 .menu-h { padding: 6px 10px 4px; font-size: 12px; color: var(--mute); }
 /* «Взяти в роботу» with its arrow: the models in the menu */
-.split { display: inline-flex; }
-.split > button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.split details.menu > summary.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); padding: 6px 9px;
+.takesplit { display: inline-flex; }
+.takesplit > button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.takesplit details.menu > summary.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); padding: 6px 9px;
   border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(255, 255, 255, .35); height: 100%; box-sizing: border-box; }
-.split details.menu > summary.primary:hover, .split details.menu[open] > summary.primary { opacity: .9; }
+.takesplit details.menu > summary.primary:hover, .takesplit details.menu[open] > summary.primary { opacity: .9; }
 .notice.later-note, .notice.auto-skip { display: flex; align-items: center; gap: 8px; border-color: var(--line); color: var(--mute); }
 
 /* «+ Задача»: the button over the list and the form where a card goes. */
