@@ -572,7 +572,7 @@ section.ws #term-slot:has(.chat) { padding: 0; background: none; }
 .plan-card.done .plan-h .tw { margin-left: auto; }
 .plan-card.done .plan-body { padding: 0 12px 10px; border-top: 1px solid var(--line); }
 /* The agent's questions */
-.perm.ask .ask-q { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.perm.ask-card .ask-q { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .ask-text { font-weight: 600; }
 .ask-opts { display: flex; gap: 6px; flex-wrap: wrap; }
 .ask-opts .opt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); color: var(--fg); }

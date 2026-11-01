@@ -2581,7 +2581,7 @@ function askCard(it) {
     const a = it.answers ?? {};
     return `<div class="perm-done ${it.status}">${it.status === "answered" ? `✓ ${Object.entries(a).map(([q, x]) => `${esc(q)} → <b>${esc(x)}</b>`).join(" · ")}` : `✗ Без відповіді`}</div>`;
   }
-  return `<div class="perm ask" data-question="${esc(it.id)}"><div class="perm-h"><b>Агент питає</b></div>
+  return `<div class="perm ask-card" data-question="${esc(it.id)}"><div class="perm-h"><b>Агент питає</b></div>
     ${qs.map((q) => `<div class="ask-q" data-q="${esc(q.question)}" data-multi="${q.multiSelect ? 1 : 0}"><div class="ask-text">${q.header ? `<span class="muted">${esc(q.header)} · </span>` : ""}${esc(q.question)}</div>
       <div class="ask-opts">${(q.options ?? []).map((o) => `<button type="button" class="opt" data-label="${esc(o.label)}" title="${esc(o.description ?? "")}">${esc(o.label)}</button>`).join("")}</div>
       <input type="text" placeholder="Або своя відповідь…" aria-label="Своя відповідь"></div>`).join("")}
