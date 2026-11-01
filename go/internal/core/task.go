@@ -75,7 +75,9 @@ type Record struct {
 	ArchivedAt     int64         `json:"archivedAt,omitempty"`
 	Gone           string        `json:"gone,omitempty"` // "closed", "deleted": in the tracker
 	TrackerStatus  *TrackerState `json:"trackerStatus,omitempty"`
-	Error          string        `json:"error,omitempty"`
+	// AwaitingCI: the MR's CI failed when it appeared; the issue moves to review (with the comment) once CI passes.
+	AwaitingCI bool   `json:"awaitingCi,omitempty"`
+	Error      string `json:"error,omitempty"`
 	// WorktreeKept: the uncommitted files that kept the worktree of a finished task from being cleaned up;
 	// the board asks whether to remove it anyway.
 	WorktreeKept int    `json:"worktreeKept,omitempty"`

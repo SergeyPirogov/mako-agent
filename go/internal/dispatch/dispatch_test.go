@@ -273,6 +273,52 @@ func TestTaskLifecycle(t *testing.T) {
 	}
 }
 
+// The issue goes to review only after CI: in work while it runs, «Заблоковані» on the board when it fails, and
+// the tracker's review status with the comment once it passes.
+func TestReviewWaitsForCI(t *testing.T) {
+	d, f, _ := setup(t)
+	ctx := context.Background()
+	d.Poll(ctx)
+	id := "grp/app#5"
+	d.Take(ctx, id)
+	d.Wait()
+	r, _ := d.Store.Get(id)
+	notes := len(f.notes)
+	pipeline := map[string]any{"id": 1, "status": "running", "web_url": "ci"}
+	f.mu.Lock()
+	f.mrs = append(f.mrs, map[string]any{"iid": 9, "state": "opened", "web_url": f.base + "/grp/app/-/merge_requests/9", "source_branch": r.Branch,
+		"title": "Fix the payment button", "description": strings.Repeat("written by a person ", 10), "head_pipeline": pipeline})
+	f.mu.Unlock()
+
+	d.CheckHandoffs(ctx)
+	if r, _ = d.Store.Get(id); r.Status != core.HandedOff || r.Column(0) != "doing" || len(f.notes) != notes {
+		t.Fatalf("in review while CI runs: %+v, notes %v", r, f.notes)
+	}
+
+	f.mu.Lock()
+	pipeline["status"] = "failed"
+	f.mu.Unlock()
+	d.CheckHandoffs(ctx)
+	r, _ = d.Store.Get(id)
+	if r.Status != core.Done || !r.AwaitingCI || d.Blocked(r) != "CI не пройшов" || len(f.notes) != notes {
+		t.Fatalf("failed CI: %+v, blocked %q, notes %v", r, d.Blocked(r), f.notes)
+	}
+	d.CheckBlocked(ctx)
+	if r, _ = d.Store.Get(id); !r.AwaitingCI || len(f.notes) != notes {
+		t.Fatalf("moved to review with a failed CI: %+v", r)
+	}
+
+	f.mu.Lock()
+	pipeline["status"] = "success"
+	f.mu.Unlock()
+	d.forgetReview(id)
+	d.CheckBlocked(ctx)
+	r, _ = d.Store.Get(id)
+	if r.AwaitingCI || d.Blocked(r) != "" || len(f.notes) != notes+1 || !strings.Contains(f.notes[notes], "merge_requests/9") {
+		t.Fatalf("CI passed, not in review: %+v, notes %v", r, f.notes)
+	}
+}
+
 func TestClosedWithoutMergeFails(t *testing.T) {
 	d, f, _ := setup(t)
 	ctx := context.Background()
