@@ -134,10 +134,12 @@ func (d *Dispatcher) ReviewNow(id string) error {
 	if !reviewable(r) || !exists(r.Worktree) {
 		return errors.New("рецензент читає лише гілки агентів Mako, що в роботі чи у відкритому MR")
 	}
+	// The flag alone may be the quick look whether a round is due, after each turn of the agent: review waits
+	// it out. Only a round in progress is the reviewer at work.
 	d.mu.Lock()
 	busy := d.reviewing[id]
 	d.mu.Unlock()
-	if busy {
+	if n := len(r.AgentReviews); busy && n > 0 && r.AgentReviews[n-1].State == "running" {
 		return errors.New("рецензент уже переглядає гілку")
 	}
 	if !d.agentIdle(id) {
@@ -239,14 +241,21 @@ func (d *Dispatcher) maybeReview(id string) { d.review(id, false) }
 // review runs the reviewer when it is due; manual: you asked for it (now, or by starting a cycle), whatever
 // the task's risk.
 func (d *Dispatcher) review(id string, manual bool) {
-	// One at a time, and the record read after the one before ends: not a round on what it has replaced.
-	d.mu.Lock()
-	if d.reviewing[id] {
+	// One at a time, and the record read after the one before ends: not a round on what it has replaced. The
+	// one you asked for waits for the other (a quick look whether a round is due, as a rule) instead of being
+	// lost; when that one was a round over the same commit, it finds the commit seen and stops.
+	for wait := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+		d.mu.Lock()
+		if !d.reviewing[id] {
+			d.reviewing[id] = true
+			d.mu.Unlock()
+			break
+		}
 		d.mu.Unlock()
-		return
+		if !manual || time.Now().After(wait) {
+			return
+		}
 	}
-	d.reviewing[id] = true
-	d.mu.Unlock()
 	defer func() {
 		d.mu.Lock()
 		delete(d.reviewing, id)

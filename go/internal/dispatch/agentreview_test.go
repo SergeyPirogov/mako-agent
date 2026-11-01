@@ -364,11 +364,19 @@ func TestReviewCycle(t *testing.T) {
 		t.Fatalf("over the cycle: wanted %v, calls %d", d.reviewWanted(r), calls.Load())
 	}
 
-	// Another click starts a new cycle, which a clean review ends.
+	// Another click starts a new cycle, which a clean review ends: pressed while the quick look whether a round
+	// is due (after each turn of the agent) holds the flag, it waits for it rather than fail or be lost.
 	clean.Store(true)
+	d.mu.Lock()
+	d.reviewing[id] = true
+	d.mu.Unlock()
 	if err := d.ReviewNow(id); err != nil {
-		t.Fatal(err)
+		t.Fatalf("pressed during the quick look: %v", err)
 	}
+	time.Sleep(100 * time.Millisecond)
+	d.mu.Lock()
+	delete(d.reviewing, id)
+	d.mu.Unlock()
 	r = rounds(CycleRounds + 1)
 	if r.AgentReviews[CycleRounds].State != "clean" || r.ReviewCycle.From != CycleRounds {
 		t.Fatalf("cycle %+v reviews %+v", r.ReviewCycle, r.AgentReviews)
