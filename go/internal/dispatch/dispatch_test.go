@@ -120,7 +120,7 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			f.notesOf[iid] = append(f.notesOf[iid], n["body"])
 			is["user_notes_count"] = len(f.notesOf[iid])
-			reply(map[string]any{})
+			reply(map[string]any{"id": len(f.notes)})
 		case r.Method == "PUT":
 			var ch map[string]any
 			json.Unmarshal(body, &ch)

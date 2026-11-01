@@ -84,6 +84,10 @@ type Dispatcher struct {
 	reviewing map[string]bool
 	// branches: the tasks' branches as the board's reviewer row last looked at them (lookBranch).
 	branches map[string]branchLook
+	// fixing: when «Виправити» handed each task's remarks to its agent, whose report Mako waits for; replying:
+	// the tasks whose report is being read.
+	fixing   map[string]time.Time
+	replying map[string]bool
 	// rebased: when each task's branch was last looked at against its base branch, and what was said of it.
 	rebased map[string]baseLook
 	// guardTokens: the token each task's agent asks the push guard with (see secrets.go).
@@ -126,7 +130,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
 		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery,
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}

@@ -577,6 +577,8 @@ func (d *Dispatcher) watchTerminals(now time.Time) {
 		if d.checksFor(r) != nil && d.agentIdle(r.ID) {
 			go d.maybeCheck(r.ID)
 		}
+		// A turn that ended after «Виправити» has the agent's report on the remarks.
+		d.maybeReply(r)
 	}
 }
 

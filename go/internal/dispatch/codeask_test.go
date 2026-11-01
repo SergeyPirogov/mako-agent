@@ -30,8 +30,8 @@ func settle(t *testing.T, d *Dispatcher, id string) {
 	waitFor(t, func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		return !d.reviewing[id] && !d.checking[id]
-	}, "the reviewer or the checks did not end")
+		return !d.reviewing[id] && !d.checking[id] && !d.replying[id]
+	}, "the reviewer, the checks or the reading of the agent's report did not end")
 }
 
 // checkNow runs the checks before the MR, after and with the ones the agent's turn may have started.

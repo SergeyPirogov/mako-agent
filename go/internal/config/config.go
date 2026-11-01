@@ -82,6 +82,18 @@ func CheckModel(name string) error {
 // changes no code. Only Mako's own agents get it: you hand the remarks to their chat from the board.
 type Reviewer struct {
 	Model string // "" — the agents' model
+	// Comments: where its remarks and the agent's answers on them go as comments: "issue", "mr", "both";
+	// "" — nowhere, they stay on the board. «mr» with no MR yet goes to the issue.
+	Comments string
+}
+
+// reviewComments: the setting's value, "" for anything else.
+func reviewComments(s string) string {
+	switch s = strings.TrimSpace(s); s {
+	case "issue", "mr", "both":
+		return s
+	}
+	return ""
 }
 
 // Notifications' AutoTakeOnly.
@@ -316,7 +328,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			Off:          map[string]bool{},
 		},
 		Orca:          Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
-		Reviewer:      Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model)},
+		Reviewer:      Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model), Comments: reviewComments(raw.AgentReview.Comments)},
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
@@ -590,7 +602,8 @@ type rawConfig struct {
 		OnReview Localized `json:"onReview"`
 	} `json:"comments"`
 	AgentReview struct {
-		Model string `json:"model"`
+		Model    string `json:"model"`
+		Comments string `json:"comments"`
 	} `json:"agentReview"`
 	Estimate struct {
 		Enabled  *bool `json:"enabled"`

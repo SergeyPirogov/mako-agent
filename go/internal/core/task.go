@@ -274,7 +274,64 @@ type AgentReview struct {
 	Error  string `json:"error,omitempty"`
 	// Sent: the remarks went to the agent, by your «Виправити».
 	Sent bool `json:"sent,omitempty"`
+	// Remarks: the round's numbered remarks (R1, R2… across the task's rounds); none in rounds of older versions
+	// of Mako or when the reviewer did not keep to the format: then Notes is all there is.
+	Remarks []Remark `json:"remarks,omitempty"`
+	// Checks: what this round says of the earlier rounds' remarks, after the agent's fixes.
+	Checks []Check `json:"checks,omitempty"`
+	// SentHead: the branch's HEAD when «Виправити» handed the remarks over, to tell whether the agent committed.
+	SentHead string `json:"sentHead,omitempty"`
+	// Reply: the agent's report on the remarks, as it wrote it; ReplyAt when Mako read it.
+	Reply   string `json:"reply,omitempty"`
+	ReplyAt string `json:"replyAt,omitempty"`
+	// Asked: the agent ended its turn with no report, and Mako asked it once to write one.
+	Asked bool `json:"asked,omitempty"`
+	// Unverified: the agent says it fixed some remark, but the branch has no new commit since «Виправити».
+	Unverified bool `json:"unverified,omitempty"`
+	// The comments Mako left in the tracker: the remarks in the issue and in the MR, the agent's report.
+	CommentURL   string `json:"commentUrl,omitempty"`
+	MRCommentURL string `json:"mrCommentUrl,omitempty"`
+	ReplyURL     string `json:"replyUrl,omitempty"`
+	// Escalated: the rounds ran out with remarks still open: the decision is a person's now.
+	Escalated bool `json:"escalated,omitempty"`
 }
+
+// A Remark is one numbered remark of the reviewer, with what the agent answered on it.
+type Remark struct {
+	ID     string `json:"id"`     // "R1"
+	Weight string `json:"weight"` // "must" or "should"
+	File   string `json:"file,omitempty"`
+	Line   int    `json:"line,omitempty"`
+	Text   string `json:"text"`
+	// Reply: the agent's "fixed", "not" (not fixed, ReplyNote says why) or "partial"; "" with no report yet.
+	Reply     string `json:"reply,omitempty"`
+	ReplyNote string `json:"replyNote,omitempty"`
+	// Again: an earlier round's remark this round found still open, carried over for the agent once more.
+	Again bool `json:"again,omitempty"`
+}
+
+// A Check is the next round's verdict on an earlier remark: "closed", "open" or "accepted" (the explanation).
+type Check struct {
+	ID      string `json:"id"`
+	Verdict string `json:"verdict"`
+	Note    string `json:"note,omitempty"`
+}
+
+// Remark weights, replies and verdicts.
+const (
+	Must         = "must"
+	Should       = "should"
+	Fixed        = "fixed"
+	NotFixed     = "not"
+	Partly       = "partial"
+	Closed       = "closed"
+	Open         = "open"
+	Accepted     = "accepted"
+	ReviewRounds = 2 // the reviewer's rounds over a task before a person decides
+)
+
+// Resolved: the verdict closes the remark.
+func (c Check) Resolved() bool { return c.Verdict == Closed || c.Verdict == Accepted }
 
 // Lesson is a rule for the repo's next agents, drawn from what you told one of them.
 type Lesson struct {

@@ -86,6 +86,9 @@ func (d *Dispatcher) ReviewNow(id string) error {
 	if seen(r.AgentReviews, head) {
 		return errors.New("рецензент уже бачив цей коміт: агент не змінив гілку після останнього рев'ю")
 	}
+	if outOfRounds(r) {
+		return errors.New("раунди рев'ю агентом скінчились, а зауваження лишились: рішення за людиною")
+	}
 	d.mu.Lock()
 	busy := d.reviewing[id]
 	d.reviewing[id] = true
@@ -149,21 +152,69 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	d.Log(id, "рецензент переглядає гілку")
 	cfg := d.Config()
 	model := firstOf(cfg.Reviewer.Model, r.Model, cfg.Terminal.Model)
-	notes, err := ReviewBranch(d.spending(ctx, r.ID, core.PhaseReview), wt, base, r.Task, model)
+	prior := core.OpenRemarks(r.AgentReviews)
+	notes, err := ReviewBranch(d.spending(ctx, r.ID, core.PhaseReview), wt, base, r.Task, model, prior)
 	link := d.BoardURL + "/#" + id
-	switch {
-	case err != nil:
+	if err != nil {
 		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "failed", Error: err.Error()})
 		d.Fault(id, "рецензент не впорався", err)
-	case notes == "":
-		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "clean"})
+		return
+	}
+	a := judge(notes, prior, core.NextRemark(r.AgentReviews))
+	a.At, a.Commit = now(), head
+	if a.State == "clean" {
 		d.Log(id, "рецензент не має зауважень: рев'ю агентом пройдено")
 		notify.Inform(notify.AgentReview, i18n.T("notify.reviewPassed", id), r.Task.Title, link)
-	default:
-		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "notes", Notes: notes})
+	} else {
 		d.Log(id, "рецензент залишив зауваження: вони в задачі, «Виправити» передасть їх агенту")
 		notify.Inform(notify.AgentReview, i18n.T("notify.reviewNotes", id), clipText(firstLine(notes), 140), link)
 	}
+	rounds := core.ReviewedRounds(r.AgentReviews)
+	if a.Structured() || a.State == "clean" {
+		rounds++
+	}
+	a.Escalated = a.State == "notes" && a.Structured() && rounds >= core.ReviewRounds
+	d.setReview(id, a)
+	d.publishReview(ctx, id, rounds)
+}
+
+// judge: the round from the reviewer's answer: its numbered remarks (numbered from next), its verdicts on the
+// earlier ones, and whether it is clean. An answer out of the format stays as it is, a round with remarks.
+func judge(notes string, prior []core.Remark, next int) core.AgentReview {
+	if notes == "" {
+		return core.AgentReview{State: "clean"}
+	}
+	known, byID := map[string]bool{}, map[string]core.Remark{}
+	for _, p := range prior {
+		known[p.ID], byID[p.ID] = true, p
+	}
+	a := core.AgentReview{
+		Notes:   notes,
+		Remarks: writer.Numbered(writer.ParseRemarks(notes), next),
+		Checks:  writer.ParseChecks(notes, known),
+	}
+	// What it found still open goes to the agent again, under its number.
+	for _, c := range a.Checks {
+		if c.Verdict == core.Open {
+			p := byID[c.ID]
+			p.Reply, p.ReplyNote, p.Again = "", "", true
+			if c.Note != "" {
+				p.Text += "\n" + i18n.T("review.open") + ": " + c.Note
+			}
+			a.Remarks = append(a.Remarks, p)
+		}
+	}
+	a.State = "notes"
+	if a.Structured() && writer.Clean(a.Remarks) {
+		a.State = "clean"
+	}
+	return a
+}
+
+// outOfRounds: the task's rounds ran out with remarks still open: the reviewer starts no more.
+func outOfRounds(r core.Record) bool {
+	last := lastReview(r)
+	return last.State == "notes" && last.Escalated
 }
 
 // FixReview is the board's «Виправити»: the reviewer's last remarks go to the agent, once.
@@ -197,7 +248,24 @@ func (d *Dispatcher) FixReview(id string) error {
 		}
 		return errors.New("немає зауважень рецензента")
 	}
-	if err := d.tellAgent(id, reviewRequest(last.Notes, branchOf(r), d.pushes(r))); err != nil {
+	head := ""
+	if wt, _, err := d.workOf(id); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		head, _ = gitx.Run(ctx, wt, "rev-parse", "HEAD")
+		cancel()
+	}
+	d.Store.Update(id, func(r *core.Record) {
+		if n := len(r.AgentReviews); n > 0 && r.AgentReviews[n-1].Commit == last.Commit {
+			r.AgentReviews = withLast(r.AgentReviews, func(a *core.AgentReview) { a.SentHead = strings.TrimSpace(head) })
+		}
+	})
+	d.mu.Lock()
+	d.fixing[id] = time.Now()
+	d.mu.Unlock()
+	if err := d.tellAgent(id, reviewRequest(last, branchOf(r), d.pushes(r))); err != nil {
+		d.mu.Lock()
+		delete(d.fixing, id)
+		d.mu.Unlock()
 		d.Store.Update(id, func(r *core.Record) {
 			if n := len(r.AgentReviews); n > 0 && r.AgentReviews[n-1].Commit == last.Commit {
 				r.AgentReviews = markSent(r.AgentReviews, false)
@@ -209,17 +277,26 @@ func (d *Dispatcher) FixReview(id string) error {
 	return nil
 }
 
+// withLast: the rounds with the last one changed by f, in a new slice: the copies Store.Get gave out share the old.
+func withLast(list []core.AgentReview, f func(*core.AgentReview)) []core.AgentReview {
+	out := append([]core.AgentReview(nil), list...)
+	last := out[len(out)-1]
+	last.Remarks = append([]core.Remark(nil), last.Remarks...)
+	f(&last)
+	out[len(out)-1] = last
+	return out
+}
+
 // markSent: the rounds with the last one's Sent set, in a new slice: the copies Store.Get gave out share the old.
 func markSent(list []core.AgentReview, sent bool) []core.AgentReview {
-	out := append([]core.AgentReview(nil), list...)
-	out[len(out)-1].Sent = sent
-	return out
+	return withLast(list, func(a *core.AgentReview) { a.Sent = sent })
 }
 
 // ReviewStep: what the board offers about the reviewer: "running" (it reads the branch); "notes" (its remarks
 // wait for your «Виправити»); "fixing" (the agent works on them); "ready" (the button can start a round: the
-// agent is idle and the branch is ready and not read at this commit); "idle" (the agent is idle, with nothing
-// new for the reviewer); "" (the task is not for it).
+// agent is idle and the branch is ready and not read at this commit); "human" (the rounds ran out with remarks
+// open: a person decides); "idle" (the agent is idle, with nothing new for the reviewer); "" (the task is not
+// for it).
 func (d *Dispatcher) ReviewStep(r core.Record) string {
 	if !reviewable(r) {
 		return ""
@@ -240,6 +317,9 @@ func (d *Dispatcher) ReviewStep(r core.Record) string {
 	}
 	if last.State == "notes" && !last.Sent {
 		return "notes"
+	}
+	if outOfRounds(r) {
+		return "human"
 	}
 	head, ready := d.lookBranch(r)
 	if !ready || seen(r.AgentReviews, head) {
@@ -340,11 +420,15 @@ func readyBranch(ctx context.Context, wt, base, branch string, pushed bool) (str
 	return head, true
 }
 
-// reviewRequest: the reviewer's remarks, as Mako hands them to the agent.
-func reviewRequest(notes, branch string, push bool) string {
+// reviewRequest: the reviewer's remarks, as Mako hands them to the agent: numbered, with the report it ends
+// with; a round out of the format as the reviewer wrote it.
+func reviewRequest(a core.AgentReview, branch string, push bool) string {
 	end := i18n.T("agent.reviewCommit")
 	if push {
 		end = i18n.T("agent.reviewCommitPush", branch)
 	}
-	return i18n.T("agent.reviewNotes", branch) + "\n\n" + strings.TrimSpace(notes) + "\n\n" + i18n.T("agent.reviewFix", end)
+	if len(a.Remarks) == 0 {
+		return i18n.T("agent.reviewNotes", branch) + "\n\n" + strings.TrimSpace(a.Notes) + "\n\n" + i18n.T("agent.reviewFix", end)
+	}
+	return i18n.T("agent.reviewNotes", branch) + "\n\n" + writer.RemarksList(a.Remarks) + "\n\n" + i18n.T("agent.reviewFix", end) + "\n\n" + i18n.T("agent.reviewReport")
 }
