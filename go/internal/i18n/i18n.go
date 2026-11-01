@@ -4,6 +4,7 @@ package i18n
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"unicode"
@@ -102,30 +103,61 @@ func Plural(n int, one, few, many string) string {
 	return many
 }
 
-// IsRussian says the text is written in Russian: it has none of the letters Russian lacks (і, ї, є, ґ) while
-// having the ones Ukrainian lacks (ы, э, ъ, ё) or being long enough to tell, or far more of the first. A word or two quoted in a Ukrainian or English
-// task does not count, nor does a text too short to tell or one mostly in Latin letters.
+// IsRussian says the task is written in Russian, word by word. Code, quotes («…», "…") and quoted lines (> …)
+// are left out: a log, an error or a user's message pasted into a task is not how its author writes. A text with
+// a few Ukrainian words (і, ї, є, ґ, or що, як, або…) is Ukrainian, whatever it quotes; one too short to tell or
+// mostly in Latin letters is not Russian. The rest is Russian when its words have the marks of Russian (ы, э, ъ,
+// ё, и, что, это, the infinitives in -ать, -ить…) or when it is long and has nothing Ukrainian in it.
 func IsRussian(text string) bool {
-	russian, ukrainian, cyrillic, letters := 0, 0, 0, 0
-	for _, r := range strings.ToLower(text) {
-		if unicode.IsLetter(r) {
-			letters++
+	text = quoted.ReplaceAllString(text, " ")
+	russian, ukrainian, cyrillic, latin := 0, 0, 0, 0
+	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && r != '\'' && r != 'ʼ' }) {
+		w = strings.Trim(w, "'ʼ")
+		if w == "" {
+			continue
 		}
-		switch r {
-		case 'ы', 'э', 'ъ', 'ё':
-			russian++
-		case 'і', 'ї', 'є', 'ґ':
+		if !unicode.Is(unicode.Cyrillic, []rune(w)[0]) {
+			latin++
+			continue
+		}
+		cyrillic++
+		switch {
+		case strings.ContainsAny(w, "іїєґ") || ukrainianWords[w]:
 			ukrainian++
-		}
-		if unicode.Is(unicode.Cyrillic, r) {
-			cyrillic++
+		case strings.ContainsAny(w, "ыэъё") || russianWords[w] || len([]rune(w)) > 4 && hasAnySuffix(w, "ать", "ять", "ить", "еть"):
+			russian++
 		}
 	}
-	if cyrillic < 20 || cyrillic*2 < letters { // too short to tell, or mostly not Cyrillic: an English task
+	if cyrillic < 4 || cyrillic*2 < cyrillic+latin || ukrainian >= 3 {
 		return false
 	}
-	// Ukrainian of 40 Cyrillic letters or more practically always has і, ї or є: without them it is Russian.
-	return ukrainian == 0 && (russian >= 1 || cyrillic >= 40) || russian >= 3 && russian > 2*ukrainian
+	return russian >= 2 || russian >= 1 && ukrainian == 0 || cyrillic >= 8 && ukrainian == 0
+}
+
+// quoted: what a task quotes rather than says — code blocks, `code`, «…», "…", “…” and lines starting with >.
+var quoted = regexp.MustCompile("(?s)```.*?```|`[^`\n]*`|«[^»]*»|\"[^\"\n]*\"|“[^”]*”|(?m)^\\s*>.*$")
+
+// Words only one of the two languages has.
+var (
+	russianWords   = setOf("и", "что", "это", "как", "или", "если", "чтобы", "когда", "нужно", "надо", "также", "только", "есть", "его", "был", "была", "было", "были", "они", "она", "он", "ничего", "сейчас", "здесь", "где", "почему", "потому")
+	ukrainianWords = setOf("й", "що", "як", "або", "це", "щоб", "треба", "має", "мають", "та", "яке", "якою", "який", "яка", "коли", "також", "тільки", "лише", "він", "вона", "вони", "ми", "ви", "бути", "буде", "його", "зараз", "тут", "де", "чому", "тому", "додай", "зроби", "нема", "немає")
+)
+
+func setOf(words ...string) map[string]bool {
+	m := make(map[string]bool, len(words))
+	for _, w := range words {
+		m[w] = true
+	}
+	return m
+}
+
+func hasAnySuffix(s string, suffixes ...string) bool {
+	for _, x := range suffixes {
+		if strings.HasSuffix(s, x) {
+			return true
+		}
+	}
+	return false
 }
 
 // AgentNote: what every agent is told about the language it writes in — the replies, comments, commits and
@@ -136,6 +168,7 @@ func AgentNote(lang string) string {
 		"Write everything people read in " + name + ": your replies, questions, comments, commit messages, and the merge\n" +
 		"request's title and description. The section headings named in English below (## What changed and the like)\n" +
 		"are written in " + name + " too. Code, identifiers and commands stay as they are.\n" +
-		"If the task is written in Russian, do not work on it and change nothing: reply, in " + name + ", that it has to be\n" +
-		"rewritten in English or Ukrainian, and stop."
+		"If the task itself is written in Russian, do not work on it and change nothing: reply, in " + name + ", that it has\n" +
+		"to be rewritten in English or Ukrainian, and stop. Russian quotes, logs, error messages or interface texts in a\n" +
+		"task written in another language are no reason to stop."
 }

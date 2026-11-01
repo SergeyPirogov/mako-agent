@@ -102,6 +102,7 @@ var goStrings = map[string][2]string{
 	"comment.rewrite": {"This task is written in Russian. Mako does not take tasks in Russian: please rewrite it in English or Ukrainian, then take it again from Mako's board.",
 		"Задачу написано російською. Mako не бере задачі російською: перепишіть її, будь ласка, англійською або українською, а тоді візьміть її знову з дошки Mako."},
 	"task.russian":       {"The task is written in Russian: asked in the issue to rewrite it in English or Ukrainian. Once it is rewritten, take it again", "Задачу написано російською: у задачі попрошено переписати її англійською або українською. Коли перепишуть — візьміть її знову"},
+	"summary.whatDone":   {"## What was done", "## Що зроблено"},
 	"summary.howChecked": {"## How it was checked", "## Як перевірено"},
 	"summary.lookAt":     {"## Worth a look", "## На що звернути увагу"},
 	"problem.language":   {"language %q: Mako speaks «en» or «uk»; English for now", "language %q: Mako знає «en» або «uk»; поки що англійська"},

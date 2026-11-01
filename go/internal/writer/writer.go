@@ -170,7 +170,7 @@ func TaskSummary(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	return Ask(ctx, worktree, strings.Join([]string{
 		"Summarize, in " + lang() + ", what was done for this task, for the developer who will read it later on a task board.",
 		"Use Markdown with these sections, each short (bullets, at most ~6 per section), skipping a section that has nothing:",
-		i18n.T("mr.whatChanged"),
+		i18n.T("summary.whatDone"),
 		i18n.T("summary.howChecked"),
 		i18n.T("summary.lookAt") + " (open questions, risks, follow-ups, anything left undone)",
 		"Base it on the end of the agent's terminal session and the actual changes below. Do not invent checks that are not mentioned. Answer with the summary only.",

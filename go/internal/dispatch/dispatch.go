@@ -719,15 +719,25 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 }
 
 // refuseRussian: a task written in Russian is not worked on; the issue asks for it in English or Ukrainian, and
-// the task fails until it is rewritten and taken again.
+// the task fails until it is rewritten and taken again. A start cancelled meanwhile is only cancelled: no
+// comment, no notification.
 func (d *Dispatcher) refuseRussian(ctx context.Context, t trackers.Tracker, id string, task core.Task) {
+	if ctx.Err() != nil {
+		d.cancelled(ctx, id, "", "", "", false)
+		return
+	}
 	why := i18n.T("task.russian")
-	d.Log(id, why)
+	refused := false
 	d.Store.Update(id, func(r *core.Record) {
 		if r.Status == core.Queued {
 			r.Status, r.Error, r.FinishedAt = core.Failed, why, now()
+			refused = true
 		}
 	})
+	if !refused {
+		return
+	}
+	d.Log(id, why)
 	if err := t.Comment(ctx, task, i18n.T("comment.rewrite")); err != nil {
 		d.Fault(id, "коментар про мову не додано", err)
 	}

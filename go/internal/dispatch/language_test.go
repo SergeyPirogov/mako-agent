@@ -42,6 +42,7 @@ func TestRussianTaskRefused(t *testing.T) {
 func TestRussianWordsDoNotRefuse(t *testing.T) {
 	for _, task := range [][2]string{
 		{"Помилка «Объект не найден» у логах", "Після оновлення в логах сервісу з'являється «Объект не найден. Проверьте ещё раз». Треба розібратися, звідки вона береться."},
+		{"Не працює вхід після оновлення", "Користувач пише, що після оновлення не працює вхід. Ось його скарга: Здравствуйте, после обновления я не могу войти в личный кабинет, пишет что пароль неверный, хотя он правильный. Это уже третий раз, исправьте пожалуйста."},
 		{"The «Подтвердить» button does nothing", "In the Russian locale the «Купить сыр» and «Подтвердить заказ» buttons do nothing when clicked."},
 	} {
 		d, f, jobs := setup(t)
@@ -53,5 +54,26 @@ func TestRussianWordsDoNotRefuse(t *testing.T) {
 		if r, _ := d.Store.Get("grp/app#5"); r.Status != core.HandedOff || len(*jobs) != 1 {
 			t.Errorf("%q: status %s, error %q", task[0], r.Status, r.Error)
 		}
+	}
+}
+
+// A start cancelled while the task was read again is only cancelled: no comment about the language, no failure.
+func TestRussianRefusalAfterCancel(t *testing.T) {
+	d, f, _ := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	d.Poll(context.Background())
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status = core.Queued })
+	cancel()
+	r, _ := d.Store.Get("grp/app#5")
+	d.refuseRussian(ctx, d.tracker(r.Task.TrackerID), r.ID, r.Task)
+	if r, _ = d.Store.Get("grp/app#5"); r.Status == core.Failed || len(f.notes) != 0 {
+		t.Fatalf("status %s, notes %v", r.Status, f.notes)
+	}
+
+	// Cancelled on the board (no longer queued) while the context still runs: nothing either.
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status = core.Cancelled })
+	d.refuseRussian(context.Background(), d.tracker(r.Task.TrackerID), r.ID, r.Task)
+	if r, _ = d.Store.Get("grp/app#5"); r.Status != core.Cancelled || len(f.notes) != 0 {
+		t.Fatalf("status %s, notes %v", r.Status, f.notes)
 	}
 }
