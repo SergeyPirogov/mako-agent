@@ -195,6 +195,18 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--faint); }
 .legend i.merged { background: var(--ok); }
 .legend i.failed { background: var(--err); }
+h4.sub { font-size: 12px; font-weight: 600; color: var(--mute); margin: 14px 0 6px; }
+.heavy-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 16px; }
+.facts.heavy { grid-template-columns: 48px 1fr; font-size: 12px; }
+.facts.heavy code { font-size: 11px; }
+.ctx-chart { display: block; width: 100%; height: 120px; margin-top: 6px; overflow: visible; }
+.ctx-chart polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.ctx-chart line { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.ctx-chart line.compact { stroke: var(--warn); }
+.ctx-chart .hits rect { fill: transparent; }
+.ctx-chart .hits rect:hover { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
+.ctx-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--mute); margin-top: 4px; }
+.ctx-facts { flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 8px; }
 .stage-bar { display: flex; gap: 2px; height: 14px; margin-top: 10px; border-radius: 4px; overflow: hidden; }
 .stage-bar i { display: block; min-width: 3px; }
 .stage-bar i.s-agent, .legend i.s-agent { background: var(--accent); }

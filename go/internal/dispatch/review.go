@@ -166,7 +166,16 @@ func (d *Dispatcher) spending(ctx context.Context, id, phase string) context.Con
 		if _, ok := d.Store.Get(id); !ok { // gone meanwhile: Update would make it again
 			return
 		}
-		d.Store.Update(id, func(r *core.Record) { r.AddSpend(phase, s.USD, s.Tokens) })
+		d.Store.Update(id, func(r *core.Record) {
+			r.AddSpend(phase, s.USD, s.Tokens)
+			if phase == core.PhaseWork { // Mako's notes on the work (summary, MR text): not the agent's context
+				return
+			}
+			for _, run := range s.Context {
+				run.Phase = phase
+				r.SetContext(run)
+			}
+		})
 	})
 }
 

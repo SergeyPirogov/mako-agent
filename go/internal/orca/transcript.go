@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -80,6 +81,9 @@ func Transcript(worktree, sessionID string) string {
 
 // HasSession: Claude Code kept the session sessionID of worktree, so `claude --resume` has it to go on.
 func HasSession(worktree, sessionID string) bool { return sessionFile(worktree, sessionID) != "" }
+
+// SessionFile: the transcript of Claude Code's session sessionID in worktree, "" when it is not kept.
+func SessionFile(worktree, sessionID string) string { return sessionFile(worktree, sessionID) }
 
 func sessionFile(worktree, sessionID string) string {
 	if sessionID == "" || strings.ContainsAny(sessionID, `/\.`) {
@@ -249,6 +253,29 @@ func storeConv(path string, c conversationCache) {
 		}
 		delete(convCache, oldest)
 	}
+}
+
+// Transcripts: the transcripts of the sessions started in worktree, the oldest first; not the subagents' ones.
+func Transcripts(worktree string) []string {
+	type file struct {
+		path string
+		mod  time.Time
+	}
+	var files []file
+	for _, dir := range claudeProjectDirs(worktree) {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if info, err := e.Info(); err == nil && !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
+				files = append(files, file{filepath.Join(dir, e.Name()), info.ModTime()})
+			}
+		}
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mod.Before(files[j].mod) })
+	out := make([]string, len(files))
+	for i, f := range files {
+		out[i] = f.path
+	}
+	return out
 }
 
 // newestSession: the newest Claude Code transcript of a session started in worktree.

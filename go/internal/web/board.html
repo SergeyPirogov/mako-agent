@@ -1972,6 +1972,7 @@ function statsHTML(s) {
       ${s.merged ? tile("Правки коментарів", (s.reviewFixes || 0).toFixed(1), "раундів на змерджену") : ""}
     </div>
     ${phasesHTML(s)}
+    ${contextHTML(s.context)}
     ${s.assessed ? `<h3>Оцінка агента <span class="muted">· ${s.assessed} ${plural(s.assessed, "задача", "задачі", "задач")}</span></h3>
     <div class="stat-row">
       ${tile("Опис задач", `${s.clarity.toFixed(1)}/5`, "наскільки добре описано")}
@@ -1987,7 +1988,7 @@ function statsHTML(s) {
     ${groupsHTML("За моделями", [...(s.models || []).filter((g) => g.name !== "—"), ...(s.models || []).filter((g) => g.name === "—")], "Модель", (n) => n === "—" ? "Невідома" : n[0].toUpperCase() + n.slice(1), 1)}
     <h3>Причини невдач</h3>
     ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">Невдач не було</div>`}
-    <p class="stats-note">«Без переробок» — змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось. «Від взяття до мерджу» — від передачі агенту до мерджу MR; «Агент до MR» — до відкриття MR, рев'ю — від MR до мерджу. «Де йде час» — у середньому на змерджену задачу: агент працює, чекає на вас (питання, дозвіл, план, його хід закінчено), MR чекає на CI, MR чекає на рев'ю й мердж. «Витрачено агентом», «≈ на задачу» й витрати в таблицях — лише робота й план агента у Mako: агент в Orca своїх витрат не повідомляє. Оцінка, рев'ю агента, оцінка й ретро — окремо, у «На що витрачено», для всіх задач. Етапи часу йдуть від передачі агенту; час рев'ю агента до MR — це час агента. Токени — усе, що модель прочитала й написала, з кешем. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
+    <p class="stats-note">«Без переробок» — змерджено без «Повторити інакше», нових спроб і правок після рев'ю, з тих, що змерджено або не вдалось. «Від взяття до мерджу» — від передачі агенту до мерджу MR; «Агент до MR» — до відкриття MR, рев'ю — від MR до мерджу. «Де йде час» — у середньому на змерджену задачу: агент працює, чекає на вас (питання, дозвіл, план, його хід закінчено), MR чекає на CI, MR чекає на рев'ю й мердж. «Витрачено агентом», «≈ на задачу» й витрати в таблицях — лише робота й план агента у Mako: агент в Orca своїх витрат не повідомляє. Оцінка, рев'ю агента, оцінка й ретро — окремо, у «На що витрачено», для всіх задач. Етапи часу йдуть від передачі агенту; час рев'ю агента до MR — це час агента. Токени — усе, що модель прочитала й написала, з кешем. «Контекст» — з usage кожного виклику моделі: старт — перший виклик (системний промпт, інструменти, MCP, CLAUDE.md, памʼять і промпт задачі), пік — найбільший; «Що займає контекст» — приріст між викликами, поділений між результатами інструментів за їхнім розміром, тож приблизно. За моделями задача рахується за моделлю останньої спроби, разом з усім її бюджетом.</p>
   </div>`;
 }
 
@@ -2110,6 +2111,100 @@ function phasesHTML(s) {
   const tile = (k) => `<div class="stat"><span>${PHASE_NAMES[k]}</span><b>${s.phases[k] ? `$${s.phases[k].toFixed(2)}` : "—"}</b>`
     + `<small>${s.phaseTokens?.[k] ? `${tok(s.phaseTokens[k])} токенів` : ""}${s.cost && s.phases[k] ? ` · ${Math.round((s.phases[k] / s.cost) * 100)}%` : ""}</small></div>`;
   return `<h3>На що витрачено</h3><div class="stat-row small">${phases.map(tile).join("")}</div>`;
+}
+
+// The phases of the context, in the order the board shows them: the ones that have runs.
+const ctxPhases = (phases) => Object.keys(PHASE_NAMES).filter((k) => phases?.[k]?.runs);
+// The cache's share of all the input: what was read from it, of everything the model read.
+const cacheShare = (p) => { const all = (p.input || 0) + (p.cacheRead || 0) + (p.cacheCreate || 0); return all ? p.cacheRead / all : 0; };
+const pctText = (x) => `${Math.round(x * 100)}%`;
+
+// How the agents' context filled over the period: the start, the peak, the compactions and the cache, by phase;
+// what filled it, by tool; the heaviest files and commands.
+function contextHTML(c) {
+  const phases = ctxPhases(c?.phases);
+  if (!phases.length) return "";
+  const main = c.phases.work ? "work" : phases[0], p = c.phases[main];
+  const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+  const tiles = `<div class="stat-row small">
+      ${tile("Стартовий контекст", tok(Math.round(p.start)), `медіана${p.prompt ? ` · промпт задачі ≈ ${tok(Math.round(p.prompt))}` : ""}`)}
+      ${tile("Пік контексту", tok(Math.round(p.peak)), `медіана${p.peakShare ? ` · ${pctText(p.peakShare)} вікна` : ""} · найбільший ${tok(p.maxPeak)}`)}
+      ${tile("Компакції", p.compactions, `${p.compacted} з ${p.runs} ${plural(p.runs, "сесії", "сесій", "сесій")}`)}
+      ${tile("Кеш", pctText(cacheShare(p)), "прочитано з кешу, від усього вхідного")}
+    </div>`;
+  const row = (k) => { const x = c.phases[k]; return `<tr><td>${PHASE_NAMES[k]}</td><td>${x.runs}</td><td>${tok(Math.round(x.start))}</td>`
+    + `<td>${tok(Math.round(x.peak))}${x.peakShare ? ` <span class="muted">· ${pctText(x.peakShare)}</span>` : ""}</td><td>${x.compactions || "—"}</td><td>${pctText(cacheShare(x))}</td></tr>`; };
+  const byPhase = phases.length > 1 ? `<div class="table"><table><thead><tr><th>Фаза</th><th>Сесій</th><th title="Медіана: системний промпт, інструменти, MCP, CLAUDE.md, памʼять і промпт">Старт</th><th title="Медіана, частка вікна моделі">Пік</th><th>Компакції</th><th>Кеш</th></tr></thead><tbody>${phases.map(row).join("")}</tbody></table></div>` : "";
+  return `<h3>Контекст <span class="muted">· ${PHASE_NAMES[main]}</span></h3>${tiles}${byPhase}${toolsTable(phases, (k) => c.phases[k].tools)}${heavyHTML(c.files, c.commands)}`;
+}
+
+// What filled the context, by tool, in each phase: the growth between the model's calls split by the size of
+// what came in.
+function toolsTable(phases, toolsOf) {
+  const total = {};
+  for (const k of phases) for (const [t, n] of Object.entries(toolsOf(k) || {})) total[t] = (total[t] || 0) + n;
+  const tools = Object.keys(total).filter((t) => total[t] > 0).sort((a, b) => total[b] - total[a]);
+  if (!tools.length) return "";
+  const sum = tools.reduce((n, t) => n + total[t], 0);
+  const multi = phases.length > 1;
+  const row = (t) => `<tr><td>${esc(t)}</td>${multi ? phases.map((k) => `<td>${toolsOf(k)?.[t] ? tok(toolsOf(k)[t]) : "—"}</td>`).join("") : ""}<td>${tok(total[t])} <span class="muted">· ${pctText(total[t] / sum)}</span></td></tr>`;
+  return `<h4 class="sub">Що займає контекст</h4><div class="table"><table><thead><tr><th>Що</th>${multi ? phases.map((k) => `<th>${PHASE_NAMES[k]}</th>`).join("") : ""}<th>Усього</th></tr></thead><tbody>${tools.map(row).join("")}</tbody></table></div>`;
+}
+
+// The heaviest files read and the commands with the largest output.
+function heavyHTML(files, commands) {
+  const list = (title, hs, what) => hs?.length ? `<div><h4 class="sub">${title}</h4><dl class="facts heavy">${hs.map((h) => `<dt>${tok(h.tokens)}</dt><dd><code title="${esc(h.name)}">${esc(h.name.length > 90 ? "…" + h.name.slice(-89) : h.name)}</code> <span class="muted">· ${h.count} ${what(h.count)}</span></dd>`).join("")}</dl></div>` : "";
+  const body = list("Найважчі файли", files, (n) => plural(n, "читання", "читання", "читань")) + list("Найважчі команди", commands, (n) => plural(n, "запуск", "запуски", "запусків"));
+  return body ? `<div class="heavy-lists">${body}</div>` : "";
+}
+
+// The task's context: a line of it over the model's calls (plan, then work) with the compactions marked, its
+// numbers by phase, what filled it and its heaviest files and commands.
+function contextCardHTML(r, card) {
+  const runs = r.metrics?.context || [];
+  if (!runs.length) return "";
+  const agent = runs.filter((x) => x.phase === "plan" || x.phase === "work");
+  const byPhase = {};
+  for (const x of runs) {
+    const p = byPhase[x.phase] ||= { runs: 0, start: x.start, peak: 0, window: 0, compactions: 0, input: 0, cacheRead: 0, cacheCreate: 0, tools: {} };
+    p.runs++; p.peak = Math.max(p.peak, x.peak); p.window = Math.max(p.window, x.window || 0); p.compactions += x.compactions || 0;
+    p.input += x.input || 0; p.cacheRead += x.cacheRead || 0; p.cacheCreate += x.cacheCreate || 0;
+    for (const [t, n] of Object.entries(x.tools || {})) p.tools[t] = (p.tools[t] || 0) + n;
+  }
+  const phases = Object.keys(PHASE_NAMES).filter((k) => byPhase[k]);
+  const facts = phases.map((k) => { const p = byPhase[k];
+    return `<span>${PHASE_NAMES[k]}: старт <b>${tok(p.start)}</b> · пік <b>${tok(p.peak)}</b>${p.window ? ` <span class="muted">(${pctText(p.peak / p.window)} вікна)</span>` : ""}`
+      + `${p.compactions ? ` · компакцій <b>${p.compactions}</b>` : ""} · кеш <b>${pctText(cacheShare(p))}</b></span>`; }).join("");
+  const merge = (key) => { const m = {}; for (const x of runs) for (const h of x[key] || []) { const v = m[h.name] ||= { name: h.name, count: 0, tokens: 0 }; v.count += h.count; v.tokens += h.tokens; }
+    return Object.values(m).sort((a, b) => b.tokens - a.tokens || b.count - a.count).slice(0, 10); };
+  const peak = Math.max(...runs.map((x) => x.peak));
+  const note = `пік ${tok(peak)}` + (runs.some((x) => x.compactions) ? ` · компакцій ${runs.reduce((n, x) => n + (x.compactions || 0), 0)}` : "");
+  return card("Контекст", `<div class="tcard-b">${contextChart(agent)}<div class="legend stage-legend ctx-facts">${facts}</div>`
+    + `${toolsTable(phases, (k) => byPhase[k].tools)}${heavyHTML(merge("files"), merge("commands"))}</div>`, "context", note);
+}
+
+// The context over the model's calls of the agent's runs, one after another, a dashed line at each compaction and
+// where a run follows another (the plan's approval, a new session); each point tells its numbers on hover.
+function contextChart(runs) {
+  const steps = [], marks = [], bounds = [];
+  runs.forEach((x, i) => {
+    // Where one run follows another: the plan approved in the same session, else a new session (a retry, a restart).
+    const prev = runs[i - 1];
+    if (prev) bounds.push([steps.length, prev.phase === "plan" && x.phase === "work" && prev.session && prev.session === x.session]);
+    for (const i of x.compacted || []) marks.push(steps.length + i);
+    steps.push(...(x.steps || []));
+  });
+  if (steps.length < 2) return "";
+  const win = Math.max(...runs.map((x) => x.window || 0));
+  const top = Math.max(...steps) * 1.08 || 1, W = 600, H = 120, n = steps.length;
+  const X = (i) => (i / (n - 1)) * W, Y = (v) => H - (v / top) * H;
+  const line = steps.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const vline = (i, cls, tip) => `<line class="${cls}" x1="${X(i)}" x2="${X(i)}" y1="0" y2="${H}"><title>${tip}</title></line>`;
+  const hits = steps.map((v, i) => `<rect x="${(X(i) - W / n / 2).toFixed(1)}" y="0" width="${(W / n).toFixed(1)}" height="${H}"><title>крок ${i + 1}: ${tok(v)}${win ? ` · ${pctText(v / win)} вікна` : ""}</title></rect>`).join("");
+  return `<svg class="ctx-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Контекст по кроках: найбільше ${tok(Math.max(...steps))}">`
+    + bounds.map(([i, plan]) => vline(i, "bound", plan ? "план затверджено" : "нова сесія")).join("") + marks.map((i) => vline(i, "compact", "компакція")).join("")
+    + `<polyline points="${line}" vector-effect="non-scaling-stroke"/><g class="hits">${hits}</g></svg>`
+    + `<div class="ctx-axis"><span>крок 1</span><span>${tok(Math.max(...steps))} найбільше${marks.length ? " · ┆ компакція" : ""}</span><span>крок ${n}</span></div>`;
 }
 
 // The size the estimate expected before the start against the one the finished task came to.
@@ -2247,6 +2342,7 @@ function renderDetail() {
     ${estimateHTML(r, card)}
     ${checksHTML(r, card)}
     ${cycleHTML(r, card)}
+    ${contextCardHTML(r, card)}
     ${assessmentHTML(r, card)}
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${retroHTML(r, card)}

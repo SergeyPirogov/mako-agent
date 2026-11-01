@@ -2,6 +2,7 @@ package core
 
 import (
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -39,6 +40,12 @@ type Metrics struct {
 	// Cost: USD by phase; Tokens: input and output tokens by phase.
 	Cost   map[string]float64 `json:"cost,omitempty"`
 	Tokens map[string]int     `json:"tokens,omitempty"`
+	// Context: how the agents' sessions filled their context, one run per session and phase.
+	Context []ContextRun `json:"context,omitempty"`
+	// Prompt: ≈ tokens of the prompt Mako handed the agent, the task's own part of its start.
+	Prompt int `json:"prompt,omitempty"`
+	// ContextRead: the transcripts were read for Context once at least, found or not: no need to look back.
+	ContextRead bool `json:"contextRead,omitempty"`
 }
 
 // clone: a copy to change: the store hands out shallow copies of a record, so its maps are never changed in place.
@@ -48,6 +55,7 @@ func (m *Metrics) clone() *Metrics {
 	}
 	c := *m
 	c.Seconds, c.Cost, c.Tokens = maps.Clone(m.Seconds), maps.Clone(m.Cost), maps.Clone(m.Tokens)
+	c.Context = slices.Clone(m.Context)
 	return &c
 }
 

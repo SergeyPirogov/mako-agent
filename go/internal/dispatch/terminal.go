@@ -56,6 +56,7 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 	}
 	j.Checks = gateChecks(cfg, j.Repo)
 	prompt := orca.FullPrompt(j, cfg.Orca)
+	d.notePrompt(j.Task.ID, prompt)
 	var setup *chat.SetupResult
 	if cmd := setupOf(j.Repo, cfg.Terminal, worktree); cmd != "" {
 		d.startPlan(id, terminalExecutor, j.Repo.BaseBranch, true)
@@ -180,6 +181,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 				}
 				r.AddSpend(phase, usd, tokens)
 			})
+			d.recordContextLater(id) // the transcript may be long: not in the way of the conversation
 		},
 	}))
 	return nil
@@ -311,6 +313,7 @@ func (d *Dispatcher) resume(id, message string) error {
 		cfg := d.Config()
 		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo)}
 		prompt, cont = orca.FullPrompt(j, cfg.Orca), false
+		d.notePrompt(id, prompt)
 	}
 	if err := d.runAgent(id, r.Worktree, r.View, prompt, cont, nil); err != nil {
 		return err
