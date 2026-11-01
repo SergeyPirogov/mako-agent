@@ -281,7 +281,8 @@ func (d *Dispatcher) review(id string, manual bool) {
 	}
 	if !asked && !reviewed(r.AgentReviews) && cfg.Reviewer.When != config.ReviewAlways && cfg.Reviewer.When != "" {
 		// The risk comes from the assessment, made once the MR is found: when the agent opens it, wait for it.
-		if r.PRURL == "" && cfg.Orca.MRBy != "me" {
+		// The assessment comes once CI is over: while the task is still handed off with its MR, wait as well.
+		if r.PRURL == "" && cfg.Orca.MRBy != "me" || r.PRURL != "" && r.Status == core.HandedOff {
 			return
 		}
 		skip, wait := riskGate(cfg.Reviewer.When, r.Assessment)

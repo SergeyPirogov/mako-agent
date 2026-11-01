@@ -235,6 +235,12 @@ func TestAgentReviewByRisk(t *testing.T) {
 	if r, _ := d.Store.Get(id); calls.Load() != 0 || len(r.AgentReviews) != 0 {
 		t.Fatalf("calls %d reviews %+v before the MR", calls.Load(), r.AgentReviews)
 	}
+	// The MR is found but CI still runs (the task is handed off, no assessment yet): the reviewer waits as well.
+	d.Store.Update(id, func(r *core.Record) { r.PRURL = "https://example.com/mr/1" })
+	reviewNow(t, d, id)
+	if r, _ := d.Store.Get(id); calls.Load() != 0 || len(r.AgentReviews) != 0 {
+		t.Fatalf("calls %d reviews %+v while CI runs", calls.Load(), r.AgentReviews)
+	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.PRURL = core.Done, "https://example.com/mr/1"
 		r.Assessment = &core.Assessment{At: now(), State: "running"}

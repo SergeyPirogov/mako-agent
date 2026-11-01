@@ -156,8 +156,8 @@ const state = (r) => {
   // Taken but not started yet (the WIP limit or Claude's limit holds it): in «В роботі», but not working.
   if (r.status === "queued") return "queued";
   // The MR is open, its CI still runs: the task stays in work, but it waits for CI and not for the agent.
-  if (r.column === "doing" && r.prUrl && r.status === "handed-off") return "ci";
   const a = agentOf(r);
+  if (r.column === "doing" && r.prUrl && r.status === "handed-off" && (!a || a.state === "done" || a.state === "idle")) return "ci";
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
 // What the card says under its title: where the task is, in words ([text, class: "warn" or "err" or "", tooltip]).
