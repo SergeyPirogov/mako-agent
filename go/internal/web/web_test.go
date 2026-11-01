@@ -161,6 +161,29 @@ func TestBoardDefaultModel(t *testing.T) {
 	}
 }
 
+// A queued task tells the board why it waits; the board has a «запускаю» state for a task being started.
+func TestBoardQueueWhy(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	store.Update("grp/app#1", func(r *core.Record) { r.Status, r.Task = core.HandedOff, core.Task{ID: "grp/app#1", Title: "a"} })
+	store.Update("grp/app#2", func(r *core.Record) { r.Status, r.Task = core.Queued, core.Task{ID: "grp/app#2", Title: "b"} })
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), WipLimit: 1}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	res, _ := http.Get(srv.URL + "/api/state")
+	var st stateReply
+	json.NewDecoder(res.Body).Decode(&st)
+	for _, r := range st.Records {
+		want := map[string]string{"grp/app#2": "WIP-ліміт: 1 з 1 в роботі"}[r.ID]
+		if r.QueueWhy != want || r.Starting != nil {
+			t.Fatalf("%s: queueWhy %q, starting %+v", r.ID, r.QueueWhy, r.Starting)
+		}
+	}
+	res, _ = http.Get(srv.URL + "/")
+	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `starting: "запускаю…"`) {
+		t.Fatal("no «запускаю» on the board")
+	}
+}
+
 func TestSettingsSaveReloads(t *testing.T) {
 	home := t.TempDir()
 	store, _ := state.Open(t.TempDir())

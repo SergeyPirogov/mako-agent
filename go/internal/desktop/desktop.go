@@ -119,6 +119,8 @@ func Snapshot(d *dispatch.Dispatcher, now time.Time) View {
 		status := map[string]string{"new": "нова", "doing": "в роботі", "review": "на рев'ю"}[r.Column(now.UnixMilli())]
 		mark := ""
 		switch {
+		case r.Status == core.Queued && d.Starting(r.ID) != nil:
+			status = "запускаю…"
 		case r.Status == core.Queued:
 			status = "у черзі"
 		case agents[r.ID].State == "waiting":

@@ -73,7 +73,7 @@
 <script src="/vendor/addon-web-links.js"></script>
 <script>
 const COLUMNS = [["new", "Нові"], ["doing", "В роботі"], ["blocked", "Заблоковані"], ["review", "На рев'ю"], ["forme", "Рев'ю для мене"], ["done", "Готово"], ["failed", "Не виконано"]];
-const LABEL = { new: "нова", later: "відкладена", queued: "у черзі", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
+const LABEL = { new: "нова", later: "відкладена", queued: "у черзі", starting: "запускаю…", doing: "в роботі", review: "на рев'ю", done: "готово", failed: "не виконано",
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   "ag-working": "агент працює", "ag-waiting": "чекає на вас", "ag-done": "агент закінчив", "ag-stopped": "агент зупинився",
   "ci": "чекає на CI", "ag-idle": "агент не запущений", "ag-missing": "немає в Orca" };
@@ -86,6 +86,8 @@ const FILTER_FROM = 15;
 let statsDays = localStorage.getItem("mako-stats-days") || "";
 // A phone's width: the list and the task are screens of their own, the right panel a tab.
 const narrow = matchMedia("(max-width: 760px)");
+// skew: how far this clock is from Mako's (a phone's may differ), for the times counted here.
+let skew = 0;
 let data = null, shown = "", selected = null, statsOpen = false, newOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
 // The last changes seen per task: a task opened again shows them at once, while the fresh ones load.
 const changesOf = new Map();
@@ -153,8 +155,8 @@ const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
 // In Orca, the agent's own state says more than «в Orca».
 const state = (r) => {
   if (r.column === "new" && r.postponed) return "later";
-  // Taken but not started yet (the WIP limit or Claude's limit holds it): in «В роботі», but not working.
-  if (r.status === "queued") return "queued";
+  // Taken: Mako prepares its start («запускаю»), or the WIP limit or Claude's limit holds it («у черзі»).
+  if (r.status === "queued") return r.starting ? "starting" : "queued";
   // The MR is open, its CI still runs: the task stays in work, but it waits for CI and not for the agent.
   const a = agentOf(r);
   if (r.column === "doing" && r.prUrl && r.status === "handed-off" && (!a || a.state === "done" || a.state === "idle")) return "ci";
@@ -175,9 +177,27 @@ const cardStatus = (r) => {
   // Left in «Нові» by auto-take: why, in the row («велика», «є питання до опису»).
   if (r.column === "new" && r.autoSkip) return [r.autoSkip, "", `Не взято автоматично: ${r.autoSkip}`];
   if (st === "review") return ["MR на рев'ю", ""];
+  if (st === "starting") return [LABEL[st], "", `Запускаю: ${startStep(r)?.label ?? "готую старт"}`];
+  if (st === "queued") return [LABEL[st], "", r.queueWhy ? `У черзі: ${r.queueWhy}` : ""];
   return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
 };
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
+// The start of a task taken: the steps done (with their time), the one going on, and those still to come.
+const START_STEPS = { tracker: "оновлюю задачу в трекері", main: "оновлюю основну гілку", worktree: "створюю worktree", setup: "підготовка (setup)",
+  agent: "агент стартує", orca: "Orca створює worktree і запускає агента" };
+const startStep = (r) => r.starting?.steps?.at(-1);
+const secs = (ms) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s} с` : `${Math.floor(s / 60)} хв ${s % 60} с`;
+};
+function startingHTML(r) {
+  const p = r.starting, now = Date.now() - skew;
+  const plan = p.executor === "orca" ? ["tracker", "orca"] : p.executor ? ["tracker", "main", "worktree", ...(p.setup ? ["setup"] : []), "agent"] : [];
+  const seen = new Set(p.steps.map((s) => s.key));
+  const rows = [...p.steps.map((s) => [s.label, s.done ? "done" : "now", (s.done || now) - s.at]), ...plan.filter((k) => !seen.has(k)).map((k) => [START_STEPS[k], "next", 0])];
+  return `<div class="notice starting"><div><b>Запускаю агента</b> · ${secs(now - p.since)}</div>
+    <ol class="start-steps">${rows.map(([label, cls, ms]) => `<li class="${cls}">${esc(label)}${cls === "next" ? "" : `<span class="t">${secs(ms)}</span>`}</li>`).join("")}</ol></div>`;
+}
 // A small Markdown for what agents write and for tasks' text from the tracker: headings, lists, tables, code blocks,
 // inline code, bold and links.
 // Images in it (screenshots for the MR, Mako's own ones, the tracker's), Markdown (![alt](url)) or HTML (<img src="…">), shown as images.
@@ -252,6 +272,7 @@ async function load() {
     if (document.visibilityState === "visible") q.set("seen", "1");
     if (statsDays) q.set("days", statsDays);
     data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`)).json();
+    if (data.now) skew = Date.now() - data.now;
   } catch {
     $("search").textContent = "Mako не відповідає";
     $("search").className = "search err";
@@ -979,7 +1000,8 @@ function commitGraph(commits) {
 const IBADGE_SPIN = `<svg class="spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" role="img" aria-label="CI виконується"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>`;
 
 // The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
-let itab = "changes", itabPicked = false;
+// tabPicked: you chose the open task's tab yourself; Mako does not switch it for you then.
+let itab = "changes", itabPicked = false, tabPicked = false;
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
@@ -1931,6 +1953,8 @@ function renderDetail() {
   // «Повторити інакше»: an icon in the agent's workspace bar, words elsewhere.
   const redo = term ? `<button class="icon" data-redo title="Повторити інакше" aria-label="Повторити інакше">${ICON.redo}</button>` : `<button data-redo>Повторити інакше</button>`;
   if (r.column === "new") actions = takeButton(r) + (r.postponed ? b("later", "Повернути", "", "&min=-1") : laterMenu());
+  // Being started: nothing to push, only to cancel (it stops the start and takes its worktree away).
+  else if (r.status === "queued" && r.starting) actions = b("cancel", "Скасувати", "danger");
   // «Запустити зараз»: past the WIP limit and Claude's limits, the queue is yours to skip.
   else if (r.status === "queued") actions = `<button class="primary" data-a="push" title="Не чекати черги: передати агенту зараз, понад ліміт WIP і ліміти Claude">Запустити зараз</button>` + b("cancel", "Скасувати", "danger");
   else if (agentOn && r.column === "review") actions = (r.live ? ib("stop", "Зупинити агента", "stop") : ib("resume", "Продовжити розмову", "play")) + redo + ib("archive", "В архів", "archive");
@@ -1981,13 +2005,13 @@ function renderDetail() {
   // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
     workOf = r.id;
-    itab = "changes"; itabPicked = false;
+    itab = "changes"; itabPicked = false; tabPicked = false;
     changes = changesOf.get(r.id) ?? null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     pick = null; pickText = ""; reviewNote = "";
     tab = term && r.column === "doing" ? "orca" : "task";
     if (r.worktree) loadWork().then(renderDetail);
-  } else if (started && !workStarted) {
-    // Taken while open: once the agent has started, show its work instead of the task.
+  } else if (started && !workStarted && !tabPicked) {
+    // Taken while open: once the agent has started, show its work instead of the task (unless you picked a tab).
     tab = "orca"; fileTab = "";
     loadWork().then(renderDetail);
   }
@@ -2021,6 +2045,8 @@ function renderDetail() {
   if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
 
   const notices = `
+    ${r.status === "queued" && r.starting ? startingHTML(r) : ""}
+    ${r.status === "queued" && !r.starting ? `<div class="notice later-note">${ICON.clock}У черзі${r.queueWhy ? `: ${esc(r.queueWhy)}` : ""}. Mako запустить її сам</div>` : ""}
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Відкладено ${untilText(r.snoozedUntil)}: тоді Mako нагадає про задачу</div>` : ""}
     ${r.column === "new" && r.autoSkip ? `<div class="notice auto-skip">Не взято автоматично: ${esc(r.autoSkip)}. Візьміть кнопкою або Mako візьме сам, щойно оцінка підійде під налаштування</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
@@ -2141,7 +2167,7 @@ function renderDetail() {
     await load();
   };
   for (const btn of $("detail").querySelectorAll("[data-tab]")) btn.onclick = () => {
-    tab = btn.dataset.tab;
+    tab = btn.dataset.tab; tabPicked = true;
     if (tab === "orca" || tab === "side") fileTab = "";
     renderDetail();
     if (tab === "orca") { tv?.term.focus(); cv?.input.focus(); }
@@ -2192,7 +2218,10 @@ function renderDetail() {
     renderDetail();
     if (!(fileTab in diffs)) loadWork().then(renderDetail);
   };
-  for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => post(btn.dataset.a, r.id, btn.dataset.x);
+  for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => {
+    if (btn.dataset.a === "cancel" && r.starting && !confirm("Скасувати запуск? Підготовку буде зупинено, створений worktree прибрано.")) return;
+    post(btn.dataset.a, r.id, btn.dataset.x);
+  };
   for (const btn of $("detail").querySelectorAll("[data-redo]")) btn.onclick = () => openRedo(r);
   $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
 }
@@ -2802,6 +2831,8 @@ if (window.visualViewport) {
 
 load().then(() => { setupPhone(); if (startDigest) loadDigest(startDigest); });
 setInterval(load, 5000);
+// A task being started counts its steps' time by the second.
+setInterval(() => { if (data?.records?.some((r) => r.id === selected && r.starting)) renderDetail(); }, 1000);
 </script>
 </body>
 </html>

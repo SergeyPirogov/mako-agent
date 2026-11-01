@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,9 @@ func TestQueueWaitsForLimit(t *testing.T) {
 	}
 	if d.LimitHold() == nil {
 		t.Fatal("the board shows no hold")
+	}
+	if why := d.QueueReason(); !strings.HasPrefix(why, "ліміт Claude (5 год) використано на 90%") || d.Starting("grp/app#5") != nil {
+		t.Fatalf("queued for %q", why)
 	}
 	for time.Now().Unix() <= reset {
 		time.Sleep(100 * time.Millisecond)

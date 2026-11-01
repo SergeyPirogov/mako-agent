@@ -94,6 +94,24 @@ func TestChat(t *testing.T) {
 	}
 }
 
+// A setup Mako ran before the agent is shown as done, not run again.
+func TestSetupDone(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(fakeClaude), 0o755)
+	s := Start(Options{ID: "a#2", Worktree: dir, Command: bin, Setup: "touch ran", Prompt: "Зроби задачу",
+		SetupDone: &SetupResult{Command: "pnpm install", Output: "installed\n", Failed: true}})
+	defer s.Stop()
+	eventually(t, func() bool { return len(s.Snapshot().Items) > 1 }, func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
+	it := s.Snapshot().Items[1]
+	if it.Tool != "Підготовка" || it.Status != "error" || it.Output != "installed\n" || !strings.Contains(string(it.Input), "pnpm install") {
+		t.Fatalf("setup item %+v", it)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); err == nil {
+		t.Fatal("the setup ran again")
+	}
+}
+
 func TestHistory(t *testing.T) {
 	dir := t.TempDir()
 	history := filepath.Join(dir, "session.jsonl")

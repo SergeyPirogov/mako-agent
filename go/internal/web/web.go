@@ -109,6 +109,10 @@ type recordView struct {
 	ReviewStep string `json:"reviewStep,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
+	// Starting: the steps of its start while Mako prepares it («запускаю»); QueueWhy: why a queued task that is
+	// not being started waits.
+	Starting *dispatch.StartProgress `json:"starting,omitempty"`
+	QueueWhy string                  `json:"queueWhy,omitempty"`
 }
 
 type trackerView struct {
@@ -161,6 +165,7 @@ func (s *Server) Handler() http.Handler {
 			reply.Release = s.Release.Latest()
 		}
 		reply.QueueHold = s.D.HoldReason()
+		queueWhy := s.D.QueueReason()
 		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
 		reply.Awake.On, reply.Awake.Active = s.D.Config().KeepAwake, awake.Active()
 		all := s.D.Store.All()
@@ -182,6 +187,11 @@ func (s *Server) Handler() http.Handler {
 			v.ReviewStep = s.D.ReviewStep(rec)
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
+			}
+			if rec.Status == core.Queued {
+				if v.Starting = s.D.Starting(rec.ID); v.Starting == nil {
+					v.QueueWhy = queueWhy
+				}
 			}
 			reply.Records = append(reply.Records, v)
 		}

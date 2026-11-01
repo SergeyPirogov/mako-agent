@@ -72,6 +72,9 @@ type Dispatcher struct {
 	searches map[string]Search
 	logs     []LogLine
 	starting map[string]bool
+	// progress: the steps of the starts under way; stops: what stops each of them («Скасувати»).
+	progress map[string]*StartProgress
+	stops    map[string]context.CancelFunc
 	agents   map[string]*Agent
 	reviews  map[string]reviewLook
 	// lessoning: the tasks whose last message Mako is looking into for a lesson.
@@ -119,7 +122,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
 		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery,
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
@@ -454,10 +457,16 @@ func (d *Dispatcher) Take(ctx context.Context, id string) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.Error, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt, r.AutoSkip = core.Queued, "", 0, false, 0, ""
 	})
-	if why := d.HoldReason(); why != "" {
-		d.Log(id, "у черзі: "+why)
-	}
+	d.Log(id, "взято в роботу")
 	d.schedule(ctx)
+	// Not started at once: it really waits, and the journal says for what.
+	if d.Starting(id) == nil {
+		if r, _ := d.Store.Get(id); r.Status == core.Queued {
+			if why := d.QueueReason(); why != "" {
+				d.Log(id, "у черзі: "+why)
+			}
+		}
+	}
 }
 
 // CanTake: the task waits for «Взяти в роботу» (or for it again: failed, cancelled), not queued or with its agent.
@@ -545,12 +554,19 @@ func (d *Dispatcher) release(ctx context.Context, id string) {
 
 // launch starts a task already marked in d.starting and lets the mark go once it is handed off (or failed).
 func (d *Dispatcher) launch(ctx context.Context, id string) {
+	ctx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	d.mu.Lock()
+	d.stops[id] = stop
+	d.mu.Unlock()
 	defer func() {
+		stop()
 		d.mu.Lock()
 		delete(d.starting, id)
+		delete(d.progress, id)
+		delete(d.stops, id)
 		d.mu.Unlock()
 	}()
-	d.start(context.WithoutCancel(ctx), id)
+	d.start(ctx, id)
 }
 
 // Wait blocks until no hand-off is starting (tests).
@@ -588,7 +604,16 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		return
 	}
 	logf := func(s string) { d.Log(id, s) }
+	d.startPlan(id, executor, executor == terminalExecutor && setupOf(repo, d.Config().Terminal, repo.Path) != "")
+	if !exists(filepath.Join(repo.Path, ".git")) {
+		d.step(id, "clone", "клоную репозиторій")
+	}
 	if err := gitx.EnsureClone(ctx, repo, logf); err != nil {
+		d.endSteps(id)
+		if ctx.Err() != nil {
+			d.cancelled(ctx, id, "", "", "", false)
+			return
+		}
 		fail(err)
 		return
 	}
@@ -599,6 +624,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		r.AgentModel = "" // this attempt's agent names its own
 	})
 
+	d.step(id, "tracker", "оновлюю задачу в трекері")
 	if t.Config().AssignOnTake {
 		if me, _ := t.Me(ctx); me == "" || !contains(r.Task.Assignees, me) {
 			if err := t.AssignToMe(ctx, r.Task); err != nil {
@@ -613,19 +639,42 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	if executor == terminalExecutor {
 		res, err = d.handTerminal(ctx, job, logf)
 	} else {
-		res, err = d.Hand(ctx, d.Config().Orca, job, logf)
+		d.step(id, "orca", "Orca створює worktree і запускає агента")
+		// Not stopped halfway: a workspace Orca made is known only from its reply, and «Скасувати» removes it.
+		res, err = d.Hand(context.WithoutCancel(ctx), d.Config().Orca, job, logf)
+	}
+	d.endSteps(id)
+	abort := func() {
+		worktree, wbranch := "", ""
+		if res != nil {
+			worktree, wbranch = res.Worktree, res.Branch
+		}
+		d.cancelled(ctx, id, repo.Path, worktree, wbranch, executor == terminalExecutor)
+	}
+	if ctx.Err() != nil {
+		abort() // «Скасувати» while it started: nothing of the start stays
+		return
 	}
 	if err != nil {
 		d.move(ctx, t, r.Task, trackers.AtFailed)
 		fail(err)
 		return
 	}
+	handed := false
 	d.Store.Update(id, func(r *core.Record) {
+		if r.Status != core.Queued {
+			return // cancelled the moment it started
+		}
+		handed = true
 		r.Status, r.Worktree, r.Branch = core.HandedOff, res.Worktree, res.Branch
 		if executor != terminalExecutor && job.Model != "" {
 			r.AgentModel = job.Model // Orca's agent does not report its model: the one it was asked for
 		}
 	})
+	if !handed {
+		abort()
+		return
+	}
 	d.Log(id, map[string]string{"orca": "передано в Orca: ", terminalExecutor: "агент працює в терміналі: "}[executor]+res.Note)
 	d.comment(ctx, t, r.Task, d.Config().Comments.OnStart, map[string]string{"branch": res.Branch})
 }
@@ -1005,6 +1054,9 @@ func (d *Dispatcher) remind(now time.Time) {
 // Cancel: Mako stops following the task (the work in Orca stays). An agent in Mako's terminal is stopped; its
 // worktree stays.
 func (d *Dispatcher) Cancel(id string) {
+	if d.stopStart(id) {
+		d.Log(id, "скасовано під час запуску")
+	}
 	d.StopTerminal(id)
 	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Cancelled, "Скасовано", now() })
 }
