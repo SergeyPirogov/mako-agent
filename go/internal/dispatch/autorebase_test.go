@@ -114,9 +114,7 @@ func TestAutoRebase(t *testing.T) {
 		t.Fatalf("touched while the agent works: behind %s", behind())
 	}
 	d.StopTerminal(id)
-	for i := 0; i < 200 && d.Live(id); i++ {
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitFor(t, func() bool { return !d.Live(id) }, "the agent did not stop")
 
 	// Merged: left alone.
 	d.mu.Lock()
@@ -136,11 +134,11 @@ func TestAutoRebase(t *testing.T) {
 	}
 	defer d.StopTerminal(id)
 	var args string
-	for i := 0; i < 200 && !strings.Contains(args, "конфліктує"); i++ {
+	waitFor(t, func() bool {
 		b, _ := os.ReadFile(argsFile)
 		args = string(b)
-		time.Sleep(20 * time.Millisecond)
-	}
+		return strings.Contains(args, "конфліктує")
+	}, "the agent was not told of the conflict")
 	if !strings.Contains(args, "--resume\nsess-1\n") || !strings.Contains(args, "конфліктує з нею у файлах: b.txt") || !strings.Contains(args, "--force-with-lease") {
 		t.Fatalf("args %q", args)
 	}
@@ -159,9 +157,7 @@ func TestAutoRebase(t *testing.T) {
 	git(t, wt, "rebase", "-X", "theirs", "origin/main")
 	git(t, wt, "push", "-q", "--force", "origin", "HEAD")
 	d.StopTerminal(id)
-	for i := 0; i < 200 && d.Live(id); i++ {
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitFor(t, func() bool { return !d.Live(id) }, "the agent did not stop")
 	round()
 	if !logged("конфлікт розвʼязано: файли b.txt") {
 		t.Fatalf("logs %+v", d.Logs(id))

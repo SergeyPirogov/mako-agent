@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,49 +86,46 @@ done
 	if err := d.runAgent(id, wt, "chat", "Зроби задачу", false, ""); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { d.StopTerminal(id); d.Chats.Get(id).Wait() })
+	t.Cleanup(func() { d.StopTerminal(id); d.Chats.Get(id).Wait(); settle(t, d, id) })
 	idle = func() {
 		t.Helper()
-		for i := 0; i < 300 && !d.agentIdle(id); i++ {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if !d.agentIdle(id) {
-			t.Fatal("the agent did not end its turn")
-		}
+		waitFor(t, func() bool { return d.agentIdle(id) }, "the agent did not end its turn")
 	}
 	idle()
 	return d, cfg, id, wt, idle
 }
 
 func TestAgentReview(t *testing.T) {
-	d, cfg, id, wt, idle := reviewSetup(t)
+	d, _, id, wt, idle := reviewSetup(t)
 
 	old := ReviewBranch
 	t.Cleanup(func() { ReviewBranch = old })
-	calls := 0
+	var calls atomic.Int32
 	answer := "- `pay.go`: немає тесту на порожній кошик"
 	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
-		calls++
+		if calls.Add(1) > 1 {
+			return "", nil // the fixes pass
+		}
 		return answer, nil
 	}
 
 	// Nothing committed yet: not ready.
-	d.maybeReview(id)
-	if calls != 0 {
+	reviewNow(t, d, id)
+	if calls.Load() != 0 {
 		t.Fatal("reviewed a branch with no commits")
 	}
 	os.WriteFile(filepath.Join(wt, "pay.go"), []byte("package app\n"), 0o644)
 	git(t, wt, "add", "pay.go")
 	git(t, wt, "commit", "-q", "-m", "Pay")
 	// Committed, not pushed: the agent opens the MR itself, so not ready yet.
-	d.maybeReview(id)
-	if calls != 0 {
+	reviewNow(t, d, id)
+	if calls.Load() != 0 {
 		t.Fatal("reviewed a branch not pushed")
 	}
 	git(t, wt, "push", "-q", "origin", "fix/5-pay")
-	d.maybeReview(id)
-	if calls != 1 {
-		t.Fatalf("reviewer called %d times", calls)
+	reviewNow(t, d, id)
+	if calls.Load() != 1 {
+		t.Fatalf("reviewer called %d times", calls.Load())
 	}
 	r, _ := d.Store.Get(id)
 	if len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "notes" || r.AgentReviews[0].Notes != answer {
@@ -141,20 +139,19 @@ func TestAgentReview(t *testing.T) {
 	// The one round is used up, even after the fixes.
 	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Test the empty cart")
 	git(t, wt, "push", "-q", "origin", "fix/5-pay")
-	d.maybeReview(id)
-	if calls != 1 {
+	reviewNow(t, d, id)
+	if calls.Load() != 1 {
 		t.Fatal("a second round over the maximum")
 	}
 	// With two rounds the fixes are reviewed again, and pass.
-	cfg.Reviewer.MaxRounds = 2
-	answer = ""
-	d.maybeReview(id)
+	setConfig(d, func(c *config.Config) { c.Reviewer.MaxRounds = 2 })
+	reviewNow(t, d, id)
 	r, _ = d.Store.Get(id)
-	if calls != 2 || len(r.AgentReviews) != 2 || r.AgentReviews[1].State != "clean" {
-		t.Fatalf("calls %d reviews %+v", calls, r.AgentReviews)
+	if calls.Load() != 2 || len(r.AgentReviews) != 2 || r.AgentReviews[1].State != "clean" {
+		t.Fatalf("calls %d reviews %+v", calls.Load(), r.AgentReviews)
 	}
-	d.maybeReview(id)
-	if calls != 2 {
+	reviewNow(t, d, id)
+	if calls.Load() != 2 {
 		t.Fatal("reviewed after it passed")
 	}
 }
@@ -190,31 +187,30 @@ func TestRiskGate(t *testing.T) {
 }
 
 func TestAgentReviewByRisk(t *testing.T) {
-	d, cfg, id, wt, _ := reviewSetup(t)
+	d, _, id, wt, _ := reviewSetup(t, func(c *config.Config) { c.Reviewer.When = config.ReviewMedium })
 	old := ReviewBranch
 	t.Cleanup(func() { ReviewBranch = old })
-	calls := 0
+	var calls atomic.Int32
 	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
-		calls++
+		calls.Add(1)
 		return "", nil
 	}
-	cfg.Reviewer.When = config.ReviewMedium
 	os.WriteFile(filepath.Join(wt, "pay.go"), []byte("package app\n"), 0o644)
 	git(t, wt, "add", "pay.go")
 	git(t, wt, "commit", "-q", "-m", "Pay")
 	git(t, wt, "push", "-q", "origin", "fix/5-pay")
 
 	// Ready, but the agent opens the MR itself: the risk comes with its assessment, so the reviewer waits.
-	d.maybeReview(id)
-	if r, _ := d.Store.Get(id); calls != 0 || len(r.AgentReviews) != 0 {
-		t.Fatalf("calls %d reviews %+v before the MR", calls, r.AgentReviews)
+	reviewNow(t, d, id)
+	if r, _ := d.Store.Get(id); calls.Load() != 0 || len(r.AgentReviews) != 0 {
+		t.Fatalf("calls %d reviews %+v before the MR", calls.Load(), r.AgentReviews)
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.PRURL = core.Done, "https://example.com/mr/1"
 		r.Assessment = &core.Assessment{At: now(), State: "running"}
 	})
-	d.maybeReview(id)
-	if calls != 0 {
+	reviewNow(t, d, id)
+	if calls.Load() != 0 {
 		t.Fatal("reviewed while the assessment runs")
 	}
 
@@ -222,25 +218,20 @@ func TestAgentReviewByRisk(t *testing.T) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.Assessment = &core.Assessment{At: now(), State: "done", Risk: core.Score{Value: 1}}
 	})
-	d.maybeReview(id)
-	d.maybeReview(id)
+	reviewNow(t, d, id)
+	reviewNow(t, d, id)
 	r, _ := d.Store.Get(id)
-	if calls != 0 || len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "skipped" || r.AgentReviews[0].Reason != "низький ризик" {
-		t.Fatalf("calls %d reviews %+v", calls, r.AgentReviews)
+	if calls.Load() != 0 || len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "skipped" || r.AgentReviews[0].Reason != "низький ризик" {
+		t.Fatalf("calls %d reviews %+v", calls.Load(), r.AgentReviews)
 	}
 
 	// From the board's button: it runs whatever the risk, in place of the skipped round.
 	if err := d.ReviewNow(id); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 300; i++ {
-		if r, _ = d.Store.Get(id); r.AgentReviews[0].State == "clean" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if calls != 1 || len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "clean" {
-		t.Fatalf("calls %d reviews %+v after the button", calls, r.AgentReviews)
+	waitFor(t, func() bool { r, _ = d.Store.Get(id); return r.AgentReviews[0].State == "clean" }, "the review from the button did not end")
+	if calls.Load() != 1 || len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "clean" {
+		t.Fatalf("calls %d reviews %+v after the button", calls.Load(), r.AgentReviews)
 	}
 	if err := d.ReviewNow(id); err == nil {
 		t.Fatal("the button ran a review that was not skipped")
@@ -258,21 +249,20 @@ func TestAgentReviewByRiskRuns(t *testing.T) {
 		{"always, low risk", config.ReviewAlways, &core.Assessment{State: "done", Risk: core.Score{Value: 1}}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			d, cfg, id, wt, _ := reviewSetup(t)
+			d, _, id, wt, _ := reviewSetup(t, func(cfg *config.Config) { cfg.Reviewer.When = c.when })
 			old := ReviewBranch
 			t.Cleanup(func() { ReviewBranch = old })
-			calls := 0
+			var calls atomic.Int32
 			ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string) (string, error) {
-				calls++
+				calls.Add(1)
 				return "", nil
 			}
-			cfg.Reviewer.When = c.when
 			git(t, wt, "commit", "-q", "--allow-empty", "-m", "Pay")
 			git(t, wt, "push", "-q", "origin", "fix/5-pay")
 			d.Store.Update(id, func(r *core.Record) { r.Status, r.PRURL, r.Assessment = core.Done, "https://example.com/mr/1", c.a })
-			d.maybeReview(id)
-			if r, _ := d.Store.Get(id); calls != 1 || len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "clean" {
-				t.Fatalf("calls %d reviews %+v", calls, r.AgentReviews)
+			reviewNow(t, d, id)
+			if r, _ := d.Store.Get(id); calls.Load() != 1 || len(r.AgentReviews) != 1 || r.AgentReviews[0].State != "clean" {
+				t.Fatalf("calls %d reviews %+v", calls.Load(), r.AgentReviews)
 			}
 		})
 	}

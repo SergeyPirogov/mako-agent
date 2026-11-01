@@ -132,10 +132,7 @@ func (d *Dispatcher) maybeReview(id string) { d.review(id, false) }
 
 // review runs the reviewer when it is due; manual: you asked for it, whatever the task's risk.
 func (d *Dispatcher) review(id string, manual bool) {
-	r, ok := d.Store.Get(id)
-	if !ok || !d.reviewWanted(r) || !exists(r.Worktree) || !d.agentIdle(id) {
-		return
-	}
+	// One at a time, and the record read after the one before ends: not a round on what it has replaced.
 	d.mu.Lock()
 	if d.reviewing[id] {
 		d.mu.Unlock()
@@ -148,6 +145,10 @@ func (d *Dispatcher) review(id string, manual bool) {
 		delete(d.reviewing, id)
 		d.mu.Unlock()
 	}()
+	r, ok := d.Store.Get(id)
+	if !ok || !d.reviewWanted(r) || !exists(r.Worktree) || !d.agentIdle(id) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	wt, base, err := d.workOf(id)
@@ -214,7 +215,8 @@ func (d *Dispatcher) review(id string, manual bool) {
 func (d *Dispatcher) setReview(id string, a core.AgentReview) {
 	d.Store.Update(id, func(r *core.Record) {
 		if n := len(r.AgentReviews); n > 0 && (r.AgentReviews[n-1].State == "running" || r.AgentReviews[n-1].State == "skipped") {
-			r.AgentReviews[n-1] = a
+			// A new slice, not a write in place: the copies Store.Get gave out share the old one.
+			r.AgentReviews = append(r.AgentReviews[:n-1:n-1], a)
 			return
 		}
 		r.AgentReviews = append(r.AgentReviews, a)

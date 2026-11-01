@@ -158,8 +158,13 @@ func git(t *testing.T, dir string, args ...string) {
 	}
 }
 
-func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
+func TestMain(m *testing.M) {
+	// Once, before any test: the goroutines a test leaves behind read it.
 	notify.Enabled = false
+	os.Exit(m.Run())
+}
+
+func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 	// Never the real Claude Code from a test.
 	old := writer.Claude
 	writer.Claude = "mako-test-no-claude"
@@ -202,7 +207,10 @@ func setup(t *testing.T) (*Dispatcher, *fakeGitLab, *[]orca.Job) {
 	d.Term = &fakeTerminals{}
 	d.LastMessage = func(string) string { return "" }
 	jobs := &[]orca.Job{}
+	var handing sync.Mutex // the tasks of one round are handed off at once
 	d.Hand = func(ctx context.Context, o config.Orca, j orca.Job, log func(string)) (*orca.Result, error) {
+		handing.Lock()
+		defer handing.Unlock()
 		*jobs = append(*jobs, j)
 		return &orca.Result{Worktree: filepath.Join(dir, "wt"), Branch: j.Branch}, nil
 	}

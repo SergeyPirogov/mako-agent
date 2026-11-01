@@ -113,11 +113,11 @@ func TestAutoFix(t *testing.T) {
 	}
 	defer d.StopTerminal(id)
 	var args string
-	for i := 0; i < 200 && !strings.Contains(args, "конфліктує"); i++ {
+	waitFor(t, func() bool {
 		b, _ := os.ReadFile(argsFile)
 		args = string(b)
-		time.Sleep(20 * time.Millisecond)
-	}
+		return strings.Contains(args, "конфліктує")
+	}, "the agent was not told of the conflict")
 	if !strings.Contains(args, "--resume\nsess-1\nMR https://gitlab.example/grp/app/-/merge_requests/1 конфліктує з main") {
 		t.Fatalf("args %q", args)
 	}
