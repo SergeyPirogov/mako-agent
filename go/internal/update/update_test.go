@@ -163,3 +163,67 @@ func TestFailureReportedOnce(t *testing.T) {
 		t.Fatalf("reported %q", bodies)
 	}
 }
+
+// An agent keeps working: the update waits; «Скасувати» gives it up with nothing changed, «Перезапустити зараз»
+// does not wait.
+func TestWaitingCanBeCancelledOrForced(t *testing.T) {
+	busyPoll = time.Millisecond
+	wait := func(u *Updater, want string) {
+		t.Helper()
+		for i := 0; i < 500 && u.Status().State != want; i++ {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if u.Status().State != want {
+			t.Fatalf("state %q (%s), want %q", u.Status().State, u.Status().Error, want)
+		}
+	}
+	newUpdater := func() (*Updater, *bool, *[]string) {
+		clone, built := repos(t)
+		exe := filepath.Join(t.TempDir(), "mako")
+		os.WriteFile(exe, []byte("old"), 0o755)
+		quit, restarted := false, []string{}
+		return &Updater{Source: clone, Revision: built, Exe: exe,
+			Busy: func() int { return 3 },
+			Quit: func() { quit = true },
+			Build: func(_ context.Context, _, out string) error {
+				return os.WriteFile(out, []byte("new"), 0o755)
+			},
+			Restart: func(_ int, c []string) error { restarted = c; return nil },
+		}, &quit, &restarted
+	}
+
+	u, quit, _ := newUpdater()
+	u.Start()
+	wait(u, "waiting")
+	if !u.Waiting() || u.Status().Busy != 3 {
+		t.Fatalf("status %+v", u.Status())
+	}
+	if !u.Cancel() {
+		t.Fatal("not cancelled")
+	}
+	wait(u, "")
+	if u.Waiting() || *quit {
+		t.Fatal("cancelled update restarted or still holds")
+	}
+	if b, _ := os.ReadFile(u.Exe); string(b) != "old" {
+		t.Fatal("the binary changed")
+	}
+	if !u.Start() { // can be started again
+		t.Fatal("no new start")
+	}
+	u.Cancel()
+	wait(u, "")
+
+	u, quit, restarted := newUpdater()
+	u.Start()
+	wait(u, "waiting")
+	if !u.Force() {
+		t.Fatal("not forced")
+	}
+	for i := 0; i < 500 && !*quit; i++ {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !*quit || len(*restarted) == 0 {
+		t.Fatalf("no restart: quit %v, %v", *quit, *restarted)
+	}
+}

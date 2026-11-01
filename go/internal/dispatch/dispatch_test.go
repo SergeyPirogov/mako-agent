@@ -533,3 +533,63 @@ func TestOrcaAgentModel(t *testing.T) {
 		t.Fatalf("jobs %d, agent model %q, error %q", len(*jobs), r.AgentModel, r.Error)
 	}
 }
+
+// Mako waits to update: nothing starts meanwhile (taken, queued, pushed); once the update is given up, the queue goes on.
+func TestHoldWhileUpdateWaits(t *testing.T) {
+	d, f, jobs := setup(t)
+	ctx := context.Background()
+	for i := 20; i < 22; i++ {
+		f.issues[i] = map[string]any{"id": 1000 + i, "iid": i, "state": "opened", "title": fmt.Sprintf("Task %d", i), "web_url": "u",
+			"labels": []string{}, "assignees": []any{}, "references": map[string]string{"full": fmt.Sprintf("grp/app#%d", i)}}
+	}
+	d.Poll(ctx)
+	held := true
+	d.Hold = func() string {
+		if held {
+			return "стартує після оновлення Mako"
+		}
+		return ""
+	}
+	d.Take(ctx, "grp/app#20")
+	d.Take(ctx, "grp/app#21")
+	d.Wait()
+	d.Push(ctx, "grp/app#21")
+	d.schedule(ctx)
+	d.Wait()
+	for _, id := range []string{"grp/app#20", "grp/app#21"} {
+		if r, _ := d.Store.Get(id); r.Status != core.Queued {
+			t.Fatalf("%s: %s", id, r.Status)
+		}
+	}
+	if len(*jobs) != 0 {
+		t.Fatalf("handed %d while held", len(*jobs))
+	}
+	// The update is cancelled: the queue goes on by itself.
+	held = false
+	d.schedule(ctx)
+	d.Wait()
+	if len(*jobs) != 2 {
+		t.Fatalf("handed %d after the hold", len(*jobs))
+	}
+}
+
+// «Перезапустити, коли агенти закінчать хід» holds the queue as well.
+func TestHoldWhileRestartPending(t *testing.T) {
+	d, f, jobs := setup(t)
+	ctx := context.Background()
+	f.issues[30] = map[string]any{"id": 1030, "iid": 30, "state": "opened", "title": "Task 30", "web_url": "u",
+		"labels": []string{}, "assignees": []any{}, "references": map[string]string{"full": "grp/app#30"}}
+	d.Poll(ctx)
+	d.RequestRestart(true)
+	d.Take(ctx, "grp/app#30")
+	d.Wait()
+	if len(*jobs) != 0 {
+		t.Fatal("started while a restart waits")
+	}
+	d.RequestRestart(false)
+	d.schedule(ctx)
+	d.Wait()
+	if len(*jobs) != 1 {
+		t.Fatalf("handed %d", len(*jobs))
+	}
+}

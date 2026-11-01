@@ -98,7 +98,9 @@ type Dispatcher struct {
 	limitHeld bool
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
 	restartPending bool
-	absence        absence // when the board was last seen, the morning digest last sent
+	// Hold: why no new agent may start now ("" none): Mako waits to update itself. Set by main.
+	Hold    func() string
+	absence absence // when the board was last seen, the morning digest last sent
 
 	lessonsMu sync.Mutex // lessons.json
 	faultsMu  sync.Mutex // errors.json: Mako's own errors
@@ -452,6 +454,9 @@ func (d *Dispatcher) Take(ctx context.Context, id string) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.Error, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt, r.AutoSkip = core.Queued, "", 0, false, 0, ""
 	})
+	if why := d.HoldReason(); why != "" {
+		d.Log(id, "у черзі: "+why)
+	}
 	d.schedule(ctx)
 }
 
@@ -463,6 +468,12 @@ func CanTake(r core.Record) bool {
 // Push: «Запустити зараз» on a task waiting in the queue. You decided it goes now: past the WIP limit and
 // Claude's limits.
 func (d *Dispatcher) Push(ctx context.Context, id string) {
+	if why := d.HoldReason(); why != "" {
+		if r, ok := d.Store.Get(id); ok && r.Status == core.Queued {
+			d.Log(id, "не запущено зараз: "+why)
+		}
+		return
+	}
 	d.mu.Lock()
 	// Under d.mu, as release reads it: a start that just finished has made it handed-off before letting it go.
 	r, ok := d.Store.Get(id)
@@ -478,12 +489,29 @@ func (d *Dispatcher) Push(ctx context.Context, id string) {
 
 func (d *Dispatcher) schedule(ctx context.Context) { d.release(ctx, "") }
 
+// HoldReason: why no new agent starts now, "" when none holds. Mako waits for its agents to finish their turn,
+// to update or restart; whatever starts meanwhile would keep it waiting.
+func (d *Dispatcher) HoldReason() string {
+	d.mu.Lock()
+	pending, hold := d.restartPending, d.Hold
+	d.mu.Unlock()
+	if hold != nil {
+		if why := hold(); why != "" {
+			return why
+		}
+	}
+	if pending {
+		return "стартує після перезапуску Mako"
+	}
+	return ""
+}
+
 // release lets a task the scheduler was told to leave alone go (id; "" for none) and starts what fits in the WIP
 // limit, at once: no moment where neither counts.
 func (d *Dispatcher) release(ctx context.Context, id string) {
 	// Near a Claude limit no new agent starts: it would stop in the middle of the task. The queue goes on by
 	// itself once the limit resets (Tick comes back here every poll); a released task waits in it.
-	if d.checkLimits(time.Now()) != nil {
+	if d.checkLimits(time.Now()) != nil || d.HoldReason() != "" {
 		if id != "" {
 			d.mu.Lock()
 			delete(d.starting, id)
