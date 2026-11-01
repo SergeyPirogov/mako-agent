@@ -252,18 +252,26 @@ func (d *Dispatcher) Say(id, text string) error {
 	return nil
 }
 
+// awaitClosed: a session that refused a message (closed for being idle a moment ago, or dead) is stopped, and
+// its exit waited for, so the conversation can be resumed with the message. Stop's SIGKILL comes after 3s.
+func (d *Dispatcher) awaitClosed(s *chat.Session) error {
+	s.Stop()
+	select {
+	case <-s.Done():
+		return nil
+	case <-time.After(10 * time.Second):
+		return errors.New("агент ще закривається: спробуйте за мить")
+	}
+}
+
 func (d *Dispatcher) say(id, text string) error {
 	if s := d.Chats.Get(id); s != nil && s.Running() {
 		err := s.Send(text)
 		if !errors.Is(err, chat.ErrClosed) {
 			return err
 		}
-		// Closed for being idle a moment ago: wait for the process to go, then resume with the message.
-		gone := make(chan struct{})
-		go func() { s.Wait(); close(gone) }()
-		select {
-		case <-gone:
-		case <-time.After(5 * time.Second):
+		if err := d.awaitClosed(s); err != nil {
+			return err
 		}
 	}
 	if d.Live(id) {

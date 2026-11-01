@@ -223,6 +223,9 @@ func (s *Session) end() {
 // Wait blocks until the agent has exited and its last change is reported.
 func (s *Session) Wait() { <-s.ended }
 
+// Done is closed once the agent has exited, for a select with a timeout.
+func (s *Session) Done() <-chan struct{} { return s.ended }
+
 // replay shows a transcript: it has the same messages claude streams.
 func (s *Session) replay(path string) {
 	f, err := os.Open(path)
@@ -532,7 +535,22 @@ func (s *Session) Send(text string) error {
 	// Working before Claude reads it: a turn it ends at once must not be set back to working.
 	s.add(Item{Kind: "user", Text: text})
 	s.setState("working")
-	return s.write(userMessage(text))
+	if err := s.write(userMessage(text)); err != nil {
+		// Never reached the agent (closed for idleness in between, or it died): take it back, so the caller can
+		// resume the conversation with it instead of the message showing as sent and being lost.
+		s.mu.Lock()
+		if n := len(s.items); n > 0 && s.items[n-1].Kind == "user" && s.items[n-1].Text == text {
+			s.items = s.items[:n-1]
+		}
+		if s.state == "working" && !s.exited {
+			s.state, s.since = "done", time.Now()
+		}
+		s.version++
+		s.mu.Unlock()
+		s.changed()
+		return fmt.Errorf("%w: %v", ErrClosed, err)
+	}
+	return nil
 }
 
 // Say is Send for the board's ✨ requests.
@@ -717,6 +735,7 @@ func (s *Session) sleep() {
 	idle := s.state == "done" && !s.exited && len(s.pending) == 0
 	if idle {
 		s.asleep = true
+		s.stopping = true // closed from here on: Send must not take a message the closing stdin will lose
 	}
 	s.mu.Unlock()
 	if idle {

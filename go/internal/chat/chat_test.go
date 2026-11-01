@@ -338,9 +338,11 @@ func TestSendAfterIdleClose(t *testing.T) {
 	IdleAfter = 50 * time.Millisecond
 	defer func() { IdleAfter = old }()
 	bin := filepath.Join(t.TempDir(), "claude")
-	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\necho '{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":10}'\nsleep 2\n"), 0o755)
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\necho '{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":10}'\nsleep 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	s := Start(Options{ID: "a#3", Worktree: t.TempDir(), Command: bin, Prompt: "Почни"})
-	defer s.Stop()
+	defer func() { s.Stop(); s.Wait() }()
 	eventually(t, func() bool {
 		s.mu.Lock()
 		defer s.mu.Unlock()
