@@ -118,7 +118,14 @@ func TestTerminalDefaultModel(t *testing.T) {
 	d.Take(ctx, "grp/app#5")
 	d.Wait()
 	r, _ := d.Store.Get("grp/app#5")
-	defer d.StopTerminal(r.ID)
+	// The agent's exit saves the task: let it finish before the temp dirs go.
+	defer func() {
+		s := d.Sessions.Get(r.ID)
+		d.StopTerminal(r.ID)
+		if s != nil {
+			s.Wait()
+		}
+	}()
 	if r.Status != core.HandedOff || r.AgentModel != "sonnet" {
 		t.Fatalf("status %s, agent model %q, error %q", r.Status, r.AgentModel, r.Error)
 	}
