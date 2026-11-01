@@ -775,7 +775,11 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 			}
 		}
 		if ci != nil && trackers.CIRunning(ci.CI) {
-			d.Log(r.ID, "є MR, чекаю на CI: "+review.URL)
+			// The link is kept at once (the MR tab shows it); the task stays in work, and the log says it once.
+			if r.PRURL != review.URL {
+				d.Log(r.ID, "є MR, чекаю на CI: "+review.URL)
+				d.Store.Update(r.ID, func(r *core.Record) { r.PRURL = review.URL })
+			}
 			continue
 		}
 		failed := ci != nil && ci.CI == "failed"

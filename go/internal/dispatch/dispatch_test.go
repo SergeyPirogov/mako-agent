@@ -304,6 +304,21 @@ func TestReviewWaitsForCI(t *testing.T) {
 	if r, _ = d.Store.Get(id); r.Status != core.HandedOff || r.Column(0) != "doing" || len(f.notes) != notes {
 		t.Fatalf("in review while CI runs: %+v, notes %v", r, f.notes)
 	}
+	// The link is kept at once, and «чекаю на CI» is said once however many cycles pass.
+	if want := f.base + "/grp/app/-/merge_requests/9"; r.PRURL != want {
+		t.Fatalf("MR link not kept while CI runs: %q", r.PRURL)
+	}
+	d.Log(id, "щось між циклами")
+	d.CheckHandoffs(ctx)
+	waits := 0
+	for _, l := range d.Logs(id) {
+		if strings.Contains(l.Text, "чекаю на CI") {
+			waits++
+		}
+	}
+	if r, _ = d.Store.Get(id); waits != 1 || r.Status != core.HandedOff || r.Column(0) != "doing" {
+		t.Fatalf("waiting for CI: %d log lines, %+v", waits, r)
+	}
 
 	f.mu.Lock()
 	pipeline["status"] = "failed"

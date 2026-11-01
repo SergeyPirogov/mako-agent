@@ -124,6 +124,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .s.new::before { background: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
 .s.later::before { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .s.doing::before, .s.queued::before { background: var(--accent); }
+.s.ci::before { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
 .s.review::before { background: var(--purple); }
 .s.done::before { background: var(--ok); }
 .s.failed::before { background: var(--err); }
