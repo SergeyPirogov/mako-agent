@@ -179,6 +179,11 @@ func (s *Server) pauseTracker(ctx context.Context, id string, on bool) error {
 
 // setCodeModel: the model of «Запитати про код», kept in the settings for every repository; "" — the default.
 func (s *Server) setCodeModel(ctx context.Context, model string) error {
+	if model != "" {
+		if err := config.CheckModel(model); err != nil {
+			return err
+		}
+	}
 	return s.changeConfig(ctx, func(raw map[string]json.RawMessage) error {
 		var ca map[string]json.RawMessage
 		if b, ok := raw["codeAsk"]; ok {

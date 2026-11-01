@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -58,6 +59,18 @@ type Config struct {
 
 // DefaultCodeModel: the model of «Запитати про код» when none is picked.
 const DefaultCodeModel = "haiku"
+
+// modelName: what a model's name may be (opus, claude-opus-5-5, claude-sonnet-5-5[1m]): it goes to claude's
+// --model, so never an option of its own or several words.
+var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,99}$`)
+
+// CheckModel: an error unless name can be a model's name.
+func CheckModel(name string) error {
+	if !modelName.MatchString(name) {
+		return fmt.Errorf("модель %q: лише літери, цифри й . _ - [ ], не з дефіса", name)
+	}
+	return nil
+}
 
 // Reviewer is the agent that reviews another agent's branch with a clean context and writes its remarks; it
 // changes no code. Only Mako's own agents get it: you hand the remarks to their chat from the board.
@@ -329,6 +342,9 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		c.Orca.SummaryComment = e.SummaryComment
 		c.Orca.ExtraArgs = e.ExtraArgs
 		break
+	}
+	if err := CheckModel(c.CodeModel); err != nil {
+		return nil, fmt.Errorf("«Запитати про код»: %w", err)
 	}
 	morning, err := clock(orStr(strings.TrimSpace(raw.Notifications.MorningDigest), DefaultMorningDigest))
 	if err != nil {

@@ -1684,7 +1684,7 @@ async function showCode() {
       <select id="ca-project" aria-label="Проєкт"></select>
       <select id="ca-model" aria-label="Модель" title="Модель агента для «Запитати про код», для всіх проєктів"></select>
       <button type="button" id="ca-new">Нове питання</button></div>
-    <p class="muted ca-sub">Агент працює в окремому worktree проєкту на main: читає, шукає, запускає тести й збірку без питань. Mako не дає йому змінювати файли й репозиторій (Edit/Write, git commit/push/checkout/reset, rm…) і не підключає MCP-сервери. Зауваження чи ідею може оформити чернеткою тікета.</p>
+    <p class="muted ca-sub">Агент працює в окремому worktree проєкту на main: читає, шукає, запускає тести й збірку без питань. Mako не дає йому змінювати файли й репозиторій (Edit/Write, git commit/push/checkout/reset, rm…) і не підключає MCP-сервери чи дозволи з налаштувань Claude Code. Перше питання готує worktree (залежності), як для задачі. Зауваження чи ідею може оформити чернеткою тікета.</p>
     <div class="ca-body">
       <aside class="ca-history"><div class="ca-h">Історія питань</div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
@@ -1726,8 +1726,10 @@ async function showCode() {
     const b = e.target.closest("[data-ws]");
     if (!b) return;
     const what = b.dataset.ws, ws = code.ws;
-    if (what === "reset" && !confirm(`Скинути ${ws?.dirty || ""} незбережених змін у worktree й оновити його з ${ws?.base || "main"}? Зміни буде втрачено.`)) return;
-    if (what === "remove" && !confirm(`Видалити worktree для питань${ws?.dirty ? ` разом з ${ws.dirty} незбереженими змінами` : ""}? З наступним питанням він з'явиться знову.`)) return;
+    // Both stop the agents of this project's questions first: the code is not changed under their feet.
+    const stops = "Агент, що зараз відповідає на питання цього проєкту, зупиниться, а відповідь перерветься; наступне повідомлення продовжить розмову.";
+    if (what === "reset" && !confirm(`Скинути ${ws?.dirty || ""} незбережених змін у worktree й оновити його з ${ws?.base || "main"}? Зміни буде втрачено.\n\n${stops}`)) return;
+    if (what === "remove" && !confirm(`Видалити worktree для питань${ws?.dirty ? ` разом з ${ws.dirty} незбереженими змінами` : ""}? З наступним питанням він з'явиться знову.\n\n${stops}`)) return;
     b.disabled = true;
     const r = await fetch(`/api/code/workspace/${what}?project=${encodeURIComponent(code.project)}`, { method: "POST" })
       .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
@@ -1757,26 +1759,7 @@ async function showCode() {
     const tk = e.target.closest("[data-ticket]");
     if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d); return; }
     // The agent's question: an option, or your own words.
-    const ans = e.target.closest("[data-ans]");
-    if (ans) {
-      const box = ans.closest("[data-question]"), answers = {};
-      for (const q of box.querySelectorAll("[data-q]")) {
-        const a = q.querySelector("input")?.value.trim() || [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label).join(", ");
-        if (a) answers[q.dataset.q] = a;
-      }
-      if (!Object.keys(answers).length) return;
-      ans.disabled = true;
-      fetch(`/api/code/answer?id=${encodeURIComponent(code.thread)}&req=${encodeURIComponent(box.dataset.question)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => pollCode());
-      return;
-    }
-    const opt = e.target.closest(".opt");
-    if (opt) {
-      const q = opt.closest("[data-q]");
-      if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
-      opt.classList.toggle("on");
-      if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
-      return;
-    }
+    if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(code.thread)}`, pollCode)) return;
     const src = e.target.closest("[data-src]");
     if (src) { e.preventDefault(); openSource(src.dataset.src, +src.dataset.line, +(src.dataset.end || src.dataset.line)); return; }
     const t = e.target.closest("[data-toggle]");
@@ -1923,8 +1906,9 @@ function toTask() {
   const items = code.snap?.items ?? [], p = code.projects.find((x) => x.key === code.project);
   const questions = items.filter((it) => it.kind === "user");
   const title = (code.threads?.find((t) => t.id === code.thread)?.title || questions[0]?.text || "").split("\n")[0].slice(0, 250);
+  // The agent's ticket draft is not part of the answer: «Створити тікет» is its way to a task.
   const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
-    .map((it) => it.kind === "user" ? `**Питання:** ${it.text}` : it.text).join("\n\n");
+    .map((it) => it.kind === "user" ? `**Питання:** ${it.text}` : ticketOf(it.text).text.trim()).filter(Boolean).join("\n\n");
   taskDraft = { title, desc: `${desc}\n\n_З «Запитати про код» на дошці Mako._`, tracker: p?.tracker, project: p?.project };
   code = null;
   newOpen = "task";
@@ -2657,29 +2641,7 @@ function chatFor(id) {
     const t = e.target.closest("[data-toggle]");
     if (t) { if (!v.flip.delete(t.dataset.toggle)) v.flip.add(t.dataset.toggle); renderChat(v); return; }
     // The agent's questions: an option, or your own words.
-    const ans = e.target.closest("[data-ans]");
-    if (ans) {
-      const box = ans.closest("[data-question]"), answers = {};
-      for (const q of box.querySelectorAll("[data-q]")) {
-        const own = q.querySelector("input")?.value.trim();
-        const picked = [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label);
-        const a = own || picked.join(", ");
-        if (a) answers[q.dataset.q] = a;
-      }
-      if (ans.dataset.ans === "send" && !Object.keys(answers).length) return;
-      ans.disabled = true;
-      fetch(`/api/answer?id=${encodeURIComponent(id)}&req=${encodeURIComponent(box.dataset.question)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => pollChat());
-      return;
-    }
-    const opt = e.target.closest(".opt");
-    if (opt) {
-      const q = opt.closest("[data-q]");
-      if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
-      opt.classList.toggle("on");
-      // One question, one choice: that is the answer.
-      if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
-      return;
-    }
+    if (answerClick(e, `/api/answer?id=${encodeURIComponent(id)}`, pollChat)) return;
     // The plan: approve it, or open the field for notes and send them.
     const pd = e.target.closest("[data-plan-do]");
     if (pd) {
@@ -2854,6 +2816,32 @@ function planCard(it, v) {
       <button type="button" data-plan-do="revise">Поправити</button></div></div>`;
 }
 // The agent asks: its questions with their options as buttons, and a line for your own answer.
+// A click in the agent's question (askCard): an option picked, or the answers sent to url&req=<its request>, then
+// after(). True when the click was the question's.
+function answerClick(e, url, after) {
+  const ans = e.target.closest("[data-ans]");
+  if (ans) {
+    const box = ans.closest("[data-question]"), answers = {};
+    for (const q of box.querySelectorAll("[data-q]")) {
+      const own = q.querySelector("input")?.value.trim();
+      const picked = [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label);
+      const a = own || picked.join(", ");
+      if (a) answers[q.dataset.q] = a;
+    }
+    if (ans.dataset.ans === "send" && !Object.keys(answers).length) return true;
+    ans.disabled = true;
+    fetch(`${url}&req=${encodeURIComponent(box.dataset.question)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => after());
+    return true;
+  }
+  const opt = e.target.closest(".opt");
+  if (!opt) return false;
+  const q = opt.closest("[data-q]");
+  if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
+  opt.classList.toggle("on");
+  // One question, one choice: that is the answer.
+  if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
+  return true;
+}
 function askCard(it) {
   const qs = it.input?.questions ?? [];
   if (it.status !== "asked") {

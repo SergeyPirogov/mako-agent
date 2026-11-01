@@ -2,14 +2,18 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
+	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 )
 
@@ -68,44 +72,90 @@ func askRef(ctx context.Context, p CodeProject) string {
 }
 
 // prepareAsk: the project's shared worktree, made when there is none; refresh brings it up to date with the base
-// branch when nothing keeps it from that.
-func (d *Dispatcher) prepareAsk(p CodeProject, refresh bool) (string, error) {
+// branch when nothing keeps it from that. setup: what prepares a worktree just made (its dependencies), as for the
+// worktree of a task; "" when it was there already.
+func (d *Dispatcher) prepareAsk(p CodeProject, refresh bool) (dir, setup string, err error) {
 	askMu.Lock()
 	defer askMu.Unlock()
 	return d.prepareAskLocked(p, refresh)
 }
 
 // prepareAskLocked is prepareAsk under askMu.
-func (d *Dispatcher) prepareAskLocked(p CodeProject, refresh bool) (string, error) {
+func (d *Dispatcher) prepareAskLocked(p CodeProject, refresh bool) (string, string, error) {
 	ctx := context.Background()
 	dir := askDir(p)
 	if !exists(dir) {
 		askFetch(ctx, p)
 		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-			return "", err
+			return "", "", err
 		}
 		gitx.Run(ctx, p.Path, "worktree", "prune")
 		if _, err := gitx.Run(ctx, p.Path, "worktree", "add", "--detach", dir, askRef(ctx, p)); err != nil {
 			os.RemoveAll(dir)
-			return "", errors.New("не вдалося створити worktree для питань: " + err.Error())
+			return "", "", errors.New("не вдалося створити worktree для питань: " + err.Error())
 		}
-		return dir, nil
+		repo := p.repo
+		if repo == nil {
+			repo = &config.Repo{}
+		}
+		return dir, setupOf(repo, d.Config().Terminal, dir), nil
 	}
 	if !refresh {
-		return dir, nil
+		return dir, "", nil
 	}
 	// The fetch changes no file of the worktree: even when it stays as it is, the board can tell how far behind.
 	askFetch(ctx, p)
 	if files, _ := dirtyFiles(ctx, dir); len(files) > 0 {
-		return dir, nil
+		return dir, "", nil
 	}
 	if d.askWorking(p.Key) {
-		return dir, nil
+		return dir, "", nil
 	}
 	if _, err := gitx.Run(ctx, dir, "checkout", "--detach", askRef(ctx, p)); err != nil {
-		return "", errors.New("не вдалося оновити worktree для питань: " + err.Error())
+		return "", "", errors.New("не вдалося оновити worktree для питань: " + err.Error())
 	}
-	return dir, nil
+	return dir, "", nil
+}
+
+// askSetups: the questions whose worktree is being prepared, by id: their agent starts once it is done.
+var askSetups sync.Map
+
+type pendingSetup struct{ command, prompt string }
+
+// launchQuestion starts the question's agent, after the worktree's setup when it was just made: in the background,
+// the conversation shows the setup running meanwhile.
+func (d *Dispatcher) launchQuestion(p CodeProject, t CodeThread, text, setup string) error {
+	if setup == "" {
+		return d.startQuestion(p, t, text, nil)
+	}
+	askSetups.Store(t.ID, pendingSetup{command: setup, prompt: text})
+	go func() {
+		res := d.runSetup(context.Background(), t.ID, threadDir(p, t), setup)
+		if res.Failed {
+			log.Printf("[%s] підготовка worktree для питань не вдалась, агент стартує все одно:\n%s", t.ID, tailLines(res.Output, 10))
+		}
+		err := d.startQuestion(p, t, text, res)
+		askSetups.Delete(t.ID)
+		if err != nil {
+			log.Printf("[%s] агент не стартував: %v", t.ID, err)
+		}
+	}()
+	return nil
+}
+
+// setupChat: the conversation of a question while its worktree is being prepared.
+func setupChat(id string) (chat.Snapshot, bool) {
+	v, ok := askSetups.Load(id)
+	if !ok {
+		return chat.Snapshot{}, false
+	}
+	s := v.(pendingSetup)
+	input, _ := json.Marshal(map[string]string{"command": s.command})
+	// A version no session has: the board reads the conversation anew when the agent starts.
+	return chat.Snapshot{Version: -2, State: "working", Live: true, Items: []chat.Item{
+		{Kind: "user", Text: s.prompt},
+		{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: input, Status: "running"},
+	}}, true
 }
 
 // askWorking: an agent of the project's questions is at work (or waits for an answer) in the shared worktree; the
@@ -195,7 +245,7 @@ func (d *Dispatcher) ResetAsk(project string) error {
 			return err
 		}
 	}
-	_, err = d.prepareAskLocked(p, true)
+	_, _, err = d.prepareAskLocked(p, true)
 	return err
 }
 

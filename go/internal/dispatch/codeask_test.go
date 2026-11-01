@@ -91,6 +91,8 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	t.Setenv("MAKO_TEST_OUT", out)
 	cfg := *d.Config()
 	cfg.Terminal.Command, cfg.StateDir, cfg.CodeModel = filepath.Join(bin, "claude"), t.TempDir(), "opus"
+	// The worktree just made gets its dependencies first, as a task's does.
+	cfg.Terminal.SetupCommand = `pwd > "$MAKO_TEST_OUT/setup.txt"`
 	d.Cfg = &cfg
 
 	ps := d.CodeProjects()
@@ -104,6 +106,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	if err != nil || !IsQuestion(id) {
 		t.Fatalf("ask %q %v", id, err)
 	}
+	waitFor(t, func() bool { return d.Chats.Get(id) != nil }, "the agent did not start after the setup")
 	s := d.Chats.Get(id)
 	defer s.Stop()
 	waitFor(t, func() bool { st, _, _ := s.State(); return st == "done" }, "no answer")
@@ -111,7 +114,9 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	// The model of the settings; the tools that edit are disallowed, the rest (Bash too) is not.
 	b, _ := os.ReadFile(filepath.Join(out, "args.txt"))
 	args := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if args[slices.Index(args, "--model")+1] != "opus" || slices.Contains(args, "--tools") || !slices.Contains(args, "--strict-mcp-config") {
+	// No MCP servers and no settings files: their allow rules would run a command past the gate.
+	if args[slices.Index(args, "--model")+1] != "opus" || slices.Contains(args, "--tools") || !slices.Contains(args, "--strict-mcp-config") ||
+		!slices.Contains(args, "--setting-sources") || args[slices.Index(args, "--setting-sources")+1] != "" {
 		t.Fatalf("args %q", args)
 	}
 	for _, w := range []string{"Edit", "Write", "NotebookEdit"} {
@@ -126,6 +131,12 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	}
 	if b, _ := os.ReadFile(filepath.Join(out, "pwd.txt")); !samePath(strings.TrimSpace(string(b)), wt) {
 		t.Fatalf("pwd %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(out, "setup.txt")); !samePath(strings.TrimSpace(string(b)), wt) {
+		t.Fatalf("setup ran in %q", b)
+	}
+	if items := s.Snapshot().Items; !slices.ContainsFunc(items, func(it chat.Item) bool { return it.Tool == "Підготовка" && it.Status == "ok" }) {
+		t.Fatalf("no setup in the conversation: %+v", items)
 	}
 	// Editing is refused at once, a command allowed at once: nobody is asked.
 	if b, _ := os.ReadFile(filepath.Join(out, "edit.json")); !strings.Contains(string(b), `"behavior":"deny"`) {
@@ -217,7 +228,7 @@ func TestAskWorkspace(t *testing.T) {
 	if ws, _ := d.AskStatus(p.Key); ws.Exists {
 		t.Fatalf("made before a question: %+v", ws)
 	}
-	dir, err := d.prepareAsk(p, true)
+	dir, _, err := d.prepareAsk(p, true)
 	if err != nil || !exists(filepath.Join(dir, "a.txt")) {
 		t.Fatalf("made %q %v", dir, err)
 	}
@@ -226,7 +237,7 @@ func TestAskWorkspace(t *testing.T) {
 	other := t.TempDir()
 	git(t, other, "clone", "-q", "-b", "main", remote, ".")
 	commit(other, "b.txt")
-	if _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "b.txt")) {
+	if _, _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "b.txt")) {
 		t.Fatalf("not updated: %v", err)
 	}
 
@@ -241,7 +252,7 @@ func TestAskWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	commit(other, "late.txt")
-	if _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "late.txt")) {
+	if _, _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "late.txt")) {
 		t.Fatalf("updated under a working agent: %v", err)
 	}
 	if ws, _ := d.AskStatus(p.Key); ws.Behind != 1 || ws.Dirty != 0 {
@@ -249,7 +260,7 @@ func TestAskWorkspace(t *testing.T) {
 	}
 	// It stopped: the next question brings it up to date.
 	stopChat(d.Chats.Get(busy))
-	if _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "late.txt")) {
+	if _, _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "late.txt")) {
 		t.Fatalf("not updated after: %v", err)
 	}
 
@@ -257,7 +268,7 @@ func TestAskWorkspace(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("changed"), 0o644)
 	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
 	commit(other, "c.txt")
-	if _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "c.txt")) {
+	if _, _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "c.txt")) {
 		t.Fatalf("changed one updated: %v", err)
 	}
 	ws, err := d.AskStatus(p.Key)
@@ -299,16 +310,40 @@ func TestCodeGate(t *testing.T) {
 	}
 	for _, c := range []string{"git push origin main", "go test ./... && git commit -am x", "git -C .. reset --hard", "cd .. && rm -rf app",
 		"git branch -D main", "git branch new-one", "git checkout main", "FOO=1 git stash", "echo $(git push)", "find . -name x -delete",
-		"/bin/rm a", "sudo ls", "git tag v1", "git worktree remove x", "git remote add x y", "git config user.name x", "ls | xargs rm"} {
+		"/bin/rm a", "sudo ls", "git tag v1", "git worktree remove x", "git remote add x y", "git config user.name x", "ls | xargs rm",
+		// Through another shell, eval and substitutions.
+		"sh -c 'git push'", `bash -c "rm -rf x"`, "zsh -lc 'git commit -am x'", `eval "git commit -am x"`, "echo `git push`",
+		`echo "$(rm -rf x)"`, "bash ./deploy.sh", "timeout 5 git push",
+		// Fetching into the clone's own branches.
+		"git fetch origin feature:main", "git fetch . HEAD:some-branch", "git fetch origin +main:main",
+		// Writing files.
+		"echo x > a.go", "cat a >> b", "go test ./... 2>&1 > out.txt", "printf x >| f", "echo x &> log.txt", "echo x | tee a.go",
+		"sed -i 's/a/b/' a.go", "sed -i.bak s/a/b/ a.go", "perl -pi -e 's/a/b/' a.go", "cp a.go b.go", "touch x", "cd .. && rm app/x"} {
 		if bash(c) == "" {
 			t.Errorf("%q allowed", c)
 		}
 	}
 	for _, c := range []string{"go test ./...", "git log --oneline -20", "git status", "git diff HEAD~1", "git branch", "git branch -a",
 		"git branch --list 'fix/*'", "git tag --list", "git stash list", "git remote -v", "grep -rn pay . | head", "npm run build",
-		"git show HEAD:go.mod", "git blame main.go", "git config --get remote.origin.url", "cat go.mod", "git fetch origin"} {
+		"git show HEAD:go.mod", "git blame main.go", "git config --get remote.origin.url", "cat go.mod", "git fetch origin",
+		"go test ./... 2>&1 | tail -20", "npm test > /dev/null 2>&1", "make check >&2", `grep -rn "a -> b" .`, `echo "x > y; rm z"`,
+		"git fetch git@github.com:o/r.git", "sed -n '1,20p' a.go", "FOO=1 go run ./cmd/x", "bash -c 'go vet ./...'",
+		"git log --format='%h %s' | head", "echo $(git rev-parse HEAD)", "timeout 60 go test ./..."} {
 		if why := bash(c); why != "" {
 			t.Errorf("%q refused: %s", c, why)
 		}
+	}
+}
+
+// While the worktree is being prepared the question's conversation shows the setup running, with a version no
+// agent's session has, so the board reads it anew when the agent starts.
+func TestQuestionWhileSetup(t *testing.T) {
+	d, _, _ := setup(t)
+	askSetups.Store("ask-setup1", pendingSetup{command: "npm ci", prompt: "Де оплата?"})
+	defer askSetups.Delete("ask-setup1")
+	snap, ok := d.QuestionChat("ask-setup1")
+	if !ok || snap.State != "working" || snap.Version != -2 || len(snap.Items) != 2 || snap.Items[0].Text != "Де оплата?" ||
+		snap.Items[1].Tool != "Підготовка" || snap.Items[1].Status != "running" || !strings.Contains(string(snap.Items[1].Input), "npm ci") {
+		t.Fatalf("%v %+v", ok, snap)
 	}
 }

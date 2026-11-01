@@ -248,6 +248,18 @@ func TestCodeModel(t *testing.T) {
 	if m := models(); strings.Join(m.Models, ",") != "opus,sonnet,haiku" || m.Current != "haiku" {
 		t.Fatalf("models %+v", m)
 	}
+	// Only a model's name: it goes to claude's --model.
+	bad, _ := http.NewRequest("POST", srv.URL+"/api/code/model", strings.NewReader(`{"model":"--dangerously-skip-permissions"}`))
+	bad.Header.Set("Origin", srv.URL)
+	if res, err := http.DefaultClient.Do(bad); err != nil {
+		t.Fatal(err)
+	} else {
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		if out["ok"] != false || d.Config().CodeModel != config.DefaultCodeModel {
+			t.Fatalf("bad model saved: %v", out)
+		}
+	}
 	req, _ := http.NewRequest("POST", srv.URL+"/api/code/model", strings.NewReader(`{"model":"opus"}`))
 	req.Header.Set("Origin", srv.URL)
 	res, err := http.DefaultClient.Do(req)
