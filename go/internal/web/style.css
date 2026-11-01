@@ -199,14 +199,6 @@ h4.sub { font-size: 12px; font-weight: 600; color: var(--mute); margin: 14px 0 6
 .heavy-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0 16px; }
 .facts.heavy { grid-template-columns: 48px 1fr; font-size: 12px; }
 .facts.heavy code { font-size: 11px; }
-.ctx-chart { display: block; width: 100%; height: 120px; margin-top: 6px; overflow: visible; }
-.ctx-chart polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
-.ctx-chart line { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
-.ctx-chart line.compact { stroke: var(--warn); }
-.ctx-chart .hits rect { fill: transparent; }
-.ctx-chart .hits rect:hover { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
-.ctx-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--mute); margin-top: 4px; }
-.ctx-facts { flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 8px; }
 .stage-bar { display: flex; gap: 2px; height: 14px; margin-top: 10px; border-radius: 4px; overflow: hidden; }
 .stage-bar i { display: block; min-width: 3px; }
 .stage-bar i.s-agent, .legend i.s-agent { background: var(--accent); }

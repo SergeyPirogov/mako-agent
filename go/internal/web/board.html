@@ -2158,55 +2158,6 @@ function heavyHTML(files, commands) {
   return body ? `<div class="heavy-lists">${body}</div>` : "";
 }
 
-// The task's context: a line of it over the model's calls (plan, then work) with the compactions marked, its
-// numbers by phase, what filled it and its heaviest files and commands.
-function contextCardHTML(r, card) {
-  const runs = r.metrics?.context || [];
-  if (!runs.length) return "";
-  const agent = runs.filter((x) => x.phase === "plan" || x.phase === "work");
-  const byPhase = {};
-  for (const x of runs) {
-    const p = byPhase[x.phase] ||= { runs: 0, start: x.start, peak: 0, window: 0, compactions: 0, input: 0, cacheRead: 0, cacheCreate: 0, tools: {} };
-    p.runs++; p.peak = Math.max(p.peak, x.peak); p.window = Math.max(p.window, x.window || 0); p.compactions += x.compactions || 0;
-    p.input += x.input || 0; p.cacheRead += x.cacheRead || 0; p.cacheCreate += x.cacheCreate || 0;
-    for (const [t, n] of Object.entries(x.tools || {})) p.tools[t] = (p.tools[t] || 0) + n;
-  }
-  const phases = Object.keys(PHASE_NAMES).filter((k) => byPhase[k]);
-  const facts = phases.map((k) => { const p = byPhase[k];
-    return `<span>${PHASE_NAMES[k]}: старт <b>${tok(p.start)}</b> · пік <b>${tok(p.peak)}</b>${p.window ? ` <span class="muted">(${pctText(p.peak / p.window)} вікна)</span>` : ""}`
-      + `${p.compactions ? ` · компакцій <b>${p.compactions}</b>` : ""} · кеш <b>${pctText(cacheShare(p))}</b></span>`; }).join("");
-  const merge = (key) => { const m = {}; for (const x of runs) for (const h of x[key] || []) { const v = m[h.name] ||= { name: h.name, count: 0, tokens: 0 }; v.count += h.count; v.tokens += h.tokens; }
-    return Object.values(m).sort((a, b) => b.tokens - a.tokens || b.count - a.count).slice(0, 10); };
-  const peak = Math.max(...runs.map((x) => x.peak));
-  const note = `пік ${tok(peak)}` + (runs.some((x) => x.compactions) ? ` · компакцій ${runs.reduce((n, x) => n + (x.compactions || 0), 0)}` : "");
-  return card("Контекст", `<div class="tcard-b">${contextChart(agent)}<div class="legend stage-legend ctx-facts">${facts}</div>`
-    + `${toolsTable(phases, (k) => byPhase[k].tools)}${heavyHTML(merge("files"), merge("commands"))}</div>`, "context", note);
-}
-
-// The context over the model's calls of the agent's runs, one after another, a dashed line at each compaction and
-// where a run follows another (the plan's approval, a new session); each point tells its numbers on hover.
-function contextChart(runs) {
-  const steps = [], marks = [], bounds = [];
-  runs.forEach((x, i) => {
-    // Where one run follows another: the plan approved in the same session, else a new session (a retry, a restart).
-    const prev = runs[i - 1];
-    if (prev) bounds.push([steps.length, prev.phase === "plan" && x.phase === "work" && prev.session && prev.session === x.session]);
-    for (const i of x.compacted || []) marks.push(steps.length + i);
-    steps.push(...(x.steps || []));
-  });
-  if (steps.length < 2) return "";
-  const win = Math.max(...runs.map((x) => x.window || 0));
-  const top = Math.max(...steps) * 1.08 || 1, W = 600, H = 120, n = steps.length;
-  const X = (i) => (i / (n - 1)) * W, Y = (v) => H - (v / top) * H;
-  const line = steps.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
-  const vline = (i, cls, tip) => `<line class="${cls}" x1="${X(i)}" x2="${X(i)}" y1="0" y2="${H}"><title>${tip}</title></line>`;
-  const hits = steps.map((v, i) => `<rect x="${(X(i) - W / n / 2).toFixed(1)}" y="0" width="${(W / n).toFixed(1)}" height="${H}"><title>крок ${i + 1}: ${tok(v)}${win ? ` · ${pctText(v / win)} вікна` : ""}</title></rect>`).join("");
-  return `<svg class="ctx-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Контекст по кроках: найбільше ${tok(Math.max(...steps))}">`
-    + bounds.map(([i, plan]) => vline(i, "bound", plan ? "план затверджено" : "нова сесія")).join("") + marks.map((i) => vline(i, "compact", "компакція")).join("")
-    + `<polyline points="${line}" vector-effect="non-scaling-stroke"/><g class="hits">${hits}</g></svg>`
-    + `<div class="ctx-axis"><span>крок 1</span><span>${tok(Math.max(...steps))} найбільше${marks.length ? " · ┆ компакція" : ""}</span><span>крок ${n}</span></div>`;
-}
-
 // The size the estimate expected before the start against the one the finished task came to.
 function forecastHTML(f) {
   if (!f?.compared) return "";
@@ -2342,7 +2293,6 @@ function renderDetail() {
     ${estimateHTML(r, card)}
     ${checksHTML(r, card)}
     ${cycleHTML(r, card)}
-    ${contextCardHTML(r, card)}
     ${assessmentHTML(r, card)}
     ${r.summary && r.column !== "doing" ? card("Підсумок агента", summaryHTML(r.summary), "sum") : ""}
     ${retroHTML(r, card)}
