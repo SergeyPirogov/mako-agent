@@ -1980,7 +1980,7 @@ function renderDetail() {
       <button class="tab ${tab === "task" ? "on" : ""}" data-tab="task">Задача</button>
       <button class="tab ${tab === "orca" && !fileTab ? "on" : ""}" data-tab="orca">${term ? "Агент" : "Orca"}${waiting ? ` <span class="wait">· чекає на вас</span>` : ""}</button>
       ${term ? `<button class="tab tab-phone ${tab === "side" ? "on" : ""}" data-tab="side">Зміни${changes?.files?.length ? ` <span class="ibadge">${changes.files.length}</span>` : ""}</button>` : ""}
-      ${openFiles.map((p) => `<button class="tab ${tab === "orca" && p === fileTab ? "on" : ""}" data-ftab="${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())}<span class="x" data-close="${esc(p)}" title="Закрити">×</span></button>`).join("")}
+      ${openFiles.map((p) => `<button class="tab ${tab === "orca" && p === fileTab ? "on" : ""}" data-ftab="${esc(p)}" title="${esc(p)}"><span class="tn">${esc(p.split("/").pop())}</span><span class="x" data-close="${esc(p)}" title="Закрити">×</span></button>`).join("")}
     </div>` : "";
   const ws = !!term;
   const body = ws ? orca : bar && tab === "orca" ? orca : task;

@@ -407,15 +407,17 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .d-head .actions { margin: 0 0 2px; }
 .d-head .d-main:not(:has(h1)) { align-self: center; }
 section.ws .d-head { margin-bottom: 0; }
-.tabs { flex-wrap: wrap; }
-.tab { white-space: nowrap; flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ws-bar .tabs { flex-wrap: wrap; }
+.tab { white-space: nowrap; flex: none; max-width: 100%; }
+.tab .tn { display: inline-block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.ws-bar .tab:has(.tn) { display: inline-flex; align-items: center; }
 .tab .x { margin-left: 8px; opacity: .5; font-weight: 400; }
 .tab .x:hover { opacity: 1; }
 /* The terminal workspace fills the window: nothing scrolls but the terminal, the diff and the file list. */
 section.ws { display: flex; flex-direction: column; overflow: hidden; padding: 6px 12px 10px; }
 section.ws > * { flex: none; }
 section.ws h1 { font-size: 17px; margin: 4px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-bar { display: flex; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.ws-bar { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .ws-bar .tabs { flex: 1; min-width: 0; margin: 0; border-bottom: 0; }
 .ws-bar .actions { margin: 0; flex: none; gap: 6px; }
 section.ws .notice { margin: 0 0 8px; }
