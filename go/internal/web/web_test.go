@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -25,13 +26,17 @@ import (
 func TestBoard(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	store.Update("grp/app#5", func(r *core.Record) { r.Status, r.Task = core.Snoozed, core.Task{ID: "grp/app#5", Title: "Pay"} })
-	d := dispatch.New(&config.Config{Notifications: config.Notifications{SnoozeMin: 60}}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Notifications: config.Notifications{SnoozeMin: 60}}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
 	defer srv.Close()
 
 	res, _ := http.Get(srv.URL + "/")
 	if res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("page: %d", res.StatusCode)
+	}
+	// The header has a place for the running version, outside the logo text a phone hides.
+	if page, _ := io.ReadAll(res.Body); !strings.Contains(string(page), `<span class="logo-t"> Mako</span> <span class="ver" id="ver"></span>`) {
+		t.Fatal("no version in the header")
 	}
 
 	// Another site in the browser cannot press the buttons.
@@ -65,7 +70,7 @@ func TestBoard(t *testing.T) {
 	if len(st.Records) != 1 || !st.Records[0].Postponed || st.Records[0].Column != "new" {
 		t.Fatalf("state %+v", st.Records)
 	}
-	// The header shows the running version.
+	// The state carries the version the header shows.
 	if st.Version != "test" {
 		t.Fatalf("version %q", st.Version)
 	}
@@ -92,7 +97,7 @@ func TestBoard(t *testing.T) {
 func TestSettingsSaveReloads(t *testing.T) {
 	home := t.TempDir()
 	store, _ := state.Open(t.TempDir())
-	d := dispatch.New(&config.Config{}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
 	defer srv.Close()
 	post := func(body string) map[string]any {
@@ -134,7 +139,7 @@ func TestSettingsSaveReloads(t *testing.T) {
 
 func TestPhone(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
-	d := dispatch.New(&config.Config{}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
 	phones, _ := phone.Open(t.TempDir())
 	srv := httptest.NewServer((&Server{D: d, Phones: phones}).Handler())
 	defer srv.Close()
@@ -227,7 +232,7 @@ func TestPhone(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
-	d := dispatch.New(&config.Config{}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
 	started := make(chan bool, 1)
 	u := &update.Updater{Source: t.TempDir(), Exe: filepath.Join(t.TempDir(), "mako"),
 		Build: func(context.Context, string, string) error { started <- true; return errors.New("no") }}
@@ -293,7 +298,7 @@ func TestTrackerPause(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "mako.config.json"), []byte(`{"wipLimit":2,"trackers":[
 	  {"type":"github","allProjects":true},{"type":"gitlab","id":"work","baseUrl":"https://git.example.com","allProjects":true}]}`), 0o644)
 	store, _ := state.Open(t.TempDir())
-	d := dispatch.New(&config.Config{}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
 	defer srv.Close()
 	pause := func(id, on string) map[string]any {
@@ -337,7 +342,7 @@ func TestTrackerPause(t *testing.T) {
 
 func TestRelease(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
-	d := dispatch.New(&config.Config{}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"tag_name":"v0.4.0","html_url":"https://example.com/r","body":"New"}`))
 	}))

@@ -600,6 +600,7 @@ details.journal .log { margin-top: 8px; }
   header { gap: 4px; height: calc(48px + env(safe-area-inset-top)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(4px, env(safe-area-inset-right)); }
   .logo-t, .wip .w, #restart-note { display: none; }
   .wip .sl { display: inline; }
+  .logo .ver { font-size: 10px; }
   .wip { font-size: 13px; margin-left: 4px; }
   /* Nothing in the header may push it past the screen: iOS would widen the page and drop the phone layout. */
   #waiting { flex: none; } /* who waits for you: never cut */

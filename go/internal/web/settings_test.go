@@ -43,7 +43,7 @@ func TestAwakeToggle(t *testing.T) {
 	home := t.TempDir()
 	os.WriteFile(filepath.Join(home, "mako.config.json"), []byte(`{"wipLimit":3}`), 0o644)
 	store, _ := state.Open(t.TempDir())
-	d := dispatch.New(&config.Config{KeepAwake: true}, store, nil)
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), KeepAwake: true}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
 	defer srv.Close()
 	post := func(on string) {
