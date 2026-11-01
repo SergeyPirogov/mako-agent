@@ -65,6 +65,10 @@ func TestBoard(t *testing.T) {
 	if len(st.Records) != 1 || !st.Records[0].Postponed || st.Records[0].Column != "new" {
 		t.Fatalf("state %+v", st.Records)
 	}
+	// The header shows the running version.
+	if st.Version != "test" {
+		t.Fatalf("version %q", st.Version)
+	}
 
 	// «Перезапустити, коли агенти закінчать хід»: asked for, then taken back.
 	req, _ = http.NewRequest("POST", srv.URL+"/api/restart?on=1", nil)
