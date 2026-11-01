@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
@@ -29,18 +30,44 @@ const terminalExecutor = "terminal"
 func onTerminal(r core.Record) bool { return r.Executor == terminalExecutor }
 
 // handTerminal makes the task's worktree and starts Claude in it with the same prompt Orca would get.
+// Each step is one of the start's («запускаю»); a cancelled start returns what it made so far with ctx's error.
 func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(string)) (*orca.Result, error) {
-	cfg := d.Config()
-	worktree, err := addWorktree(ctx, j.Repo, j.Task.Slug, j.Branch, log)
+	cfg, id := d.Config(), j.Task.ID
+	d.step(id, "main", "оновлюю "+j.Repo.BaseBranch)
+	fetchBase(ctx, j.Repo, log)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	d.step(id, "worktree", "створюю worktree")
+	worktree, created, err := addWorktree(ctx, j.Repo, j.Task.Slug, j.Branch, log)
+	if created {
+		d.madeBranch(id)
+	}
+	made := &orca.Result{Worktree: worktree, Branch: j.Branch}
 	if err != nil {
+		if ctx.Err() != nil && worktree != "" && exists(worktree) {
+			return made, ctx.Err() // half made: «Скасувати» takes it away
+		}
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return nil, err
 	}
 	j.Checks = gateChecks(cfg, j.Repo)
 	prompt := orca.FullPrompt(j, cfg.Orca)
-	setup := setupOf(j.Repo, cfg.Terminal, worktree)
-	if setup != "" {
-		log("підготовка worktree: " + setup)
+	var setup *chat.SetupResult
+	if cmd := setupOf(j.Repo, cfg.Terminal, worktree); cmd != "" {
+		d.startPlan(id, terminalExecutor, j.Repo.BaseBranch, true)
+		d.step(id, "setup", "підготовка ("+clipText(cmd, 60)+")")
+		setup = d.runSetup(ctx, id, worktree, cmd)
+		if ctx.Err() != nil {
+			return made, ctx.Err()
+		}
+		if setup.Failed {
+			log("підготовка не вдалась, агент стартує все одно:\n" + tailLines(setup.Output, 10))
+		}
 	}
+	d.step(id, "agent", "агент стартує")
 	view := viewOf(cfg.Terminal)
 	rec, _ := d.Store.Get(j.Task.ID)
 	planning := wantsPlan(cfg.Terminal, j.Task, rec.Estimate, rec.PlanFirst)
@@ -52,7 +79,7 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 		log("агент починає з плану: нічого не змінює, доки ви його не затвердите")
 	}
 	if err := d.runAgent(j.Task.ID, worktree, view, prompt, false, setup); err != nil {
-		return nil, err
+		return made, err
 	}
 	return &orca.Result{Worktree: worktree, Branch: j.Branch, Note: map[string]string{"chat": "чат Mako, ", "terminal": "термінал Mako, "}[view] + worktree}, nil
 }
@@ -69,7 +96,8 @@ func viewOf(t config.Terminal) string {
 // or a terminal; cont continues the worktree's last conversation instead.
 // cont goes on with the task's conversation: its own Claude Code session when Mako knows it, else the newest
 // in the worktree; a prompt with cont is your message that resumes it.
-func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setup string) error {
+// setup: the worktree's setup Mako ran before it, shown in the chat (nil: none).
+func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setup *chat.SetupResult) error {
 	t := d.Config().Terminal
 	r, _ := d.Store.Get(id)
 	t.Model = terminalModel(d.Config(), r) // picked for the task, the estimate's advice, the configured one or Sonnet
@@ -131,7 +159,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		mode = old.Snapshot().Mode // a continued conversation keeps the mode you chose
 	}
 	d.Chats.Put(chat.Start(chat.Options{
-		ID: id, Worktree: worktree, Command: command, Args: args, Env: d.agentEnv(id), Setup: setup, Prompt: prompt, Mode: mode, History: history,
+		ID: id, Worktree: worktree, Command: command, Args: args, Env: d.agentEnv(id), SetupDone: setup, Prompt: prompt, Mode: mode, History: history,
 		OnState:  func() { d.watchTerminals(time.Now()) },
 		OnLimits: d.limitsReported,
 		// The task keeps its session: a later resume goes on with exactly this conversation.
@@ -259,7 +287,7 @@ func (d *Dispatcher) resume(id, message string) error {
 		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo)}
 		prompt, cont = orca.FullPrompt(j, cfg.Orca), false
 	}
-	if err := d.runAgent(id, r.Worktree, r.View, prompt, cont, ""); err != nil {
+	if err := d.runAgent(id, r.Worktree, r.View, prompt, cont, nil); err != nil {
 		return err
 	}
 	if cont {
@@ -296,11 +324,59 @@ func setupOf(repo *config.Repo, t config.Terminal, worktree string) string {
 	return s
 }
 
-// The setup runs in the agent's terminal before the agent, so its output is there to read; a failed setup does
-// not stop the agent.
-const setupScript = `printf '\033[2m› %s\033[0m\n' "$MAKO_SETUP"; sh -c "$MAKO_SETUP" || printf '\033[33mПідготовка не вдалась, агент стартує все одно\033[0m\n'; exec "$0" "$@"`
+// runSetup prepares a new worktree before its agent starts (a failed setup does not stop it); «Скасувати» kills
+// the setup with whatever it started.
+// The output goes to a file, not a pipe: something the setup leaves running in the background would keep a pipe
+// open, and the start would wait for it for ever.
+func (d *Dispatcher) runSetup(ctx context.Context, id, worktree, setup string) *chat.SetupResult {
+	res := &chat.SetupResult{Command: setup}
+	f, err := os.CreateTemp("", "mako-setup-*.log")
+	if err != nil {
+		res.Output, res.Failed = err.Error(), true
+		return res
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	cmd := exec.Command("/bin/sh", "-c", setup)
+	cmd.Dir, cmd.Env = worktree, append(term.CleanEnv(os.Environ()), d.agentEnv(id)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Stdout, cmd.Stderr = f, f
+	err = cmd.Start()
+	if err == nil {
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			case <-done:
+			}
+		}()
+		err = cmd.Wait()
+		close(done)
+	}
+	out, _ := os.ReadFile(f.Name())
+	res.Output, res.Failed = string(out), err != nil
+	return res
+}
 
-func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []string, setup string, idle bool) error {
+// clipTail: the last n bytes of s at most (an environment variable has a limit).
+func clipTail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return "…" + strings.ToValidUTF8(s[len(s)-n:], "")
+}
+
+// tailLines: the last n lines of s.
+func tailLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
+}
+
+// The setup Mako ran is shown in the agent's terminal before the agent, so its output is there to read.
+const setupShown = `printf '\033[2m› %s\033[0m\n' "$MAKO_SETUP"; printf '%s\n' "$MAKO_SETUP_OUT"; [ -n "$MAKO_SETUP_FAILED" ] && printf '\033[33mПідготовка не вдалась, агент стартує все одно\033[0m\n'; exec "$0" "$@"`
+
+func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []string, setup *chat.SetupResult, idle bool) error {
 	command, err := term.Resolve(t.Command)
 	if err != nil {
 		return err
@@ -327,10 +403,13 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 		all = args
 	}
 	env := d.agentEnv(id)
-	if setup != "" {
-		all = append([]string{"-c", setupScript, command}, all...)
+	if setup != nil {
+		all = append([]string{"-c", setupShown, command}, all...)
 		command = "/bin/sh"
-		env = append(env, "MAKO_SETUP="+setup)
+		env = append(env, "MAKO_SETUP="+setup.Command, "MAKO_SETUP_OUT="+clipTail(tailLines(setup.Output, 200), 16000))
+		if setup.Failed {
+			env = append(env, "MAKO_SETUP_FAILED=1")
+		}
 	}
 	s, err := term.Start(term.Options{
 		ID: id, Worktree: worktree, Command: command, Args: all, Token: token, Idle: idle,
@@ -358,22 +437,27 @@ func escapeQuery(s string) string {
 	return strings.NewReplacer("%", "%25", "#", "%23", "&", "%26", "+", "%2B", " ", "%20", "/", "%2F").Replace(s)
 }
 
+// fetchBase brings the base branch up to date before a worktree starts from it; offline it starts from what is there.
+func fetchBase(ctx context.Context, repo *config.Repo, log func(string)) {
+	if _, err := gitx.Run(ctx, repo.Path, "fetch", "origin", repo.BaseBranch); err != nil && ctx.Err() == nil {
+		log("не вдалось оновити " + repo.BaseBranch + ": " + err.Error())
+	}
+}
+
 // addWorktree: <projects>/.worktrees/<repo>/<slug> on a new branch from the base branch, as Orca lays them out.
-// A branch that exists already (a retry of the same branch) is checked out as it is.
-func addWorktree(ctx context.Context, repo *config.Repo, slug, branch string, log func(string)) (string, error) {
+// A branch that exists already (a retry of the same branch) is checked out as it is; created: the branch is new.
+// A failed add still returns the path, which may be left half made.
+func addWorktree(ctx context.Context, repo *config.Repo, slug, branch string, log func(string)) (path string, created bool, err error) {
 	dir := repo.WorktreesDir
 	if dir == "" {
 		dir = filepath.Join(filepath.Dir(repo.Path), ".worktrees", filepath.Base(repo.Path))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+		return "", false, err
 	}
-	path := filepath.Join(dir, slug)
+	path = filepath.Join(dir, slug)
 	for i := 2; exists(path); i++ {
 		path = filepath.Join(dir, fmt.Sprintf("%s-%d", slug, i))
-	}
-	if _, err := gitx.Run(ctx, repo.Path, "fetch", "origin", repo.BaseBranch); err != nil {
-		log("не вдалось оновити " + repo.BaseBranch + ": " + err.Error())
 	}
 	base := "origin/" + repo.BaseBranch
 	if _, err := gitx.Run(ctx, repo.Path, "rev-parse", "--verify", "--quiet", base); err != nil {
@@ -381,13 +465,13 @@ func addWorktree(ctx context.Context, repo *config.Repo, slug, branch string, lo
 	}
 	if _, err := gitx.Run(ctx, repo.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
 		_, err = gitx.Run(ctx, repo.Path, "worktree", "add", path, branch)
-		return path, err
+		return path, false, err
 	}
 	if _, err := gitx.Run(ctx, repo.Path, "worktree", "add", "--no-track", "-b", branch, path, base); err != nil {
-		return "", err
+		return path, gitx.HasBranch(context.WithoutCancel(ctx), repo.Path, branch), err
 	}
 	log("worktree " + path + " на гілці " + branch)
-	return path, nil
+	return path, true, nil
 }
 
 // lookTerminal: the agent of a task in Mako's terminal, from its hooks.

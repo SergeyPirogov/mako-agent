@@ -72,18 +72,25 @@ type Options struct {
 	Command      string   // claude
 	Args         []string // more flags: --permission-mode, --allowedTools, --continue, --settings
 	Env          []string
-	Setup        string // runs in the worktree before the agent: "pnpm install"
-	Prompt       string // the first message; "" when the conversation continues
-	Mode         string // the permission mode it starts in
-	History      string // a Claude Code transcript: the conversation so far, shown before it continues
-	OnState      func()
-	OnLimits     func(Limits)
-	OnSession    func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
+	// SetupDone: the worktree's setup Mako ran before starting the agent ("pnpm install"), shown as finished.
+	SetupDone *SetupResult
+	Prompt    string // the first message; "" when the conversation continues
+	Mode      string // the permission mode it starts in
+	History   string // a Claude Code transcript: the conversation so far, shown before it continues
+	OnState   func()
+	OnLimits  func(Limits)
+	OnSession func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
 	// OnCost: what a turn cost (USD), so the task can add up its budget.
 	OnCost func(usd float64)
 	// Tools: when set, the only tools the agent may use; a request for any other is denied at once, nobody is
 	// asked (the read-only «Запитати про код»: Read, Grep, Glob).
 	Tools []string
+}
+
+// SetupResult: what a setup run before the agent printed and whether it failed.
+type SetupResult struct {
+	Command, Output string
+	Failed          bool
 }
 
 // Session is one agent in a conversation.
@@ -139,12 +146,9 @@ func (s *Session) run() {
 			s.add(Item{Kind: "user", Text: s.o.Prompt}) // the message that woke it up
 		}
 	}
-	if s.o.Setup != "" {
-		s.add(Item{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: mustJSON(map[string]string{"command": s.o.Setup}), Status: "running"})
-		cmd := exec.Command("/bin/sh", "-c", s.o.Setup)
-		cmd.Dir, cmd.Env = s.Worktree, append(environ(), s.o.Env...)
-		out, err := cmd.CombinedOutput()
-		s.finishTool("setup", tail(string(out), maxOutput), err != nil)
+	if r := s.o.SetupDone; r != nil {
+		s.add(Item{Kind: "tool", ID: "setup", Tool: "Підготовка", Input: mustJSON(map[string]string{"command": r.Command}), Status: "running"})
+		s.finishTool("setup", tail(r.Output, maxOutput), r.Failed)
 	}
 	args := append([]string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--permission-prompt-tool", "stdio"}, s.o.Args...)

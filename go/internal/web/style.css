@@ -125,6 +125,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .s.later::before { background: none; box-shadow: inset 0 0 0 1.5px var(--faint); }
 .s.doing::before, .s.queued::before { background: var(--accent); }
 .s.ci::before { background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+.s.starting::before { background: var(--accent); animation: pulse .8s ease-in-out infinite; }
 .s.review::before { background: var(--purple); }
 .s.done::before { background: var(--ok); }
 .s.failed::before { background: var(--err); }
@@ -738,6 +739,15 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
   border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid rgba(255, 255, 255, .35); height: 100%; box-sizing: border-box; }
 .takesplit details.menu > summary.primary:hover, .takesplit details.menu[open] > summary.primary { opacity: .9; }
 .notice.later-note, .notice.auto-skip { display: flex; align-items: center; gap: 8px; border-color: var(--line); color: var(--mute); }
+/* «Запускаю»: the start's steps, the one going on lit, those to come faint. */
+.notice.starting { border-color: var(--accent); white-space: normal; display: grid; gap: 6px; }
+.start-steps { margin: 0; padding-left: 20px; display: grid; gap: 3px; font-size: 13px; }
+.start-steps li.done { color: var(--mute); }
+.start-steps li.done::marker { content: "✓  "; color: var(--ok); }
+.start-steps li.now { font-weight: 600; }
+.start-steps li.now::marker { color: var(--accent); }
+.start-steps li.next { color: var(--faint); }
+.start-steps .t { margin-left: 8px; font-weight: 400; color: var(--mute); font-variant-numeric: tabular-nums; }
 
 /* «+ Задача»: the button over the list and the form where a card goes. */
 .new-task { flex: none; display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }

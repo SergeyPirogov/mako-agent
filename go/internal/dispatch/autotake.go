@@ -65,8 +65,7 @@ func (d *Dispatcher) autoTake(ctx context.Context, id string) {
 		why = ""
 	}
 	if n.AutoTake && !r.PostponedByYou && why == "" {
-		d.Log(id, "беру в роботу сам")
-		d.Take(ctx, id)
+		d.take(ctx, id, "взято в роботу автоматично")
 		return
 	}
 	if why != r.AutoSkip {

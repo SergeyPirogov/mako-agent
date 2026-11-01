@@ -113,7 +113,7 @@ done
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.Worktree, r.Branch, r.Executor, r.View = core.HandedOff, wt, "fix/5-pay", terminalExecutor, "chat"
 	})
-	if err := d.runAgent(id, wt, "chat", "Зроби задачу", false, ""); err != nil {
+	if err := d.runAgent(id, wt, "chat", "Зроби задачу", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.StopTerminal(id); d.Chats.Get(id).Wait(); settle(t, d, id) })
