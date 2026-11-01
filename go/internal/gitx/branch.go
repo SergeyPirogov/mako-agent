@@ -68,7 +68,7 @@ func Branch(ctx context.Context, worktree, baseBranch string) (*BranchState, err
 			b.Unpushed, _ = strconv.Atoi(out)
 		}
 	}
-	if out, err := Run(ctx, worktree, "status", "--porcelain"); err == nil {
+	if out, err := Run(ctx, worktree, "--no-optional-locks", "status", "--porcelain"); err == nil {
 		b.Dirty = len(lines(out))
 	}
 	return b, nil

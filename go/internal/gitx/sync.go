@@ -53,7 +53,7 @@ func UpdateFromBase(ctx context.Context, worktree, base, branch, mode string) (*
 	if behind == 0 {
 		return s, nil
 	}
-	if out, err := Run(ctx, worktree, "status", "--porcelain", "--untracked-files=no"); err != nil {
+	if out, err := Run(ctx, worktree, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no"); err != nil {
 		return nil, err
 	} else if out != "" {
 		return s, ErrDirty

@@ -375,7 +375,7 @@ func readyBranch(ctx context.Context, wt, base, branch string, pushed bool) (str
 	if c, _ := strconv.Atoi(strings.TrimSpace(n)); err != nil || c == 0 {
 		return head, false
 	}
-	if dirty, err := gitx.Run(ctx, wt, "status", "--porcelain", "--untracked-files=no"); err != nil || strings.TrimSpace(dirty) != "" {
+	if dirty, err := gitx.Run(ctx, wt, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no"); err != nil || strings.TrimSpace(dirty) != "" {
 		return head, false
 	}
 	if pushed {

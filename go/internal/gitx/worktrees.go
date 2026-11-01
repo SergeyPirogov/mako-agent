@@ -40,7 +40,7 @@ func Worktrees(ctx context.Context, repo string) ([]Worktree, error) {
 
 // Dirty: how many files of the worktree are changed and not committed (untracked ones too).
 func Dirty(ctx context.Context, worktree string) (int, error) {
-	out, err := Run(ctx, worktree, "status", "--porcelain")
+	out, err := Run(ctx, worktree, "--no-optional-locks", "status", "--porcelain")
 	if err != nil {
 		return 0, err
 	}
