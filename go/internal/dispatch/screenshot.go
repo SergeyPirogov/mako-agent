@@ -39,7 +39,7 @@ func (d *Dispatcher) Screenshot(ctx context.Context, id, name string, data []byt
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", "", nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, file), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, file), data, 0o600); err != nil {
 		return "", "", nil, err
 	}
 	local = "/api/screenshots/" + safeFile(id) + "/" + file

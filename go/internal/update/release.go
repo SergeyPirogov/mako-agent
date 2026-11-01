@@ -163,7 +163,7 @@ func (r *Releases) Dismiss(version string) error {
 	if err := os.MkdirAll(filepath.Dir(r.File), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(r.File, b, 0o644)
+	return os.WriteFile(r.File, b, 0o600)
 }
 
 // load reads the hidden version once; r.mu is held.

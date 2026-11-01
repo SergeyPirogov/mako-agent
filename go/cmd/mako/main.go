@@ -84,7 +84,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 		return err
 	}
 	// Started from Finder nobody sees stderr: the log goes to a file too.
-	if f, err := os.OpenFile(filepath.Join(cfg.StateDir, "mako.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+	if f, err := os.OpenFile(filepath.Join(cfg.StateDir, "mako.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
 		defer f.Close()
 		log.SetOutput(io.MultiWriter(os.Stderr, f))
 	}

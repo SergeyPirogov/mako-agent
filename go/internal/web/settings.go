@@ -152,7 +152,7 @@ func (s *Server) saveConfig(ctx context.Context, data json.RawMessage, envChange
 		return nil, err
 	}
 	path := filepath.Join(s.Home, "mako.config.json")
-	if err := os.WriteFile(path+".tmp", pretty.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(path+".tmp", pretty.Bytes(), 0o600); err != nil {
 		return nil, err
 	}
 	if err := os.Rename(path+".tmp", path); err != nil {
@@ -295,7 +295,7 @@ func (s *Server) setConfig(key string, value bool) error {
 	if err := os.MkdirAll(s.Home, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path+".tmp", append(pretty, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(path+".tmp", append(pretty, '\n'), 0o600); err != nil {
 		return err
 	}
 	if err := os.Rename(path+".tmp", path); err != nil {
