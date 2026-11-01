@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -327,5 +328,31 @@ read more
 	}
 	if strings.Join(kinds, " ") != "user:: permission:denied:Write result::" {
 		t.Fatalf("items %v", kinds)
+	}
+}
+
+// A message sent right after the idle timer closed stdin is refused with ErrClosed, not written into a dead
+// pipe and lost: the caller resumes the conversation with it.
+func TestSendAfterIdleClose(t *testing.T) {
+	old := IdleAfter
+	IdleAfter = 50 * time.Millisecond
+	defer func() { IdleAfter = old }()
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\necho '{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":10}'\nsleep 2\n"), 0o755)
+	s := Start(Options{ID: "a#3", Worktree: t.TempDir(), Command: bin, Prompt: "Почни"})
+	defer s.Stop()
+	eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.stopping
+	}, func() string { return "idle timer did not fire" })
+	// The process lingers (sleep 2): it still counts as running, yet cannot take a message.
+	if err := s.Send("ще"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("send after idle close: %v", err)
+	}
+	for _, it := range s.Snapshot().Items {
+		if it.Kind == "user" && it.Text == "ще" {
+			t.Fatal("a refused message is shown as sent")
+		}
 	}
 }

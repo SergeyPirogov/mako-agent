@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -517,10 +518,16 @@ func userMessage(text string) map[string]any {
 	return map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": text}}
 }
 
+// ErrClosed: the agent is stopped or stopping, so it cannot take a message; resuming its conversation can.
+var ErrClosed = errors.New("агент не запущений")
+
 // Send is a message from you; Claude reads it after its current step.
 func (s *Session) Send(text string) error {
-	if !s.Running() {
-		return fmt.Errorf("агент не запущений")
+	s.mu.Lock()
+	closed := s.exited || s.stopping // stdin is closed as soon as it stops, before the process has exited
+	s.mu.Unlock()
+	if closed {
+		return ErrClosed
 	}
 	// Working before Claude reads it: a turn it ends at once must not be set back to working.
 	s.add(Item{Kind: "user", Text: text})

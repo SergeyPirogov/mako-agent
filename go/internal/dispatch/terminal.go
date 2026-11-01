@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -253,7 +254,17 @@ func (d *Dispatcher) Say(id, text string) error {
 
 func (d *Dispatcher) say(id, text string) error {
 	if s := d.Chats.Get(id); s != nil && s.Running() {
-		return s.Send(text)
+		err := s.Send(text)
+		if !errors.Is(err, chat.ErrClosed) {
+			return err
+		}
+		// Closed for being idle a moment ago: wait for the process to go, then resume with the message.
+		gone := make(chan struct{})
+		go func() { s.Wait(); close(gone) }()
+		select {
+		case <-gone:
+		case <-time.After(5 * time.Second):
+		}
 	}
 	if d.Live(id) {
 		return d.sayTo(id, text)
