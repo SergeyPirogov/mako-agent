@@ -102,7 +102,7 @@ func Show(n Notice) {
 			return
 		}
 		go func() {
-			out, _ := exec.Command("notify-send", "--app-name", "Mako", "--wait", "--action", "open=Відкрити", title, message).Output()
+			out, _ := exec.Command("notify-send", "--app-name", "Mako", "--wait", "--action", "open=Open", title, message).Output()
 			if string(out) == "open\n" {
 				Open(url)
 			}

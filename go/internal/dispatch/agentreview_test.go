@@ -129,7 +129,7 @@ func TestAgentReview(t *testing.T) {
 	said := func() string { b, _ := os.ReadFile(filepath.Join(wt, "said.json")); return string(b) }
 
 	step("idle") // no commits: no button
-	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "не готова") {
+	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "not ready for review") {
 		t.Fatalf("a branch with no commits: %v", err)
 	}
 	os.WriteFile(filepath.Join(wt, "pay.go"), []byte("package app\n"), 0o644)
@@ -160,7 +160,7 @@ func TestAgentReview(t *testing.T) {
 		t.Fatal("the remarks went to the agent by themselves")
 	}
 	step("notes")
-	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "не змінив") {
+	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "has not changed the branch") {
 		t.Fatalf("the same commit again: %v", err)
 	}
 
@@ -168,14 +168,14 @@ func TestAgentReview(t *testing.T) {
 	if err := d.FixReview(id); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "вже передано") && !strings.Contains(err.Error(), "ще працює") {
+	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "already sent") && !strings.Contains(err.Error(), "still working") {
 		t.Fatalf("sent twice: %v", err)
 	}
 	if r, _ := d.Store.Get(id); !r.AgentReviews[0].Sent {
 		t.Fatalf("reviews %+v", r.AgentReviews)
 	}
 	idle()
-	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "вже передано") {
+	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "already sent") {
 		t.Fatalf("sent twice: %v", err)
 	}
 	if b := said(); !strings.Contains(b, "порожній кошик") || !strings.Contains(b, "запуш гілку fix/5-pay") {
@@ -199,7 +199,7 @@ func TestAgentReview(t *testing.T) {
 		t.Fatalf("calls %d reviews %+v", calls.Load(), r.AgentReviews)
 	}
 	step("idle")
-	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "немає зауважень") {
+	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "no reviewer remarks") {
 		t.Fatalf("fix of a clean review: %v", err)
 	}
 }
@@ -247,7 +247,7 @@ func TestReviewRetry(t *testing.T) {
 	if r, _ := d.Store.Get(id); d.ReviewStep(r) != "running" {
 		t.Fatalf("step %q", d.ReviewStep(r))
 	}
-	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "уже переглядає") {
+	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "already reviewing") {
 		t.Fatalf("a second round: %v", err)
 	}
 	d.mu.Lock()
@@ -290,7 +290,7 @@ func TestReviewSkip(t *testing.T) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.AgentReviews = []core.AgentReview{{At: now(), Commit: "x", State: "notes", Notes: "- щось"}}
 	})
-	if err := d.SkipReview(id); err == nil || !strings.Contains(err.Error(), "чекають") {
+	if err := d.SkipReview(id); err == nil || !strings.Contains(err.Error(), "still pending") {
 		t.Fatalf("skipped the remarks: %v", err)
 	}
 }

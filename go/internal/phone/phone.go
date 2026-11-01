@@ -113,7 +113,7 @@ func (p *Phones) Pair(code, name string) (*Device, error) {
 	defer p.mu.Unlock()
 	until, ok := p.pairing[code]
 	if !ok || time.Now().After(until) {
-		return nil, errors.New("код застарів: відкрийте «Телефон» у налаштуваннях Mako на Mac і відскануйте новий QR-код")
+		return nil, errors.New("code expired: open \"Phone\" in the Mako settings on the Mac and scan a new QR code")
 	}
 	delete(p.pairing, code)
 	now := time.Now().UnixMilli()
@@ -179,7 +179,7 @@ func (p *Phones) Subscribe(token string, sub *webpush.Subscription) error {
 			return p.saveLocked()
 		}
 	}
-	return errors.New("пристрій не підключено")
+	return errors.New("device not connected")
 }
 
 // Message is what a push says; the app shows title and body and opens url on a tap. Its actions are buttons that
@@ -231,9 +231,9 @@ func (p *Phones) Push(ctx context.Context, m Message) []error {
 		switch {
 		case res.StatusCode == 404 || res.StatusCode == 410:
 			p.Subscribe(d.Token, nil)
-			errs = append(errs, fmt.Errorf("%s: підписка на сповіщення більше не діє", d.Name))
+			errs = append(errs, fmt.Errorf("%s: the notification subscription is no longer valid", d.Name))
 		case res.StatusCode >= 300:
-			errs = append(errs, fmt.Errorf("%s: сервіс сповіщень відповів %d", d.Name, res.StatusCode))
+			errs = append(errs, fmt.Errorf("%s: the notification service responded %d", d.Name, res.StatusCode))
 		}
 	}
 	return errs
@@ -249,5 +249,5 @@ func DeviceName(userAgent string) string {
 			return n
 		}
 	}
-	return "Пристрій"
+	return "Device"
 }

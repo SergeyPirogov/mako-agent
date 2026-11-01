@@ -47,7 +47,7 @@ func (d *Dispatcher) RequestRestart(on bool) {
 	d.restartPending = on
 	d.mu.Unlock()
 	if on {
-		d.Log("mako", "перезапуск, коли агенти закінчать хід")
+		d.Log("mako", "restart once the agents finish their turn")
 	}
 }
 
@@ -63,7 +63,7 @@ func (d *Dispatcher) WaitRestart(ctx context.Context, every time.Duration) bool 
 	defer tick.Stop()
 	for {
 		if d.RestartPending() && len(d.BusyTasks()) == 0 {
-			d.Log("mako", "агенти закінчили хід: перезапуск")
+			d.Log("mako", "the agents finished their turn: restarting")
 			return true
 		}
 		select {

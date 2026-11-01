@@ -45,11 +45,11 @@ func (d *Dispatcher) NewTaskProjects() map[string][]string {
 func (d *Dispatcher) creator(trackerID string) (trackers.Tracker, trackers.Creator, error) {
 	t := d.tracker(trackerID)
 	if t == nil {
-		return nil, nil, fmt.Errorf("немає трекера %q", trackerID)
+		return nil, nil, fmt.Errorf("no tracker %q", trackerID)
 	}
 	c, ok := t.(trackers.Creator)
 	if !ok {
-		return nil, nil, fmt.Errorf("%s не вміє створювати задачі з дошки", t.Name())
+		return nil, nil, fmt.Errorf("%s cannot create tasks from the board", t.Name())
 	}
 	return t, c, nil
 }
@@ -59,10 +59,10 @@ func (d *Dispatcher) creator(trackerID string) (trackers.Tracker, trackers.Creat
 func (d *Dispatcher) CreateTask(ctx context.Context, trackerID string, n trackers.NewIssue, take bool) (string, error) {
 	n.Title, n.Project = strings.TrimSpace(n.Title), strings.TrimSpace(n.Project)
 	if n.Title == "" {
-		return "", fmt.Errorf("вкажіть назву задачі")
+		return "", fmt.Errorf("enter a task title")
 	}
 	if n.Project == "" {
-		return "", fmt.Errorf("виберіть проєкт")
+		return "", fmt.Errorf("choose a project")
 	}
 	t, c, err := d.creator(trackerID)
 	if err != nil {
@@ -74,7 +74,7 @@ func (d *Dispatcher) CreateTask(ctx context.Context, trackerID string, n tracker
 	}
 	d.ensureProject(t, task.Project)
 	d.Store.Update(task.ID, func(r *core.Record) { r.Task, r.Status = task, core.Snoozed })
-	d.Log(task.ID, "створено з дошки: "+task.Title)
+	d.Log(task.ID, "created from the board: "+task.Title)
 	if take {
 		d.Take(ctx, task.ID)
 	}
@@ -84,7 +84,7 @@ func (d *Dispatcher) CreateTask(ctx context.Context, trackerID string, n tracker
 // UploadImage stores an image pasted into a new task's description; it returns the Markdown for it.
 func (d *Dispatcher) UploadImage(ctx context.Context, trackerID, project, name string, data []byte) (string, error) {
 	if strings.TrimSpace(project) == "" {
-		return "", fmt.Errorf("спершу виберіть проєкт")
+		return "", fmt.Errorf("choose a project first")
 	}
 	_, c, err := d.creator(trackerID)
 	if err != nil {

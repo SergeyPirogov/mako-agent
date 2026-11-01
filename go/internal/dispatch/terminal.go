@@ -34,12 +34,12 @@ func onTerminal(r core.Record) bool { return r.Executor == terminalExecutor }
 // Each step is one of the start's («запускаю»); a cancelled start returns what it made so far with ctx's error.
 func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(string)) (*orca.Result, error) {
 	cfg, id := d.Config(), j.Task.ID
-	d.step(id, "main", "оновлюю "+j.Repo.BaseBranch)
+	d.step(id, "main", "updating "+j.Repo.BaseBranch)
 	fetchBase(ctx, j.Repo, log)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	d.step(id, "worktree", "створюю worktree")
+	d.step(id, "worktree", "creating the worktree")
 	worktree, created, err := addWorktree(ctx, j.Repo, j.Task.Slug, j.Branch, log)
 	if created {
 		d.madeBranch(id)
@@ -60,30 +60,30 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 	var setup *chat.SetupResult
 	if cmd := setupOf(j.Repo, cfg.Terminal, worktree); cmd != "" {
 		d.startPlan(id, terminalExecutor, j.Repo.BaseBranch, true)
-		d.step(id, "setup", "підготовка ("+clipText(cmd, 60)+")")
+		d.step(id, "setup", "setup ("+clipText(cmd, 60)+")")
 		setup = d.runSetup(ctx, id, worktree, cmd)
 		if ctx.Err() != nil {
 			return made, ctx.Err()
 		}
 		if setup.Failed {
-			log("підготовка не вдалась, агент стартує все одно:\n" + tailLines(setup.Output, 10))
+			log("setup failed, the agent starts anyway:\n" + tailLines(setup.Output, 10))
 		}
 	}
-	d.step(id, "agent", "агент стартує")
+	d.step(id, "agent", "the agent is starting")
 	view := viewOf(cfg.Terminal)
 	rec, _ := d.Store.Get(j.Task.ID)
 	planning := wantsPlan(cfg.Terminal, j.Task, rec.Estimate, rec.PlanFirst)
 	if m := modelFor(cfg, rec); m != "" && rec.Model == "" {
-		log("модель " + m + ": як радить оцінка")
+		log("model " + m + ": as the estimate advises")
 	}
 	d.Store.Update(j.Task.ID, func(r *core.Record) { r.View, r.Planning = view, planning })
 	if planning {
-		log("агент починає з плану: нічого не змінює, доки ви його не затвердите")
+		log("the agent starts with a plan: it changes nothing until you approve it")
 	}
 	if err := d.runAgent(j.Task.ID, worktree, view, prompt, false, setup); err != nil {
 		return made, err
 	}
-	return &orca.Result{Worktree: worktree, Branch: j.Branch, Note: map[string]string{"chat": "чат Mako, ", "terminal": "термінал Mako, "}[view] + worktree}, nil
+	return &orca.Result{Worktree: worktree, Branch: j.Branch, Note: map[string]string{"chat": "Mako chat, ", "terminal": "Mako terminal, "}[view] + worktree}, nil
 }
 
 // viewOf: how a new task's agent is shown: the chat unless the settings say the terminal.
@@ -208,18 +208,18 @@ func (d *Dispatcher) sayTo(id, text string) error {
 		s.Say(text)
 		return nil
 	}
-	return fmt.Errorf("агент не запущений: спершу «Продовжити»")
+	return fmt.Errorf("the agent is not running: press \"Continue\" first")
 }
 
 // SwitchView shows the task's agent the other way: it stops where it runs and continues the same conversation
 // in the chat or the terminal.
 func (d *Dispatcher) SwitchView(id, to string) error {
 	if to != "chat" && to != "terminal" {
-		return fmt.Errorf("невідомий вигляд %q", to)
+		return fmt.Errorf("unknown view %q", to)
 	}
 	r, ok := d.Store.Get(id)
 	if !ok || !onTerminal(r) {
-		return fmt.Errorf("задача не в Mako")
+		return fmt.Errorf("the task is not in Mako")
 	}
 	if r.View == to || (r.View == "" && to == "terminal") {
 		return nil
@@ -230,7 +230,7 @@ func (d *Dispatcher) SwitchView(id, to string) error {
 		time.Sleep(100 * time.Millisecond) // one claude at a time on a conversation
 	}
 	d.Store.Update(id, func(r *core.Record) { r.View = to })
-	d.Log(id, map[string]string{"chat": "агент тепер у чаті", "terminal": "агент тепер у терміналі"}[to])
+	d.Log(id, map[string]string{"chat": "the agent is now in the chat", "terminal": "the agent is now in the terminal"}[to])
 	if !live {
 		return nil
 	}
@@ -262,7 +262,7 @@ func (d *Dispatcher) awaitClosed(s *chat.Session) error {
 	case <-s.Done():
 		return nil
 	case <-time.After(5 * time.Second):
-		return errors.New("агент ще закривається: спробуйте за мить")
+		return errors.New("the agent is still closing: try again in a moment")
 	}
 }
 
@@ -282,7 +282,7 @@ func (d *Dispatcher) say(id, text string) error {
 	if err := d.resume(id, text); err != nil {
 		return err
 	}
-	d.Log(id, "ви написали агенту: "+clipText(firstLine(text), 120))
+	d.Log(id, "you wrote to the agent: "+clipText(firstLine(text), 120))
 	return nil
 }
 
@@ -290,13 +290,13 @@ func (d *Dispatcher) say(id, text string) error {
 func (d *Dispatcher) resume(id, message string) error {
 	r, ok := d.Store.Get(id)
 	if !ok || !onTerminal(r) || r.Worktree == "" {
-		return fmt.Errorf("задача не в терміналі Mako")
+		return fmt.Errorf("the task is not in a Mako terminal")
 	}
 	if d.Live(id) {
 		return nil
 	}
 	if !exists(r.Worktree) {
-		return fmt.Errorf("worktree %s видалено", r.Worktree)
+		return fmt.Errorf("worktree %s was deleted", r.Worktree)
 	}
 	prompt, cont := message, true
 	if !orca.HasTranscript(r.Worktree) {
@@ -304,7 +304,7 @@ func (d *Dispatcher) resume(id, message string) error {
 		// in the same worktree.
 		t := d.tracker(r.Task.TrackerID)
 		if t == nil {
-			return fmt.Errorf("трекер %s прибрано з налаштувань", r.Task.TrackerID)
+			return fmt.Errorf("tracker %s was removed from the settings", r.Task.TrackerID)
 		}
 		repo, err := d.route(t, r.Task)
 		if err != nil {
@@ -319,9 +319,9 @@ func (d *Dispatcher) resume(id, message string) error {
 		return err
 	}
 	if cont {
-		d.Log(id, "агента знову запущено")
+		d.Log(id, "the agent was started again")
 	} else {
-		d.Log(id, "розмови агента не збережено: задачу почато знову в тому самому worktree")
+		d.Log(id, "the agent conversation was not saved: the task was started over in the same worktree")
 	}
 	return nil
 }
@@ -402,7 +402,7 @@ func tailLines(s string, n int) string {
 }
 
 // The setup Mako ran is shown in the agent's terminal before the agent, so its output is there to read.
-const setupShown = `printf '\033[2m› %s\033[0m\n' "$MAKO_SETUP"; printf '%s\n' "$MAKO_SETUP_OUT"; [ -n "$MAKO_SETUP_FAILED" ] && printf '\033[33mПідготовка не вдалась, агент стартує все одно\033[0m\n'; exec "$0" "$@"`
+const setupShown = `printf '\033[2m› %s\033[0m\n' "$MAKO_SETUP"; printf '%s\n' "$MAKO_SETUP_OUT"; [ -n "$MAKO_SETUP_FAILED" ] && printf '\033[33mSetup failed, the agent starts anyway\033[0m\n'; exec "$0" "$@"`
 
 func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []string, setup *chat.SetupResult, idle bool) error {
 	command, err := term.Resolve(t.Command)
@@ -445,7 +445,7 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 		OnState: func() { d.watchTerminals(time.Now()) },
 	})
 	if err != nil {
-		return fmt.Errorf("агент не запустився: %w", err)
+		return fmt.Errorf("the agent failed to start: %w", err)
 	}
 	d.Sessions.Put(s)
 	return nil
@@ -468,7 +468,7 @@ func escapeQuery(s string) string {
 // fetchBase brings the base branch up to date before a worktree starts from it; offline it starts from what is there.
 func fetchBase(ctx context.Context, repo *config.Repo, log func(string)) {
 	if _, err := gitx.Run(ctx, repo.Path, "fetch", "origin", repo.BaseBranch); err != nil && ctx.Err() == nil {
-		log("не вдалось оновити " + repo.BaseBranch + ": " + err.Error())
+		log("failed to update " + repo.BaseBranch + ": " + err.Error())
 	}
 }
 
@@ -498,7 +498,7 @@ func addWorktree(ctx context.Context, repo *config.Repo, slug, branch string, lo
 	if _, err := gitx.Run(ctx, repo.Path, "worktree", "add", "--no-track", "-b", branch, path, base); err != nil {
 		return path, gitx.HasBranch(context.WithoutCancel(ctx), repo.Path, branch), err
 	}
-	log("worktree " + path + " на гілці " + branch)
+	log("worktree " + path + " on branch " + branch)
 	return path, true, nil
 }
 
@@ -510,13 +510,13 @@ func (d *Dispatcher) lookTerminal(r core.Record, now time.Time) Agent {
 	}
 	s := d.Sessions.Get(r.ID)
 	if s == nil {
-		a.State, a.Reason = "stopped", "сесії немає: Mako перезапускали"
+		a.State, a.Reason = "stopped", "no session: Mako was restarted"
 	} else {
 		st := s.State()
 		a.Since = st.Since.UnixMilli()
 		switch st.State {
 		case "exited":
-			a.State, a.Reason = "stopped", "агент вийшов"
+			a.State, a.Reason = "stopped", "the agent exited"
 		case "waiting":
 			a.State, a.Reason = "waiting", st.Reason
 		case "done":
@@ -536,7 +536,7 @@ func (d *Dispatcher) lookTerminal(r core.Record, now time.Time) Agent {
 func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 	s := d.Chats.Get(r.ID)
 	if s == nil {
-		a.State, a.Reason = "stopped", "сесії немає: Mako перезапускали"
+		a.State, a.Reason = "stopped", "no session: Mako was restarted"
 		if d.LastMessage != nil && r.Worktree != "" {
 			a.Message = d.LastMessage(r.Worktree)
 		}
@@ -549,13 +549,13 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 		// Closed while it waited for you: still its turn ended, a message resumes it.
 		a.State = "done"
 	case state == "exited":
-		a.State, a.Reason = "stopped", "агент вийшов"
+		a.State, a.Reason = "stopped", "the agent exited"
 	case state == "waiting" && strings.HasPrefix(tool, chat.PlanTool):
-		a.State, a.Reason, a.Asked = "waiting", "план чекає на затвердження", s.Asked()
+		a.State, a.Reason, a.Asked = "waiting", "the plan awaits approval", s.Asked()
 	case state == "waiting" && strings.HasPrefix(tool, "AskUserQuestion"):
-		a.State, a.Reason, a.Asked = "waiting", "агент питає", s.Asked()
+		a.State, a.Reason, a.Asked = "waiting", "the agent is asking", s.Asked()
 	case state == "waiting":
-		a.State, a.Reason, a.Asked = "waiting", "дозвіл на "+tool, s.Asked()
+		a.State, a.Reason, a.Asked = "waiting", "permission for "+tool, s.Asked()
 	case state == "done":
 		a.State = "done"
 	default:
@@ -619,7 +619,7 @@ func (d *Dispatcher) OpenWorktree(id, where, file string) error {
 			}
 			return exec.Command("open", "-a", e, wt).Start()
 		}
-		return fmt.Errorf("не знайдено редактора (Cursor, VS Code, Zed)")
+		return fmt.Errorf("no editor found (Cursor, VS Code, Zed)")
 	}
 	return exec.Command("open", wt).Start()
 }
@@ -637,7 +637,7 @@ func (d *Dispatcher) FileDiff(ctx context.Context, id, path string, whole bool) 
 func (d *Dispatcher) workOf(id string) (worktree, baseBranch string, err error) {
 	r, ok := d.Store.Get(id)
 	if !ok || r.Worktree == "" || !exists(r.Worktree) {
-		return "", "", fmt.Errorf("у задачі немає worktree")
+		return "", "", fmt.Errorf("the task has no worktree")
 	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
 		if repo, err := d.route(t, r.Task); err == nil {

@@ -97,13 +97,13 @@ func TestWatchAgents(t *testing.T) {
 	// It asks to run a command.
 	term.agent("permission", orca.AgentRow{AgentType: "claude", State: "blocked", ToolName: "Bash", ToolInput: "npm test -- payment"})
 	d.WatchAgents(ctx, now.Add(10*time.Second))
-	if a = d.Agents()["grp/app#5"]; a.State != "waiting" || a.Reason != "дозвіл на Bash: npm test -- payment" {
+	if a = d.Agents()["grp/app#5"]; a.State != "waiting" || a.Reason != "permission for Bash: npm test -- payment" {
 		t.Fatalf("waiting: %+v", a)
 	}
 	if awake[len(awake)-1] {
 		t.Fatalf("an agent waiting for you should let the Mac sleep: %v", awake)
 	}
-	if logs := d.Logs("grp/app#5"); !strings.Contains(logs[len(logs)-1].Text, "чекає на вас") {
+	if logs := d.Logs("grp/app#5"); !strings.Contains(logs[len(logs)-1].Text, "waiting for you") {
 		t.Fatalf("not told: %+v", logs)
 	}
 
@@ -113,14 +113,14 @@ func TestWatchAgents(t *testing.T) {
 	if a = d.Agents()["grp/app#5"]; a.State != "done" || a.Message != "## Готово\nMR: !9" || a.Tool != "" {
 		t.Fatalf("done: %+v", a)
 	}
-	if logs := d.Logs("grp/app#5"); logs[len(logs)-1].Text != "агент закінчив" {
+	if logs := d.Logs("grp/app#5"); logs[len(logs)-1].Text != "agent finished" {
 		t.Fatalf("not told: %+v", logs)
 	}
 
 	// Interrupted.
 	term.agent("done", orca.AgentRow{AgentType: "claude", State: "done", Interrupted: true})
 	d.WatchAgents(ctx, now.Add(30*time.Second))
-	if a = d.Agents()["grp/app#5"]; a.State != "stopped" || a.Reason != "перервано" {
+	if a = d.Agents()["grp/app#5"]; a.State != "stopped" || a.Reason != "interrupted" {
 		t.Fatalf("stopped: %+v", a)
 	}
 

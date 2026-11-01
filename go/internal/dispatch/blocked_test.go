@@ -24,8 +24,8 @@ func TestBlocked(t *testing.T) {
 	if got := d.Blocked(doing); got != "" {
 		t.Fatalf("working agent: %q", got)
 	}
-	d.agents[doing.ID] = &Agent{State: "waiting", Reason: "питання"}
-	if got := d.Blocked(doing); got != "the agent is waiting for you: питання" {
+	d.agents[doing.ID] = &Agent{State: "waiting", Reason: "question"}
+	if got := d.Blocked(doing); got != "the agent is waiting for you: question" {
 		t.Fatalf("waiting agent: %q", got)
 	}
 

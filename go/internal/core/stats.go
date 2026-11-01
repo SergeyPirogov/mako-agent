@@ -246,8 +246,8 @@ func Summarize(records []Record, now, since time.Time) Stats {
 			why := reason(r.Error)
 			if cancelled(r) {
 				st.Cancelled++
-				if r.Status != Cancelled {
-					why = "Скасовано"
+				if r.Status != Cancelled || cancelMark(r.Error) {
+					why = "Cancelled"
 				}
 			}
 			reasons[why]++
@@ -397,7 +397,12 @@ func clean(r Record) bool {
 
 // cancelled: stopped on purpose, from the board or in Orca, rather than gone wrong.
 func cancelled(r Record) bool {
-	return r.Status == Cancelled && r.Error == "Скасовано" || strings.Contains(strings.ToLower(r.Error), "cancelled by the developer")
+	return r.Status == Cancelled && cancelMark(r.Error) || strings.Contains(strings.ToLower(r.Error), "cancelled by the developer")
+}
+
+// cancelMark: the error text of a cancel from the board; "Скасовано" is how older records have it.
+func cancelMark(e string) bool {
+	return e == "Cancelled" || e == "Скасовано" // cyrillic-ok
 }
 
 // trend: an empty day for each day the trend shows, by its local date: the period's, the last 14 for all time.
@@ -481,7 +486,7 @@ func reason(err string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(err), "\n")
 	line = strings.TrimSpace(line)
 	if line == "" {
-		return "Без причини"
+		return "No reason"
 	}
 	if r := []rune(line); len(r) > 160 {
 		line = string(r[:160]) + "…"

@@ -336,7 +336,7 @@ func TestReviewWaitsForCI(t *testing.T) {
 	d.CheckHandoffs(ctx)
 	waits := 0
 	for _, l := range d.Logs(id) {
-		if strings.Contains(l.Text, "чекаю на CI") {
+		if strings.Contains(l.Text, "waiting for CI") {
 			waits++
 		}
 	}
@@ -585,7 +585,7 @@ func TestHoldWhileUpdateWaits(t *testing.T) {
 	held := true
 	d.Hold = func() string {
 		if held {
-			return "стартує після оновлення Mako"
+			return "starts after Mako restarts"
 		}
 		return ""
 	}

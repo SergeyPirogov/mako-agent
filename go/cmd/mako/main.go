@@ -50,11 +50,11 @@ func main() {
 		}
 		return
 	}
-	homeFlag := flag.String("home", "", "папка з mako.config.json і .env (типово MAKO_HOME, ~/.mako або папка застосунку Mako)")
-	open := flag.Bool("open", false, "відкрити дошку в браузері")
-	noTray := flag.Bool("no-tray", false, "без значка в рядку меню: лише дошка в браузері")
-	readonly := flag.Bool("readonly", false, "лише показати дошку (для скриншотів): без пошуку задач, агентів і змін")
-	port := flag.Int("port", 0, "порт дошки замість налаштованого")
+	homeFlag := flag.String("home", "", "folder with mako.config.json and .env (default MAKO_HOME, ~/.mako or the Mako app folder)")
+	open := flag.Bool("open", false, "open the board in the browser")
+	noTray := flag.Bool("no-tray", false, "no menu bar icon: only the board in the browser")
+	readonly := flag.Bool("readonly", false, "only show the board (for screenshots): no task polling, agents or changes")
+	port := flag.Int("port", 0, "board port instead of the configured one")
 	flag.Parse()
 	if *readonly {
 		*noTray, *open = true, false
@@ -89,7 +89,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 		log.SetOutput(io.MultiWriter(os.Stderr, f))
 	}
 	for _, p := range problems {
-		log.Printf("налаштування: %s", p)
+		log.Printf("settings: %s", p)
 	}
 	notify.Enabled = cfg.Notifications.Enabled
 
@@ -103,7 +103,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 			}
 			return nil
 		}
-		return fmt.Errorf("порт %d зайнятий: %w", cfg.Notifications.Port, err)
+		return fmt.Errorf("port %d is busy: %w", cfg.Notifications.Port, err)
 	}
 	store, err := state.Open(cfg.StateDir)
 	if err != nil {
@@ -135,7 +135,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	// Everything the Mac is told goes to the paired phones too, with board links made relative to the app.
 	push := func(m phone.Message) {
 		for _, err := range phones.Push(context.Background(), m) {
-			log.Printf("телефон: %v", err)
+			log.Printf("phone: %v", err)
 		}
 	}
 	notify.Remote = func(n notify.Notice) {
@@ -152,7 +152,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	// The kinds turned off in the settings, as they are now: a saved change applies at once.
 	notify.Muted = func(kind string) bool { return d.Config().Notifications.Muted(kind) }
 	notify.RemoteWithdraw = func(tag string) {
-		push(phone.Message{Title: "Mako", Body: "На запит уже відповіли", Tag: tag, Close: true})
+		push(phone.Message{Title: "Mako", Body: "This request was already answered", Tag: tag, Close: true})
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -181,7 +181,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 			// While the update waits for the agents, no new one starts: it would keep it waiting.
 			d.Hold = func() string {
 				if updater.Waiting() {
-					return "стартує після оновлення Mako"
+					return "starts after the Mako update"
 				}
 				return ""
 			}
@@ -195,7 +195,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	}
 	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones, Update: updater, Release: releases}).Handler()}
 	go srv.Serve(ln)
-	log.Printf("Mako %s: %s, дошка %s", version, home, d.BoardURL)
+	log.Printf("Mako %s: %s, board %s", version, home, d.BoardURL)
 	if len(cfg.Trackers) == 0 {
 		show(d.BoardURL + "/settings") // first start: straight to the settings
 	} else if open || (tray && desktop.HasWindow() && desktop.OpenedAsApp()) {
@@ -229,13 +229,13 @@ func serveReadonly(ctx context.Context, ln net.Listener, s *web.Server) error {
 	h := s.Handler()
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "лише для читання", http.StatusForbidden)
+			http.Error(w, "read-only", http.StatusForbidden)
 			return
 		}
 		h.ServeHTTP(w, r)
 	})}
 	go srv.Serve(ln)
-	log.Printf("Mako %s лише для читання: http://%s", version, ln.Addr())
+	log.Printf("Mako %s read-only: http://%s", version, ln.Addr())
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -247,13 +247,13 @@ func serveReadonly(ctx context.Context, ln net.Listener, s *web.Server) error {
 func relaunch() error {
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("перезапуск: %w", err)
+		return fmt.Errorf("restart: %w", err)
 	}
 	if p, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = p
 	}
-	log.Printf("перезапуск: %s", exe)
-	return fmt.Errorf("перезапуск: %w", syscall.Exec(exe, os.Args, os.Environ()))
+	log.Printf("restart: %s", exe)
+	return fmt.Errorf("restart: %w", syscall.Exec(exe, os.Args, os.Environ()))
 }
 
 func running(base string) bool {
@@ -312,5 +312,5 @@ func reportToMako(ctx context.Context, d *dispatch.Dispatcher, src, title, body 
 		}
 		return task.URL, nil
 	}
-	return "", fmt.Errorf("немає трекера для %s", origin)
+	return "", fmt.Errorf("no tracker for %s", origin)
 }

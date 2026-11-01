@@ -18,7 +18,7 @@ type Finding struct {
 	File   string `json:"file"`
 	Line   int    `json:"line,omitempty"`   // in the file as the commit has it; 0 for a whole file (.env)
 	Commit string `json:"commit,omitempty"` // short hash when the line is in a commit; "" for uncommitted work
-	Kind   string `json:"kind"`             // "GitHub-токен", "приватний ключ", ".env-файл"…
+	Kind   string `json:"kind"`             // "GitHub token", "private key", ".env file"…
 	Masked string `json:"masked,omitempty"` // the start of the value and its length: "ghp_Ab…(40)"
 	// Key names the line (the file and the line's text): «Це не секрет» allows this key, and the same line is
 	// not flagged again.
@@ -33,19 +33,19 @@ type rule struct {
 }
 
 var rules = []rule{
-	{"приватний ключ", regexp.MustCompile(`-----BEGIN ((RSA|DSA|EC|OPENSSH|PGP|ENCRYPTED) )?PRIVATE KEY( BLOCK)?-----`), 0},
-	{"GitHub-токен", regexp.MustCompile(`\b(gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})\b`), 0},
-	{"GitLab-токен", regexp.MustCompile(`\bgl(pat|dt|rt|ptt|cbt|oas|ft|imt|agent|soat)-[A-Za-z0-9_\-]{20,}`), 0},
+	{"private key", regexp.MustCompile(`-----BEGIN ((RSA|DSA|EC|OPENSSH|PGP|ENCRYPTED) )?PRIVATE KEY( BLOCK)?-----`), 0},
+	{"GitHub token", regexp.MustCompile(`\b(gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})\b`), 0},
+	{"GitLab token", regexp.MustCompile(`\bgl(pat|dt|rt|ptt|cbt|oas|ft|imt|agent|soat)-[A-Za-z0-9_\-]{20,}`), 0},
 	{"AWS access key", regexp.MustCompile(`\b(AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b`), 0},
 	{"AWS secret key", regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}?['"]?\s*[:=]\s*['"]?([A-Za-z0-9/+]{40})\b`), 1},
-	{"Slack-токен", regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`), 0},
+	{"Slack token", regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`), 0},
 	{"Slack webhook", regexp.MustCompile(`https://hooks\.slack\.com/services/T[A-Za-z0-9_]+/B[A-Za-z0-9_]+/[A-Za-z0-9_]+`), 0},
-	{"Anthropic-ключ", regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_\-]{20,}`), 0},
-	{"OpenAI-ключ", regexp.MustCompile(`\bsk-(proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}T3BlbkFJ[A-Za-z0-9_\-]{20,}|\bsk-(proj-|svcacct-|admin-)[A-Za-z0-9_\-]{40,}`), 0},
+	{"Anthropic key", regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_\-]{20,}`), 0},
+	{"OpenAI key", regexp.MustCompile(`\bsk-(proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}T3BlbkFJ[A-Za-z0-9_\-]{20,}|\bsk-(proj-|svcacct-|admin-)[A-Za-z0-9_\-]{40,}`), 0},
 	{"Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_\-]{35}\b`), 0},
-	{"Stripe-ключ", regexp.MustCompile(`\b[sr]k_live_[0-9A-Za-z]{20,}`), 0},
-	{"npm-токен", regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`), 0},
-	{"Telegram-бот", regexp.MustCompile(`\b[0-9]{8,10}:AA[0-9A-Za-z_\-]{33}\b`), 0},
+	{"Stripe key", regexp.MustCompile(`\b[sr]k_live_[0-9A-Za-z]{20,}`), 0},
+	{"npm token", regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`), 0},
+	{"Telegram bot", regexp.MustCompile(`\b[0-9]{8,10}:AA[0-9A-Za-z_\-]{33}\b`), 0},
 }
 
 // assignment: password=…, secret: "…", api_key = '…'. The name, the quote and the value.
@@ -94,7 +94,7 @@ func Scan(diff string, allowed map[string]bool) []Finding {
 			if p := strings.TrimPrefix(l, "+++ "); p != "/dev/null" {
 				file = unquote(strings.TrimPrefix(p, "b/"))
 				if isEnvFile(file) {
-					add(Finding{File: file, Commit: commit, Kind: ".env-файл", Key: Key(file, "")})
+					add(Finding{File: file, Commit: commit, Kind: ".env file", Key: Key(file, "")})
 				}
 			}
 		case strings.HasPrefix(l, "@@ "):
@@ -123,12 +123,12 @@ func Line(file, text string) []Finding {
 	for _, r := range rules {
 		for _, m := range r.re.FindAllStringSubmatch(text, -1) {
 			v := m[r.group]
-			if r.kind != "приватний ключ" && (placeholder.MatchString(v) || entropy(v) < 3) {
+			if r.kind != "private key" && (placeholder.MatchString(v) || entropy(v) < 3) {
 				continue
 			}
 			taken[v] = true
 			f := Finding{File: file, Kind: r.kind, Key: key}
-			if r.kind != "приватний ключ" {
+			if r.kind != "private key" {
 				f.Masked = Mask(v)
 			}
 			out = append(out, f)
@@ -147,7 +147,7 @@ func Line(file, text string) []Finding {
 			continue
 		}
 		taken[v] = true
-		out = append(out, Finding{File: file, Kind: "пароль чи секрет у коді (" + name + ")", Masked: Mask(v), Key: key})
+		out = append(out, Finding{File: file, Kind: "password or secret in code (" + name + ")", Masked: Mask(v), Key: key})
 	}
 	if len(out) > 0 {
 		return out
@@ -157,7 +157,7 @@ func Line(file, text string) []Finding {
 		if len(v) < 32 || len(v) > 200 || taken[v] || integrity.MatchString(v) || !random(v) {
 			continue
 		}
-		out = append(out, Finding{File: file, Kind: "випадковий рядок, схожий на ключ", Masked: Mask(v), Key: key})
+		out = append(out, Finding{File: file, Kind: "random string that looks like a key", Masked: Mask(v), Key: key})
 		break
 	}
 	return out

@@ -54,7 +54,7 @@ func (d *Dispatcher) AutoRebase(ctx context.Context, now time.Time) {
 			continue
 		}
 		if c := r.BaseConflict; c != nil && gitx.Contains(ctx, r.Worktree, c.Base) {
-			d.Log(r.ID, "конфлікт розвʼязано: файли "+strings.Join(c.Files, ", "))
+			d.Log(r.ID, "conflict resolved: files "+strings.Join(c.Files, ", "))
 			d.Store.Update(r.ID, func(rec *core.Record) { rec.BaseConflict = nil })
 			r.BaseConflict = nil
 		}
@@ -85,9 +85,9 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 	if err != nil {
 		why := err.Error()
 		if errors.Is(err, gitx.ErrDirty) || errors.Is(err, gitx.ErrBranchMoved) {
-			why = fmt.Sprintf("гілку не оновлено з %s: %s", base, why)
+			why = fmt.Sprintf("branch not updated from %s: %s", base, why)
 		} else {
-			why = fmt.Sprintf("не вдалось оновити гілку з %s: %s", base, why)
+			why = fmt.Sprintf("could not update the branch from %s: %s", base, why)
 		}
 		if why != last.said {
 			d.Log(r.ID, why)
@@ -99,7 +99,7 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 	switch {
 	case s.Updated:
 		d.forgetReview(r.ID)
-		d.Log(r.ID, fmt.Sprintf("оновлено з %s (%s, %s)", base, mode, commits(s.Behind)))
+		d.Log(r.ID, fmt.Sprintf("updated from %s (%s, %s)", base, mode, commits(s.Behind)))
 	case len(s.Conflicts) > 0:
 		if r.BaseConflict != nil && r.BaseConflict.Base == s.Base {
 			return // asked about this commit of the base already
@@ -114,7 +114,7 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 			err = d.resume(r.ID, text)
 		}
 		if err != nil {
-			d.Log(r.ID, fmt.Sprintf("конфлікт з %s у файлах %s, агента не вдалось попросити: %s", base, strings.Join(s.Conflicts, ", "), err))
+			d.Log(r.ID, fmt.Sprintf("conflict with %s in files %s, could not ask the agent: %s", base, strings.Join(s.Conflicts, ", "), err))
 			return
 		}
 		d.asked(r.ID, "conflicts")
@@ -127,7 +127,7 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 			rec.AutoFixed["conflicts"] = "1"
 			rec.AutoFixes++
 		})
-		d.Log(r.ID, fmt.Sprintf("конфлікт з %s у файлах %s: агента попрошено розвʼязати", base, strings.Join(s.Conflicts, ", ")))
+		d.Log(r.ID, fmt.Sprintf("conflict with %s in files %s: asked the agent to resolve it", base, strings.Join(s.Conflicts, ", ")))
 	}
 }
 
@@ -143,11 +143,8 @@ func conflictRequest(url, branch, base, mode string, files []string) string {
 }
 
 func commits(n int) string {
-	switch {
-	case n%10 == 1 && n%100 != 11:
-		return fmt.Sprintf("%d коміт", n)
-	case n%10 >= 2 && n%10 <= 4 && (n%100 < 12 || n%100 > 14):
-		return fmt.Sprintf("%d коміти", n)
+	if n == 1 {
+		return "1 commit"
 	}
-	return fmt.Sprintf("%d комітів", n)
+	return fmt.Sprintf("%d commits", n)
 }

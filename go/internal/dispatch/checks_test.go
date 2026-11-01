@@ -13,17 +13,17 @@ import (
 
 func TestCheckName(t *testing.T) {
 	for cmd, want := range map[string]string{
-		"go test ./...": "тести", "npm test": "тести", "pnpm vitest run": "тести", "make test": "тести",
-		"go vet ./...": "лінт", "npm run lint": "лінт", "golangci-lint run": "лінт",
-		"go build ./...": "збірка", "npm run build": "збірка",
+		"go test ./...": "tests", "npm test": "tests", "pnpm vitest run": "tests", "make test": "tests",
+		"go vet ./...": "lint", "npm run lint": "lint", "golangci-lint run": "lint",
+		"go build ./...": "build", "npm run build": "build",
 		"./scripts/verify.sh": "./scripts/verify.sh",
 	} {
 		if got := checkName(cmd); got != want {
 			t.Errorf("checkName(%q) = %q, want %q", cmd, got, want)
 		}
 	}
-	line := checksLine([]core.CheckResult{{Name: "тести", OK: true}, {Name: "лінт"}, {Name: "збірка", TimedOut: true}})
-	if line != "✓ тести, ✗ лінт, ⏱ збірка" {
+	line := checksLine([]core.CheckResult{{Name: "tests", OK: true}, {Name: "lint"}, {Name: "build", TimedOut: true}})
+	if line != "✓ tests, ✗ lint, ⏱ build" {
 		t.Fatal(line)
 	}
 }
@@ -180,14 +180,14 @@ func TestChecksPassedButSecretsStopPush(t *testing.T) {
 	git(t, wt, "commit", "-q", "-m", "Add conf")
 	checkNow(t, d, id)
 	r, _ := d.Store.Get(id)
-	if r.Checks.State != "passed" || !strings.Contains(r.Checks.Error, "секрети") || len(r.Secrets) == 0 {
+	if r.Checks.State != "passed" || !strings.Contains(r.Checks.Error, "secrets") || len(r.Secrets) == 0 {
 		t.Fatalf("checks %+v secrets %+v", r.Checks, r.Secrets)
 	}
 	if out := gitOut(t, repo.Path, "ls-remote", origin, "fix/5-pay"); strings.TrimSpace(out) != "" {
 		t.Fatalf("Mako pushed a secret: %s", out)
 	}
 	idle()
-	if s := said(t, wt); !strings.Contains(s, "секрети") {
+	if s := said(t, wt); !strings.Contains(s, "secrets") {
 		t.Fatalf("the agent was not told: %s", s)
 	}
 }

@@ -57,8 +57,8 @@ func SlugifyTitle(title string, max int) string {
 }
 
 var (
-	bugWord     = regexp.MustCompile(`\b(bug|fix|defect|hotfix|incident)\b|баг|помилка`)
-	featureWord = regexp.MustCompile(`\b(feature|enhancement)\b|фіча`)
+	bugWord     = regexp.MustCompile(`\b(bug|fix|defect|hotfix|incident)\b|баг|помилка`) // cyrillic-ok: Ukrainian labels
+	featureWord = regexp.MustCompile(`\b(feature|enhancement)\b|фіча`)                   // cyrillic-ok: Ukrainian labels
 	titleBug    = regexp.MustCompile(`(?i)^\s*(fix|bug)`)
 )
 
@@ -147,10 +147,10 @@ func EnsureClone(ctx context.Context, r *config.Repo, log func(string)) error {
 	defer lock(r.Path)()
 	if _, err := os.Stat(filepath.Join(r.Path, ".git")); err != nil {
 		if entries, _ := os.ReadDir(r.Path); len(entries) > 0 {
-			return fmt.Errorf("%s не порожня і не git-репозиторій: вкажіть у налаштуваннях інший шлях", r.Path)
+			return fmt.Errorf("%s is not empty and not a git repository: set another path in the settings", r.Path)
 		}
 		if r.CloneURL == "" {
-			return fmt.Errorf("немає клону в %s: вкажіть у налаштуваннях шлях до репозиторію або «Звідки клонувати»", r.Path)
+			return fmt.Errorf("no clone in %s: set the repository path in the settings or \"Clone from\"", r.Path)
 		}
 		if err := os.MkdirAll(filepath.Dir(r.Path), 0o755); err != nil {
 			return err
@@ -160,7 +160,7 @@ func EnsureClone(ctx context.Context, r *config.Repo, log func(string)) error {
 		defer cancel()
 		if _, err := Run(cctx, filepath.Dir(r.Path), "-c", "core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new", "clone", r.CloneURL, r.Path); err != nil {
 			_ = os.RemoveAll(r.Path)
-			return fmt.Errorf("не вдалось склонувати %s: %w", r.CloneURL, err)
+			return fmt.Errorf("failed to clone %s: %w", r.CloneURL, err)
 		}
 	}
 	if r.BaseBranch == "" {

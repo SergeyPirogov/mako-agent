@@ -65,12 +65,12 @@ func TestStartingSteps(t *testing.T) {
 	}
 	all := logged(d, id)
 	lines := strings.Join(all, "\n")
-	taken, tracker := slices.Index(all, "взято в роботу"), slices.IndexFunc(all, func(l string) bool { return strings.HasPrefix(l, "оновлюю задачу в трекері · ") })
+	taken, tracker := slices.Index(all, "taken into work"), slices.IndexFunc(all, func(l string) bool { return strings.HasPrefix(l, "updating the task in the tracker · ") })
 	if taken < 0 || tracker < taken {
-		t.Fatalf("«взято в роботу» not before the start's steps:\n%s", lines)
+		t.Fatalf("«taken into work» not before the start's steps:\n%s", lines)
 	}
 	if strings.Contains(lines, "in the queue") ||
-		!strings.Contains(lines, "оновлюю задачу в трекері · ") || !strings.Contains(lines, "Orca створює worktree і запускає агента · ") {
+		!strings.Contains(lines, "updating the task in the tracker · ") || !strings.Contains(lines, "Orca is creating the worktree and starting the agent · ") {
 		t.Fatalf("journal:\n%s", lines)
 	}
 }
@@ -124,7 +124,7 @@ func TestCancelWhileStartingOrca(t *testing.T) {
 	if r.Status != core.Cancelled || r.Worktree != "" || len(removed) != 1 || removed[0] != wt {
 		t.Fatalf("status %s, worktree %q, removed %v", r.Status, r.Worktree, removed)
 	}
-	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "запуск скасовано, worktree прибрано") {
+	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "start cancelled, worktree removed") {
 		t.Fatalf("journal:\n%s", lines)
 	}
 }
@@ -179,8 +179,8 @@ func TestCancelWhileSetup(t *testing.T) {
 	if out, _ := exec.Command("git", "-C", repo, "branch", "--list", r.BranchName).Output(); r.BranchName == "" || len(out) != 0 {
 		t.Fatalf("branch %q left: %s", r.BranchName, out)
 	}
-	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "оновлюю main · ") || !strings.Contains(lines, "створюю worktree · ") ||
-		!strings.Contains(lines, "запуск скасовано, worktree прибрано") {
+	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "updating main · ") || !strings.Contains(lines, "creating the worktree · ") ||
+		!strings.Contains(lines, "start cancelled, worktree removed") {
 		t.Fatalf("journal:\n%s", lines)
 	}
 }
@@ -233,7 +233,7 @@ func TestCancelWhileFetching(t *testing.T) {
 	if out, _ := exec.Command("git", "-C", repo, "branch", "--list", r.BranchName).Output(); len(out) != 0 {
 		t.Fatalf("branch left: %s", out)
 	}
-	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "запуск скасовано") || !strings.Contains(lines, "скасовано під час запуску") {
+	if lines := strings.Join(logged(d, id), "\n"); !strings.Contains(lines, "start cancelled") || !strings.Contains(lines, "cancelled during start") {
 		t.Fatalf("journal:\n%s", lines)
 	}
 }

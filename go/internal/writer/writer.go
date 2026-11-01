@@ -33,13 +33,13 @@ func ReviewText(ctx context.Context, worktree, baseBranch string, t core.Task) (
 	base, err := gitx.Run(ctx, worktree, "merge-base", "origin/"+baseBranch, "HEAD")
 	base = strings.TrimSpace(base)
 	if err != nil || base == "" {
-		return "", "", fmt.Errorf("немає origin/%s", baseBranch)
+		return "", "", fmt.Errorf("no origin/%s", baseBranch)
 	}
 	commits, _ := gitx.Run(ctx, worktree, "log", "--format=- %s", base+"..HEAD")
 	stat, _ := gitx.Run(ctx, worktree, "diff", "--stat", base, "HEAD")
 	diff, _ := gitx.Run(ctx, worktree, "diff", base, "HEAD")
 	if strings.TrimSpace(diff) == "" {
-		return "", "", errors.New("немає змін")
+		return "", "", errors.New("no changes")
 	}
 	text, err := Ask(ctx, worktree, strings.Join([]string{
 		"Write the title and description of a merge request for the changes below. Base them on what the diff actually does.",
@@ -197,7 +197,7 @@ func Ask(ctx context.Context, dir, prompt string) (string, error) {
 func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Duration) (string, error) {
 	path, err := exec.LookPath(Claude)
 	if err != nil {
-		return "", errors.New("Claude Code не знайдено")
+		return "", errors.New("Claude Code not found")
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -208,14 +208,14 @@ func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Durat
 	cmd.Stderr = &stderr
 	out, err := run(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("Claude не відповів за %d хв", int(timeout.Minutes()))
+		return "", fmt.Errorf("Claude did not answer within %d min", int(timeout.Minutes()))
 	}
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
 	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, model)), ""))
 	if text == "" || len(text) > 6000 {
-		return "", errors.New("Claude не дав відповіді")
+		return "", errors.New("Claude gave no answer")
 	}
 	return text, nil
 }
@@ -349,7 +349,7 @@ var ReviewerTools = []string{"Read", "Grep", "Glob", "Bash(ls:*)", "Bash(git dif
 func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, model string, prior []core.Remark) (string, error) {
 	commits, stat, diff := BranchWork(ctx, worktree, baseBranch)
 	if strings.TrimSpace(diff) == "" {
-		return "", errors.New("немає змін")
+		return "", errors.New("no changes")
 	}
 	description := t.Description
 	if len(description) > 8000 {
@@ -368,7 +368,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	}, "\n")
 	path, err := exec.LookPath(Claude)
 	if err != nil {
-		return "", errors.New("Claude Code не знайдено")
+		return "", errors.New("Claude Code not found")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
@@ -386,7 +386,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	cmd.Stderr = &stderr
 	out, err := run(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", errors.New("рецензент не відповів за 15 хв")
+		return "", errors.New("the reviewer did not answer within 15 min")
 	}
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
@@ -424,7 +424,7 @@ func reviewFormat(prior []core.Remark) string {
 func ReviewNotes(answer string) (string, error) {
 	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer), ""))
 	if text == "" {
-		return "", errors.New("рецензент не дав відповіді")
+		return "", errors.New("the reviewer gave no answer")
 	}
 	if strings.EqualFold(strings.Trim(text, " .!*`\"«»"), Reviewed) {
 		return "", nil
@@ -474,7 +474,7 @@ func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText,
 func ParseAssessment(answer string) (core.Assessment, error) {
 	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
 	if start < 0 || end < start {
-		return core.Assessment{}, errors.New("оцінка не в JSON")
+		return core.Assessment{}, errors.New("the assessment is not JSON")
 	}
 	type score struct {
 		Score int    `json:"score"`
@@ -490,7 +490,7 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 		}
 	}
 	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
-		return core.Assessment{}, fmt.Errorf("оцінка не в JSON: %v", err)
+		return core.Assessment{}, fmt.Errorf("the assessment is not JSON: %v", err)
 	}
 	a := core.Assessment{State: "done", Missing: pointsText(in.Missing)}
 	// The size came later than the scores: one it does not know is left out, not a failed assessment.
@@ -506,7 +506,7 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 		out *core.Score
 	}{{in.Clarity, &a.Clarity}, {in.Complexity, &a.Complexity}, {in.Completeness, &a.Completeness}, {in.Risk, &a.Risk}} {
 		if s.in.Score < 1 || s.in.Score > 5 {
-			return core.Assessment{}, fmt.Errorf("оцінка %d поза 1–5", s.in.Score)
+			return core.Assessment{}, fmt.Errorf("score %d is outside 1–5", s.in.Score)
 		}
 		*s.out = core.Score{Value: s.in.Score, Why: clipTo(strings.TrimSpace(s.in.Why), 500)}
 	}
@@ -557,15 +557,15 @@ func Retro(ctx context.Context, dir string, t core.Task, story string) (core.Ret
 func ParseRetro(answer string) (core.Retro, error) {
 	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
 	if start < 0 || end < start {
-		return core.Retro{}, errors.New("ретро не в JSON")
+		return core.Retro{}, errors.New("the retro is not JSON")
 	}
 	var in struct{ Good, Bad, Next json.RawMessage }
 	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
-		return core.Retro{}, fmt.Errorf("ретро не в JSON: %v", err)
+		return core.Retro{}, fmt.Errorf("the retro is not JSON: %v", err)
 	}
 	r := core.Retro{State: "done", Good: pointsText(in.Good), Bad: pointsText(in.Bad), Next: pointsText(in.Next)}
 	if r.Good == "" && r.Bad == "" && r.Next == "" {
-		return core.Retro{}, errors.New("ретро порожнє")
+		return core.Retro{}, errors.New("the retro is empty")
 	}
 	return r, nil
 }
@@ -646,7 +646,7 @@ func Estimate(ctx context.Context, dir string, t core.Task, outline string) (cor
 func ParseEstimate(answer string) (core.Estimate, error) {
 	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
 	if start < 0 || end < start {
-		return core.Estimate{}, errors.New("оцінка не в JSON")
+		return core.Estimate{}, errors.New("the assessment is not JSON")
 	}
 	type score struct {
 		Score int    `json:"score"`
@@ -660,7 +660,7 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		Plan, Split        bool
 	}
 	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
-		return core.Estimate{}, fmt.Errorf("оцінка не в JSON: %v", err)
+		return core.Estimate{}, fmt.Errorf("the assessment is not JSON: %v", err)
 	}
 	e := core.Estimate{
 		State: "done", Questions: pointsText(in.Questions), Size: strings.ToLower(strings.TrimSpace(in.Size)),
@@ -668,7 +668,7 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		Model: strings.ToLower(strings.TrimSpace(in.Model)), Advice: clipTo(strings.TrimSpace(in.Advice), 500),
 	}
 	if !slices.Contains(core.Sizes, e.Size) {
-		return core.Estimate{}, fmt.Errorf("невідомий розмір %q", in.Size)
+		return core.Estimate{}, fmt.Errorf("unknown size %q", in.Size)
 	}
 	if !slices.Contains(core.Models, e.Model) {
 		e.Model = "" // no advice: the agent starts with the default one
@@ -678,7 +678,7 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		out *core.Score
 	}{{in.Clarity, &e.Clarity}, {in.Risk, &e.Risk}} {
 		if s.in.Score < 1 || s.in.Score > 5 {
-			return core.Estimate{}, fmt.Errorf("оцінка %d поза 1–5", s.in.Score)
+			return core.Estimate{}, fmt.Errorf("score %d is outside 1–5", s.in.Score)
 		}
 		*s.out = core.Score{Value: s.in.Score, Why: clipTo(strings.TrimSpace(s.in.Why), 500)}
 	}

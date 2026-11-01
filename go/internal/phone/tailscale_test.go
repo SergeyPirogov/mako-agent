@@ -66,7 +66,7 @@ esac
 	if took := time.Since(start); took > 5*time.Second {
 		t.Fatalf("Serve took %v", took)
 	}
-	if err == nil || !strings.Contains(err.Error(), "https://login.tailscale.com/f/funnel?node=x") || !strings.Contains(err.Error(), "Funnel треба дозволити") {
+	if err == nil || !strings.Contains(err.Error(), "https://login.tailscale.com/f/funnel?node=x") || !strings.Contains(err.Error(), "Funnel must be allowed") {
 		t.Fatalf("error: %v", err)
 	}
 }

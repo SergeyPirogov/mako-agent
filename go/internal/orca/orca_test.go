@@ -73,7 +73,7 @@ echo '{"ok":true,"worktree":{"path":"/wt/x","branch":"fix/5-fix-pay"}}'`)
 func TestHandExplainsFailure(t *testing.T) {
 	cmd, _ := fakeOrca(t, `echo '{"ok":false,"error":{"code":"repo_not_found","message":"Repo is not added","data":{"nextSteps":["Add the repo in Orca"]}}}'; exit 1`)
 	_, err := Hand(context.Background(), config.Orca{Command: cmd, LinkIssue: true}, job(t), func(string) {})
-	if err == nil || !strings.Contains(err.Error(), "repo_not_found") || !strings.Contains(err.Error(), "Orca радить: Add the repo in Orca") {
+	if err == nil || !strings.Contains(err.Error(), "repo_not_found") || !strings.Contains(err.Error(), "Orca suggests: Add the repo in Orca") {
 		t.Fatalf("error: %v", err)
 	}
 }

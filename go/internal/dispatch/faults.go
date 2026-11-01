@@ -23,7 +23,7 @@ import (
 // Fault is one kind of error: the same step failing with the same message, numbers aside.
 type Fault struct {
 	Key   string    `json:"key"`
-	What  string    `json:"what"`           // the step: "MR не перевірено"
+	What  string    `json:"what"`           // the step: "MR not checked"
 	Error string    `json:"error"`          // the newest message
 	Task  string    `json:"task,omitempty"` // the newest task (or tracker, "mako") it happened on
 	Count int       `json:"count"`
@@ -110,7 +110,7 @@ func (d *Dispatcher) ReportFaults(ctx context.Context) (string, error) {
 	}
 	d.faultsMu.Unlock()
 	if len(fresh) == 0 {
-		return "", fmt.Errorf("нових помилок немає")
+		return "", fmt.Errorf("no new errors")
 	}
 	trackerID, project, err := d.faultTarget(ctx)
 	if err != nil {
@@ -139,7 +139,7 @@ func (d *Dispatcher) ReportFaults(ctx context.Context) (string, error) {
 	}
 	d.writeFaults(all)
 	d.faultsMu.Unlock()
-	d.Log("mako", fmt.Sprintf("помилки Mako (%d) передано на аналіз: %s", len(fresh), link))
+	d.Log("mako", fmt.Sprintf("Mako errors (%d) sent for analysis: %s", len(fresh), link))
 	return id, nil
 }
 
@@ -158,7 +158,7 @@ func (d *Dispatcher) faultTarget(ctx context.Context) (string, string, error) {
 			return t.ID(), project, nil
 		}
 	}
-	return "", "", fmt.Errorf("немає трекера для %s/%s: додайте %s у налаштуваннях", host, project, map[bool]string{true: "GitHub", false: "GitLab"}[strings.Contains(host, "github")])
+	return "", "", fmt.Errorf("no tracker for %s/%s: add %s in settings", host, project, map[bool]string{true: "GitHub", false: "GitLab"}[strings.Contains(host, "github")])
 }
 
 func faultTitle(fs []Fault) string {
@@ -166,7 +166,7 @@ func faultTitle(fs []Fault) string {
 	for _, f := range fs {
 		total += f.Count
 	}
-	return fmt.Sprintf("Помилки Mako: %d %s, %d %s", len(fs), plural(len(fs), "вид", "види", "видів"), total, plural(total, "раз", "рази", "разів"))
+	return fmt.Sprintf("Mako errors: %d %s, %d %s", len(fs), plural(len(fs), "kind", "kinds", "kinds"), total, plural(total, "time", "times", "times"))
 }
 
 // faultReport: the issue's description — what to do, where Mako runs, and every kind with its newest message.
@@ -175,15 +175,15 @@ func faultReport(fs []Fault, version string) string {
 		version = "dev"
 	}
 	var b strings.Builder
-	b.WriteString("Mako зібрав свої помилки на аналіз. Розберіться, чому кожна сталася, і виправте те, що можна " +
-		"виправити в Mako (повідомлення без потреби, помилки, які варто обробити, справжні баги). " +
-		"Те, що залежить від налаштувань чи мережі, опишіть у MR.\n\n")
+	b.WriteString("Mako collected its errors for analysis. Work out why each happened and fix what can be " +
+		"fixed in Mako (needless messages, errors worth handling, real bugs). " +
+		"Describe in the MR anything that depends on settings or the network.\n\n")
 	fmt.Fprintf(&b, "Mako `%s`, %s/%s\n\n", version, runtime.GOOS, runtime.GOARCH)
 	for _, f := range fs {
-		fmt.Fprintf(&b, "### %s — %d %s\n\n", f.What, f.Count, plural(f.Count, "раз", "рази", "разів"))
-		fmt.Fprintf(&b, "- Перший раз: %s, останній: %s\n", f.First.Format("02.01.2006 15:04"), f.Last.Format("02.01.2006 15:04"))
+		fmt.Fprintf(&b, "### %s — %d %s\n\n", f.What, f.Count, plural(f.Count, "time", "times", "times"))
+		fmt.Fprintf(&b, "- First time: %s, last: %s\n", f.First.Format("02.01.2006 15:04"), f.Last.Format("02.01.2006 15:04"))
 		if f.Task != "" {
-			fmt.Fprintf(&b, "- Останній раз на: `%s`\n", f.Task)
+			fmt.Fprintf(&b, "- Last time on: `%s`\n", f.Task)
 		}
 		fmt.Fprintf(&b, "\n```\n%s\n```\n\n", strings.ReplaceAll(f.Error, "```", "'''"))
 	}

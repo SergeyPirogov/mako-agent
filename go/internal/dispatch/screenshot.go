@@ -29,7 +29,7 @@ func (d *Dispatcher) ScreenshotDir(id string) string {
 func (d *Dispatcher) Screenshot(ctx context.Context, id, name string, data []byte) (local, markdown string, uploadErr error, err error) {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return "", "", nil, fmt.Errorf("немає задачі %q", id)
+		return "", "", nil, fmt.Errorf("no task %q", id)
 	}
 	if name = safeFile(name); name == "" {
 		name = "screenshot.png"
@@ -46,7 +46,7 @@ func (d *Dispatcher) Screenshot(ctx context.Context, id, name string, data []byt
 	if s := d.Chats.Get(id); s != nil {
 		s.Show(chat.Item{Kind: "image", Text: local, Output: name})
 	}
-	d.Log(id, "скриншот "+name)
+	d.Log(id, "screenshot "+name)
 	_, c, err := d.creator(r.Task.TrackerID)
 	if err != nil {
 		return local, "", err, nil

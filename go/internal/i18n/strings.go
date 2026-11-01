@@ -98,6 +98,7 @@ var goStrings = map[string][2]string{
 	// The issue, the merge request, the commits.
 	"comment.summary":          {"What was done:", "Що зроблено:"},
 	"comment.answers":          {"Answers to the task's questions:", "Відповіді на питання до задачі:"},
+	"comment.reviewSeen":       {"The reviewer left comments on MR %s. The agent sees them and is fixing them", "Рев'юер залишив коментарі до MR %s. Агент їх бачить і виправляє"},
 	"comment.review":           {"🔍 **The reviewer agent, round %d.**", "🔍 **Рев'ю агентом, раунд %d.**"},
 	"comment.reviewChecks":     {"The earlier remarks:", "Попередні зауваження:"},
 	"comment.reviewClean":      {"No remarks: the review passed.", "Зауважень немає: рев'ю пройдено."},

@@ -87,10 +87,10 @@ func (d *Dispatcher) Digest(since, now time.Time) core.Digest {
 	for id, a := range d.Agents() {
 		switch a.State {
 		case "waiting":
-			waiting[id] = firstOf(a.Reason, "агент чекає на вас")
+			waiting[id] = firstOf(a.Reason, "agent is waiting for you")
 		case "done":
 			if byID[id].PRURL == "" {
-				waiting[id] = firstOf(clipText(firstLine(a.Message), 140), "агент закінчив: ваш хід")
+				waiting[id] = firstOf(clipText(firstLine(a.Message), 140), "agent finished: your turn")
 			}
 		case "stopped":
 			waiting[id] = firstOf(a.Reason, "the agent stopped")

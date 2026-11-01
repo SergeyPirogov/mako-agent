@@ -21,14 +21,14 @@ func TestFaults(t *testing.T) {
 	if _, err := d.ReportFaults(ctx); err == nil {
 		t.Fatal("reported with no errors")
 	}
-	d.Fault("grp/app#5", "MR не перевірено", errors.New("GET /projects/12: 502 Bad Gateway"))
-	d.Fault("grp/app#7", "MR не перевірено", errors.New("GET /projects/13: 502 Bad Gateway"))
-	d.Fault("gitlab", "пошук не вдався", errors.New("немає токена"))
+	d.Fault("grp/app#5", "MR not checked", errors.New("GET /projects/12: 502 Bad Gateway"))
+	d.Fault("grp/app#7", "MR not checked", errors.New("GET /projects/13: 502 Bad Gateway"))
+	d.Fault("gitlab", "search failed", errors.New("немає токена"))
 	fs := d.Faults()
-	if len(fs) != 2 || fs[0].What != "пошук не вдався" || fs[1].Count != 2 || fs[1].Task != "grp/app#7" || !strings.Contains(fs[1].Error, "/13:") {
+	if len(fs) != 2 || fs[0].What != "search failed" || fs[1].Count != 2 || fs[1].Task != "grp/app#7" || !strings.Contains(fs[1].Error, "/13:") {
 		t.Fatalf("faults %+v", fs)
 	}
-	if !strings.Contains(fmtLogs(d.Logs("grp/app#5")), "MR не перевірено: GET /projects/12") {
+	if !strings.Contains(fmtLogs(d.Logs("grp/app#5")), "MR not checked: GET /projects/12") {
 		t.Errorf("not in the journal: %v", d.Logs("grp/app#5"))
 	}
 
@@ -42,7 +42,7 @@ func TestFaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, ok := d.Store.Get(id)
-	if !ok || r.Status != core.Snoozed || !strings.HasPrefix(r.Task.Title, "Помилки Mako: 2 види, 3 рази") {
+	if !ok || r.Status != core.Snoozed || !strings.HasPrefix(r.Task.Title, "Mako errors: 2 kinds, 3 times") {
 		t.Fatalf("record %+v", r)
 	}
 	var desc string
@@ -51,7 +51,7 @@ func TestFaults(t *testing.T) {
 			desc, _ = is["description"].(string)
 		}
 	}
-	if !strings.Contains(desc, "`1.2.3`") || !strings.Contains(desc, "### MR не перевірено — 2 рази") || !strings.Contains(desc, "немає токена") {
+	if !strings.Contains(desc, "`1.2.3`") || !strings.Contains(desc, "### MR not checked — 2 times") || !strings.Contains(desc, "немає токена") {
 		t.Errorf("description:\n%s", desc)
 	}
 	for _, f := range d.Faults() {
@@ -63,7 +63,7 @@ func TestFaults(t *testing.T) {
 		t.Error("the same errors reported twice")
 	}
 	// Happening again after the report makes it new, counted from there.
-	d.Fault("gitlab", "пошук не вдався", errors.New("немає токена"))
+	d.Fault("gitlab", "search failed", errors.New("немає токена"))
 	if fs := d.Faults(); fs[0].Reported != "" || fs[0].Count != 1 || fs[1].Reported == "" {
 		t.Errorf("after the report %+v", fs)
 	}
@@ -73,8 +73,8 @@ func TestFaults(t *testing.T) {
 }
 
 func TestPlural(t *testing.T) {
-	for n, want := range map[int]string{1: "вид", 2: "види", 5: "видів", 11: "видів", 12: "видів", 21: "вид", 23: "види"} {
-		if got := plural(n, "вид", "види", "видів"); got != want {
+	for n, want := range map[int]string{1: "kind", 2: "kinds", 5: "kinds", 11: "kinds", 12: "kinds", 21: "kind", 23: "kinds"} {
+		if got := plural(n, "kind", "kinds", "kinds"); got != want {
 			t.Errorf("%d: %s", n, got)
 		}
 	}
@@ -100,7 +100,7 @@ func TestFaultsSkipTransient(t *testing.T) {
 		&trackers.HTTPError{Status: 502},
 	}
 	for _, err := range outside {
-		d.Fault("gitlab", "пошук не вдався", err)
+		d.Fault("gitlab", "search failed", err)
 	}
 	if fs := d.Faults(); len(fs) != 0 {
 		t.Fatalf("kept %+v", fs)
@@ -109,15 +109,15 @@ func TestFaultsSkipTransient(t *testing.T) {
 		t.Errorf("not in the journal: %v", d.Logs("gitlab"))
 	}
 	// Mako's own deadlines and kills, a bad token, a bad setting-free failure stay: they are for an agent to look at.
-	d.Fault("a#1", "підсумок не написано", errors.New("claude: signal: killed: "))
-	d.Fault("a#2", "рецензент не впорався", fmt.Errorf("claude: %w", context.DeadlineExceeded))
-	d.Fault("gitlab", "пошук не вдався", &trackers.HTTPError{Status: 401})
-	d.Fault("gitlab", "пошук не вдався", errors.New("немає токена"))
+	d.Fault("a#1", "summary not written", errors.New("claude: signal: killed: "))
+	d.Fault("a#2", "reviewer failed", fmt.Errorf("claude: %w", context.DeadlineExceeded))
+	d.Fault("gitlab", "search failed", &trackers.HTTPError{Status: 401})
+	d.Fault("gitlab", "search failed", errors.New("немає токена"))
 	if fs := d.Faults(); len(fs) != 4 {
 		t.Fatalf("faults %+v", fs)
 	}
 	// A setting, not Mako: an unknown assignee is said on the board.
-	d.Fault("github", "пошук не вдався", &trackers.HTTPError{Status: 422, Body: `{"field":"assignee"}`})
+	d.Fault("github", "search failed", &trackers.HTTPError{Status: 422, Body: `{"field":"assignee"}`})
 	if fs := d.Faults(); len(fs) != 4 {
 		t.Fatalf("assignee kept: %+v", fs)
 	}

@@ -56,17 +56,17 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 	var c Cleanup
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return c, fmt.Errorf("немає такої задачі")
+		return c, fmt.Errorf("no such task")
 	}
 	switch r.Status {
 	case core.Asking, core.Snoozed, core.Queued, core.HandedOff:
-		return c, fmt.Errorf("задача ще в роботі")
+		return c, fmt.Errorf("the task is still in progress")
 	}
 	d.mu.Lock()
 	starting := d.starting[id]
 	d.mu.Unlock()
 	if starting || d.agentBusy(r) {
-		return c, fmt.Errorf("агент ще працює")
+		return c, fmt.Errorf("the agent is still working")
 	}
 	repo := d.repoOf(r)
 	if repo == nil || !exists(repo.Path) {
@@ -109,7 +109,7 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 			err = d.RemoveWorkspace(ctx, repo.Path, w.Path, w.Branch)
 		}
 		if err != nil {
-			d.Fault(id, "worktree лишився", err)
+			d.Fault(id, "worktree kept", err)
 			busy[w.Branch] = true
 			continue
 		}
@@ -133,9 +133,9 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 	d.Store.Update(id, func(rec *core.Record) { rec.WorktreeKept = c.Kept })
 	switch {
 	case c.Kept > 0:
-		d.Log(id, fmt.Sprintf("worktree лишився: %d незакомічених змін або незапушених комітів", c.Kept))
+		d.Log(id, fmt.Sprintf("worktree kept: %d uncommitted changes or unpushed commits", c.Kept))
 	case c.Worktrees > 0 || c.Branches > 0:
-		d.Log(id, fmt.Sprintf("прибрано worktree: %d, локальних гілок: %d", c.Worktrees, c.Branches))
+		d.Log(id, fmt.Sprintf("removed worktrees: %d, local branches: %d", c.Worktrees, c.Branches))
 	}
 	return c, nil
 }
@@ -143,7 +143,7 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 // KeepWorktree: you said to leave the task's worktree with its uncommitted work; Mako stops asking.
 func (d *Dispatcher) KeepWorktree(id string) {
 	d.Store.Update(id, func(r *core.Record) { r.WorktreeKept = 0 })
-	d.Log(id, "worktree залишено")
+	d.Log(id, "worktree left in place")
 }
 
 // cleanUp: a task that is over cleans after itself without asking, unless it is not quite over.
@@ -152,7 +152,7 @@ func (d *Dispatcher) cleanUp(ctx context.Context, id string) {
 		return
 	}
 	if _, err := d.CleanTask(ctx, id, false); err != nil {
-		d.Log(id, "worktree не прибрано: "+err.Error())
+		d.Log(id, "worktree not removed: "+err.Error())
 	}
 }
 

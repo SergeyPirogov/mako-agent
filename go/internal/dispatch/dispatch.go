@@ -310,7 +310,7 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 		s := Search{At: time.Now(), Found: len(tasks)}
 		if err != nil {
 			s.Error, s.Down, s.Since = err.Error(), outage(t, err), s.At
-			d.Fault(t.ID(), "пошук не вдався", err)
+			d.Fault(t.ID(), "search failed", err)
 		}
 		d.mu.Lock()
 		if prev, ok := d.searches[t.ID()]; ok && err != nil && prev.Error != "" {
@@ -345,7 +345,7 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 			switch {
 			case err != nil:
 			case st == "open":
-				d.Log(r.ID, "більше не підходить під пошук, прибираю")
+				d.Log(r.ID, "no longer matches the search, removing")
 				d.Store.Delete(r.ID)
 			default:
 				d.markGone(r, st)
@@ -370,14 +370,14 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 		d.Store.Update(task.ID, func(r *core.Record) {
 			r.Task, r.Status = task, core.Snoozed
 		})
-		d.Log(task.ID, "нова задача: "+task.Title)
+		d.Log(task.ID, "new task: "+task.Title)
 		notify.Inform(notify.NewTask, i18n.T("notify.newTask"), task.ID+": "+task.Title, d.BoardURL)
 		if d.Config().Notifications.AutoTake {
 			d.autoTake(ctx, task.ID)
 		}
 		d.maybeEstimate(task.ID)
 	case r.Status == core.Cancelled && r.Gone != "":
-		d.Log(task.ID, "знову відкрита в трекері")
+		d.Log(task.ID, "reopened in the tracker")
 		d.Store.Update(task.ID, func(r *core.Record) {
 			r.Task, r.Status, r.SnoozedUntil, r.PostponedByYou, r.Gone, r.Error, r.ArchivedAt = withComments(task, r.Task), core.Snoozed, 0, false, "", "", 0
 		})
@@ -424,11 +424,11 @@ func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 		tc.Projects = map[string]*config.Project{}
 	}
 	tc.Projects[project] = &config.Project{Key: project, Repos: map[string]*config.Repo{name: repo}}
-	where := repo.Path + " (склоную при передачі)"
+	where := repo.Path + " (will clone on handoff)"
 	if existing != "" {
-		where = "ваш клон " + existing
+		where = "your clone " + existing
 	}
-	log.Printf("[%s] новий проєкт %s → %s", t.ID(), project, where)
+	log.Printf("[%s] new project %s → %s", t.ID(), project, where)
 }
 
 var repoLabel = regexp.MustCompile(`(?i)^repo:(.+)$`)
@@ -439,7 +439,7 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 	defer d.mu.Unlock()
 	p := t.Config().Projects[task.Project]
 	if p == nil {
-		return nil, fmt.Errorf("проєкт %s не налаштований: додайте його в налаштуваннях або увімкніть «Мої задачі з усіх проєктів»", task.Project)
+		return nil, fmt.Errorf("project %s is not configured: add it in settings or enable \"My tasks from all projects\"", task.Project)
 	}
 	names := []string{}
 	for n := range p.Repos {
@@ -452,7 +452,7 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 					return r, nil
 				}
 			}
-			return nil, fmt.Errorf("мітка repo:%s називає невідомий репозиторій (є: %s)", m[1], strings.Join(names, ", "))
+			return nil, fmt.Errorf("label repo:%s names an unknown repository (available: %s)", m[1], strings.Join(names, ", "))
 		}
 	}
 	if r := p.Repos[p.Default]; r != nil {
@@ -463,7 +463,7 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 			return r, nil
 		}
 	}
-	return nil, fmt.Errorf("не визначено репозиторій: додайте мітку repo:<назва> (%s) або вкажіть основний", strings.Join(names, ", "))
+	return nil, fmt.Errorf("repository not determined: add a repo:<name> label (%s) or set a primary one", strings.Join(names, ", "))
 }
 
 // --- taking a task
@@ -471,7 +471,7 @@ func (d *Dispatcher) route(t trackers.Tracker, task core.Task) (*config.Repo, er
 // Take: «Взяти в роботу». Within the WIP limit and below Claude's limits it starts now, otherwise it waits in
 // the queue.
 func (d *Dispatcher) Take(ctx context.Context, id string) {
-	d.take(ctx, id, "взято в роботу")
+	d.take(ctx, id, "taken into work")
 }
 
 // take: Take with what the journal says of it (auto-take says it took the task itself).
@@ -504,7 +504,7 @@ func CanTake(r core.Record) bool {
 func (d *Dispatcher) Push(ctx context.Context, id string) {
 	if why := d.HoldReason(); why != "" {
 		if r, ok := d.Store.Get(id); ok && r.Status == core.Queued {
-			d.Log(id, "не запущено зараз: "+why)
+			d.Log(id, "not started now: "+why)
 		}
 		return
 	}
@@ -517,7 +517,7 @@ func (d *Dispatcher) Push(ctx context.Context, id string) {
 	}
 	sctx := d.begin(ctx, id)
 	d.mu.Unlock()
-	d.Log(id, "запущено поза чергою")
+	d.Log(id, "started out of the queue")
 	go d.launch(sctx, id)
 }
 
@@ -535,7 +535,7 @@ func (d *Dispatcher) HoldReason() string {
 		}
 	}
 	if pending {
-		return "стартує після перезапуску Mako"
+		return "starts after Mako restarts"
 	}
 	return ""
 }
@@ -619,7 +619,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		executor = terminalExecutor
 	}
 	fail := func(err error) {
-		d.Fault(id, "не передано", err)
+		d.Fault(id, "not handed off", err)
 		d.Store.Update(id, func(r *core.Record) {
 			if r.Status == core.Queued { // not one cancelled meanwhile
 				r.Status, r.Error, r.FinishedAt = core.Failed, err.Error(), now()
@@ -629,7 +629,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
-		fail(fmt.Errorf("трекер %s прибрано з налаштувань", r.Task.TrackerID))
+		fail(fmt.Errorf("tracker %s was removed from settings", r.Task.TrackerID))
 		return
 	}
 	repo, err := d.route(t, r.Task)
@@ -640,7 +640,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	logf := func(s string) { d.Log(id, s) }
 	d.startPlan(id, executor, repo.BaseBranch, executor == terminalExecutor && setupOf(repo, d.Config().Terminal, repo.Path) != "")
 	// The task as it is now, before anything is cloned or recorded: one written in Russian goes no further.
-	d.step(id, "tracker", "оновлюю задачу в трекері")
+	d.step(id, "tracker", "updating the task in the tracker")
 	if task, ok := d.refresh(ctx, t, id); ok {
 		r.Task = task
 	}
@@ -650,7 +650,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		return
 	}
 	if !exists(filepath.Join(repo.Path, ".git")) {
-		d.step(id, "clone", "клоную репозиторій")
+		d.step(id, "clone", "cloning the repository")
 	}
 	if err := gitx.EnsureClone(ctx, repo, logf); err != nil {
 		d.endSteps(id)
@@ -671,7 +671,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	if t.Config().AssignOnTake {
 		if me, _ := t.Me(ctx); me == "" || !contains(r.Task.Assignees, me) {
 			if err := t.AssignToMe(ctx, r.Task); err != nil {
-				d.Fault(id, "не вдалось призначити задачу на вас", err)
+				d.Fault(id, "could not assign the task to you", err)
 			}
 		}
 	}
@@ -682,7 +682,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	if executor == terminalExecutor {
 		res, err = d.handTerminal(ctx, job, logf)
 	} else {
-		d.step(id, "orca", "Orca створює worktree і запускає агента")
+		d.step(id, "orca", "Orca is creating the worktree and starting the agent")
 		d.notePrompt(id, orca.FullPrompt(job, d.Config().Orca)) // what Hand gives the agent
 		// Not stopped halfway: a workspace Orca made is known only from its reply, and «Скасувати» removes it.
 		res, err = d.Hand(context.WithoutCancel(ctx), d.Config().Orca, job, logf)
@@ -723,7 +723,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		abort()
 		return
 	}
-	d.Log(id, map[string]string{"orca": "передано в Orca: ", terminalExecutor: "агент працює в терміналі: "}[executor]+res.Note)
+	d.Log(id, map[string]string{"orca": "handed off to Orca: ", terminalExecutor: "agent works in the terminal: "}[executor]+res.Note)
 	d.comment(ctx, t, r.Task, d.Config().Comments.OnStart, map[string]string{"branch": res.Branch})
 }
 
@@ -748,7 +748,7 @@ func (d *Dispatcher) refuseRussian(ctx context.Context, t trackers.Tracker, id s
 	}
 	d.Log(id, why)
 	if err := t.Comment(ctx, task, i18n.T("comment.rewrite")); err != nil {
-		d.Fault(id, "коментар про мову не додано", err)
+		d.Fault(id, "language comment not added", err)
 	}
 	notify.Inform(notify.Stopped, i18n.T("notify.notTaken", id), why, d.BoardURL)
 }
@@ -771,7 +771,7 @@ func (d *Dispatcher) comment(ctx context.Context, t trackers.Tracker, task core.
 		return m
 	})
 	if err := t.Comment(ctx, task, text); err != nil {
-		d.Fault(task.ID, "коментар не додано", err)
+		d.Fault(task.ID, "comment not added", err)
 	}
 }
 
@@ -779,12 +779,12 @@ func (d *Dispatcher) comment(ctx context.Context, t trackers.Tracker, task core.
 func (d *Dispatcher) move(ctx context.Context, t trackers.Tracker, task core.Task, moment string) {
 	status, err := t.Move(ctx, task, moment)
 	if err != nil {
-		d.Fault(task.ID, "статус у трекері не змінено", err)
+		d.Fault(task.ID, "tracker status not changed", err)
 		d.Store.Update(task.ID, func(r *core.Record) { r.TrackerStatus = &core.TrackerState{OK: false, Text: err.Error()} })
 		return
 	}
 	if status != "" {
-		d.Log(task.ID, fmt.Sprintf("%s: статус «%s»", t.Name(), status))
+		d.Log(task.ID, fmt.Sprintf("%s: status \"%s\"", t.Name(), status))
 		d.Store.Update(task.ID, func(r *core.Record) { r.TrackerStatus = &core.TrackerState{OK: true, Text: status} })
 	}
 }
@@ -800,7 +800,7 @@ func (d *Dispatcher) host(ctx context.Context, t trackers.Tracker, repo *config.
 	}
 	project := gitx.RemoteProject(origin)
 	if project == "" {
-		return nil, "", fmt.Errorf("не розібрати origin репозиторію %s: %q", repo.Path, origin)
+		return nil, "", fmt.Errorf("cannot parse origin of repository %s: %q", repo.Path, origin)
 	}
 	h := remoteHost(origin)
 	if ch, ok := t.(trackers.CodeHost); ok && (h == "" || ch.Host() == h) {
@@ -869,7 +869,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		host, project, err := d.host(ctx, t, repo)
 		if err != nil {
-			d.Fault(r.ID, "MR не перевірено", err)
+			d.Fault(r.ID, "MR not checked", err)
 			continue
 		}
 		branch := r.Branch
@@ -878,15 +878,15 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		review, err := host.FindReview(ctx, project, branch)
 		if err != nil {
-			d.Fault(r.ID, "MR не перевірено", err)
+			d.Fault(r.ID, "MR not checked", err)
 			continue
 		}
 		if review == nil {
 			// Orca's workspace is gone and nothing was opened from it: the hand-off was abandoned.
 			if r.Worktree != "" && !exists(r.Worktree) {
-				d.Log(r.ID, "workspace видалено, MR немає")
+				d.Log(r.ID, "workspace deleted, no MR")
 				d.Store.Update(r.ID, func(r *core.Record) {
-					r.Status, r.Error, r.FinishedAt = core.Cancelled, "Workspace видалено ("+r.Worktree+"), MR не відкрито", now()
+					r.Status, r.Error, r.FinishedAt = core.Cancelled, "Workspace deleted ("+r.Worktree+"), MR not opened", now()
 				})
 				notify.Inform(notify.Stopped, i18n.T("notify.handoffCancelled", r.ID), i18n.T("notify.handoffCancelledText"), d.BoardURL)
 			}
@@ -902,15 +902,15 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		if ci != nil && trackers.CIRunning(ci.CI) {
 			// The link is kept at once (the MR tab shows it); the task stays in work, and the log says it once.
 			if r.PRURL != review.URL {
-				d.Log(r.ID, "є MR, чекаю на CI: "+review.URL)
+				d.Log(r.ID, "MR exists, waiting for CI: "+review.URL)
 				d.Store.Update(r.ID, func(r *core.Record) { r.PRURL = review.URL })
 			}
 			continue
 		}
 		failed := ci != nil && ci.CI == "failed"
-		d.Log(r.ID, "є MR: "+review.URL)
+		d.Log(r.ID, "MR exists: "+review.URL)
 		if err := d.describeIfBare(ctx, host, r, repo, review.URL); err != nil {
-			d.Fault(r.ID, "опис MR не написано", err)
+			d.Fault(r.ID, "MR description not written", err)
 		}
 		if failed {
 			d.Log(r.ID, "CI failed: the tracker shows it in review once it passes")
@@ -977,7 +977,7 @@ func (d *Dispatcher) describeIfBare(ctx context.Context, host trackers.CodeHost,
 		}
 		title = newTitle
 	}
-	d.Log(r.ID, "опис MR написано зі змін гілки")
+	d.Log(r.ID, "MR description written from the branch changes")
 	return host.DescribeReview(ctx, url, title, text)
 }
 
@@ -1002,12 +1002,12 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 		}
 		st, err := host.ReviewState(ctx, r.PRURL)
 		if err != nil {
-			d.Fault(r.ID, "стан MR не перевірено", err)
+			d.Fault(r.ID, "MR state not checked", err)
 			continue
 		}
 		switch st {
 		case "merged":
-			d.Log(r.ID, "MR змерджено")
+			d.Log(r.ID, "MR merged")
 			d.Store.Update(r.ID, func(r *core.Record) { r.ReviewState, r.MergedAt = "merged", now() })
 			d.move(ctx, t, r.Task, trackers.AtMerged)
 			if !onTerminal(r) {
@@ -1019,9 +1019,9 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 			}
 			d.cleanUp(ctx, r.ID)
 		case "closed":
-			d.Log(r.ID, "MR закрито без мерджу")
+			d.Log(r.ID, "MR closed without merging")
 			d.Store.Update(r.ID, func(r *core.Record) {
-				r.ReviewState, r.Status, r.Error = "closed", core.Failed, "MR закрито без мерджу"
+				r.ReviewState, r.Status, r.Error = "closed", core.Failed, "MR closed without merging"
 			})
 		}
 	}
@@ -1050,9 +1050,9 @@ func (d *Dispatcher) CheckGone(ctx context.Context) {
 }
 
 func (d *Dispatcher) markGone(r core.Record, st string) {
-	what := "Задачу закрито в трекері"
+	what := "Task closed in the tracker"
 	if st == "deleted" {
-		what = "Задачу видалено в трекері"
+		what = "Task deleted in the tracker"
 	}
 	d.Log(r.ID, what)
 	if r.Status == core.Asking || r.Status == core.Snoozed || r.Status == core.Queued {
@@ -1104,7 +1104,7 @@ func (d *Dispatcher) Later(id string, minutes int) {
 	if minutes < 0 {
 		// «Повернути»: the task is not put off any more.
 		d.Store.Update(id, func(r *core.Record) { r.PostponedByYou, r.SnoozedUntil = false, 0 })
-		d.Log(id, "більше не відкладена")
+		d.Log(id, "no longer snoozed")
 		return
 	}
 	if minutes == 0 {
@@ -1114,7 +1114,7 @@ func (d *Dispatcher) Later(id string, minutes int) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.Status, r.PostponedByYou, r.SnoozedUntil = core.Snoozed, true, until.UnixMilli()
 	})
-	d.Log(id, "відкладено до "+until.Format("02.01 15:04"))
+	d.Log(id, "snoozed until "+until.Format("02.01 15:04"))
 }
 
 // remind: a task you put off whose time has come is back on the board, with a notification.
@@ -1124,7 +1124,7 @@ func (d *Dispatcher) remind(now time.Time) {
 			continue
 		}
 		d.Store.Update(r.ID, func(r *core.Record) { r.PostponedByYou, r.SnoozedUntil = false, 0 })
-		d.Log(r.ID, "час повернутися до задачі")
+		d.Log(r.ID, "time to return to the task")
 		notify.Inform(notify.Reminder, i18n.T("notify.reminder", r.ID), r.Task.Title, d.BoardURL+"/#"+r.ID)
 	}
 }
@@ -1133,10 +1133,10 @@ func (d *Dispatcher) remind(now time.Time) {
 // worktree stays.
 func (d *Dispatcher) Cancel(id string) {
 	if r, _ := d.Store.Get(id); r.Status == core.Queued && d.stopStart(id) {
-		d.Log(id, "скасовано під час запуску")
+		d.Log(id, "cancelled during start")
 	}
 	d.StopTerminal(id)
-	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Cancelled, "Скасовано", now() })
+	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Cancelled, "Cancelled", now() })
 }
 
 // Retry hands a failed or cancelled task to Orca again, on a new branch (-try2).

@@ -56,7 +56,7 @@ func (d *Dispatcher) GuardPush(ctx context.Context, id string, hook []byte) map[
 	}
 	found, err := d.CheckSecrets(ctx, id)
 	if err != nil {
-		d.Log(id, "перевірка на секрети не вдалась, пуш не зупинено: "+err.Error())
+		d.Log(id, "the secrets check failed, push not stopped: "+err.Error())
 		return nil
 	}
 	if len(found) == 0 {
@@ -91,12 +91,12 @@ func (d *Dispatcher) CheckSecrets(ctx context.Context, id string) ([]secrets.Fin
 	if len(found) == 0 {
 		if len(before) > 0 {
 			notify.Withdraw(secretsTag(id))
-			d.Log(id, "секретів у змінах більше немає, пуш пропущено")
+			d.Log(id, "no secrets left in the changes, push let through")
 		}
 		return nil, nil
 	}
 	if !sameFindings(before, found) {
-		d.Log(id, fmt.Sprintf("пуш зупинено: у змінах %d %s, схожі на секрети", len(found), plural(len(found), "знахідка", "знахідки", "знахідок")))
+		d.Log(id, fmt.Sprintf("push stopped: %d %s in the changes look like secrets", len(found), plural(len(found), "finding", "findings", "findings")))
 		notify.Show(notify.Notice{Kind: notify.Secrets, Tag: secretsTag(id), URL: d.BoardURL + "/#" + id,
 			Title: i18n.T("notify.secrets", id), Message: findingsText(found, 3)})
 	}
@@ -108,10 +108,10 @@ func (d *Dispatcher) CheckSecrets(ctx context.Context, id string) ([]secrets.Fin
 func (d *Dispatcher) AllowSecret(id, key string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return fmt.Errorf("немає такої задачі")
+		return fmt.Errorf("no such task")
 	}
 	if key == "" || !slices.ContainsFunc(r.Secrets, func(f secrets.Finding) bool { return f.Key == key }) {
-		return fmt.Errorf("такої знахідки немає")
+		return fmt.Errorf("no such finding")
 	}
 	var left []secrets.Finding
 	d.Store.Update(id, func(rec *core.Record) {
@@ -121,11 +121,11 @@ func (d *Dispatcher) AllowSecret(id, key string) error {
 		rec.Secrets = slices.DeleteFunc(rec.Secrets, func(f secrets.Finding) bool { return f.Key == key })
 		left = rec.Secrets
 	})
-	d.Log(id, "рядок позначено як не секрет")
+	d.Log(id, "line marked as not a secret")
 	if len(left) == 0 {
 		notify.Withdraw(secretsTag(id))
 		if d.Live(id) {
-			d.sayTo(id, "Знахідки перевірки на секрети позначено як «не секрет». Можна пушити.")
+			d.sayTo(id, "The secrets-check findings were marked as \"not a secret\". You can push.")
 		}
 	}
 	return nil
@@ -135,10 +135,10 @@ func secretsTag(id string) string { return "secrets-" + id }
 
 // secretsRequest: what the agent is told when its push is stopped.
 func secretsRequest(found []secrets.Finding) string {
-	return "Mako зупинив пуш: у змінах гілки схоже на секрети:\n" + findingsText(found, 20) +
-		"\n\nПрибери їх із коду: винеси в змінні оточення чи конфіг поза репозиторієм, .env-файли — в .gitignore. " +
-		"Якщо секрет уже в коміті, перепиши історію гілки (git commit --amend, git rebase), щоб його не було в жодному коміті, і спробуй запушити знову. " +
-		"Якщо це не секрет, скажи про це: людина може дозволити рядок на картці задачі («Це не секрет»)."
+	return "Mako stopped the push: the branch changes look like secrets:\n" + findingsText(found, 20) +
+		"\n\nRemove them from the code: move them to environment variables or a config outside the repository, and put .env files in .gitignore. " +
+		"If a secret is already committed, rewrite the branch history (git commit --amend, git rebase) so that it is in no commit, and try to push again. " +
+		"If it is not a secret, say so: the person can allow the line on the task card (\"Not a secret\")."
 }
 
 // findingsText: "- app/config.go:12 — GitHub-токен (ghp_Ab…(40))", at most n of them.

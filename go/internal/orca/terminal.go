@@ -50,7 +50,7 @@ func cli(ctx context.Context, o config.Orca, dir string, out any, args ...string
 		text = text[i:]
 	}
 	if err := json.Unmarshal([]byte(text), &env); err != nil {
-		return fmt.Errorf("orca %s: незрозуміла відповідь: %v", strings.Join(args[:2], " "), err)
+		return fmt.Errorf("orca %s: unintelligible response: %v", strings.Join(args[:2], " "), err)
 	}
 	return json.Unmarshal(env.Result, out)
 }

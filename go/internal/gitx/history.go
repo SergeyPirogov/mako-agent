@@ -75,7 +75,7 @@ type CommitDetail struct {
 
 func CommitInfo(ctx context.Context, worktree, hash string) (*CommitDetail, error) {
 	if !fullHash.MatchString(hash) {
-		return nil, fmt.Errorf("немає такого коміту")
+		return nil, fmt.Errorf("no such commit")
 	}
 	msg, err := Run(ctx, worktree, "show", "-s", "--format=%B", hash)
 	if err != nil {

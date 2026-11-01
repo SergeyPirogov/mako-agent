@@ -40,7 +40,7 @@ func tailscaleCLI() string {
 func ts(ctx context.Context, args ...string) ([]byte, error) {
 	cli := tailscaleCLI()
 	if cli == "" {
-		return nil, errors.New("Tailscale не встановлено")
+		return nil, errors.New("Tailscale is not installed")
 	}
 	ctx, cancel := context.WithTimeout(ctx, tsTimeout)
 	defer cancel()
@@ -55,7 +55,7 @@ func ts(ctx context.Context, args ...string) ([]byte, error) {
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if ctx.Err() != nil {
-			msg = strings.TrimSpace(msg + "\nTailscale не відповів за " + tsTimeout.String())
+			msg = strings.TrimSpace(msg + "\nTailscale did not respond within " + tsTimeout.String())
 		}
 		return out, fmt.Errorf("tailscale %s: %s", strings.Join(args, " "), msg)
 	}
@@ -84,7 +84,7 @@ func TailscaleState(ctx context.Context, port int) Tailscale {
 		} `json:"Self"`
 	}
 	if json.Unmarshal(out, &st) != nil || st.BackendState != "Running" {
-		t.Error = "Tailscale не підключено: увійдіть у застосунку Tailscale"
+		t.Error = "Tailscale is not connected: sign in in the Tailscale app"
 		return t
 	}
 	t.Running = true
@@ -117,9 +117,9 @@ func Serve(ctx context.Context, port int, public bool) error {
 	case err == nil:
 		return nil
 	case public && strings.Contains(strings.ToLower(err.Error()), "funnel"):
-		return fmt.Errorf("%v\nFunnel треба дозволити для цього Mac у Tailscale: відкрийте посилання вище або login.tailscale.com → Access controls (nodeAttrs \"funnel\")", err)
+		return fmt.Errorf("%v\nFunnel must be allowed for this Mac in Tailscale: open the link above or login.tailscale.com → Access controls (nodeAttrs \"funnel\")", err)
 	case strings.Contains(err.Error(), "HTTPS"):
-		return fmt.Errorf("%v\nУвімкніть HTTPS у Tailscale: login.tailscale.com → DNS → HTTPS Certificates", err)
+		return fmt.Errorf("%v\nEnable HTTPS in Tailscale: login.tailscale.com → DNS → HTTPS Certificates", err)
 	}
 	return err
 }

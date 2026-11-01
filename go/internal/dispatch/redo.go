@@ -31,22 +31,22 @@ func redoable(r core.Record) bool {
 func (d *Dispatcher) Redo(ctx context.Context, id, note, model string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return fmt.Errorf("немає такої задачі")
+		return fmt.Errorf("no such task")
 	}
 	if !redoable(r) {
-		return fmt.Errorf("повторити можна задачу в роботі, на рев'ю чи не виконану")
+		return fmt.Errorf("only a task in progress, in review or failed can be retried")
 	}
 	d.mu.Lock()
 	if d.starting[id] {
 		d.mu.Unlock()
-		return fmt.Errorf("задача вже починається")
+		return fmt.Errorf("the task is already starting")
 	}
 	// Starting: the scheduler leaves it alone (and counts it in the WIP) until the old attempt is gone.
 	d.starting[id] = true
 	d.mu.Unlock()
 	note, model = strings.TrimSpace(note), strings.TrimSpace(model)
 	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.ArchivedAt = core.Queued, "", 0 })
-	d.Log(id, "повторюю інакше"+map[bool]string{true: ": " + clipText(firstLine(note), 120)}[note != ""])
+	d.Log(id, "retrying differently"+map[bool]string{true: ": " + clipText(firstLine(note), 120)}[note != ""])
 	go func() {
 		ctx := context.WithoutCancel(ctx)
 		last := d.dropAttempt(ctx, r, note)
@@ -86,7 +86,7 @@ func (d *Dispatcher) dropAttempt(ctx context.Context, r core.Record, note string
 		}
 		s, err := writer.AttemptSummary(d.spending(ctx, r.ID, core.PhaseWork), r.Worktree, base, r.Task, words, note)
 		if err != nil {
-			d.Fault(r.ID, "підсумок минулої спроби не написано", err)
+			d.Fault(r.ID, "the summary of the previous attempt was not written", err)
 		} else {
 			last = s
 		}
@@ -97,11 +97,11 @@ func (d *Dispatcher) dropAttempt(ctx context.Context, r core.Record, note string
 
 	if r.PRURL != "" && r.ReviewState == "" {
 		if desk, err := d.desk(ctx, r.ID); err != nil {
-			d.Fault(r.ID, "MR не закрито", err)
+			d.Fault(r.ID, "the MR was not closed", err)
 		} else if err := desk.Close(ctx, r.PRURL); err != nil {
-			d.Fault(r.ID, "MR не закрито", err)
+			d.Fault(r.ID, "the MR was not closed", err)
 		} else {
-			d.Log(r.ID, "MR минулої спроби закрито: "+r.PRURL)
+			d.Log(r.ID, "MR of the previous attempt closed: "+r.PRURL)
 		}
 	}
 
@@ -116,9 +116,9 @@ func (d *Dispatcher) dropAttempt(ctx context.Context, r core.Record, note string
 		err = d.RemoveWorkspace(ctx, repoPath, r.Worktree, branchOf(r))
 	}
 	if err != nil {
-		d.Fault(r.ID, "worktree минулої спроби лишився", err)
+		d.Fault(r.ID, "the worktree of the previous attempt was left behind", err)
 	} else {
-		d.Log(r.ID, "worktree минулої спроби прибрано")
+		d.Log(r.ID, "the worktree of the previous attempt was removed")
 	}
 	return last
 }

@@ -135,7 +135,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	if b, _ := os.ReadFile(filepath.Join(out, "setup.txt")); !samePath(strings.TrimSpace(string(b)), wt) {
 		t.Fatalf("setup ran in %q", b)
 	}
-	if items := s.Snapshot().Items; !slices.ContainsFunc(items, func(it chat.Item) bool { return it.Tool == "Підготовка" && it.Status == "ok" }) {
+	if items := s.Snapshot().Items; !slices.ContainsFunc(items, func(it chat.Item) bool { return it.Tool == "Setup" && it.Status == "ok" }) {
 		t.Fatalf("no setup in the conversation: %+v", items)
 	}
 	// Editing is refused at once, a command allowed at once: nobody is asked.
@@ -343,7 +343,7 @@ func TestQuestionWhileSetup(t *testing.T) {
 	defer askSetups.Delete("ask-setup1")
 	snap, ok := d.QuestionChat("ask-setup1")
 	if !ok || snap.State != "working" || snap.Version != -2 || len(snap.Items) != 2 || snap.Items[0].Text != "Де оплата?" ||
-		snap.Items[1].Tool != "Підготовка" || snap.Items[1].Status != "running" || !strings.Contains(string(snap.Items[1].Input), "npm ci") {
+		snap.Items[1].Tool != "Setup" || snap.Items[1].Status != "running" || !strings.Contains(string(snap.Items[1].Input), "npm ci") {
 		t.Fatalf("%v %+v", ok, snap)
 	}
 }

@@ -175,7 +175,7 @@ type Checks struct {
 
 // CheckResult is one command of the checks.
 type CheckResult struct {
-	Name     string `json:"name"` // "тести", "лінт", "збірка", or the command
+	Name     string `json:"name"` // "tests", "lint", "build", or the command
 	Command  string `json:"command"`
 	OK       bool   `json:"ok"`
 	TimedOut bool   `json:"timedOut,omitempty"`

@@ -88,7 +88,7 @@ func TestAutoRebase(t *testing.T) {
 	// Behind without conflicts: rebased and pushed by Mako.
 	cfg.Terminal.AutoRebase = "rebase"
 	round()
-	if behind() != "0" || !logged("оновлено з main (rebase, 1 коміт)") {
+	if behind() != "0" || !logged("updated from main (rebase, 1 commit)") {
 		t.Fatalf("clean rebase: behind %s, logs %+v", behind(), d.Logs(id))
 	}
 	if d.Live(id) {
@@ -110,7 +110,7 @@ func TestAutoRebase(t *testing.T) {
 		t.Fatal(err)
 	}
 	round()
-	if behind() != "2" || logged("конфлікт") {
+	if behind() != "2" || logged("conflict") {
 		t.Fatalf("touched while the agent works: behind %s", behind())
 	}
 	d.StopTerminal(id)
@@ -122,7 +122,7 @@ func TestAutoRebase(t *testing.T) {
 	delete(d.rebased, id)
 	d.mu.Unlock()
 	d.AutoRebase(ctx, time.Now())
-	if logged("конфлікт") {
+	if logged("conflict") {
 		t.Fatal("touched a merged MR")
 	}
 
@@ -146,7 +146,7 @@ func TestAutoRebase(t *testing.T) {
 	if r.BaseConflict == nil || len(r.BaseConflict.Files) != 1 || r.AutoFixed["conflicts"] != "1" || r.AutoFixes != 1 {
 		t.Fatalf("recorded %+v %v %d", r.BaseConflict, r.AutoFixed, r.AutoFixes)
 	}
-	if !logged("конфлікт з main у файлах b.txt: агента попрошено розвʼязати") {
+	if !logged("conflict with main in files b.txt: asked the agent to resolve it") {
 		t.Fatalf("logs %+v", d.Logs(id))
 	}
 	if out, _ := exec.Command("git", "-C", wt, "status", "--porcelain").Output(); len(out) != 0 {
@@ -159,7 +159,7 @@ func TestAutoRebase(t *testing.T) {
 	d.StopTerminal(id)
 	waitFor(t, func() bool { return !d.Live(id) }, "the agent did not stop")
 	round()
-	if !logged("конфлікт розвʼязано: файли b.txt") {
+	if !logged("conflict resolved: files b.txt") {
 		t.Fatalf("logs %+v", d.Logs(id))
 	}
 	if r, _ := d.Store.Get(id); r.BaseConflict != nil {

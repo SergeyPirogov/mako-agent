@@ -15,7 +15,7 @@ import (
 // usual mode) and «Поправити» (your notes go back, it plans again).
 
 // planLabels mark a task as big enough for a plan with PlanFirst "big".
-var planLabels = []string{"plan", "план"}
+var planLabels = []string{"plan", "план"} // cyrillic-ok: legacy label
 
 // bigDescription: a task's description this long (in characters) is big enough for a plan with PlanFirst "big".
 const bigDescription = 1500
@@ -58,13 +58,13 @@ func workMode(t config.Terminal) string {
 func (d *Dispatcher) ApprovePlan(id, requestID string) error {
 	c := d.Chats.Get(id)
 	if c == nil {
-		return fmt.Errorf("агент не запущений")
+		return fmt.Errorf("the agent is not running")
 	}
 	if err := c.ApprovePlan(requestID, workMode(d.Config().Terminal)); err != nil {
 		return err
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Planning = false })
-	d.Log(id, "план затверджено: агент виконує")
+	d.Log(id, "plan approved: the agent is carrying it out")
 	return nil
 }
 
@@ -72,12 +72,12 @@ func (d *Dispatcher) ApprovePlan(id, requestID string) error {
 func (d *Dispatcher) RevisePlan(id, requestID, notes string) error {
 	c := d.Chats.Get(id)
 	if c == nil {
-		return fmt.Errorf("агент не запущений")
+		return fmt.Errorf("the agent is not running")
 	}
 	if err := c.RevisePlan(requestID, notes); err != nil {
 		return err
 	}
-	d.Log(id, "план повернуто на правки: "+clipText(firstLine(notes), 120))
+	d.Log(id, "plan sent back for changes: "+clipText(firstLine(notes), 120))
 	return nil
 }
 
@@ -132,19 +132,19 @@ func terminalModel(cfg *config.Config, r core.Record) string {
 func (d *Dispatcher) Pick(id, model string, plan bool) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
-		return errors.New("немає такої задачі")
+		return errors.New("no such task")
 	}
 	if r.Worktree != "" || r.Status == core.HandedOff || r.Status == core.Done {
-		return errors.New("агент уже почав: змінити можна через «Повторити інакше»")
+		return errors.New("the agent has already started: change it via \"Retry differently\"")
 	}
 	d.Store.Update(id, func(r *core.Record) { r.Model, r.PlanFirst = model, plan })
 	switch {
 	case model != "" && plan:
-		d.Log(id, "агент почне з плану, модель "+model)
+		d.Log(id, "the agent will start with a plan, model "+model)
 	case model != "":
-		d.Log(id, "агент почне з моделлю "+model)
+		d.Log(id, "the agent will start with model "+model)
 	case plan:
-		d.Log(id, "агент почне з плану")
+		d.Log(id, "the agent will start with a plan")
 	}
 	return nil
 }

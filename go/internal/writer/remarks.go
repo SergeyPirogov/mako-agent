@@ -26,9 +26,9 @@ var (
 // weightOf: the remark's weight from the reviewer's word for it, in either language.
 func weightOf(w string) (string, bool) {
 	switch strings.ToLower(strings.Trim(w, " *_`")) {
-	case "must", "треба", "обов'язково", "обовʼязково", "required", "blocker":
+	case "must", "треба", "обов'язково", "обовʼязково", "required", "blocker": // cyrillic-ok
 		return core.Must, true
-	case "should", "варто", "бажано", "nice", "optional", "minor":
+	case "should", "варто", "бажано", "nice", "optional", "minor": // cyrillic-ok
 		return core.Should, true
 	}
 	return "", false
@@ -71,9 +71,9 @@ func ParseRemarks(text string) []core.Remark {
 func verdictOf(s string) (string, string) {
 	low := strings.ToLower(s)
 	for _, v := range []struct{ verdict, word string }{
-		{core.Open, "не закрито"}, {core.Open, "not closed"}, {core.Open, "відкрито"}, {core.Open, "open"},
-		{core.Accepted, "приймаю пояснення"}, {core.Accepted, "приймаю"}, {core.Accepted, "explanation accepted"}, {core.Accepted, "accept the explanation"}, {core.Accepted, "accepted"},
-		{core.Closed, "закрито"}, {core.Closed, "closed"},
+		{core.Open, "не закрито"}, {core.Open, "not closed"}, {core.Open, "відкрито"}, {core.Open, "open"}, // cyrillic-ok
+		{core.Accepted, "приймаю пояснення"}, {core.Accepted, "приймаю"}, {core.Accepted, "explanation accepted"}, {core.Accepted, "accept the explanation"}, {core.Accepted, "accepted"}, // cyrillic-ok
+		{core.Closed, "закрито"}, {core.Closed, "closed"}, // cyrillic-ok
 	} {
 		if strings.HasPrefix(low, v.word) {
 			return v.verdict, note(s[len(v.word):])
@@ -86,9 +86,9 @@ func verdictOf(s string) (string, string) {
 func replyOf(s string) (string, string) {
 	low := strings.ToLower(s)
 	for _, v := range []struct{ reply, word string }{
-		{core.Partly, "частково виправлено"}, {core.Partly, "частково"}, {core.Partly, "partially fixed"}, {core.Partly, "partially"}, {core.Partly, "partly"},
-		{core.NotFixed, "не виправлено"}, {core.NotFixed, "не виправив"}, {core.NotFixed, "not fixed"}, {core.NotFixed, "won't fix"},
-		{core.Fixed, "виправлено"}, {core.Fixed, "виправив"}, {core.Fixed, "fixed"}, {core.Fixed, "done"},
+		{core.Partly, "частково виправлено"}, {core.Partly, "частково"}, {core.Partly, "partially fixed"}, {core.Partly, "partially"}, {core.Partly, "partly"}, // cyrillic-ok
+		{core.NotFixed, "не виправлено"}, {core.NotFixed, "не виправив"}, {core.NotFixed, "not fixed"}, {core.NotFixed, "won't fix"}, // cyrillic-ok
+		{core.Fixed, "виправлено"}, {core.Fixed, "виправив"}, {core.Fixed, "fixed"}, {core.Fixed, "done"}, // cyrillic-ok
 	} {
 		if strings.HasPrefix(low, v.word) {
 			return v.reply, note(s[len(v.word):])

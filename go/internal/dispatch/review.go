@@ -56,7 +56,7 @@ func (d *Dispatcher) desk(ctx context.Context, id string) (trackers.ReviewDesk, 
 	r, _ := d.Store.Get(id)
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {
-		return nil, fmt.Errorf("трекер %s прибрано з налаштувань", r.Task.TrackerID)
+		return nil, fmt.Errorf("tracker %s was removed from the settings", r.Task.TrackerID)
 	}
 	repo, err := d.route(t, r.Task)
 	if err != nil {
@@ -68,7 +68,7 @@ func (d *Dispatcher) desk(ctx context.Context, id string) (trackers.ReviewDesk, 
 	}
 	desk, ok := host.(trackers.ReviewDesk)
 	if !ok {
-		return nil, fmt.Errorf("%s не вміє показувати MR", host.Host())
+		return nil, fmt.Errorf("%s cannot show MRs", host.Host())
 	}
 	return desk, nil
 }
@@ -78,10 +78,10 @@ func (d *Dispatcher) desk(ctx context.Context, id string) (trackers.ReviewDesk, 
 // "open" (open the MR).
 func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	if _, ok := d.Store.Get(id); !ok {
-		return fmt.Errorf("немає такої задачі")
+		return fmt.Errorf("no such task")
 	}
 	if !d.Live(id) {
-		return fmt.Errorf("агент не запущений: спершу «Продовжити»")
+		return fmt.Errorf("the agent is not running: press \"Continue\" first")
 	}
 	text, err := d.request(ctx, id, kind)
 	if err != nil {
@@ -136,7 +136,7 @@ func (d *Dispatcher) replyToReview(id string, threads []trackers.Thread) {
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Ревʼюер залишив коментарі до MR %s. Агент їх бачить і виправляє", r.PRURL)
+	fmt.Fprintf(&b, i18n.TA("comment.reviewSeen"), r.PRURL)
 	if len(threads) == 0 {
 		b.WriteString(".")
 	} else {
@@ -156,7 +156,7 @@ func (d *Dispatcher) replyToReview(id string, threads []trackers.Thread) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := t.Comment(ctx, r.Task, b.String()); err != nil {
-		d.Fault(id, "відповідь на рев'ю не додано", err)
+		d.Fault(id, "the review reply was not added", err)
 	}
 }
 
@@ -202,19 +202,19 @@ func (d *Dispatcher) request(ctx context.Context, id, kind string) (string, erro
 			return "", err
 		}
 		if c == nil {
-			return "", fmt.Errorf("MR ще немає")
+			return "", fmt.Errorf("there is no MR yet")
 		}
 		if kind == "ci" {
 			return d.ciRequest(ctx, id, r.PRURL, c)
 		}
 		return commentsRequest(r.PRURL, branch, c.Threads), nil
 	}
-	return "", fmt.Errorf("невідомий запит %q", kind)
+	return "", fmt.Errorf("unknown request %q", kind)
 }
 
 func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.ReviewCheck) (string, error) {
 	if len(c.Failed) == 0 {
-		return "", fmt.Errorf("у CI немає впалих джобів")
+		return "", fmt.Errorf("there are no failed jobs in CI")
 	}
 	desk, err := d.desk(ctx, id)
 	if err != nil {
@@ -251,7 +251,7 @@ func commentsRequest(url, branch string, threads []trackers.Thread) string {
 func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok || r.PRURL == "" {
-		return fmt.Errorf("MR немає")
+		return fmt.Errorf("there is no MR")
 	}
 	desk, err := d.desk(ctx, id)
 	if err != nil {
@@ -260,13 +260,13 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	// Asked afresh, not from the card's cache: a push a moment ago may have started CI again.
 	if c, err := desk.CheckReview(ctx, r.PRURL); err == nil && trackers.CIRunning(c.CI) {
 		d.forgetReview(id)
-		return fmt.Errorf("CI ще йде: змерджити можна, коли він закінчиться")
+		return fmt.Errorf("CI is still running: you can merge once it finishes")
 	}
 	if err := desk.Merge(ctx, r.PRURL); err != nil {
 		return err
 	}
 	d.forgetReview(id)
-	d.Log(id, "MR змерджено з дошки")
+	d.Log(id, "MR merged from the board")
 	d.Wake()
 	return nil
 }
@@ -275,7 +275,7 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 func (d *Dispatcher) CloseReview(ctx context.Context, id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok || r.PRURL == "" {
-		return fmt.Errorf("MR немає")
+		return fmt.Errorf("there is no MR")
 	}
 	desk, err := d.desk(ctx, id)
 	if err != nil {
@@ -285,7 +285,7 @@ func (d *Dispatcher) CloseReview(ctx context.Context, id string) error {
 		return err
 	}
 	d.forgetReview(id)
-	d.Log(id, "MR закрито з дошки без мерджу")
+	d.Log(id, "MR closed from the board without merging")
 	d.Wake()
 	return nil
 }

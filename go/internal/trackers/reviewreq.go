@@ -165,7 +165,7 @@ func (g *GitLab) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 func (g *GitLab) ReviewFiles(ctx context.Context, reviewURL string) ([]ReviewFile, error) {
 	m := mrURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return nil, fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+		return nil, fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	diffs, err := allPages(url.Values{}, func(query string, out *[]glDiff) error {
 		return g.do(ctx, "GET", project(m[1])+"/merge_requests/"+m[2]+"/diffs?"+query, nil, out)
@@ -219,7 +219,7 @@ func (g *GitHub) search(ctx context.Context, q string) ([]ghSearchItem, error) {
 			return nil, err
 		}
 		if res.Incomplete {
-			return nil, fmt.Errorf("GitHub дав неповну відповідь на пошук «%s»", q)
+			return nil, fmt.Errorf("GitHub gave an incomplete answer to the search \"%s\"", q)
 		}
 		all = append(all, res.Items...)
 		if len(res.Items) < perPage || len(all) >= res.Total {
@@ -349,7 +349,7 @@ func (g *GitHub) checkRuns(ctx context.Context, repo, sha string) (string, []Job
 func (g *GitHub) ReviewFiles(ctx context.Context, reviewURL string) ([]ReviewFile, error) {
 	m := prURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return nil, fmt.Errorf("не схоже на PR GitHub: %s", reviewURL)
+		return nil, fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
 	type ghFile struct {
 		Filename         string `json:"filename"`

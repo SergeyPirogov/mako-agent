@@ -127,7 +127,7 @@ func TestAutoFix(t *testing.T) {
 	}
 	logged := false
 	for _, l := range d.Logs(id) {
-		logged = logged || strings.Contains(l.Text, "автофікс: the agent was asked to resolve the conflicts")
+		logged = logged || strings.Contains(l.Text, "autofix: the agent was asked to resolve the conflicts")
 	}
 	if !logged {
 		t.Fatalf("logs %+v", d.Logs(id))

@@ -23,13 +23,13 @@ type Why struct {
 	Verdict string `json:"verdict"`
 }
 
-var columnName = map[string]string{"new": "«Нові»", "doing": "«В роботі»", "review": "«На рев'ю»", "done": "«Готово»", "failed": "«Не виконано»"}
+var columnName = map[string]string{"new": "\"New\"", "doing": "\"In progress\"", "review": "\"In review\"", "done": "\"Done\"", "failed": "\"Failed\""}
 
 // WhyNot looks the link up in the tracker it belongs to and says why the task is or is not on the board.
 func (d *Dispatcher) WhyNot(ctx context.Context, link string) (Why, error) {
 	link = strings.TrimSpace(link)
 	if link == "" {
-		return Why{}, fmt.Errorf("вставте посилання на задачу")
+		return Why{}, fmt.Errorf("paste a link to the task")
 	}
 	var w Why
 	for _, t := range d.TrackerList() {
@@ -47,9 +47,9 @@ func (d *Dispatcher) WhyNot(ctx context.Context, link string) (Why, error) {
 		w = Why{ID: task.ID, Title: task.Title, URL: task.URL, Tracker: t.Name(), Checks: checks}
 		if r, known := d.Store.Get(task.ID); known {
 			w.OnBoard = true
-			w.Verdict = "Задача вже на дошці, у колонці " + columnName[r.Column(time.Now().UnixMilli())]
+			w.Verdict = "The task is already on the board, in the column " + columnName[r.Column(time.Now().UnixMilli())]
 			if r.ArchivedAt > 0 {
-				w.Verdict = "Задача вже на дошці, в архіві"
+				w.Verdict = "The task is already on the board, in the archive"
 			}
 			return w, nil
 		}
@@ -62,9 +62,9 @@ func (d *Dispatcher) WhyNot(ctx context.Context, link string) (Why, error) {
 			hosts = append(hosts, t.Name()+" ("+trackerHost(t)+")")
 		}
 		if len(hosts) == 0 {
-			return Why{}, fmt.Errorf("у налаштуваннях немає жодного трекера")
+			return Why{}, fmt.Errorf("there is no tracker in the settings")
 		}
-		return Why{}, fmt.Errorf("посилання не з жодного трекера в налаштуваннях: %s", strings.Join(hosts, ", "))
+		return Why{}, fmt.Errorf("the link is not from any tracker in the settings: %s", strings.Join(hosts, ", "))
 	}
 	failed := []string{}
 	for _, c := range w.Checks {
@@ -73,10 +73,10 @@ func (d *Dispatcher) WhyNot(ctx context.Context, link string) (Why, error) {
 		}
 	}
 	if len(failed) == 0 {
-		w.Verdict = "Задача підходить під пошук: Mako покаже її після наступної перевірки трекера"
+		w.Verdict = "The task matches the search: Mako will show it after the next tracker check"
 		d.Wake()
 	} else {
-		w.Verdict = "Mako не бере задачу: " + lowerFirst(failed[0])
+		w.Verdict = "Mako does not take the task: " + lowerFirst(failed[0])
 	}
 	return w, nil
 }
@@ -85,14 +85,14 @@ func (d *Dispatcher) WhyNot(ctx context.Context, link string) (Why, error) {
 func (d *Dispatcher) makoChecks(t trackers.Tracker) []trackers.Check {
 	var checks []trackers.Check
 	if _, paused := d.Status(); paused {
-		checks = append(checks, trackers.Check{Text: "Пошук задач на паузі: зніміть паузу на дошці"})
+		checks = append(checks, trackers.Check{Text: "Task search is paused: unpause it on the board"})
 	}
 	s, ok := d.Searches()[t.ID()]
 	switch {
 	case ok && s.Error != "":
-		checks = append(checks, trackers.Check{Text: "Останній пошук у " + t.Name() + " не вдався: " + s.Error})
+		checks = append(checks, trackers.Check{Text: "The last search in " + t.Name() + " failed: " + s.Error})
 	case ok:
-		checks = append(checks, trackers.Check{OK: true, Text: fmt.Sprintf("Останній пошук у %s пройшов %s", t.Name(), s.At.Format("15:04"))})
+		checks = append(checks, trackers.Check{OK: true, Text: fmt.Sprintf("The last search in %s succeeded at %s", t.Name(), s.At.Format("15:04"))})
 	}
 	return checks
 }

@@ -53,7 +53,7 @@ func TestGitHubWhy(t *testing.T) {
 		t.Errorf("a fitting issue: %v", f)
 	}
 	f := strings.Join(failed(host+"/acme/web/issues/2"), "\n")
-	for _, want := range []string{"закрита", "мітки «claude-agent»", "призначена на ann", "чужі"} {
+	for _, want := range []string{"is closed", "label \"claude-agent\"", "assigned to ann", "assigned to others"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("no %q in %s", want, f)
 		}
@@ -61,7 +61,7 @@ func TestGitHubWhy(t *testing.T) {
 	if f := failed("https://" + host + "/acme/web/pull/3"); len(f) != 1 || !strings.Contains(f[0], "pull request") {
 		t.Errorf("a PR: %v", f)
 	}
-	if f := failed("https://" + host + "/other/app/issues/4"); len(f) != 1 || !strings.Contains(f[0], "Проєкту other/app немає") {
+	if f := failed("https://" + host + "/other/app/issues/4"); len(f) != 1 || !strings.Contains(f[0], "Project other/app is not") {
 		t.Errorf("a project not in the settings: %v", f)
 	}
 	if task, _, err := g.Why(ctx, "https://gitlab.com/acme/web/-/issues/1"); task != nil || err != nil {

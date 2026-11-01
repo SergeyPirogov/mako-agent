@@ -162,7 +162,7 @@ func (u *Updater) Check(ctx context.Context) error {
 func (u *Updater) Watch(ctx context.Context, every time.Duration) {
 	for {
 		if err := u.Check(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("оновлення: %v", err)
+			log.Printf("update: %v", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -191,7 +191,7 @@ func (u *Updater) Start() bool {
 		cancelled := ctx.Err() != nil
 		var issue string
 		if err != nil && !cancelled {
-			log.Printf("оновлення: %v", err)
+			log.Printf("update: %v", err)
 			issue = u.report(err)
 		}
 		u.mu.Lock()
@@ -257,11 +257,11 @@ func (u *Updater) report(failure error) string {
 		return issue
 	}
 	line, _, _ := strings.Cut(failure.Error(), "\n")
-	title := "Mako не оновився до " + rev + ": " + line
-	body := "Оновлення Mako до `" + rev + "` не вдалось, нічого не змінено.\n\n```\n" + failure.Error() + "\n```\n"
+	title := "Mako failed to update to " + rev + ": " + line
+	body := "Updating Mako to `" + rev + "` failed, nothing was changed.\n\n```\n" + failure.Error() + "\n```\n"
 	issue, err := u.Report(ctx, title, body)
 	if err != nil {
-		log.Printf("оновлення: задачу не заведено: %v", err)
+		log.Printf("update: task not created: %v", err)
 		return ""
 	}
 	u.mu.Lock()
@@ -303,13 +303,13 @@ func (u *Updater) Apply(ctx context.Context) error {
 		build = goBuild
 	}
 	if err := build(ctx, tree, out); err != nil {
-		return fmt.Errorf("збірка не вдалась: %w", err)
+		return fmt.Errorf("build failed: %w", err)
 	}
 
 	// The clone follows, when it is on the main branch (a branch of its own is left alone).
 	if cur, _ := gitx.Run(ctx, u.Source, "rev-parse", "--abbrev-ref", "HEAD"); cur == branch {
 		if _, err := gitx.Run(ctx, u.Source, "merge", "--ff-only", "--quiet", "origin/"+branch); err != nil {
-			return fmt.Errorf("pull у %s: %w", u.Source, err)
+			return fmt.Errorf("pull in %s: %w", u.Source, err)
 		}
 	}
 
@@ -351,9 +351,9 @@ func (u *Updater) Apply(ctx context.Context) error {
 		restart = relaunch
 	}
 	if err := restart(os.Getpid(), command); err != nil {
-		return fmt.Errorf("перезапуск: %w", err)
+		return fmt.Errorf("restart: %w", err)
 	}
-	log.Printf("оновлення: перезапускаюсь")
+	log.Printf("update: restarting")
 	if u.Quit != nil {
 		u.Quit()
 	}
@@ -379,7 +379,7 @@ func replace(src, dst string) error {
 	os.RemoveAll(old)
 	if out, err := exec.Command("cp", "-Rp", src, next).CombinedOutput(); err != nil {
 		os.RemoveAll(next)
-		return fmt.Errorf("копіювання нової збірки: %s", strings.TrimSpace(string(out)))
+		return fmt.Errorf("copying the new build: %s", strings.TrimSpace(string(out)))
 	}
 	if err := os.Rename(dst, old); err != nil {
 		os.RemoveAll(next)

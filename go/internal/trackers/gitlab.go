@@ -49,7 +49,7 @@ type glIssue struct {
 
 func NewGitLab(t *config.Tracker, token string) (*GitLab, error) {
 	if token == "" {
-		return nil, missing("GITLAB_TOKEN", "personal access token зі scope api")
+		return nil, missing("GITLAB_TOKEN", "personal access token with the api scope")
 	}
 	return &GitLab{cfg: t, api: strings.TrimRight(t.BaseURL, "/") + "/api/v4", headers: map[string]string{"PRIVATE-TOKEN": token}}, nil
 }
@@ -68,11 +68,11 @@ func (g *GitLab) do(ctx context.Context, method, path string, body, out any) err
 	return call(ctx, method, g.api+path, g.headers, body, out, func(status int, text string) string {
 		switch {
 		case status == 401:
-			return "GitLab не прийняв токен (401): він недійсний або прострочений. Створіть новий: " + tokens
+			return "GitLab rejected the token (401): it is invalid or expired. Create a new one: " + tokens
 		case status == 403 && strings.Contains(text, "insufficient_scope"):
-			return "Токену GitLab бракує прав: потрібен scope «api». Створіть токен зі scope api: " + tokens
+			return "The GitLab token lacks permissions: the \"api\" scope is required. Create a token with the api scope: " + tokens
 		case status == 403:
-			return "GitLab заборонив дію (403): у вашого акаунта немає потрібних прав у цьому проєкті"
+			return "GitLab forbade the action (403): your account lacks the required permissions in this project"
 		}
 		return ""
 	})
@@ -285,7 +285,7 @@ func (g *GitLab) Move(ctx context.Context, t core.Task, moment string) (string, 
 	switch moment {
 	case AtStart:
 		name = pick(tr.OnStart, func() string {
-			return g.guess(ctx, t, regexp.MustCompile(`(?i)progress|в роботі|doing`), "in progress")
+			return g.guess(ctx, t, regexp.MustCompile(`(?i)progress|doing|в роботі`), "in progress") // cyrillic-ok
 		})
 	case AtReview:
 		name = pick(tr.OnSuccess, nil)
@@ -293,7 +293,7 @@ func (g *GitLab) Move(ctx context.Context, t core.Task, moment string) (string, 
 		name = pick(tr.OnFailure, nil)
 	case AtMerged:
 		name = pick(tr.OnMerged, func() string {
-			return g.guess(ctx, t, regexp.MustCompile(`(?i)^done$|^closed$|completed|готово|виконано`), "done")
+			return g.guess(ctx, t, regexp.MustCompile(`(?i)^done$|^closed$|completed|готово|виконано`), "done") // cyrillic-ok
 		})
 	}
 	moved := ""
@@ -404,7 +404,7 @@ func (g *GitLab) setStatus(ctx context.Context, t core.Task, name string) error 
 		return err
 	}
 	if len(data.WorkItemUpdate.Errors) > 0 {
-		return fmt.Errorf("GitLab не змінив статус %s на «%s»: %s", t.ID, name, strings.Join(data.WorkItemUpdate.Errors, "; "))
+		return fmt.Errorf("GitLab did not change the status of %s to \"%s\": %s", t.ID, name, strings.Join(data.WorkItemUpdate.Errors, "; "))
 	}
 	return nil
 }
@@ -427,7 +427,7 @@ func (g *GitLab) graphql(ctx context.Context, query string, vars map[string]any,
 		}
 		msg := strings.Join(msgs, "; ")
 		if regexp.MustCompile(`(?i)statusWidget|WorkItemWidgetDefinitionStatus|allowedStatuses|doesn't exist on type|not available`).MatchString(msg) {
-			return fmt.Errorf("статуси задач на цьому GitLab недоступні (потрібні GitLab 17.11+ і Premium/Ultimate): %s", msg)
+			return fmt.Errorf("task statuses are unavailable on this GitLab (needs GitLab 17.11+ and Premium/Ultimate): %s", msg)
 		}
 		return fmt.Errorf("GitLab GraphQL: %s", msg)
 	}
@@ -478,7 +478,7 @@ func (g *GitLab) FindReview(ctx context.Context, projectPath, branch string) (*R
 func (g *GitLab) mr(ctx context.Context, reviewURL string) (string, *glMR, error) {
 	m := mrURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return "", nil, fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+		return "", nil, fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	path := project(m[1]) + "/merge_requests/" + m[2]
 	var mr glMR
@@ -507,7 +507,7 @@ func (g *GitLab) ReadReview(ctx context.Context, reviewURL string) (string, stri
 func (g *GitLab) DescribeReview(ctx context.Context, reviewURL, title, description string) error {
 	m := mrURL.FindStringSubmatch(reviewURL)
 	if m == nil {
-		return fmt.Errorf("не схоже на MR GitLab: %s", reviewURL)
+		return fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2], map[string]any{"title": title, "description": description}, nil)
 }
