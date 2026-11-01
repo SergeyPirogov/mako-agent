@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -134,6 +135,23 @@ func TestParseReviewer(t *testing.T) {
 	c, _ := Parse([]byte(`{"agentReview":{"enabled":true,"maxRounds":3,"when":"high","model":" opus "}}`), nil)
 	if c.Reviewer.Model != "opus" {
 		t.Fatalf("reviewer %+v", c.Reviewer)
+	}
+}
+
+func TestParseCodeModel(t *testing.T) {
+	if c, _ := Parse([]byte(`{}`), nil); c.CodeModel != DefaultCodeModel {
+		t.Fatalf("default %q", c.CodeModel)
+	}
+	for _, m := range []string{"opus", "claude-opus-5-5", "claude-sonnet-5-5[1m]"} {
+		if c, err := Parse([]byte(`{"codeAsk":{"model":" `+m+` "}}`), nil); err != nil || c.CodeModel != m {
+			t.Fatalf("picked %q: %v", m, err)
+		}
+	}
+	// It goes to claude's --model: never an option of its own, several words or a quote.
+	for _, m := range []string{"--dangerously-skip-permissions", "opus --tools Bash", "-x", "a\"b", "a/b"} {
+		if _, err := Parse([]byte(`{"codeAsk":{"model":`+strconv.Quote(m)+`}}`), nil); err == nil {
+			t.Fatalf("%q accepted", m)
+		}
 	}
 }
 

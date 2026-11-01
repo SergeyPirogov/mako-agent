@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -294,8 +295,9 @@ func TestPlan(t *testing.T) {
 	}
 }
 
-// With Tools, a request for any other tool is denied at once and one of them is allowed: nobody is asked.
-func TestOnlyTools(t *testing.T) {
+// With a Gate, a tool it refuses is denied at once and any other is allowed: nobody is asked. AskUserQuestion
+// still waits for the developer.
+func TestGateTools(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "claude")
 	os.WriteFile(bin, []byte(`#!/bin/sh
@@ -307,26 +309,40 @@ echo "$a" > write.json
 echo '{"type":"control_request","request_id":"g","request":{"subtype":"can_use_tool","tool_name":"Grep","input":{"pattern":"pay"}}}'
 read b
 echo "$b" > grep.json
+echo '{"type":"control_request","request_id":"q","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Який модуль?","options":[{"label":"pay"},{"label":"cart"}]}]}}}'
+read c
+echo "$c" > ask.json
 echo '{"type":"result","subtype":"success","duration_ms":10}'
 read more
 `), 0o755)
-	s := Start(Options{ID: "ask-1", Worktree: dir, Command: bin, Prompt: "де оплата?", Tools: []string{"Read", "Grep", "Glob"}})
+	gate := func(tool string, _ json.RawMessage) string {
+		if tool == "Write" {
+			return "не змінюй файлів"
+		}
+		return ""
+	}
+	s := Start(Options{ID: "ask-1", Worktree: dir, Command: bin, Prompt: "де оплата?", Gate: gate})
 	defer s.Stop()
+	// The agent's question waits for the developer, then the turn ends.
+	eventually(t, func() bool { a := s.Asked(); return a != nil && a.Tool == "AskUserQuestion" }, func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
+	if err := s.Answer(s.Asked().ID, map[string]string{"Який модуль?": "pay"}); err != nil {
+		t.Fatal(err)
+	}
 	eventually(t, func() bool { st, _, _ := s.State(); return st == "done" }, func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
-	if b, _ := os.ReadFile(filepath.Join(dir, "write.json")); !strings.Contains(string(b), `"behavior":"deny"`) || !strings.Contains(string(b), "лише читати") {
+	if b, _ := os.ReadFile(filepath.Join(dir, "ask.json")); !strings.Contains(string(b), `"behavior":"allow"`) || !strings.Contains(string(b), "pay") {
+		t.Fatalf("question answered %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "write.json")); !strings.Contains(string(b), `"behavior":"deny"`) || !strings.Contains(string(b), Refused+"не змінюй файлів") {
 		t.Fatalf("write answered %s", b)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "grep.json")); !strings.Contains(string(b), `"behavior":"allow"`) {
 		t.Fatalf("grep answered %s", b)
 	}
-	if s.Asked() != nil {
-		t.Fatal("asked the developer")
-	}
 	kinds := []string{}
 	for _, it := range s.Snapshot().Items {
 		kinds = append(kinds, it.Kind+":"+it.Status+":"+it.Tool)
 	}
-	if strings.Join(kinds, " ") != "user:: permission:denied:Write result::" {
+	if strings.Join(kinds, " ") != "user:: permission:denied:Write permission:answered:AskUserQuestion result::" {
 		t.Fatalf("items %v", kinds)
 	}
 }

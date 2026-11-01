@@ -13,7 +13,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -84,9 +83,10 @@ type Options struct {
 	// OnCost: what a turn cost (USD) and the tokens its model calls read and wrote, so the task can add up its
 	// budget.
 	OnCost func(usd float64, tokens int)
-	// Tools: when set, the only tools the agent may use; a request for any other is denied at once, nobody is
-	// asked (the read-only «Запитати про код»: Read, Grep, Glob).
-	Tools []string
+	// Gate: when set, decides each tool the agent asks for at once, nobody is asked: "" allows it, anything else
+	// is why it is denied («Запитати про код»: everything but changing files). AskUserQuestion still goes to the
+	// developer.
+	Gate func(tool string, input json.RawMessage) string
 }
 
 // SetupResult: what a setup run before the agent printed and whether it failed.
@@ -370,10 +370,10 @@ func (s *Session) handle(line []byte) {
 			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": e.RequestID, "error": "Mako не підтримує " + r.Subtype}})
 			return
 		}
-		if len(s.o.Tools) > 0 {
+		if s.o.Gate != nil && r.ToolName != "AskUserQuestion" {
 			resp := map[string]any{"behavior": "allow", "updatedInput": r.Input}
-			if !slices.Contains(s.o.Tools, r.ToolName) {
-				resp = map[string]any{"behavior": "deny", "message": ReadOnlyDenied}
+			if why := s.o.Gate(r.ToolName, r.Input); why != "" {
+				resp = map[string]any{"behavior": "deny", "message": Refused + why}
 				s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "denied"})
 			}
 			s.write(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": e.RequestID, "response": resp}})
@@ -471,7 +471,7 @@ func (s *Session) finishTool(id, output string, failed bool) {
 			it.Output, it.Status = output, "ok"
 			if failed {
 				it.Status = "error"
-				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) || strings.Contains(output, ReadOnlyDenied) {
+				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "Розробник не дозволив") || strings.Contains(output, planRevision) || strings.Contains(output, Refused) {
 					it.Status = "denied"
 				}
 			}
@@ -650,8 +650,8 @@ func (s *Session) RevisePlan(requestID, notes string) error {
 
 const planRevision = "Розробник просить поправити план:"
 
-// ReadOnlyDenied: what an agent limited to Options.Tools hears when it asks for another tool.
-const ReadOnlyDenied = "Тут можна лише читати код (Read, Grep, Glob): нічого не змінюй і не запускай."
+// Refused: how the reason an Options.Gate denies a tool begins.
+const Refused = "Mako не дозволяє цього тут: "
 
 // Asked: the request the agent waits on (a permission or AskUserQuestion), nil when there is none.
 func (s *Session) Asked() *Item {

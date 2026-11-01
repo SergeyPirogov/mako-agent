@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ func setConfig(d *Dispatcher, change func(*config.Config)) {
 	d.cfgMu.Unlock()
 }
 
-func TestAskCodeReadOnly(t *testing.T) {
+func TestAskCodeNoEdits(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	d, _, _ := setup(t)
 	var repo string
@@ -59,7 +60,14 @@ func TestAskCodeReadOnly(t *testing.T) {
 	}
 	os.MkdirAll(filepath.Join(repo, "pay"), 0o755)
 	os.WriteFile(filepath.Join(repo, "pay", "pay.go"), []byte("package pay\n\nfunc Charge() {}\n"), 0o644)
-	// A stand-in for claude -p: it asks for Bash and for Read, answers, then waits for one more question.
+	// The project's remote: the shared worktree starts from its main.
+	remote := filepath.Join(t.TempDir(), "app.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", remote)
+	git(t, repo, "remote", "set-url", "origin", remote)
+	git(t, repo, "add", "pay")
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "pay")
+	git(t, repo, "push", "-q", "origin", "main")
+	// A stand-in for claude -p: it asks for Edit and for Bash, answers, then waits for one more question.
 	bin := t.TempDir()
 	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
 printf '%s\n' "$@" > "$MAKO_TEST_OUT/args.txt"
@@ -67,12 +75,13 @@ read init
 read msg
 echo "$msg" > "$MAKO_TEST_OUT/question.json"
 echo '{"type":"system","subtype":"init","session_id":"sess-q","model":"claude-haiku-5-5"}'
-echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"rm -rf pay"}}}'
+echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{"file_path":"pay/pay.go"}}}'
+read edit
+echo "$edit" > "$MAKO_TEST_OUT/edit.json"
+echo '{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"go test ./..."}}}'
 read bash
 echo "$bash" > "$MAKO_TEST_OUT/bash.json"
-echo '{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"file_path":"pay/pay.go"}}}'
-read rd
-echo "$rd" > "$MAKO_TEST_OUT/read.json"
+pwd > "$MAKO_TEST_OUT/pwd.txt"
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Оплата: pay/pay.go:3"}]},"parent_tool_use_id":null}'
 echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.001}'
 read more
@@ -81,7 +90,9 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	out := t.TempDir()
 	t.Setenv("MAKO_TEST_OUT", out)
 	cfg := *d.Config()
-	cfg.Terminal.Command, cfg.StateDir = filepath.Join(bin, "claude"), t.TempDir()
+	cfg.Terminal.Command, cfg.StateDir, cfg.CodeModel = filepath.Join(bin, "claude"), t.TempDir(), "opus"
+	// The worktree just made gets its dependencies first, as a task's does.
+	cfg.Terminal.SetupCommand = `pwd > "$MAKO_TEST_OUT/setup.txt"`
 	d.Cfg = &cfg
 
 	ps := d.CodeProjects()
@@ -95,31 +106,44 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	if err != nil || !IsQuestion(id) {
 		t.Fatalf("ask %q %v", id, err)
 	}
+	waitFor(t, func() bool { return d.Chats.Get(id) != nil }, "the agent did not start after the setup")
 	s := d.Chats.Get(id)
 	defer s.Stop()
 	waitFor(t, func() bool { st, _, _ := s.State(); return st == "done" }, "no answer")
 
-	// Read-only: the reading tools only, nothing that writes or runs, no MCP servers; no worktree, the clone.
+	// The model of the settings; the tools that edit are disallowed, the rest (Bash too) is not.
 	b, _ := os.ReadFile(filepath.Join(out, "args.txt"))
 	args := strings.Split(strings.TrimSpace(string(b)), "\n")
-	tools := args[slices.Index(args, "--tools")+1]
-	if tools != "Read,Grep,Glob" || !slices.Contains(args, "--strict-mcp-config") || !slices.Contains(args, "haiku") {
+	// No MCP servers and no settings files: their allow rules would run a command past the gate.
+	if args[slices.Index(args, "--model")+1] != "opus" || slices.Contains(args, "--tools") || !slices.Contains(args, "--strict-mcp-config") ||
+		!slices.Contains(args, "--setting-sources") || args[slices.Index(args, "--setting-sources")+1] != "" {
 		t.Fatalf("args %q", args)
 	}
-	for _, w := range []string{"Edit", "Write", "Bash"} {
-		if strings.Contains(tools, w) || !slices.Contains(args, w) { // not available, and disallowed
-			t.Fatalf("%s in args %q", w, args)
+	for _, w := range []string{"Edit", "Write", "NotebookEdit"} {
+		if !slices.Contains(args, w) {
+			t.Fatalf("%s not disallowed: %q", w, args)
 		}
 	}
-	if s.Worktree != repo {
+	// In the shared worktree on origin/main, not the clone.
+	wt := filepath.Join(filepath.Dir(repo), ".worktrees", "app", "mako-ask")
+	if s.Worktree != wt {
 		t.Fatalf("runs in %q", s.Worktree)
 	}
-	// Anything but reading is refused at once, nobody is asked.
-	if b, _ := os.ReadFile(filepath.Join(out, "bash.json")); !strings.Contains(string(b), `"behavior":"deny"`) {
-		t.Fatalf("bash answered %s", b)
+	if b, _ := os.ReadFile(filepath.Join(out, "pwd.txt")); !samePath(strings.TrimSpace(string(b)), wt) {
+		t.Fatalf("pwd %s", b)
 	}
-	if b, _ := os.ReadFile(filepath.Join(out, "read.json")); !strings.Contains(string(b), `"behavior":"allow"`) {
-		t.Fatalf("read answered %s", b)
+	if b, _ := os.ReadFile(filepath.Join(out, "setup.txt")); !samePath(strings.TrimSpace(string(b)), wt) {
+		t.Fatalf("setup ran in %q", b)
+	}
+	if items := s.Snapshot().Items; !slices.ContainsFunc(items, func(it chat.Item) bool { return it.Tool == "Підготовка" && it.Status == "ok" }) {
+		t.Fatalf("no setup in the conversation: %+v", items)
+	}
+	// Editing is refused at once, a command allowed at once: nobody is asked.
+	if b, _ := os.ReadFile(filepath.Join(out, "edit.json")); !strings.Contains(string(b), `"behavior":"deny"`) {
+		t.Fatalf("edit answered %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(out, "bash.json")); !strings.Contains(string(b), `"behavior":"allow"`) {
+		t.Fatalf("bash answered %s", b)
 	}
 	if s.Asked() != nil {
 		t.Fatal("a question waits for the developer")
@@ -133,7 +157,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 
 	// The project keeps its question, with the conversation to go on with.
 	th := d.CodeThreads(ps[0].Key)
-	if len(th) != 1 || th[0].ID != id || th[0].Title != "Де в нас обробка оплат?" || th[0].Session != "sess-q" {
+	if len(th) != 1 || th[0].ID != id || th[0].Title != "Де в нас обробка оплат?" || th[0].Session != "sess-q" || th[0].Dir != wt {
 		t.Fatalf("threads %+v", th)
 	}
 	if again, err := d.AskCode(ps[0].Key, id, "А повернення?"); err != nil || again != id {
@@ -144,8 +168,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 		return strings.Contains(string(b), "А повернення?")
 	}, "no second question")
 
-	// The board opens the files the answer points to, and nothing outside the clone.
-	git(t, repo, "add", "pay")
+	// The board opens the files the answer points to, from the shared worktree, and nothing outside it.
 	for _, p := range []string{"pay/pay.go", "./pay/pay.go", "pay.go"} { // an answer may name it short
 		if text, found, err := d.CodeFile(context.Background(), ps[0].Key, p); err != nil || found != "pay/pay.go" || !strings.Contains(text, "func Charge") {
 			t.Fatalf("%s: %q %q %v", p, found, text, err)
@@ -153,7 +176,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	}
 	secret := filepath.Join(t.TempDir(), "secret")
 	os.WriteFile(secret, []byte("x"), 0o644)
-	os.Symlink(secret, filepath.Join(repo, "link"))
+	os.Symlink(secret, filepath.Join(wt, "link"))
 	for _, p := range []string{"../app/../../secret", secret, "link", "pay"} {
 		if _, _, err := d.CodeFile(context.Background(), ps[0].Key, p); err == nil {
 			t.Fatalf("%s opened", p)
@@ -164,7 +187,7 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	s.Stop()
 	s.Wait()
 	d.Chats = chat.NewManager("")
-	projects := filepath.Join(os.Getenv("HOME"), ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(repo, "-"))
+	projects := filepath.Join(os.Getenv("HOME"), ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(wt, "-"))
 	os.MkdirAll(projects, 0o755)
 	os.WriteFile(filepath.Join(projects, "yours.jsonl"), []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"чужа розмова"}]}}`+"\n"), 0o644)
 	if _, ok := d.QuestionChat(id); ok {
@@ -179,5 +202,148 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	}
 	if _, ok := d.QuestionChat("grp/app#5"); ok {
 		t.Fatal("a task is not a question")
+	}
+}
+
+// The shared worktree: made on origin/main, brought up to date before a new conversation while clean, left as it
+// is while changed, reset and updated on «Скинути й оновити», gone on «Видалити».
+func TestAskWorkspace(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	d, _, _ := setup(t)
+	var repo string
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		repo = r.Path
+	}
+	remote := filepath.Join(t.TempDir(), "app.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", remote)
+	git(t, repo, "remote", "set-url", "origin", remote)
+	commit := func(dir, file string) {
+		os.WriteFile(filepath.Join(dir, file), []byte(file), 0o644)
+		git(t, dir, "add", file)
+		git(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", file)
+		git(t, dir, "push", "-q", "origin", "HEAD:main")
+	}
+	commit(repo, "a.txt")
+	p := d.CodeProjects()[0]
+	if ws, _ := d.AskStatus(p.Key); ws.Exists {
+		t.Fatalf("made before a question: %+v", ws)
+	}
+	dir, _, err := d.prepareAsk(p, true)
+	if err != nil || !exists(filepath.Join(dir, "a.txt")) {
+		t.Fatalf("made %q %v", dir, err)
+	}
+
+	// Main moved on (pushed from elsewhere): a new conversation starts from it.
+	other := t.TempDir()
+	git(t, other, "clone", "-q", "-b", "main", remote, ".")
+	commit(other, "b.txt")
+	if _, _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "b.txt")) {
+		t.Fatalf("not updated: %v", err)
+	}
+
+	// The agent of another question is at work in it: the code does not change under its feet.
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nread msg\nsleep 30\n"), 0o755)
+	cfg := *d.Config()
+	cfg.Terminal.Command, cfg.StateDir = bin, t.TempDir()
+	d.Cfg = &cfg
+	busy, err := d.AskCode(p.Key, "", "Довге питання")
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit(other, "late.txt")
+	if _, _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "late.txt")) {
+		t.Fatalf("updated under a working agent: %v", err)
+	}
+	if ws, _ := d.AskStatus(p.Key); ws.Behind != 1 || ws.Dirty != 0 {
+		t.Fatalf("status %+v", ws)
+	}
+	// It stopped: the next question brings it up to date.
+	stopChat(d.Chats.Get(busy))
+	if _, _, err := d.prepareAsk(p, true); err != nil || !exists(filepath.Join(dir, "late.txt")) {
+		t.Fatalf("not updated after: %v", err)
+	}
+
+	// Changed: it stays as it is and says so.
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("changed"), 0o644)
+	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
+	commit(other, "c.txt")
+	if _, _, err := d.prepareAsk(p, true); err != nil || exists(filepath.Join(dir, "c.txt")) {
+		t.Fatalf("changed one updated: %v", err)
+	}
+	ws, err := d.AskStatus(p.Key)
+	if err != nil || !ws.Exists || ws.Dirty != 2 || !slices.Contains(ws.Files, "a.txt") || !slices.Contains(ws.Files, "new.txt") {
+		t.Fatalf("status %+v %v", ws, err)
+	}
+
+	// «Скинути й оновити»: the changes go, main comes.
+	if err := d.ResetAsk(p.Key); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a.txt")); string(b) != "a.txt" || exists(filepath.Join(dir, "new.txt")) || !exists(filepath.Join(dir, "c.txt")) {
+		t.Fatalf("not reset: %q", b)
+	}
+
+	// «Видалити»: changes and all; the clone stays.
+	os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o644)
+	if err := d.RemoveAsk(p.Key); err != nil || exists(dir) || !exists(filepath.Join(repo, "a.txt")) {
+		t.Fatalf("not removed: %v", err)
+	}
+	if ws, _ := d.AskStatus(p.Key); ws.Exists {
+		t.Fatalf("still there: %+v", ws)
+	}
+}
+
+// The gate of a question: the tools that edit, the plan mode and the commands that change the repository or delete
+// files are refused; reading, searching, tests and git's listings go through.
+func TestCodeGate(t *testing.T) {
+	bash := func(c string) string { return codeGate("Bash", []byte(`{"command":`+strconv.Quote(c)+`}`)) }
+	for _, tool := range []string{"Edit", "Write", "MultiEdit", "NotebookEdit", "ExitPlanMode", "EnterPlanMode"} {
+		if codeGate(tool, []byte(`{}`)) == "" {
+			t.Errorf("%s allowed", tool)
+		}
+	}
+	for _, tool := range []string{"Read", "Grep", "Glob", "WebSearch", "TodoWrite"} {
+		if why := codeGate(tool, []byte(`{}`)); why != "" {
+			t.Errorf("%s refused: %s", tool, why)
+		}
+	}
+	for _, c := range []string{"git push origin main", "go test ./... && git commit -am x", "git -C .. reset --hard", "cd .. && rm -rf app",
+		"git branch -D main", "git branch new-one", "git checkout main", "FOO=1 git stash", "echo $(git push)", "find . -name x -delete",
+		"/bin/rm a", "sudo ls", "git tag v1", "git worktree remove x", "git remote add x y", "git config user.name x", "ls | xargs rm",
+		// Through another shell, eval and substitutions.
+		"sh -c 'git push'", `bash -c "rm -rf x"`, "zsh -lc 'git commit -am x'", `eval "git commit -am x"`, "echo `git push`",
+		`echo "$(rm -rf x)"`, "bash ./deploy.sh", "timeout 5 git push",
+		// Fetching into the clone's own branches.
+		"git fetch origin feature:main", "git fetch . HEAD:some-branch", "git fetch origin +main:main",
+		// Writing files.
+		"echo x > a.go", "cat a >> b", "go test ./... 2>&1 > out.txt", "printf x >| f", "echo x &> log.txt", "echo x | tee a.go",
+		"sed -i 's/a/b/' a.go", "sed -i.bak s/a/b/ a.go", "perl -pi -e 's/a/b/' a.go", "cp a.go b.go", "touch x", "cd .. && rm app/x"} {
+		if bash(c) == "" {
+			t.Errorf("%q allowed", c)
+		}
+	}
+	for _, c := range []string{"go test ./...", "git log --oneline -20", "git status", "git diff HEAD~1", "git branch", "git branch -a",
+		"git branch --list 'fix/*'", "git tag --list", "git stash list", "git remote -v", "grep -rn pay . | head", "npm run build",
+		"git show HEAD:go.mod", "git blame main.go", "git config --get remote.origin.url", "cat go.mod", "git fetch origin",
+		"go test ./... 2>&1 | tail -20", "npm test > /dev/null 2>&1", "make check >&2", `grep -rn "a -> b" .`, `echo "x > y; rm z"`,
+		"git fetch git@github.com:o/r.git", "sed -n '1,20p' a.go", "FOO=1 go run ./cmd/x", "bash -c 'go vet ./...'",
+		"git log --format='%h %s' | head", "echo $(git rev-parse HEAD)", "timeout 60 go test ./..."} {
+		if why := bash(c); why != "" {
+			t.Errorf("%q refused: %s", c, why)
+		}
+	}
+}
+
+// While the worktree is being prepared the question's conversation shows the setup running, with a version no
+// agent's session has, so the board reads it anew when the agent starts.
+func TestQuestionWhileSetup(t *testing.T) {
+	d, _, _ := setup(t)
+	askSetups.Store("ask-setup1", pendingSetup{command: "npm ci", prompt: "Де оплата?"})
+	defer askSetups.Delete("ask-setup1")
+	snap, ok := d.QuestionChat("ask-setup1")
+	if !ok || snap.State != "working" || snap.Version != -2 || len(snap.Items) != 2 || snap.Items[0].Text != "Де оплата?" ||
+		snap.Items[1].Tool != "Підготовка" || snap.Items[1].Status != "running" || !strings.Contains(string(snap.Items[1].Input), "npm ci") {
+		t.Fatalf("%v %+v", ok, snap)
 	}
 }

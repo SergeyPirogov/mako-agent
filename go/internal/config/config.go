@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -52,6 +53,23 @@ type Config struct {
 	Estimate bool
 	// EstimateModel: the agent gets the model the estimate advises, unless one is picked for the task.
 	EstimateModel bool
+	// CodeModel: the model of «Запитати про код», one for every repository.
+	CodeModel string
+}
+
+// DefaultCodeModel: the model of «Запитати про код» when none is picked.
+const DefaultCodeModel = "haiku"
+
+// modelName: what a model's name may be (opus, claude-opus-5-5, claude-sonnet-5-5[1m]): it goes to claude's
+// --model, so never an option of its own or several words.
+var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,99}$`)
+
+// CheckModel: an error unless name can be a model's name.
+func CheckModel(name string) error {
+	if !modelName.MatchString(name) {
+		return fmt.Errorf("модель %q: лише літери, цифри й . _ - [ ], не з дефіса", name)
+	}
+	return nil
 }
 
 // Reviewer is the agent that reviews another agent's branch with a clean context and writes its remarks; it
@@ -284,6 +302,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		Reviewer:      Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model)},
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
+		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
 		Comments: Comments{
 			OnStart:  orStr(strings.TrimSpace(raw.Comments.OnStart), DefaultCommentOnStart),
 			OnReview: orStr(strings.TrimSpace(raw.Comments.OnReview), DefaultCommentOnReview),
@@ -323,6 +342,9 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		c.Orca.SummaryComment = e.SummaryComment
 		c.Orca.ExtraArgs = e.ExtraArgs
 		break
+	}
+	if err := CheckModel(c.CodeModel); err != nil {
+		return nil, fmt.Errorf("«Запитати про код»: %w", err)
 	}
 	morning, err := clock(orStr(strings.TrimSpace(raw.Notifications.MorningDigest), DefaultMorningDigest))
 	if err != nil {
@@ -556,6 +578,9 @@ type rawConfig struct {
 		Enabled  *bool `json:"enabled"`
 		UseModel *bool `json:"useModel"`
 	} `json:"estimate"`
+	CodeAsk struct {
+		Model string `json:"model"`
+	} `json:"codeAsk"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
 }

@@ -512,6 +512,8 @@ function renderOrca() {
   cfg.estimate ??= {};
   box.append(check(cfg.estimate, "enabled", "Оцінювати нові задачі до старту", { def: true, hint: "Щойно задача з'являється в «Нових», Opus читає її текст і структуру репозиторію (не код): наскільки зрозумілий опис і що уточнити в трекері, розмір, ризик, яка модель упорається (за складністю). Наново — лише коли змінився опис. Помилка — просто без оцінки" }));
   box.append(check(cfg.estimate, "useModel", "Брати модель з оцінки", { def: true, hint: "Агент починає з моделлю, яку радить оцінка (haiku, sonnet, opus), якщо на картці задачі не вибрано іншу. Вимкнено: модель — з налаштувань (порожньо — sonnet) або вибрана на картці" }));
+  cfg.codeAsk ??= {};
+  box.append(text(cfg.codeAsk, "model", "Модель для «Запитати про код»", { placeholder: "haiku", hint: "Одна для всіх проєктів; її можна перемкнути й на сторінці «Запитати про код». Наприклад, opus, sonnet або haiku" }));
   // The reviewer agent: only Mako's own agents can be written to, so only with Claude Code in Mako.
   if (onTerminal()) {
     cfg.agentReview ??= {};

@@ -1665,9 +1665,10 @@ function showWhy() {
   };
 }
 
-// «Запитати про код»: a question about a project's code, without a task. A quick agent reads the project's clone
-// (Read, Grep, Glob only) and answers here; its file:line places open the file beside the chat. The project keeps
-// its questions, and one can become a new task's description.
+// «Запитати про код»: a question about a project's code, without a task. The agent works in the project's shared
+// worktree on main: it reads, searches and runs commands but changes no code, and answers here; its file:line places
+// open the file beside the chat. It may propose a ticket: a draft the developer edits and creates. The project keeps
+// its questions; the model, picked here, is kept in the settings for every repository.
 let code = null;
 $("code-btn").onclick = () => {
   selected = null; statsOpen = false; newOpen = "code"; digest = null;
@@ -1680,8 +1681,10 @@ $("code-btn").onclick = () => {
 async function showCode() {
   $("detail").innerHTML = `<button class="ghost back" id="back">← Задачі</button><div class="code-ask" id="code-ask">
     <div class="ca-head"><h1>Запитати про код</h1>
-      <select id="ca-project" aria-label="Проєкт"></select><button type="button" id="ca-new">Нове питання</button></div>
-    <p class="muted ca-sub">Агент (${esc("haiku")}) читає клон проєкту лише через Read, Grep і Glob: нічого не змінює й не запускає, без гілок і worktree.</p>
+      <select id="ca-project" aria-label="Проєкт"></select>
+      <select id="ca-model" aria-label="Модель" title="Модель агента для «Запитати про код», для всіх проєктів"></select>
+      <button type="button" id="ca-new">Нове питання</button></div>
+    <p class="muted ca-sub">Агент працює в окремому worktree проєкту на main: читає, шукає, запускає тести й збірку без питань. Mako не дає йому змінювати файли й репозиторій (Edit/Write, git commit/push/checkout/reset, rm…) і не підключає MCP-сервери чи дозволи з налаштувань Claude Code. Перше питання готує worktree (залежності), як для задачі. Зауваження чи ідею може оформити чернеткою тікета.</p>
     <div class="ca-body">
       <aside class="ca-history"><div class="ca-h">Історія питань</div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
@@ -1689,11 +1692,21 @@ async function showCode() {
           <button type="button" class="icon chat-stop" title="Перервати" aria-label="Перервати" hidden>${ICON.stop}</button>
           <button type="button" class="chat-send" title="Надіслати (Enter)" aria-label="Надіслати">${ICON.push}</button></div>
           <div class="chat-hint"><span class="chat-keys">Enter — надіслати · Shift+Enter — новий рядок</span><span class="spacer"></span>
-            <button type="button" class="ghost" id="ca-task" hidden title="Питання й відповідь стануть описом нової задачі">Зробити задачею</button></div></div></div>
+            <button type="button" class="ghost" id="ca-task" hidden title="Питання й відповідь стануть описом нової задачі">Зробити задачею</button>
+            <div class="ca-ws" id="ca-ws"></div></div></div></div>
       <div class="ca-file" id="ca-file" hidden></div>
     </div></div>`;
-  const projects = (await getJSON("/api/code/projects")).projects ?? [];
+  const [projects, models] = await Promise.all([getJSON("/api/code/projects").then((r) => r.projects ?? []), getJSON("/api/code/models")]);
   if (!$("code-ask")) return;
+  const names = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+  $("ca-model").innerHTML = (models.models ?? [models.current || "haiku"]).map((m) => `<option value="${esc(m)}" ${m === models.current ? "selected" : ""}>${esc(names[m] ?? m)}</option>`).join("");
+  $("ca-model").onchange = async (e) => {
+    const r = await fetch("/api/code/model", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: e.target.value }) })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    const keys = document.querySelector("#code-ask .chat-keys");
+    keys.classList.toggle("err", !r.ok);
+    keys.textContent = r.ok ? `Модель: ${names[e.target.value] ?? e.target.value} — з наступного повідомлення` : `⚠ ${r.error}`;
+  };
   let saved = ""; try { saved = localStorage.getItem("mako-code-project") || ""; } catch {}
   const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
   code = { project: start?.key ?? "", projects, thread: "", version: -1, snap: null, flip: new Set(), code: true, list: document.querySelector("#code-ask .chat-list"), input: document.querySelector("#code-ask textarea") };
@@ -1707,7 +1720,21 @@ async function showCode() {
   $("ca-project").onchange = (e) => {
     code.project = e.target.value;
     try { localStorage.setItem("mako-code-project", code.project); } catch {}
-    openLatest();
+    openLatest(); loadWorkspace();
+  };
+  $("ca-ws").onclick = async (e) => {
+    const b = e.target.closest("[data-ws]");
+    if (!b) return;
+    const what = b.dataset.ws, ws = code.ws;
+    // Both stop the agents of this project's questions first: the code is not changed under their feet.
+    const stops = "Агент, що зараз відповідає на питання цього проєкту, зупиниться, а відповідь перерветься; наступне повідомлення продовжить розмову.";
+    if (what === "reset" && !confirm(`Скинути ${ws?.dirty || ""} незбережених змін у worktree й оновити його з ${ws?.base || "main"}? Зміни буде втрачено.\n\n${stops}`)) return;
+    if (what === "remove" && !confirm(`Видалити worktree для питань${ws?.dirty ? ` разом з ${ws.dirty} незбереженими змінами` : ""}? З наступним питанням він з'явиться знову.\n\n${stops}`)) return;
+    b.disabled = true;
+    const r = await fetch(`/api/code/workspace/${what}?project=${encodeURIComponent(code.project)}`, { method: "POST" })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    if (!r.ok) alert(r.error || "Не вдалося");
+    loadWorkspace();
   };
   $("ca-new").onclick = () => { openThread(""); code.input.focus(); };
   const send = async () => {
@@ -1722,13 +1749,17 @@ async function showCode() {
     if (!r.ok) { code.input.value ||= text; return; }
     if (r.id !== code.thread) { code.thread = r.id; code.version = -1; }
     else if (!code.snap?.live) code.version = -1; // resumed: a new session, read from the start
-    loadThreads(); pollCode();
+    loadThreads(); pollCode(); loadWorkspace();
   };
   code.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   document.querySelector("#code-ask .chat-send").onclick = send;
   document.querySelector("#code-ask .chat-stop").onclick = () => fetch(`/api/code/stop?id=${encodeURIComponent(code.thread)}`, { method: "POST" });
   $("ca-task").onclick = toTask;
   code.list.onclick = (e) => {
+    const tk = e.target.closest("[data-ticket]");
+    if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d); return; }
+    // The agent's question: an option, or your own words.
+    if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(code.thread)}`, pollCode)) return;
     const src = e.target.closest("[data-src]");
     if (src) { e.preventDefault(); openSource(src.dataset.src, +src.dataset.line, +(src.dataset.end || src.dataset.line)); return; }
     const t = e.target.closest("[data-toggle]");
@@ -1736,7 +1767,47 @@ async function showCode() {
   };
   $("ca-threads").onclick = (e) => { const b = e.target.closest("[data-thread]"); if (b) openThread(b.dataset.thread); };
   code.timer = setInterval(pollCode, 1000);
-  openLatest();
+  openLatest(); loadWorkspace();
+}
+
+// The shared worktree, bottom right: its branch, and a warning when something changed it, with «Скинути й оновити».
+async function loadWorkspace() {
+  const v = code;
+  const ws = await getJSON(`/api/code/workspace?project=${encodeURIComponent(v.project)}`);
+  if (v !== code || !$("ca-ws")) return;
+  v.ws = ws.error ? null : ws;
+  const remove = `<button type="button" class="ghost" data-ws="remove" title="${esc(ws.dir || "")}">Видалити</button>`;
+  $("ca-ws").innerHTML = ws.error ? "" : !ws.exists ? `<span class="muted" title="${esc(ws.dir)}">worktree з'явиться з першим питанням</span>`
+    : ws.dirty ? `<span class="ca-ws-warn" title="${esc((ws.files || []).join("\n"))}">⚠ У worktree ${ws.dirty} ${plural(ws.dirty, "незбережена зміна", "незбережені зміни", "незбережених змін")}: його не оновлено з ${esc(ws.base)}</span>
+        <button type="button" data-ws="reset">Скинути й оновити</button>${remove}`
+    : ws.behind ? `<span class="muted" title="${esc(ws.dir)}">worktree відстає від ${esc(ws.base)} на ${ws.behind} ${plural(ws.behind, "коміт", "коміти", "комітів")}: оновиться з новим питанням, коли інше не працює</span>${remove}`
+    : `<span class="muted" title="${esc(ws.dir)}">worktree · ${esc(ws.base)}</span>${remove}`;
+}
+
+// The ticket the agent proposes: a fenced mako-ticket block of JSON {title, description} in its answer. The answer
+// shows without it; an unfinished one (still being written) is hidden.
+const TICKET = /```mako-ticket[^\n]*\n([\s\S]*?)\n\s*```/;
+function ticketOf(text) {
+  const m = text.match(TICKET);
+  if (!m) return { text: text.replace(/```mako-ticket[\s\S]*$/, ""), draft: null };
+  let d = null;
+  try { const j = JSON.parse(m[1]); if (j && typeof j.title === "string" && j.title.trim()) d = { title: j.title.trim(), description: String(j.description ?? "") }; } catch {}
+  return d ? { text: text.replace(m[0], ""), draft: d } : { text, draft: null };
+}
+function ticketCard(d, i) {
+  return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Чернетка тікета</span></div>
+    <b>${esc(d.title)}</b><div class="md ca-ticket-body">${md(d.description)}</div>
+    <div class="ca-ticket-foot"><span class="muted">Перед створенням можна поправити й вибрати трекер</span><span class="spacer"></span>
+      <button type="button" class="primary" data-ticket="${i}">Створити тікет</button></div></div>`;
+}
+
+// «Створити тікет»: the agent's draft goes to the new task form, to be edited, given a tracker and created.
+function toTicket(d) {
+  const p = code.projects.find((x) => x.key === code.project);
+  taskDraft = { title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_З «Запитати про код» на дошці Mako._`, tracker: p?.tracker, project: p?.project };
+  code = null;
+  newOpen = "task";
+  render();
 }
 
 // The project's latest question, to go on with; «Нове питання» starts another.
@@ -1780,7 +1851,8 @@ function renderCode() {
   if (!v.list.isConnected) return;
   const atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
   const items = s?.items ?? [];
-  v.list.innerHTML = `<div class="chat-col">${chatBlocks(items, { id: v.thread, flip: v.flip, code: true }) ||
+  v.drafts = {};
+  v.list.innerHTML = `<div class="chat-col">${chatBlocks(items, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts }) ||
       `<div class="files-empty">${v.thread ? "Завантажую розмову…" : "Напишіть питання про код проєкту: агент знайде відповідь і покаже місця в коді."}</div>`}
     ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Шукаю в коді…</div>` : ""}</div>`;
   linkSources(v.list);
@@ -1834,8 +1906,9 @@ function toTask() {
   const items = code.snap?.items ?? [], p = code.projects.find((x) => x.key === code.project);
   const questions = items.filter((it) => it.kind === "user");
   const title = (code.threads?.find((t) => t.id === code.thread)?.title || questions[0]?.text || "").split("\n")[0].slice(0, 250);
+  // The agent's ticket draft is not part of the answer: «Створити тікет» is its way to a task.
   const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
-    .map((it) => it.kind === "user" ? `**Питання:** ${it.text}` : it.text).join("\n\n");
+    .map((it) => it.kind === "user" ? `**Питання:** ${it.text}` : ticketOf(it.text).text.trim()).filter(Boolean).join("\n\n");
   taskDraft = { title, desc: `${desc}\n\n_З «Запитати про код» на дошці Mako._`, tracker: p?.tracker, project: p?.project };
   code = null;
   newOpen = "task";
@@ -2568,29 +2641,7 @@ function chatFor(id) {
     const t = e.target.closest("[data-toggle]");
     if (t) { if (!v.flip.delete(t.dataset.toggle)) v.flip.add(t.dataset.toggle); renderChat(v); return; }
     // The agent's questions: an option, or your own words.
-    const ans = e.target.closest("[data-ans]");
-    if (ans) {
-      const box = ans.closest("[data-question]"), answers = {};
-      for (const q of box.querySelectorAll("[data-q]")) {
-        const own = q.querySelector("input")?.value.trim();
-        const picked = [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label);
-        const a = own || picked.join(", ");
-        if (a) answers[q.dataset.q] = a;
-      }
-      if (ans.dataset.ans === "send" && !Object.keys(answers).length) return;
-      ans.disabled = true;
-      fetch(`/api/answer?id=${encodeURIComponent(id)}&req=${encodeURIComponent(box.dataset.question)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => pollChat());
-      return;
-    }
-    const opt = e.target.closest(".opt");
-    if (opt) {
-      const q = opt.closest("[data-q]");
-      if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
-      opt.classList.toggle("on");
-      // One question, one choice: that is the answer.
-      if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
-      return;
-    }
+    if (answerClick(e, `/api/answer?id=${encodeURIComponent(id)}`, pollChat)) return;
     // The plan: approve it, or open the field for notes and send them.
     const pd = e.target.closest("[data-plan-do]");
     if (pd) {
@@ -2703,8 +2754,12 @@ function chatItem(it, i, v) {
           ${open("prompt", false) ? `<div class="prompt-body md">${md(it.text)}</div>` : ""}</div>`;
       }
       return `<div class="msg me"><div class="who">Ви</div><div class="bubble">${linkify(it.text)}</div></div>`;
-    case "text":
-      return `<div class="msg"><div class="who">Claude</div><div class="md">${md(it.text)}</div></div>`;
+    case "text": {
+      if (!v.drafts) return `<div class="msg"><div class="who">Claude</div><div class="md">${md(it.text)}</div></div>`;
+      const t = ticketOf(it.text);
+      if (t.draft) v.drafts[i] = t.draft;
+      return `<div class="msg"><div class="who">Claude</div>${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i) : ""}</div>`;
+    }
     case "tool": {
       const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
       const edit = EDITS.includes(it.tool);
@@ -2761,6 +2816,32 @@ function planCard(it, v) {
       <button type="button" data-plan-do="revise">Поправити</button></div></div>`;
 }
 // The agent asks: its questions with their options as buttons, and a line for your own answer.
+// A click in the agent's question (askCard): an option picked, or the answers sent to url&req=<its request>, then
+// after(). True when the click was the question's.
+function answerClick(e, url, after) {
+  const ans = e.target.closest("[data-ans]");
+  if (ans) {
+    const box = ans.closest("[data-question]"), answers = {};
+    for (const q of box.querySelectorAll("[data-q]")) {
+      const own = q.querySelector("input")?.value.trim();
+      const picked = [...q.querySelectorAll(".opt.on")].map((b) => b.dataset.label);
+      const a = own || picked.join(", ");
+      if (a) answers[q.dataset.q] = a;
+    }
+    if (ans.dataset.ans === "send" && !Object.keys(answers).length) return true;
+    ans.disabled = true;
+    fetch(`${url}&req=${encodeURIComponent(box.dataset.question)}`, { method: "POST", body: JSON.stringify(answers) }).then(() => after());
+    return true;
+  }
+  const opt = e.target.closest(".opt");
+  if (!opt) return false;
+  const q = opt.closest("[data-q]");
+  if (q.dataset.multi !== "1") for (const b of q.querySelectorAll(".opt")) if (b !== opt) b.classList.remove("on");
+  opt.classList.toggle("on");
+  // One question, one choice: that is the answer.
+  if (q.dataset.multi !== "1" && opt.closest("[data-question]").querySelectorAll("[data-q]").length === 1) opt.closest("[data-question]").querySelector("[data-ans]").click();
+  return true;
+}
 function askCard(it) {
   const qs = it.input?.questions ?? [];
   if (it.status !== "asked") {
