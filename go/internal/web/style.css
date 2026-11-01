@@ -407,15 +407,15 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .d-head .actions { margin: 0 0 2px; }
 .d-head .d-main:not(:has(h1)) { align-self: center; }
 section.ws .d-head { margin-bottom: 0; }
-.tabs { overflow-x: auto; scrollbar-width: thin; }
-.tab { white-space: nowrap; flex: none; }
+.tabs { flex-wrap: wrap; }
+.tab { white-space: nowrap; flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .tab .x { margin-left: 8px; opacity: .5; font-weight: 400; }
 .tab .x:hover { opacity: 1; }
 /* The terminal workspace fills the window: nothing scrolls but the terminal, the diff and the file list. */
 section.ws { display: flex; flex-direction: column; overflow: hidden; padding: 6px 12px 10px; }
 section.ws > * { flex: none; }
 section.ws h1 { font-size: 17px; margin: 4px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-bar { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.ws-bar { display: flex; align-items: flex-start; gap: 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .ws-bar .tabs { flex: 1; min-width: 0; margin: 0; border-bottom: 0; }
 .ws-bar .actions { margin: 0; flex: none; gap: 6px; }
 section.ws .notice { margin: 0 0 8px; }
@@ -666,8 +666,7 @@ details.journal .log { margin-top: 8px; }
   .ws-bar:not(:has(.seg, [data-ftab])) .tabs, section.ws:not([data-tab="orca"]) .ws-bar:not(:has([data-ftab])) .tabs { flex: 1 1 auto; }
   section.ws .task-pane h1 { white-space: normal; overflow-wrap: anywhere; }
   .ws-bar .actions { margin-left: auto; }
-  .tabs { gap: 0; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
+  .tabs { gap: 0; }
   .tab { padding: 10px 10px; min-height: 44px; }
   .tab-phone { display: inline-block; }
   .ws-bar .seg button { height: 32px; padding: 0 12px; }
