@@ -2756,9 +2756,9 @@ function moreMenu(r) {
   return `<details class="menu more"><summary class="btn icon" title="More actions" aria-label="More actions">⋯</summary><div class="menu-pop">${items.join("")}</div></details>`;
 }
 
-// The stage strip: Estimate → Plan → Work → CI → AI review → Merge, each with its time and cost (r.card.stages, from
+// The stage strip: Estimate → Plan → Work → Checks (CI and the AI review) → Merge, each with its time and cost (r.card.stages, from
 // the record's metrics). A click on a stage opens what it holds under the strip.
-const STAGE_LABEL = { estimate: "Estimate", plan: "Plan", work: "Work", ci: "CI", review: "AI review", merge: "Merge" };
+const STAGE_LABEL = { estimate: "Estimate", plan: "Plan", work: "Work", checks: "Checks", merge: "Merge" };
 const STAGE_MARK = {
   done: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>`,
   fail: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
@@ -2771,7 +2771,11 @@ function stripHTML(r, card) {
   if (!ss?.length) return "";
   const open = stageOpen[r.id];
   const cells = ss.map((s) => {
-    const sub = [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
+    // Checks: its two lines (CI, the review) alone, the time and cost in the panel; a merge not reached yet: how long
+    // the MR has waited.
+    const sub = s.key === "checks" ? s.note || "—"
+      : s.key === "merge" && s.state === "todo" && s.seconds >= 60 ? `waiting ${durText(s.seconds)}`
+      : [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
     return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${s.route ? esc(` · ${s.route}${s.why ? ` — ${s.why}` : ""}`) : ""}">
       <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b></span><small>${esc(sub)}</small></button>`;
   }).join(`<span class="sep"></span>`);
@@ -2781,8 +2785,8 @@ function stripHTML(r, card) {
 function stageMore(r, key, card) {
   const term = r.executor === "terminal" && r.worktree;
   if (key === "estimate") return estimateHTML(r, card);
-  if (key === "review") return `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
-  if (key === "ci") return checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`;
+  if (key === "checks") return (checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`)
+    + `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
   return cycleHTML(r, card);
 }
 
