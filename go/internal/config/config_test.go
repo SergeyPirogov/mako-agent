@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
 
 func TestParse(t *testing.T) {
@@ -253,5 +255,36 @@ func TestKeepAwake(t *testing.T) {
 	}
 	if c, _ := Parse([]byte(`{"keepAwake":false}`), nil); c.KeepAwake {
 		t.Error("off when the settings say")
+	}
+}
+
+// The routes: the defaults, with a cell changed; what Mako does not know keeps the default; a repo's own mode.
+func TestParseRoutes(t *testing.T) {
+	c, _ := Parse([]byte(`{}`), nil)
+	if c.RouteMode != core.ModeBalanced || c.Routes[core.PhaseWork]["big"] != (core.Route{Model: "opus", Effort: "high"}) {
+		t.Fatalf("defaults: %s %+v", c.RouteMode, c.Routes)
+	}
+	c, _ = Parse([]byte(`{"routes":{"mode":"cost","table":{"work":{"big":{"model":"sonnet"},"small":{"model":"gpt","effort":"xhigh"}},"nope":{"big":{"model":"opus"}},"plan":{"huge":{"model":"opus"}}}}}`), nil)
+	if c.RouteMode != core.ModeCost {
+		t.Fatalf("mode %q", c.RouteMode)
+	}
+	if c.Routes[core.PhaseWork]["big"] != (core.Route{Model: "sonnet", Effort: "high"}) || c.Routes[core.PhaseWork]["small"] != (core.Route{Model: "sonnet", Effort: "xhigh"}) {
+		t.Fatalf("work: %+v", c.Routes[core.PhaseWork])
+	}
+	if _, ok := c.Routes["nope"]; ok || len(c.Routes[core.PhasePlan]) != 3 {
+		t.Fatalf("unknown phase or size: %+v", c.Routes)
+	}
+	if core.DefaultRoutes()[core.PhaseWork]["big"].Model != "opus" {
+		t.Fatal("the defaults were changed")
+	}
+	if c, _ := Parse([]byte(`{"routes":{"mode":"fast"}}`), nil); c.RouteMode != core.ModeBalanced {
+		t.Fatalf("unknown mode %q", c.RouteMode)
+	}
+	c, err := Parse([]byte(`{"trackers":[{"type":"gitlab","projects":{"grp/app":{"routeMode":"quality"},"grp/web":{}}}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Trackers[0].Projects["grp/app"].Repos["app"].RouteMode != core.ModeQuality || c.Trackers[0].Projects["grp/web"].Repos["web"].RouteMode != "" {
+		t.Fatalf("repo modes: %+v %+v", c.Trackers[0].Projects["grp/app"].Repos["app"], c.Trackers[0].Projects["grp/web"].Repos["web"])
 	}
 }

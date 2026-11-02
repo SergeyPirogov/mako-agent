@@ -103,8 +103,7 @@ type recordView struct {
 	Postponed bool   `json:"postponed"`
 	Type      string `json:"type"` // "fix" for a bug, "feature" for a task: as the branch is named
 	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
-	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked: the estimate's, the
-	// configured one or Sonnet; "" for Orca's agent with its own.
+	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked: its work's route.
 	DefaultModel string `json:"defaultModel,omitempty"`
 	// ReviewStep: what the reviewer agent's row offers: "running", "notes", "fixing", "ready", "idle" or "" (dispatch.ReviewStep).
 	ReviewStep string `json:"reviewStep,omitempty"`

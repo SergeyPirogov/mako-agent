@@ -87,7 +87,8 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	if err != nil {
 		return err
 	}
-	if err := d.sayTo(id, text); err != nil {
+	d.seenCI(id, kind)
+	if err := d.deliver(id, text, askPhase(kind)); err != nil {
 		return err
 	}
 	if kind == "comments" {

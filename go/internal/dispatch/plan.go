@@ -63,7 +63,12 @@ func (d *Dispatcher) ApprovePlan(id, requestID string) error {
 	if err := c.ApprovePlan(requestID, workMode(d.Config().Terminal)); err != nil {
 		return err
 	}
-	d.Store.Update(id, func(r *core.Record) { r.Planning = false })
+	d.Store.Update(id, func(r *core.Record) {
+		r.Planning = false
+		if r.AgentRoute != nil {
+			r.SetRoute(core.PhaseWork, *r.AgentRoute) // the same session goes on: its route stays the plan's
+		}
+	})
 	d.Log(id, "plan approved: the agent is carrying it out")
 	return nil
 }
@@ -86,22 +91,10 @@ func estimateFresh(e *core.Estimate, task core.Task) bool {
 	return e != nil && e.State == "done" && e.Size != "" && estimateFits(e, task)
 }
 
-// modelFor: the model of the task's agent: picked for the task (on the card or with «Повторити інакше»), else
-// the estimate's advice when the settings take it, else "" (the configured one).
-func modelFor(cfg *config.Config, r core.Record) string {
-	if r.Model != "" {
-		return r.Model
-	}
-	if cfg.EstimateModel && estimateFresh(r.Estimate, r.Task) {
-		return r.Estimate.Model
-	}
-	return ""
-}
-
 // DefaultModel: the model the task's agent gets when none is picked for it, as StartModel names it.
 func (d *Dispatcher) DefaultModel(r core.Record) string {
 	r.Model = ""
-	return StartModel(d.Config(), r)
+	return d.StartModel(r)
 }
 
 // WillPlan: the task's agent will start with a plan once it leaves the queue: only Mako's own agent plans, as
@@ -111,28 +104,9 @@ func (d *Dispatcher) WillPlan(r core.Record) bool {
 	return cfg.Executor == terminalExecutor && wantsPlan(cfg.Terminal, r.Task, r.Estimate, r.PlanFirst)
 }
 
-// FallbackModel: the model of Mako's agent when nothing else names one.
-const FallbackModel = "sonnet"
-
-// StartModel: the model the task's agent will start with, as the board shows it before the start: Mako's own agent
-// takes terminalModel; Orca's is asked only for one picked or advised, else it starts with its own ("").
-func StartModel(cfg *config.Config, r core.Record) string {
-	if cfg.Executor == terminalExecutor {
-		return terminalModel(cfg, r)
-	}
-	return modelFor(cfg, r)
-}
-
-// terminalModel: the model of Mako's own agent: picked for the task, else the estimate's advice when the settings
-// take it, else the configured one, else Sonnet.
-func terminalModel(cfg *config.Config, r core.Record) string {
-	if m := modelFor(cfg, r); m != "" {
-		return m
-	}
-	if cfg.Terminal.Model != "" {
-		return cfg.Terminal.Model
-	}
-	return FallbackModel
+// StartModel: the model the task's agent will start with, as the board shows it before the start: its work's route.
+func (d *Dispatcher) StartModel(r core.Record) string {
+	return d.routeOf(r, core.PhaseWork).Model
 }
 
 // Pick takes the estimate's advice for a task not started yet: model ("" the configured one) and «план спочатку».

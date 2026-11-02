@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -147,10 +148,9 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 	d.Log(id, "reviewer is reviewing the branch")
-	cfg := d.Config()
-	model := firstOf(cfg.Reviewer.Model, r.Model, cfg.Terminal.Model)
+	route := d.runRoute(r, core.PhaseReview)
 	prior := core.OpenRemarks(r.AgentReviews)
-	notes, err := ReviewBranch(d.spending(ctx, r.ID, core.PhaseReview), wt, base, r.Task, model, prior)
+	notes, err := ReviewBranch(d.spending(ctx, r.ID, core.PhaseReview), wt, base, r.Task, route, prior)
 	link := d.BoardURL + "/#" + id
 	if err != nil {
 		d.setReview(id, core.AgentReview{At: now(), Commit: head, State: "failed", Error: err.Error()})
@@ -173,6 +173,9 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	// The rounds ran out with remarks open: a person decides, told once; another round is theirs to start.
 	a.Escalated = a.State == "notes" && a.Structured() && rounds >= core.ReviewRounds && !escalated(r.AgentReviews)
 	d.setReview(id, a)
+	if a.Escalated {
+		d.escalate(id, fmt.Sprintf("review ×%d", rounds)) // the agent's fix of these remarks goes a level up
+	}
 	pctx, pcancel := context.WithTimeout(context.Background(), time.Minute)
 	defer pcancel()
 	d.publishReview(pctx, id, rounds)
@@ -407,10 +410,7 @@ func (d *Dispatcher) agentIdle(id string) bool {
 
 // tellAgent gives the agent Mako's message (not yours: no lesson is drawn from it), resuming it if it is closed.
 func (d *Dispatcher) tellAgent(id, text string) error {
-	if d.Live(id) {
-		return d.sayTo(id, text)
-	}
-	return d.resume(id, text)
+	return d.deliver(id, text, core.PhaseWork)
 }
 
 // readyBranch: the worktree's HEAD, and whether the branch is ready for a review: commits over the base, nothing

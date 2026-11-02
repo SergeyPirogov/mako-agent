@@ -123,7 +123,7 @@ func (d *Dispatcher) estimate(ctx context.Context, id string) {
 		}
 	}
 	key := EstimateKey(r.Task)
-	e, err := writer.Estimate(d.spending(ctx, id, core.PhaseEstimate), dir, r.Task, writer.RepoOutline(ctx, dir))
+	e, err := writer.Estimate(d.spending(ctx, id, core.PhaseEstimate), dir, d.runRoute(r, core.PhaseEstimate), r.Task, writer.RepoOutline(ctx, dir))
 	e.At, e.For = now(), key
 	if err != nil {
 		// Quietly: the task just has no estimate. The journal says why.

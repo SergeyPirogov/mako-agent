@@ -25,6 +25,9 @@ type stageView struct {
 	Note    string  `json:"note,omitempty"`
 	Seconds float64 `json:"seconds,omitempty"`
 	Cost    float64 `json:"cost,omitempty"`
+	// Route: the model and the effort its phase last ran with ("opus · high"), Why: how Mako came to it.
+	Route string `json:"route,omitempty"`
+	Why   string `json:"why,omitempty"`
 }
 
 // The stages of the strip, in its order.
@@ -241,6 +244,11 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	if rev.State == "now" && merge.State == "now" {
 		merge.State, merge.Note = "todo", ""
 	}
+	routed(&est, r, core.PhaseEstimate)
+	routed(&plan, r, core.PhasePlan)
+	routed(&work, r, core.PhaseWork)
+	routed(&rev, r, core.PhaseReview)
+	routed(&ci, r, core.PhaseCIFix)
 	return []stageView{est, plan, work, rev, ci, merge}
 }
 
@@ -264,4 +272,11 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// routed: the stage shows the route its phase last ran with.
+func routed(s *stageView, r core.Record, phase string) {
+	if route := r.RouteOf(phase); route.Model != "" {
+		s.Route, s.Why = route.Label(), route.Why
+	}
 }
