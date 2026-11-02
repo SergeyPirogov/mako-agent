@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,6 +57,10 @@ func TestChanges(t *testing.T) {
 	h, err := Log(ctx, dir, "main", 1)
 	if err != nil || len(h.Commits) != 1 || h.More || h.Commits[0].Subject != "Fix two" || len(h.Commits[0].Parents) != 0 {
 		t.Fatalf("log %+v %v", h, err)
+	}
+	// The oldest commit of the task has its parent on the base: the JSON still needs a list, the graph reads parents[0].
+	if js, _ := json.Marshal(h); !strings.Contains(string(js), `"parents":[]`) {
+		t.Fatalf("parents in json: %s", js)
 	}
 	if !strings.Contains(strings.Join(h.Commits[0].Refs, ","), "fix/1") {
 		t.Fatalf("refs %v", h.Commits[0].Refs)

@@ -25,17 +25,12 @@ type History struct {
 	More    bool        `json:"more"` // there are older ones
 }
 
-// Log: the last n commits of the branch's own history (base..HEAD, nothing that is already on the base branch),
+// Log: the last n commits of the branch's own history (fork point..HEAD, nothing that is already on the base branch),
 // newest first, in an order the graph can draw. A merge of the base into the branch stays in the list, but its
 // parent on the base side is dropped, so the graph has no lane that leads nowhere.
 func Log(ctx context.Context, worktree, baseBranch string, n int) (*History, error) {
-	rng := "HEAD"
-	for _, base := range []string{"origin/" + baseBranch, baseBranch} {
-		if _, err := Run(ctx, worktree, "rev-parse", "--verify", "-q", base); err == nil {
-			rng = base + "..HEAD"
-			break
-		}
-	}
+	// The same fork point as Changes, so the tab and its badge always count the same commits.
+	rng := forkPoint(ctx, worktree, baseBranch) + "..HEAD"
 	out, err := Run(ctx, worktree, "log", "--topo-order", "-n", strconv.Itoa(n+1), "--format=%H%x1f%P%x1f%D%x1f%s%x1f%an%x1f%ct", rng)
 	if err != nil {
 		return nil, err
@@ -59,7 +54,7 @@ func Log(ctx context.Context, worktree, baseBranch string, n int) (*History, err
 			break
 		}
 		at, _ := strconv.ParseInt(f[5], 10, 64)
-		c := LogCommit{Hash: f[0], Subject: f[3], Author: f[4], At: at}
+		c := LogCommit{Hash: f[0], Parents: []string{}, Subject: f[3], Author: f[4], At: at}
 		for _, p := range strings.Fields(f[1]) {
 			if mine[p] {
 				c.Parents = append(c.Parents, p)
