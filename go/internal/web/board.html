@@ -2998,8 +2998,9 @@ function stripHTML(r, card) {
 function stageMore(r, key, card) {
   const term = r.executor === "terminal" && r.worktree;
   if (key === "estimate") return estimateHTML(r, card);
+  // With an MR, its card already holds the Review section; a card of its own only when there is no MR.
   if (key === "checks") return (checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`)
-    + `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
+    + (r.prUrl ? "" : `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>`) + reviewerHTML(r);
   return cycleHTML(r, card);
 }
 
