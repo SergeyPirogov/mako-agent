@@ -41,8 +41,8 @@ func TestEstimateNewTask(t *testing.T) {
 		!strings.Contains(e.Questions, "Яка саме кнопка?") || e.For != EstimateKey(r.Task) {
 		t.Fatalf("estimate: %+v", e)
 	}
-	// Opus estimates the task, and so picks who does it.
-	if got := calls(); len(got) != 1 || !strings.Contains(got[0], "Кнопка") || !strings.Contains(got[0], "--model_opus") {
+	// The estimate's route: haiku · medium.
+	if got := calls(); len(got) != 1 || !strings.Contains(got[0], "Кнопка") || !strings.Contains(got[0], "--model_haiku_--effort_medium") {
 		t.Fatalf("calls: %v", got)
 	}
 

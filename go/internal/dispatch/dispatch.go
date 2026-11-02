@@ -682,7 +682,7 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	d.move(ctx, t, r.Task, trackers.AtStart)
 
-	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch, Model: modelFor(d.Config(), r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Language: d.Config().AgentLanguage}
+	job := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branch, Model: d.orcaModel(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Language: d.Config().AgentLanguage}
 	var res *orca.Result
 	if executor == terminalExecutor {
 		res, err = d.handTerminal(ctx, job, logf)
@@ -925,6 +925,9 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 		}
 		d.Store.Update(r.ID, func(r *core.Record) {
 			r.Status, r.PRURL, r.FinishedAt, r.AwaitingCI = core.Done, review.URL, now(), failed
+			if !failed {
+				r.CIRed = 0
+			}
 		})
 		if ci != nil {
 			// The board shows a failed CI under «Заблоковані» at once.

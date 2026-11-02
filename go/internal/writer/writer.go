@@ -190,18 +190,18 @@ func (o *output) parse() (text string, spend Spend, ok bool) {
 
 // Ask runs `claude -p --model haiku` with the prompt on stdin, for up to two minutes.
 func Ask(ctx context.Context, dir, prompt string) (string, error) {
-	return AskModel(ctx, dir, "haiku", prompt, 2*time.Minute)
+	return AskModel(ctx, dir, core.Route{Model: "haiku"}, prompt, 2*time.Minute)
 }
 
-// AskModel runs `claude -p --model <model>` with the prompt on stdin, for up to timeout.
-func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Duration) (string, error) {
+// AskModel runs `claude -p --model <model> [--effort <effort>]` with the prompt on stdin, for up to timeout.
+func AskModel(ctx context.Context, dir string, route core.Route, prompt string, timeout time.Duration) (string, error) {
 	path, err := exec.LookPath(Claude)
 	if err != nil {
 		return "", errors.New("Claude Code not found")
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, append([]string{"-p", "--model", model}, streamArgs...)...)
+	cmd := exec.CommandContext(ctx, path, append(askArgs(route), streamArgs...)...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr strings.Builder
@@ -213,7 +213,7 @@ func AskModel(ctx context.Context, dir, model, prompt string, timeout time.Durat
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
-	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, model)), ""))
+	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, route.Model)), ""))
 	if text == "" || len(text) > 6000 {
 		return "", errors.New("Claude gave no answer")
 	}
@@ -346,7 +346,7 @@ var ReviewerTools = []string{"Read", "Grep", "Glob", "Bash(ls:*)", "Bash(git dif
 // repo's files as it needs them) and writes its remarks for the agent who did the work; "" when there are
 // none. It runs with read-only tools and keeps no session, so the worktree's conversation stays the agent's.
 // prior: the earlier rounds' remarks still open, with the agent's answers: the round checks them first.
-func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, model string, prior []core.Remark) (string, error) {
+func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, route core.Route, prior []core.Remark) (string, error) {
 	commits, stat, diff := BranchWork(ctx, worktree, baseBranch)
 	if strings.TrimSpace(diff) == "" {
 		return "", errors.New("no changes")
@@ -375,9 +375,8 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	args := append([]string{"-p"}, streamArgs...)
 	args = append(args, "--permission-mode", "default", "--disallowedTools", "Edit", "Write", "NotebookEdit", "--allowedTools")
 	args = append(args, ReviewerTools...)
-	if model != "" {
-		args = append(args, "--model", model)
-	}
+	// After the tools: --allowedTools takes several values.
+	args = append(args, modelArgs(route)...)
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = worktree
 	cmd.Stdin = strings.NewReader(prompt)
@@ -391,7 +390,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
-	return ReviewNotes(answer(ctx, out, model))
+	return ReviewNotes(answer(ctx, out, route.Model))
 }
 
 // reviewFormat: how the reviewer writes its answer, so that Mako can number and track the remarks; with prior,
@@ -437,7 +436,7 @@ func ReviewNotes(answer string) (string, error) {
 
 // Assess: the agent's rating of a finished task, from the task as it was written, the end of the agent's work
 // and the branch's changes. Each score is from 1 to 5, its reason and what the description lacked in Mako's language.
-func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText, summary string) (core.Assessment, error) {
+func Assess(ctx context.Context, dir, baseBranch string, route core.Route, t core.Task, agentText, summary string) (core.Assessment, error) {
 	var commits, stat, diff string
 	if baseBranch != "" {
 		commits, stat, diff = BranchWork(ctx, dir, baseBranch)
@@ -446,7 +445,7 @@ func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText,
 	for _, c := range t.Comments {
 		comments = append(comments, "- "+c.Author+": "+clipTo(c.Body, 1500))
 	}
-	text, err := Ask(ctx, dir, strings.Join([]string{
+	text, err := AskModel(ctx, dir, route, strings.Join([]string{
 		"A coding agent finished the task below. Rate it, for the developer who gave the task, on four scores from 1 to 5:",
 		"- clarity: how well the task was described: 5 when it said everything needed to do it (what, where, how to tell it is done), 1 when the agent had to guess most of it;",
 		"- complexity: how hard the task was: 1 a trivial edit, 5 a large or tricky change across many places;",
@@ -463,7 +462,7 @@ func Assess(ctx context.Context, dir, baseBranch string, t core.Task, agentText,
 		"", "Summary of the work:", orNone(summary),
 		"", "End of the agent's session:", orNone(lastOf(agentText, 6000)),
 		"", "Commits:", orNone(commits), stat, clip(diff),
-	}, "\n"))
+	}, "\n"), 2*time.Minute)
 	if err != nil {
 		return core.Assessment{}, err
 	}
@@ -534,8 +533,8 @@ func pointsText(raw json.RawMessage) string {
 
 // Retro: the look back at a merged task, from its story as Mako saw it (the task, the attempts, your messages
 // to the agent, the reviews, the journal). Each part is a few points in Mako's language.
-func Retro(ctx context.Context, dir string, t core.Task, story string) (core.Retro, error) {
-	text, err := Ask(ctx, dir, strings.Join([]string{
+func Retro(ctx context.Context, dir string, route core.Route, t core.Task, story string) (core.Retro, error) {
+	text, err := AskModel(ctx, dir, route, strings.Join([]string{
 		"A coding agent did the task below and its merge request is merged. Write a short retrospective of how the task went,",
 		"for the developer who gave it, so the next tasks go better. Three parts, each at most 4 short points in " + lang() + ":",
 		"- good: what went well;",
@@ -546,7 +545,7 @@ func Retro(ctx context.Context, dir string, t core.Task, story string) (core.Ret
 		`{"good":["..."],"bad":["..."],"next":["..."]}`,
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 6000)),
 		"", story,
-	}, "\n"))
+	}, "\n"), 2*time.Minute)
 	if err != nil {
 		return core.Retro{}, err
 	}
@@ -605,20 +604,17 @@ func RepoOutline(ctx context.Context, dir string) string {
 	return strings.Join(out, "\n")
 }
 
-// EstimateModel: the model that estimates a task and so picks who does it; EstimateTimeout: how long it may take.
-const (
-	EstimateModel   = "opus"
-	EstimateTimeout = 5 * time.Minute
-)
+// EstimateTimeout: how long the estimate may take.
+const EstimateTimeout = 5 * time.Minute
 
 // Estimate: the agent's look at a new task before it starts, from its text and the repository's layout (not its
 // code): how clear it is and what to ask, how big, how risky, and how to take it. Its text is in Mako's language.
-func Estimate(ctx context.Context, dir string, t core.Task, outline string) (core.Estimate, error) {
+func Estimate(ctx context.Context, dir string, route core.Route, t core.Task, outline string) (core.Estimate, error) {
 	var comments []string
 	for _, c := range t.Comments {
 		comments = append(comments, "- "+c.Author+": "+clipTo(c.Body, 1500))
 	}
-	text, err := AskModel(ctx, dir, EstimateModel, strings.Join([]string{
+	text, err := AskModel(ctx, dir, route, strings.Join([]string{
 		"A developer is deciding whether to give the task below to a coding agent, and how. Before anyone starts, estimate it",
 		"from its text and the repository's layout (you do not see the code). Answer with JSON only, no code fences, in this shape:",
 		`{"clarity":{"score":1,"why":"..."},"questions":["..."],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
@@ -688,4 +684,21 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 // lang: the agent language, as the agent is asked to write in it.
 func lang() string {
 	return i18n.EnglishName(i18n.AgentLanguage())
+}
+
+// modelArgs: claude's --model and --effort of the route, each only when it names one.
+func modelArgs(route core.Route) []string {
+	var args []string
+	if route.Model != "" {
+		args = append(args, "--model", route.Model)
+	}
+	if route.Effort != "" {
+		args = append(args, "--effort", route.Effort)
+	}
+	return args
+}
+
+// askArgs: the arguments of a one-shot `claude -p` with the route.
+func askArgs(route core.Route) []string {
+	return append([]string{"-p"}, modelArgs(route)...)
 }

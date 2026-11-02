@@ -46,6 +46,8 @@ type Metrics struct {
 	Prompt int `json:"prompt,omitempty"`
 	// ContextRead: the transcripts were read for Context once at least, found or not: no need to look back.
 	ContextRead bool `json:"contextRead,omitempty"`
+	// Routes: the model and the effort each phase last ran with, and why (see Route).
+	Routes map[string]Route `json:"routes,omitempty"`
 }
 
 // clone: a copy to change: the store hands out shallow copies of a record, so its maps are never changed in place.
@@ -55,7 +57,7 @@ func (m *Metrics) clone() *Metrics {
 	}
 	c := *m
 	c.Seconds, c.Cost, c.Tokens = maps.Clone(m.Seconds), maps.Clone(m.Cost), maps.Clone(m.Tokens)
-	c.Context = slices.Clone(m.Context)
+	c.Context, c.Routes = slices.Clone(m.Context), maps.Clone(m.Routes)
 	return &c
 }
 

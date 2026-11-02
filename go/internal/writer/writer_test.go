@@ -5,6 +5,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
 
 func TestReviewNotes(t *testing.T) {
@@ -132,5 +134,23 @@ func TestParseStreamResult(t *testing.T) {
 	answer(ctx, readOutput(bytes.NewReader(noWindow)), "haiku")
 	if got.Context[0].Window != 200_000 {
 		t.Fatalf("%+v", got.Context)
+	}
+}
+
+// A route's model and effort become claude's --model and --effort, each only when it names one.
+func TestModelArgs(t *testing.T) {
+	cases := []struct {
+		route core.Route
+		want  string
+	}{
+		{core.Route{Model: "haiku", Effort: "medium"}, "-p --model haiku --effort medium"},
+		{core.Route{Model: "opus"}, "-p --model opus"},
+		{core.Route{Effort: "high"}, "-p --effort high"},
+		{core.Route{}, "-p"},
+	}
+	for _, c := range cases {
+		if got := strings.Join(askArgs(c.route), " "); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.route, got, c.want)
+		}
 	}
 }
