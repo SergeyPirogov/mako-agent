@@ -218,7 +218,24 @@ func (d *Dispatcher) readFaults() []Fault {
 	if b, err := os.ReadFile(d.faultsFile()); err == nil {
 		json.Unmarshal(b, &all)
 	}
-	return all
+	return dropExternalFaults(all)
+}
+
+// externalFault matches the text of an error that comes from the network or the service, not from Mako: what
+// an older build still wrote into errors.json (it is stored as a string, so only the text can tell). A status
+// is taken only in the form the trackers write it («GET url → 502: …»).
+var externalFault = regexp.MustCompile(`no such host|connection refused|can't assign requested address|context canceled|→ (429|5\d\d)\b`)
+
+// dropExternalFaults forgets the entries an older build kept for network or service failures, so they no longer
+// light the dot on «Stats»; the next write removes them from the file.
+func dropExternalFaults(all []Fault) []Fault {
+	kept := all[:0]
+	for _, f := range all {
+		if !externalFault.MatchString(f.Error) {
+			kept = append(kept, f)
+		}
+	}
+	return kept
 }
 
 func (d *Dispatcher) writeFaults(all []Fault) error {

@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
@@ -69,6 +71,35 @@ func TestFaults(t *testing.T) {
 	}
 	if err := d.ClearFaults(); err != nil || len(d.Faults()) != 0 {
 		t.Errorf("clear: %v %+v", err, d.Faults())
+	}
+}
+
+// Entries an older build wrote for the network or the service no longer count; Mako's own errors stay.
+func TestFaultsDropExternal(t *testing.T) {
+	d, _, _ := setup(t)
+	now := time.Now()
+	old := []Fault{
+		{Key: "a", What: "search failed", Error: "Get \"https://git.kbyte.app/api\": dial tcp: lookup example.invalid: no such host", Count: 113, First: now, Last: now},
+		{Key: "b", What: "search failed", Error: "dial tcp 10.0.0.1:443: connect: connection refused", Count: 1, First: now, Last: now},
+		{Key: "c", What: "search failed", Error: "dial tcp: connect: can't assign requested address", Count: 1, First: now, Last: now},
+		{Key: "d", What: "search failed", Error: "context canceled", Count: 1, First: now, Last: now},
+		{Key: "e", What: "MR not checked", Error: "GET https://x/api → 503: unavailable", Count: 1, First: now, Last: now},
+		{Key: "f", What: "MR not checked", Error: "GET https://x/api → 429: slow down", Count: 1, First: now, Last: now},
+		{Key: "g", What: "worktree", Error: "worktree /tmp/x removed", Count: 2, First: now, Last: now},
+		{Key: "h", What: "MR not checked", Error: "GET https://x/api → 404: not found", Count: 1, First: now, Last: now},
+	}
+	if err := d.writeFaults(old); err != nil {
+		t.Fatal(err)
+	}
+	fs := d.Faults()
+	if len(fs) != 2 || fs[0].Key != "g" || fs[1].Key != "h" {
+		t.Fatalf("faults %+v", fs)
+	}
+	// The next write drops them from the file for good.
+	d.Fault("grp/app#1", "MR not checked", errors.New("boom"))
+	b, _ := os.ReadFile(d.faultsFile())
+	if strings.Contains(string(b), "no such host") {
+		t.Errorf("still in the file:\n%s", b)
 	}
 }
 
