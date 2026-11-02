@@ -254,6 +254,9 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	if !ok || r.PRURL == "" {
 		return fmt.Errorf("there is no MR")
 	}
+	if d.ReviewStep(r) == "fixing" {
+		return fmt.Errorf("the agent is still fixing the reviewer's remarks: you can merge once it finishes")
+	}
 	desk, err := d.desk(ctx, id)
 	if err != nil {
 		return err
