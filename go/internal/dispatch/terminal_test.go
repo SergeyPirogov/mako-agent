@@ -11,6 +11,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
 
@@ -307,5 +308,61 @@ sleep 2
 	}
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "args.txt")); !strings.Contains(string(b), "--resume sess-1") {
 		t.Fatalf("args %s", b)
+	}
+}
+
+// «New conversation»: the agent starts over in the same worktree with the task's prompt and a word that its work
+// is in the branch, not continuing its session.
+func TestNewConversation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	d, _, _ := setup(t)
+	ctx := context.Background()
+	var repo string
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		repo = r.Path
+	}
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
+echo "$@" > args.txt
+read init
+read msg
+echo "$msg" > prompt.json
+echo '{"type":"system","subtype":"init","session_id":"sess-'$$'","model":"claude-opus-5-5"}'
+echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.01}'
+cat > /dev/null
+`), 0o755)
+	cfg := *d.Config()
+	cfg.Executor, cfg.Terminal.Command, cfg.StateDir = "terminal", filepath.Join(bin, "claude"), t.TempDir()
+	d.Cfg = &cfg
+	d.BoardURL = "http://127.0.0.1:1"
+	pushes(t)
+	d.Poll(ctx)
+	d.Take(ctx, "grp/app#5")
+	d.Wait()
+	r, _ := d.Store.Get("grp/app#5")
+	if r.Status != core.HandedOff || r.View != "chat" {
+		t.Fatalf("status %s view %q error %q", r.Status, r.View, r.Error)
+	}
+	defer func() { d.StopTerminal(r.ID); d.Chats.Get(r.ID).Wait(); d.WaitContexts() }()
+	waitFor(t, func() bool { st, _, _ := d.Chats.Get(r.ID).State(); return st == "done" }, "the chat is not done")
+	first := d.Chats.Get(r.ID)
+	os.Remove(filepath.Join(r.Worktree, "prompt.json"))
+	if err := d.NewConversation(r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if d.Chats.Get(r.ID) == first || first.Running() {
+		t.Fatal("the old agent still runs")
+	}
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return len(b) > 0 }, "no prompt for the new conversation")
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), i18n.TA("agent.fresh", r.Branch)) {
+		t.Fatalf("prompt %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "args.txt")); strings.Contains(string(b), "--resume") || strings.Contains(string(b), "--continue") {
+		t.Fatalf("continued the old session: %s", b)
+	}
+	if err := d.NewConversation("grp/app#404"); err == nil {
+		t.Error("a task that is not there")
 	}
 }

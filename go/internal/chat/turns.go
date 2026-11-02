@@ -18,6 +18,25 @@ type Turn struct {
 	Text   string   `json:"text,omitempty"`   // a message of yours without its pictures
 	Images []string `json:"images,omitempty"` // the pictures attached to it: their files
 	Blocks []Block  `json:"blocks,omitempty"`
+	// The agent's turn that ended: what it took and what it did.
+	Summary *Summary `json:"summary,omitempty"`
+}
+
+// Summary: a finished turn of the agent in five figures: how long, what it cost (USD, this turn's own), the files
+// it changed with their lines, its last test run, the commits it made.
+type Summary struct {
+	Seconds float64 `json:"seconds"`
+	Cost    float64 `json:"cost,omitempty"`
+	Files   int     `json:"files"`
+	Add     int     `json:"add"`
+	Del     int     `json:"del"`
+	Tests   *Tests  `json:"tests,omitempty"` // nil: it ran none
+	Commits int     `json:"commits"`
+}
+
+type Tests struct {
+	Passed int `json:"passed"`
+	Failed int `json:"failed"`
 }
 
 // Block: one thing in the agent's turn. "item" is one item drawn as it is (what it said, a question, the plan, a
@@ -126,12 +145,70 @@ func Group(items []Item, worktree string) []Turn {
 		}
 	}
 	flush()
+	// A turn followed by a message of yours is over too, also when no result says it (a replayed transcript).
+	for k := range turns {
+		if turns[k].Who == "agent" {
+			turns[k].Summary = summaryOf(turns, k, items, k < len(turns)-1)
+		}
+	}
 	return turns
 }
 
-// blocksOf: a run of steps with nothing said between them. Steps of one kind in a row make one block; a long run
-// that switches kinds often (three blocks or more) folds into one «steps» block, unless it edits: an edit always
-// shows.
+// summaryOf: the summary of the agent's turn k once it is over: its result says how long it took and what it
+// cost; without one (ended says it is over) the time runs from your message to its last step, the cost unknown.
+// nil for a turn going on.
+func summaryOf(turns []Turn, k int, items []Item, ended bool) *Summary {
+	t := turns[k]
+	sum := &Summary{}
+	result := false
+	files := map[string]bool{}
+	var last int64
+	seen := func(i int) {
+		last = max(last, items[i].At, items[i].End)
+	}
+	for _, b := range t.Blocks {
+		if b.Kind == "current" {
+			return nil
+		}
+		seen(b.Item)
+		if b.Kind == "item" {
+			if it := items[b.Item]; it.Kind == "result" {
+				result = true
+				sum.Seconds, sum.Cost = it.Seconds, it.Cost
+			}
+			continue
+		}
+		for _, r := range b.Rows {
+			seen(r.I)
+			if category(items[r.I]) == "edits" {
+				files[r.Label] = true
+				sum.Add += r.Add
+				sum.Del += r.Del
+			}
+			if r.Test {
+				sum.Tests = &Tests{Passed: r.Passed, Failed: r.Failed}
+			}
+			if r.Commit != "" {
+				sum.Commits++
+			}
+		}
+	}
+	if !result && !ended || len(t.Blocks) == 0 {
+		return nil
+	}
+	if !result {
+		from := t.At
+		if k > 0 && turns[k-1].At > 0 {
+			from = turns[k-1].At
+		}
+		if from > 0 && last > from {
+			sum.Seconds = float64(last-from) / 1000
+		}
+	}
+	sum.Files = len(files)
+	return sum
+}
+
 func blocksOf(items []Item, run []int, worktree string) []Block {
 	segments, edits := 0, false
 	for n, i := range run {

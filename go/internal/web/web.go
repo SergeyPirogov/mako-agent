@@ -473,6 +473,12 @@ func (s *Server) Handler() http.Handler {
 			}
 		case "stop":
 			s.D.StopTerminal(id)
+		case "fresh":
+			// «New conversation»: the agent starts over in the same worktree, its full context dropped.
+			if err := s.D.NewConversation(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "say", "permit", "answer", "choose", "interrupt", "view", "mode", "plan":
 			var err error
 			c := s.D.Chats.Get(id)

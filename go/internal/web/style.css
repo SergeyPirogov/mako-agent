@@ -823,6 +823,26 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .chat-quick { max-width: 780px; margin: 0 auto 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .chat-quick .chip { height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; color: var(--mute); }
 .chat-quick .chip:hover { color: var(--fg); }
+.chat-quick .chip { display: inline-flex; align-items: center; text-decoration: none; cursor: pointer; }
+.chat-quick .chip.pri { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
+.chat-quick .chip.pri:hover { color: var(--primary-fg); }
+/* The context nearly full: a warning above the input, with Compact now and New conversation. */
+.chat-ctxwarn { max-width: 780px; margin: 0 auto 8px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--card)); color: var(--warn); font-size: 13px; }
+.chat-ctxwarn[hidden] { display: none; }
+.chat-ctxwarn svg { flex: none; }
+.chat-ctxwarn .cw-t { flex: 1; min-width: 0; color: var(--fg); }
+.chat-ctxwarn button { height: 26px; padding: 0 10px; font-size: 12.5px; flex: none; }
+/* A finished turn in five figures. */
+.turn-sum { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--hover); }
+.turn-sum .ts-c { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.turn-sum .ts-c span { font-size: 12px; color: var(--mute); }
+.turn-sum .ts-c b { font-size: 15px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.turn-sum .ts-c b.ok { color: var(--ok); }
+.turn-sum .ts-c b.bad { color: var(--err); }
+.turn-sum .ts-c b.muted { color: var(--mute); font-weight: 500; }
+@media (max-width: 560px) { .turn-sum { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 /* The agent's plan */
 .plan-card { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 6%, var(--card)); }
