@@ -1218,17 +1218,19 @@ function adviseReview(r) {
   return a.review ? a.review.need : (a.risk?.value ?? 0) >= 4;
 }
 const ADVISE = "The agent advises a review";
-// "Review" in the MR card: what the agent advises, what the reviewer did, and your choice: "Run review" or "Skip".
+// The agent's advice: a short title and, under it, its reason in smaller muted text. Once the reviewer has run, the
+// advice is only background: it goes under the result, quieter.
+const adviceRow = (need, why, past) => `<div class="mr-row mr-advice${past ? " past" : ""}">${MR_ICON[need ? "talk" : "ok"]}
+  <div class="mr-adv"><b>${esc(need ? ADVISE : "The agent thinks no review is needed")}</b>${why ? `<span class="mr-why" title="${esc(why)}">${esc(why)}</span>` : ""}</div></div>`;
+// "Review" in the MR card: what the reviewer did, what the agent advised, and your choice: "Run review" or "Skip".
 function reviewSection(r) {
-  const a = r.assessment, need = adviseReview(r);
+  const a = r.assessment, need = adviseReview(r), ran = !!r.agentReviews?.length;
   let advice = "";
   if (a?.state === "running") advice = row("run", "The agent is judging whether a review is needed…");
-  else if (need !== null) {
-    const why = a.review?.why || (need ? a.risk?.why : "") || "";
-    advice = need ? row("talk", ADVISE + (why ? `: ${why}` : "")) : row("ok", "The agent thinks no review is needed" + (why ? `: ${why}` : ""));
-  }
-  const body = advice + reviewerRow(r, need);
-  return body ? sec("Review", body, need === true && !r.agentReviews?.length ? "advised" : "") : "";
+  else if (need !== null) advice = adviceRow(need, a.review?.why || (need ? a.risk?.why : "") || "", ran);
+  const reviewer = reviewerRow(r, need);
+  const body = ran ? reviewer + advice : advice + reviewer;
+  return body ? sec("Review", body, need === true && !ran ? "advised" : "") : "";
 }
 function reviewerRow(r, need) {
   const last = r.agentReviews?.at(-1), step = r.reviewStep, ready = step === "ready";
