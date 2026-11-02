@@ -1456,9 +1456,14 @@ button.link:hover { background: none; text-decoration: underline; }
 
 .stage-strip { display: flex; align-items: flex-start; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 6px; margin: 14px 0; }
 .stage-strip .st { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 0 10px 12px; border: 0; border-radius: 10px; background: none; text-align: left; color: var(--fg); }
-.stage-strip .st:hover { background: var(--hover); }
+/* hover and the open step: the step itself (its mark and name), not a box, which would take in the track */
+.stage-strip .st:hover { background: none; }
+.stage-strip .st:hover b { text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 4px; }
+.stage-strip .st:hover .c { box-shadow: 0 0 0 3px var(--hover); }
+.stage-strip .st:focus-visible { outline: none; }
+.stage-strip .st:focus-visible b { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .stage-strip .st:active { transform: none; }
-.stage-strip .st.open { box-shadow: inset 0 0 0 1px var(--line); }
+.stage-strip .st.open b, .stage-strip .st.open:hover b { text-decoration: underline 2px; text-decoration-color: currentColor; text-underline-offset: 4px; }
 .stage-strip .row { display: flex; align-items: center; gap: 8px; }
 .stage-strip .c { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
   border: 1.5px solid var(--faint); color: var(--card); background: var(--card); box-sizing: border-box; }
