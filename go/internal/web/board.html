@@ -1193,27 +1193,35 @@ const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}
 const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
 const commits = (n) => `${n} ${plural(n, "commit", "commits")}`;
 
-// The branch: against its base and its remote, uncommitted work; copy its name, open it in Finder or the editor.
+// The branch's name for the panel: the prefix ("feature/") muted, the task number marked, a line may break only after "/" and "-".
+function branchName(name) {
+  const m = /^(.*\/)?(\d+)?(.*)$/s.exec(name);
+  const wrap = (t) => t.split(/([/-])/).map((x, i) => (i % 2 ? `${x}<wbr>` : esc(x))).join("");
+  return `${m[1] ? `<span class="bn-pre">${wrap(m[1])}</span>` : ""}${m[2] ? `<b class="bn-num">${m[2]}</b>` : ""}${wrap(m[3])}`;
+}
+
+// The branch: against its base and its remote, uncommitted work; click the name to copy it, open it in Finder or the editor.
 // Until git answers it holds its place, the name from the task, so the panel does not jump when the state comes.
 function branchCard(r, term) {
   const b = changes ? changes.branch : { name: r.branch || r.branchName || "", loading: true };
   if (!b) return "";
   const live = term && r.live;
   let rows = "";
-  if (b.loading) rows = `<div class="mr-row"><span style="color:var(--mute)">Checking the branch…</span></div><div class="mr-row"></div>`;
+  if (b.loading) rows = `<div class="mr-row"><span style="color:var(--mute)">Checking the branch…</span></div>`;
   else {
-    rows = b.behind ? row("idle", `${commits(b.behind)} behind ${b.base}`, "", fixBtn(live, "rebase", `The agent will update the branch from ${b.base}`))
-      : row("ok", `Up to date with ${b.base}`);
-    if (b.unpushed) rows += row("run", `${commits(b.unpushed)} not pushed`, "", fixBtn(live, "push", "The agent will push the branch"));
-    else if (b.pushed) rows += row("ok", "Everything is pushed");
-    if (b.dirty) rows += row("idle", `${b.dirty} ${plural(b.dirty, "file", "files")} not committed`);
+    // [icon, text, button]; when all are fine they share one line.
+    const st = [];
+    if (b.behind) st.push(["idle", `${commits(b.behind)} behind ${b.base}`, fixBtn(live, "rebase", `The agent will update the branch from ${b.base}`)]);
+    else st.push(["ok", `Up to date with ${b.base}`, ""]);
+    if (b.unpushed) st.push(["run", `${commits(b.unpushed)} not pushed`, fixBtn(live, "push", "The agent will push the branch")]);
+    else if (b.pushed) st.push(["ok", "Everything is pushed", ""]);
+    if (b.dirty) st.push(["idle", `${b.dirty} ${plural(b.dirty, "file", "files")} not committed`, ""]);
+    rows = st.every((x) => x[0] === "ok") ? row("ok", st.map((x) => x[1]).join(" · ")) : st.map((x) => row(...x)).join("");
   }
-  return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">Branch</span>
-      <code class="branch-name">${esc(b.name)}</code>
-      ${b.name ? `<button type="button" class="icon" data-copy="${esc(b.name)}" title="Copy branch name" aria-label="Copy branch name">${ICON.copy}</button>` : ""}
+  return `<div class="mr-card br-card"><div class="mr-h"><span class="files-h-t">Branch</span><span class="mr-sp"></span>
       <button type="button" class="icon" data-open="finder" title="Show in Finder" aria-label="Show in Finder">${ICON.folder}</button>
       ${data.editor ? `<button type="button" class="icon" data-open="editor" title="Open in ${esc(data.editor)}" aria-label="Open in ${esc(data.editor)}">${ICON.code}</button>` : ""}
-    </div>${rows}</div>`;
+    </div>${b.name ? `<button type="button" class="branch-name" data-copy="${esc(b.name)}" title="Copy branch name" aria-label="Copy branch name ${esc(b.name)}">${branchName(b.name)}<span class="bn-copy">${ICON.copy}</span></button>` : ""}${rows}</div>`;
 }
 
 // The pipeline's jobs, a line each with its state in words, under their stage's name (GitLab has stages).
@@ -3341,7 +3349,11 @@ function renderDetail() {
     loadWork().then(renderDetail);
   };
   for (const btn of $("detail").querySelectorAll("[data-file]")) btn.onclick = () => openFile(btn.dataset.file);
-  for (const btn of $("detail").querySelectorAll("[data-copy]")) btn.onclick = () => navigator.clipboard?.writeText(btn.dataset.copy);
+  for (const btn of $("detail").querySelectorAll("[data-copy]")) btn.onclick = () => {
+    navigator.clipboard?.writeText(btn.dataset.copy);
+    // The branch name flashes green for a moment: it was copied.
+    if (btn.classList.contains("branch-name")) { btn.classList.add("copied"); setTimeout(() => btn.classList.remove("copied"), 1200); }
+  };
   for (const btn of $("detail").querySelectorAll("[data-open]")) btn.onclick = () => fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=${btn.dataset.open}`, { method: "POST" });
   for (const btn of $("detail").querySelectorAll("[data-open-file]")) btn.onclick = () =>
     fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=editor&file=${encodeURIComponent(btn.dataset.openFile)}`, { method: "POST" });
