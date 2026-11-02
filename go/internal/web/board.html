@@ -2234,26 +2234,28 @@ function ticketCard(d, i, thread) {
 }
 
 // "Create ticket": the agent's draft goes to the new task form over the chat, to be edited, given a tracker and
-// created; the chat stays open. i: the card of the draft, to show the task on it.
+// created; the chat stays open. i: the draft's place in the answer, which the card remembers its task by.
 function toTicket(d, i) {
   const p = code.projects.find((x) => x.key === code.project);
-  openTicketForm({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project }, i);
+  openTicketForm({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
 // The form over the chat. Once the task is made the chat is marked done with its id.
-function openTicketForm(draft, i) {
+function openTicketForm(draft) {
   const v = code, thread = v.thread, dlg = $("ca-ticket-dlg"), targets = newTaskTargets();
   dlg.innerHTML = taskFormHTML(targets, draft);
+  // The form must not outlive the dialog: the page's own New task form is told from it by its id.
+  dlg.addEventListener("close", () => { dlg.innerHTML = ""; }, { once: true });
   bindTaskForm(targets, draft, {
     onCancel: () => dlg.close(),
     onCreated: async (id) => {
       dlg.close();
-      await load();
-      if (v !== code) return;
+      // The chat is marked first: the task exists already, whatever the developer does while the board reloads.
       const r = thread ? await fetch(`/api/code/done?id=${encodeURIComponent(thread)}&ticket=${encodeURIComponent(id)}`, { method: "POST" })
         .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message })) : { ok: true };
-      if (v !== code) return;
       if (!r.ok) toast(`⚠ ${r.error || "Could not mark the chat done"}`, true);
+      await load();
+      if (v !== code) return;
       renderCode();
       await loadThreads();
     },

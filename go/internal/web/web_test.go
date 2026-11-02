@@ -684,3 +684,52 @@ func TestPagesHaveNoCyrillic(t *testing.T) {
 		}
 	}
 }
+
+// «Chat done»: POST /api/code/done marks the question with the task made from it, only from the board itself and
+// only for a question; the history returns the task.
+func TestCodeDone(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "questions.json"), []byte(`[{"id":"ask-one","project":"grp/app","title":"one","at":1}]`), 0o600)
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: dir}, store, nil)
+	srv := httptest.NewServer((&Server{D: d}).Handler())
+	defer srv.Close()
+	post := func(query, origin string) (int, map[string]any) {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/code/done?"+query, nil)
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	threads := func() []dispatch.CodeThread {
+		res, _ := http.Get(srv.URL + "/api/code/threads?project=grp/app")
+		var out struct{ Threads []dispatch.CodeThread }
+		json.NewDecoder(res.Body).Decode(&out)
+		return out.Threads
+	}
+	if code, _ := post("id=ask-one&ticket=APP-7", "https://evil.example"); code != http.StatusForbidden {
+		t.Fatalf("another origin: %d", code)
+	}
+	if code, _ := post("id=chat-x&ticket=APP-7", srv.URL); code != http.StatusForbidden {
+		t.Fatalf("not a question: %d", code)
+	}
+	if ts := threads(); len(ts) != 1 || ts[0].Ticket != "" {
+		t.Fatalf("marked by a refused request: %+v", ts)
+	}
+	if _, out := post("id=ask-none&ticket=APP-7", srv.URL); out["ok"] != false {
+		t.Fatalf("an unknown question: %v", out)
+	}
+	if code, out := post("id=ask-one&ticket=APP-7", srv.URL); code != http.StatusOK || out["ok"] != true {
+		t.Fatalf("%d %v", code, out)
+	}
+	if ts := threads(); len(ts) != 1 || ts[0].Ticket != "APP-7" {
+		t.Fatalf("history %+v", ts)
+	}
+}
