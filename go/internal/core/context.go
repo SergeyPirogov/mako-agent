@@ -179,12 +179,18 @@ func (c *contextStats) add(r Record) {
 		p.CacheRead += x.CacheRead
 		p.CacheCreate += x.CacheCreate
 		for k, v := range x.Tools {
+			if en, ok := legacySources[k]; ok {
+				k = en
+			}
 			p.Tools[k] += v
 		}
 		addHeavy(c.files, relHeavy(x.Files, r.Worktree, false))
 		addHeavy(c.commands, relHeavy(x.Commands, r.Worktree, true))
 	}
 }
+
+// legacySources: what older records named the sources of the context, in Ukrainian (#275 made them English).
+var legacySources = map[string]string{"Відповіді": SourceReplies, "Повідомлення": SourceMessages, "Інше": SourceOther, "Субагенти": SourceSubagents} // cyrillic-ok
 
 // relHeavy: the files and commands with the task's worktree taken out of their names, so the same file of two
 // tasks counts as one: a file's path relative to it; in a command the worktree's path becomes ".".
