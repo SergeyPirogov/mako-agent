@@ -90,6 +90,9 @@ func primaryAction(v recordView) string {
 		// Orca's agent is asked in Orca; CI still running: nothing to merge yet.
 		case b != "" || v.CIWait != "":
 			return "open-mr"
+		// The reviewer is reading the branch, or the agent is fixing its remarks: the merge waits for them.
+		case v.ReviewStep == "running" || v.ReviewStep == "fixing":
+			return "open-mr"
 		}
 		return "merge"
 	case v.Column == "failed":

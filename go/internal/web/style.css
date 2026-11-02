@@ -349,10 +349,24 @@ a.link-row:hover { background: var(--hover); }
 .digest-list .mr { font-size: 12px; margin-left: 6px; }
 .digest-new { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
 .stats-note { color: var(--mute); font-size: 12px; margin-top: 16px; }
-.faults { margin-top: 28px; }
-.faults .actions { margin: 0; }
-.faults li.reported { opacity: .6; }
-.fault-text { font: 12px var(--mono); color: var(--mute); margin-top: 4px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.faults { margin-top: 14px; }
+.faults .scard-h { flex-wrap: wrap; }
+.faults .actions { display: flex; gap: 6px; margin: 0 0 0 8px; }
+.faults .actions button { height: 28px; padding: 0 12px; font-size: 13px; }
+.fault-list { display: flex; flex-direction: column; }
+.fault-row { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px solid var(--hover); }
+.fault-n { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--err); padding-top: 1px; }
+.fault-row.reported .fault-n { color: var(--mute); }
+.fault-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.fault-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-size: 13.5px; }
+.fault-top .muted { font-size: 12.5px; }
+.fault-top .badge { margin-left: auto; align-self: center; }
+.fault-text { font: 12px/1.5 var(--mono); color: var(--mute); padding: 8px 10px; border-radius: 8px; background: var(--hover); max-height: 96px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
+.fault-issue { font-size: 12.5px; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .fault-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .faults .actions { margin: 0; width: 100%; }
+}
 .icon-btn.fault { position: relative; }
 .icon-btn.fault::after { content: ""; position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--err); }
 #theme { display: inline-flex; padding: 7px 9px; }
@@ -1370,7 +1384,7 @@ button.link:hover { background: none; text-decoration: underline; }
 .stage-strip .c { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
   border: 1.5px solid var(--faint); color: var(--card); background: var(--card); box-sizing: border-box; }
 .stage-strip .st b { font-size: 13px; font-weight: 600; white-space: nowrap; }
-.stage-strip .st small { font-size: 12px; color: var(--mute); padding-left: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage-strip .st small { font-size: 12px; color: var(--mute); padding-left: 28px; overflow-wrap: anywhere; }
 /* Checks: two lines, CI and the review */
 .stage-strip .st[data-stage="checks"] small { white-space: pre-line; line-height: 1.35; }
 .stage-strip .st.done .c { background: var(--ok); border-color: var(--ok); }
