@@ -47,3 +47,25 @@ func TestCreateTask(t *testing.T) {
 		t.Errorf("status %s", r.Status)
 	}
 }
+
+// A task written on the board is estimated at once, without waiting for the search, when the settings want it.
+func TestCreateTaskEstimate(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		d, _, _ := setup(t)
+		estimateClaude(t)
+		d.Cfg.Estimate = enabled
+		ctx := context.Background()
+		id, err := d.CreateTask(ctx, d.TrackerList()[0].ID(), trackers.NewIssue{Project: "grp/app", Title: "Експорт у CSV", Description: "Потрібен"}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.WaitEstimates()
+		r, _ := d.Store.Get(id)
+		if enabled && (r.Estimate == nil || r.Estimate.State != "done" || r.Estimate.For != EstimateKey(r.Task)) {
+			t.Errorf("estimate on: %+v", r.Estimate)
+		}
+		if !enabled && r.Estimate != nil {
+			t.Errorf("estimate off, yet: %+v", r.Estimate)
+		}
+	}
+}

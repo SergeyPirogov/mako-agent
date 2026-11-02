@@ -77,6 +77,9 @@ func (d *Dispatcher) CreateTask(ctx context.Context, trackerID string, n tracker
 	d.Log(task.ID, "created from the board: "+task.Title)
 	if take {
 		d.Take(ctx, task.ID)
+	} else {
+		// The task waits in «Нові»: estimate it now, not on the next search (which may not find it at all).
+		d.maybeEstimate(task.ID)
 	}
 	return task.ID, nil
 }
