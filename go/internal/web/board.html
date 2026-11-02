@@ -162,6 +162,7 @@ const ICON = {
   clip: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg>`,
   up: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
   shield: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></svg>`,
+  warn: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg>`,
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
 const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "Bug" : "Task"}</span>`;
@@ -684,7 +685,12 @@ async function loadWork() {
     if (empty) renderDetail();
   });
   await Promise.all([
-    part(`/api/changes?${q}`, (v) => { changes = v; if (!v.error) changesOf.set(r.id, v); }, !changes),
+    part(`/api/changes?${q}`, (v) => {
+      changes = v;
+      if (!v.error) changesOf.set(r.id, v);
+      // The chat's next actions follow the branch.
+      if (cv?.id === r.id && cv.snap) drawNextActions(cv);
+    }, !changes),
     part(path && `/api/diff?${q}&path=${encodeURIComponent(path)}${diffWhole ? "&whole=1" : ""}`, (v) => {
       diffs[path] = v.error ? `⚠ ${v.error}` : v.diff || "";
       if (!v.error) dropChangedNotes(r.id, path, diffs[path]);
@@ -3255,7 +3261,8 @@ function chatFor(id) {
       <button type="button" class="chat-stop-btn" title="Interrupt the current step, like Esc in the terminal">${ICON.stop}Stop</button></div>
     <div class="chat-dock" hidden></div>
     <div class="chat-foot">
-      <div class="chat-quick">${["Continue", "Run the tests", "Open the MR"].map((q) => `<button type="button" class="chip" data-quick="${q}">${q}</button>`).join("")}</div>
+      <div class="chat-quick"></div>
+      <div class="chat-ctxwarn" role="status" hidden></div>
       <div class="chat-box composer">
         <div class="chat-att" hidden></div>
         <textarea rows="2" aria-label="Message to the agent"></textarea>
@@ -3322,7 +3329,27 @@ function chatFor(id) {
     const x = e.target.closest("[data-unattach]");
     if (x) { v.att.splice(+x.dataset.unattach, 1); drawAttached(v); }
   };
-  for (const q of el.querySelectorAll("[data-quick]")) q.onclick = () => say(q.dataset.quick);
+  // The next actions after a turn: a message to the agent, or one of Mako's own actions on the task.
+  el.querySelector(".chat-quick").onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.quick) { say(b.dataset.quick); return; }
+    const next = b.dataset.next;
+    if (next === "open" || next === "push") {
+      fetch(`/api/ask?id=${encodeURIComponent(id)}&kind=${next}`, { method: "POST" }).then((x) => x.json()).catch(() => ({}))
+        .then((r) => { warn(r.ok === false ? r.error : ""); v.version = -1; pollChat(); });
+    } else if (next === "agentreview") post("agentreview", id);
+    else if (next === "diff") { const f = changesOf.get(id)?.files?.[0]; if (f) openFile(f.path); }
+  };
+  // The context nearly full: compact the conversation now, or start a new one.
+  el.querySelector(".chat-ctxwarn").onclick = (e) => {
+    if (e.target.closest("[data-compact]")) say("/compact");
+    else if (e.target.closest("[data-fresh]")) {
+      if (!confirm("Start a new conversation with the agent? It starts the task over in the same worktree: the work in the branch stays, this conversation's context is dropped.")) return;
+      fetch(`/api/fresh?id=${encodeURIComponent(id)}`, { method: "POST" }).then((x) => x.json()).catch(() => ({}))
+        .then((r) => { warn(r.ok === false ? r.error : ""); v.version = -1; v.atEnd = true; pollChat(); });
+    }
+  };
   v.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   el.querySelector(".chat-send").onclick = send;
   // The mode: a button and its menu, like the model's.
@@ -3470,7 +3497,7 @@ function renderChat(v) {
   st.querySelector(".chat-stop-btn").hidden = !live;
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
-  v.el.querySelector(".chat-quick").hidden = live;
+  drawNextActions(v);
   drawDock(v, asked);
   v.el.querySelector(".chat-foot").hidden = !!asked && v.writeFor !== asked.id;
   const mode = MODES.find(([m]) => m === (s.mode || "default")) ?? MODES[1], modeBtn = v.el.querySelector(".chat-mode-btn");
@@ -3481,8 +3508,48 @@ function renderChat(v) {
   const ctx = v.el.querySelector(".chat-ctx"), share = s.window ? s.context / s.window : 0;
   ctx.className = "chat-ctx" + (share > 0.8 ? " full" : "");
   ctx.title = s.context ? `Context: ${kTok(s.context)}${s.window ? ` of ${kTok(s.window)} (${Math.round(share * 100)}%)` : ""}` : "";
+  drawCtxWarn(v, live, share);
   ctx.innerHTML = !s.context ? "" : `<span>Context</span>${s.window ? `<span class="meter" aria-hidden="true"><i style="width:${Math.min(100, Math.round(share * 100))}%"></i></span>` : ""}<span>${kTok(s.context)}${s.window ? ` / ${kTok(s.window)}` : ""}</span>`;
-  v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent reads it after the current step…" : "What next? Write to the agent…";
+  v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent reads it after the current step…" : "What next?";
+}
+// What to do after the agent's turn, by the state of the task: its last test run, its branch, its MR. The first is
+// the main one. While the agent works there are none.
+function nextActions(v) {
+  const s = v.snap, r = data?.records.find((x) => x.id === v.id), ch = changesOf.get(v.id), b = ch?.branch;
+  const sum = [...(s.turns ?? [])].reverse().find((t) => t.who === "agent")?.summary;
+  const out = [];
+  if (sum?.tests?.failed) out.push({ label: "Fix the tests", quick: "The tests failed: fix them and run them again." });
+  if (r && b && (b.unpushed > 0 || (!b.pushed && b.ahead > 0))) {
+    out.push(r.prUrl ? { label: "Push the commits", next: "push" } : { label: "Push and open the MR", next: "open" });
+  }
+  if (r && b?.dirty) out.push({ label: "Commit", quick: "Commit the changes with a proper message, as the task's instructions say." });
+  if (r?.prUrl && !["merged", "closed"].includes(r.reviewState)) {
+    if (r.reviewStep === "ready") out.push({ label: "Run the agent review", next: "agentreview" });
+    out.push({ label: "Open the MR", href: r.prUrl });
+  }
+  if (r && ch?.files?.length) out.push({ label: "Show the diff", next: "diff" });
+  out.push({ label: "What else could break?", quick: "What else could break because of these changes? Check the places that depend on them and tell me what you find." });
+  return out;
+}
+function drawNextActions(v) {
+  const box = v.el.querySelector(".chat-quick"), s = v.snap;
+  if (!box || !s) return;
+  box.hidden = s.state === "working" || s.state === "waiting";
+  if (box.hidden) return;
+  box.innerHTML = nextActions(v).map((a, i) => {
+    const cls = `chip${i === 0 && !a.href ? " pri" : ""}`;
+    return a.href ? `<a class="${cls}" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.label)}</a>`
+      : `<button type="button" class="${cls}" ${a.quick ? `data-quick="${esc(a.quick)}"` : `data-next="${a.next}"`}>${esc(a.label)}</button>`;
+  }).join("");
+}
+// The context over 80% after a turn: say so before it is compacted by itself, with a way to do it now.
+function drawCtxWarn(v, live, share) {
+  const box = v.el.querySelector(".chat-ctxwarn"), task = data?.records.some((x) => x.id === v.id);
+  box.hidden = live || share <= 0.8;
+  if (box.hidden) return;
+  box.innerHTML = `${ICON.warn}<span class="cw-t">Context is ${Math.round(share * 100)}% full: the next turn may get compacted.</span>
+    <button type="button" data-compact title="Send /compact: Claude sums the conversation up and goes on from the summary">Compact now</button>
+    ${task ? `<button type="button" data-fresh title="Start the task over in the same worktree, without this conversation">New conversation</button>` : ""}`;
 }
 const toolArg = (input) => {
   for (const k of ["command", "file_path", "pattern", "url", "description", "prompt"]) {
@@ -3497,7 +3564,7 @@ const EDITS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
 function chatTurns(s, v) {
   const items = s?.items ?? [], turns = s?.turns ?? [];
   return turns.map((t, k) => t.who === "user" ? userTurn(t, items[t.item], v)
-    : agentTurn(t, items, v, k === turns.length - 1 && s.state === "working")).join("");
+    : agentTurn(t, items, v, k === turns.length - 1 && s.state === "working", k === turns.length - 1)).join("");
 }
 // chat.PlanNotesPrefix: how the message with your notes on an approved plan begins.
 const PLAN_NOTES = "The plan is approved. Notes from the developer to take into account while carrying it out:";
@@ -3518,12 +3585,31 @@ function userTurn(t, it, v) {
     ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
 }
 const SPARK = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg>`;
-function agentTurn(t, items, v, live) {
-  const blocks = (t.blocks ?? []).map((b) => chatBlock(b, items, v)).join("");
+function agentTurn(t, items, v, live, last) {
+  // The turn's end is its summary (a replayed conversation has no end of its own: the summary closes it).
+  const sum = t.summary && !v.code ? turnSummary(t.summary, v, last) : "";
+  let blocks = (t.blocks ?? []).map((b) => sum && items[b.item]?.kind === "result" && b.kind === "item" ? "" : chatBlock(b, items, v)).join("");
+  if (sum) blocks += sum;
   if (!blocks) return "";
   return `<div class="turn"><span class="av" aria-hidden="true">${SPARK}</span><div class="turn-b">
     <div class="turn-h"><b>Claude</b><span class="time">${hhmm(t.at)}${live && t.at ? ` · <span data-since="${t.at}" data-pre="working ">working ${dur((Date.now() - t.at) / 1000)}</span>` : ""}</span></div>
     ${blocks}</div></div>`;
+}
+// A finished turn in five figures: its time, its cost, the files it changed, its last test run, its commits (and, for
+// the last turn, whether the branch has them pushed).
+function turnSummary(m, v, last) {
+  const cell = (label, value, more = "", cls = "") => `<div class="ts-c"><span>${label}</span><b${cls ? ` class="${cls}"` : ""}>${value}</b>${more ? `<span>${more}</span>` : ""}</div>`;
+  const tests = !m.tests ? cell("Tests", "not run", "", "muted")
+    : m.tests.failed ? cell("Tests", `✗ ${m.tests.failed} failed`, m.tests.passed ? `${m.tests.passed} passed` : "", "bad")
+    : cell("Tests", `✓ ${m.tests.passed}`, "passed", "ok");
+  const b = last ? changesOf.get(v.id)?.branch : null;
+  const pushed = !m.commits || !b ? "" : b.unpushed > 0 || !b.pushed ? "not pushed" : "pushed";
+  return `<div class="turn-sum" aria-label="Turn summary">
+    ${cell("Turn", dur(m.seconds || 0))}
+    ${cell("Spent", m.cost ? `$${m.cost.toFixed(2)}` : "—")}
+    ${cell("Changed", `${m.files} ${plural(m.files, "file", "files")}`, m.add || m.del ? `<span class="add">+${m.add}</span> <span class="del">−${m.del}</span>` : "")}
+    ${tests}
+    ${cell("Commits", String(m.commits), pushed)}</div>`;
 }
 const STEP_ICON = {
   commands: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8"/></svg>`,
@@ -3661,6 +3747,8 @@ function chatItem(it, i, v) {
     }
     case "error":
       return `<div class="notice">${esc(it.text)}</div>`;
+    case "compact":
+      return `<div class="turn-end">Conversation compacted: the agent goes on from its summary</div>`;
     case "image":
       return `<figure class="shot">${pic(it.text, it.output)}<figcaption>Screenshot · ${esc(it.output)}</figcaption></figure>`;
   }

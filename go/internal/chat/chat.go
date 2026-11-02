@@ -24,7 +24,7 @@ import (
 
 // Item is one thing in the conversation, as the board draws it.
 type Item struct {
-	Kind string `json:"kind"` // "user", "text", "tool", "permission", "result", "error", "image" (Text: its link, Output: its name)
+	Kind string `json:"kind"` // "user", "text", "tool", "permission", "result", "error", "image" (Text: its link, Output: its name), "compact" (the conversation was compacted)
 	Text string `json:"text,omitempty"`
 	// A tool call and, once it ran, its result; a permission request for one.
 	ID     string          `json:"id,omitempty"`
@@ -308,6 +308,13 @@ func (s *Session) handle(line []byte) {
 	}
 	switch e.Type {
 	case "system":
+		if e.Subtype == "compact_boundary" {
+			// The conversation was compacted (/compact or by itself): how full the context is now, the next request says.
+			s.mu.Lock()
+			s.context = 0
+			s.mu.Unlock()
+			s.add(Item{Kind: "compact", At: at})
+		}
 		if e.Subtype == "init" && e.SessionID != "" {
 			s.mu.Lock()
 			s.sessionID, s.model = e.SessionID, e.Model
@@ -455,7 +462,12 @@ func (s *Session) handle(line []byte) {
 		}
 		// The turn is over: a request still waiting was dropped with it (an interrupt).
 		s.cancel("")
-		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: e.Cost, At: at})
+		// The turn's own cost; a replayed result (no process) says only the total.
+		cost := e.Cost
+		if s.cmd != nil {
+			cost = turn
+		}
+		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: cost, At: at})
 		s.setState("done")
 		s.mu.Lock()
 		if s.idle != nil {
@@ -962,6 +974,10 @@ func (s *Session) Snapshot() Snapshot {
 // worktree: where the conversation is held, for relative paths ("" when not known).
 func Drawn(snap Snapshot, worktree string) Snapshot {
 	snap.Turns, snap.Progress, snap.Turn = Group(snap.Items, worktree), ProgressOf(snap.Items), statOf(snap.Items)
+	// A conversation nobody runs any more: its last turn is over too.
+	if n := len(snap.Turns); !snap.Live && n > 0 && snap.Turns[n-1].Who == "agent" && snap.Turns[n-1].Summary == nil {
+		snap.Turns[n-1].Summary = summaryOf(snap.Turns, n-1, snap.Items, true)
+	}
 	for _, it := range snap.Items {
 		if it.Kind == "permission" && it.Tool == PlanTool && it.Status == "asked" {
 			var in struct{ Plan string }

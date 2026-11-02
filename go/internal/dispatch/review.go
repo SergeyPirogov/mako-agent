@@ -80,9 +80,7 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	if _, ok := d.Store.Get(id); !ok {
 		return fmt.Errorf("no such task")
 	}
-	if !d.Live(id) {
-		return fmt.Errorf("the agent is not running: press \"Continue\" first")
-	}
+	// A stopped agent is started again with the request (deliver).
 	text, err := d.request(ctx, id, kind)
 	if err != nil {
 		return err

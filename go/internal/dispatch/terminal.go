@@ -18,6 +18,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
@@ -307,17 +308,11 @@ func (d *Dispatcher) resume(id, message string) error {
 	if !orca.HasTranscript(r.Worktree) {
 		// No conversation was kept (the agent never got going, or ran without transcripts): start the task over
 		// in the same worktree.
-		t := d.tracker(r.Task.TrackerID)
-		if t == nil {
-			return fmt.Errorf("tracker %s was removed from the settings", r.Task.TrackerID)
-		}
-		repo, err := d.route(t, r.Task)
+		p, err := d.taskPrompt(r)
 		if err != nil {
 			return err
 		}
-		cfg := d.Config()
-		j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo), Language: cfg.AgentLanguage}
-		prompt, cont = orca.FullPrompt(j, cfg.Orca), false
+		prompt, cont = p, false
 		d.notePrompt(id, prompt)
 	}
 	if err := d.runAgent(id, r.Worktree, r.View, prompt, cont, nil); err != nil {
@@ -328,6 +323,53 @@ func (d *Dispatcher) resume(id, message string) error {
 	} else {
 		d.Log(id, "the agent conversation was not saved: the task was started over in the same worktree")
 	}
+	return nil
+}
+
+// taskPrompt: what the agent starts the task with, as Orca would get it.
+func (d *Dispatcher) taskPrompt(r core.Record) (string, error) {
+	t := d.tracker(r.Task.TrackerID)
+	if t == nil {
+		return "", fmt.Errorf("tracker %s was removed from the settings", r.Task.TrackerID)
+	}
+	repo, err := d.route(t, r.Task)
+	if err != nil {
+		return "", err
+	}
+	cfg := d.Config()
+	j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo), Language: cfg.AgentLanguage}
+	return orca.FullPrompt(j, cfg.Orca), nil
+}
+
+// NewConversation starts the task's agent over in a new conversation, in the same worktree: the context it filled
+// is gone, the work in the branch stays and the agent is told to go on from it.
+func (d *Dispatcher) NewConversation(id string) error {
+	r, ok := d.Store.Get(id)
+	if !ok || !onTerminal(r) || r.Worktree == "" {
+		return fmt.Errorf("the task is not in a Mako terminal")
+	}
+	if !exists(r.Worktree) {
+		return fmt.Errorf("worktree %s was deleted", r.Worktree)
+	}
+	prompt, err := d.taskPrompt(r)
+	if err != nil {
+		return err
+	}
+	prompt += "\n\n" + i18n.TA("agent.fresh", branchOf(r))
+	d.StopTerminal(id)
+	for i := 0; i < 50 && d.Live(id); i++ {
+		time.Sleep(100 * time.Millisecond) // one claude at a time in a worktree
+	}
+	if d.Live(id) {
+		return errors.New("the agent is still closing: try again in a moment")
+	}
+	// Not the old session: the new one names itself once it starts.
+	d.Store.Update(id, func(r *core.Record) { r.SessionID = "" })
+	d.notePrompt(id, prompt)
+	if err := d.runAgent(id, r.Worktree, r.View, prompt, false, nil); err != nil {
+		return err
+	}
+	d.Log(id, "a new conversation was started with the agent")
 	return nil
 }
 
