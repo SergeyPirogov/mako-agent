@@ -38,15 +38,25 @@
 <div id="limit-hold"></div>
 <div class="work" id="work">
   <div class="side">
-    <!-- The search for tasks: when it last looked, look now, pause -->
+    <!-- One row on top: the filter, how the list is grouped, "+" (a new task or chat) -->
+    <div class="side-top">
+      <label class="find"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" data-t-ph="b.filterPh" autocomplete="off" spellcheck="false"></label>
+      <button class="icon-btn" id="group-by" type="button"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+      <button class="icon-btn" id="new-menu" type="button" aria-haspopup="menu" aria-expanded="false" data-t-title="b.new">+</button>
+      <div class="new-pop" id="new-pop" role="menu" hidden>
+        <button id="new-task" role="menuitem" data-t="b.menuTask" hidden>Task</button>
+        <button id="new-chat" role="menuitem" data-t="b.menuChat" data-t-title="b.newChatHint" hidden>Chat</button>
+      </div>
+    </div>
+    <div class="filter" id="filter"><span id="need-chip" hidden></span><span class="scope" id="scope-box"><span class="scope-l" id="scope-l"></span><select id="scope" aria-label="Show"></select></span></div>
+    <nav id="list" aria-label="Tasks"></nav>
+    <!-- The search for tasks: when it last looked, look now, pause, why a task is missing -->
     <div class="side-bar">
       <span class="search" id="search"></span>
       <button class="icon-btn" id="poll" data-t-title="tray.poll"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
       <button class="icon-btn" id="pause"></button>
+      <button class="icon-btn why" id="why-btn" data-t-title="b.whyHint">?</button>
     </div>
-    <div class="new-task" id="new-task-bar"><button id="new-task" hidden data-t="b.newTask">+ Task</button><button id="new-chat" hidden data-t="b.newChat" data-t-title="b.newChatHint">+ Chat</button><button class="ghost" id="why-btn" data-t-title="b.whyHint" data-t="b.why">Why is there no task?</button></div>
-    <div class="filter" id="filter"><span id="need-chip" hidden></span><select id="scope"></select><input id="q" type="search" data-t-ph="b.filter" autocomplete="off" spellcheck="false"></div>
-    <nav id="list" aria-label="Tasks"></nav>
   </div>
   <section id="detail"><div class="empty" data-t="b.pick">Pick a task on the left</div></section>
 </div>
@@ -75,7 +85,7 @@
 // The columns, the tasks' states and the agent's notes, in Mako's language: made again when it changes.
 let COLUMNS = [], LABEL = {}, AGENT_NOTE = {};
 function boardWords() {
-  COLUMNS = ["later", "new", "doing", "blocked", "review", "forme", "done", "failed"].map((c) => [c, t("b.col." + c)]);
+  COLUMNS = ["doing", "blocked", "review", "forme", "new", "failed", "later", "done"].map((c) => [c, t("b.col." + c)]);
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   LABEL = Object.fromEntries(["new", "later", "queued", "starting", "doing", "review", "done", "failed",
     "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"].map((k) => [k, t("b.label." + k)]));
@@ -85,9 +95,17 @@ boardWords();
 // The list's groups folded by a click on their heading (column → folded); "Snoozed", "Done" and "Not done" start folded.
 const FOLDED_BY_DEFAULT = { later: true, done: true, failed: true };
 let folded = (() => { try { return { ...FOLDED_BY_DEFAULT, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { ...FOLDED_BY_DEFAULT }; } })();
-// The list's filter, shown once there are more tasks than fit at a glance.
+// The list's filter.
 let query = "";
-const FILTER_FROM = 15;
+// How the list is grouped, "status" or "project" (remembered), and the projects folded in the second (a click on the heading).
+let groupBy = (() => { try { return localStorage.getItem("mako-group") === "project" ? "project" : "status"; } catch { return "status"; } })();
+let foldedProjects = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-projects") || "[]"); } catch { return []; } })());
+// "Postponed" and "Done" of a project, opened on their own ("project|column").
+const openQuiet = new Set();
+// Where the list was scrolled to: it is drawn again on every refresh, click and fold.
+let listTop = 0;
+// The projects of the board (sorted): each has its colour in the list.
+let liveProjects = [];
 let statsDays = localStorage.getItem("mako-stats-days") || "";
 // "Stats": the tab open and the project counted (none: all), remembered; the cut of "Breakdown" and "Heaviest",
 // and the days shown as a table.
@@ -506,15 +524,15 @@ function render() {
   // Projects are prefixed so none can pass for the archive. (No NUL here: HTML turns it into U+FFFD.)
   const scope = showArchive ? "archive" : project ? "p:" + project : "";
   // A single project would only repeat "All tasks".
-  const options = `<option value="">All tasks ·  ${live.length}</option>` +
-    (projects.length > 1 ? projects.map((p) => `<option value="p:${esc(p)}" title="${esc(p)}">${esc(p.split("/").pop())} · ${counts[p]}</option>`).join("") : "") +
-    (archived ? `<option value="archive">Archive ·  ${archived}</option>` : "");
+  const options = `<option value="">All tasks ${live.length}</option>` +
+    (projects.length > 1 ? projects.map((p) => `<option value="p:${esc(p)}" title="${esc(p)}">${esc(shortProject(p))} ${counts[p]}</option>`).join("") : "") +
+    (archived ? `<option value="archive">Archive ${archived}</option>` : "");
+  liveProjects = projects;
   if ($("scope").dataset.options !== options) { $("scope").innerHTML = options; $("scope").dataset.options = options; }
   $("scope").value = scope;
-  const many = visible().length > FILTER_FROM;
-  if (!many && !$("q").value) query = "";
-  $("scope").hidden = projects.length < 2 && !archived;
-  $("q").hidden = !many && !query;
+  $("scope-l").textContent = $("scope").selectedOptions[0]?.textContent || "";
+  // The menu only when there is something to choose from: several projects or an archive.
+  $("scope-box").hidden = projects.length < 2 && !archived;
   // Narrowed from "Stats" → "Needs attention": a chip says to what, its × shows all the tasks again.
   const need = attention && NEEDS[attention.kind];
   if (!need) attention = null;
@@ -523,7 +541,7 @@ function render() {
   if ($("need-chip").dataset.html !== chip) $("need-chip").innerHTML = $("need-chip").dataset.html = chip;
   $("need-chip").hidden = !need;
   if ($("need-clear")) $("need-clear").onclick = () => { attention = null; render(); };
-  $("filter").hidden = !need && $("scope").hidden && $("q").hidden;
+  $("filter").hidden = !need && $("scope-box").hidden;
   $("q").oninput = () => { query = $("q").value; render(); };
   $("scope").onchange = () => {
     const v = $("scope").value;
@@ -538,42 +556,116 @@ function render() {
     const hay = `${r.task.title} ${r.id} ${r.task.project}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   });
-  let html = "";
-  for (const [col, title] of COLUMNS) {
-    const rank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
-    // "New": the clear and small ones first, the not estimated last.
-    const newRank = (r) => { const e = estimated(r); return e ? SIZE_RANK[e.size] * 5 + (5 - (e.clarity?.value || 0)) : 99; };
-    // A held-up task keeps its column for its actions, but is listed under "Blocked".
-    const items = rows.filter((r) => groupOf(r) === col).sort((a, b) => (col === "new" || col === "later" ? newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
-    // Others' MRs where I am a reviewer: open ones in "Reviews for me", finished ones in "Done".
-    const asks = !attention && (col === "forme" || col === "done") ? reviewAsks(words).filter((q) => (q.state === "open") === (col === "forme")) : [];
-    if (!items.length && !asks.length) continue;
-    // While filtering, every match shows: a folded group would hide what was asked for.
-    const fold = !words.length && !attention && !!folded[col];
-    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length + asks.length}</span></button>`;
-    for (const q of fold ? [] : asks) html += reviewAskRow(q);
-    for (const r of fold ? [] : items) {
-      const st = state(r);
-      // The card shows the task's status; its number is in the tooltip and the task's panel. A plain task needs no
-      // "Task" badge in the narrow list (a bug keeps "Bug"): the room goes to the status.
-      const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
-      html += `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
-        <span class="t">${esc(r.task.title)}</span>
-        <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${trackerMark(r.task)}${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${reviewBadge(r)}${checksBadge(r)}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
-    }
-    html += `</div>`;
-  }
+  // Others' MRs where I am a reviewer: open ones in "Reviews for me", finished ones in "Done".
+  const entries = rows.map((r) => ({ p: r.task.project, g: groupOf(r), r, html: taskRow(r) }));
+  if (!attention) for (const q of reviewAsks(words)) entries.push({ p: q.project, g: q.state === "open" ? "forme" : "done", ask: true, html: reviewAskRow(q) });
+  // While filtering, every match shows: a folded group would hide what was asked for.
+  const showAll = !!words.length || !!attention;
+  const html = groupBy === "project" ? listByProject(entries, showAll) : listByStatus(entries, showAll);
   $("new-task").hidden = !newTaskTargets().length;
   $("new-chat").hidden = !(data?.trackers || []).length;
+  $("new-menu").hidden = $("new-task").hidden && $("new-chat").hidden;
+  $("new-menu").ariaLabel = $("new-menu").title = t("b.new");
+  $("why-btn").ariaLabel = t("b.why");
+  $("q").title = t("b.filterHint");
+  const byProject = groupBy === "project";
+  $("group-by").classList.toggle("on", byProject);
+  $("group-by").setAttribute("aria-pressed", byProject);
+  $("group-by").ariaLabel = $("group-by").title = t(byProject ? "b.groupProject" : "b.groupStatus");
+  // The list is drawn again on every refresh, click and fold: it keeps its place (a list hidden by the open task on a phone keeps the last one it had).
+  if ($("list").clientHeight) listTop = $("list").scrollTop;
   $("list").innerHTML = html || `<div class="empty">${words.length || attention ? "Nothing found" : showArchive ? "The archive is empty" : "No tasks. Mako checks the trackers and will show new tasks assigned to you here."}</div>`;
+  $("list").scrollTop = listTop;
   for (const b of $("list").querySelectorAll(".item")) b.onclick = () => select(b.dataset.id);
   for (const b of $("list").querySelectorAll(".group")) b.onclick = () => {
-    if (words.length || attention) return;
+    if (showAll) return;
     folded[b.dataset.col] = !folded[b.dataset.col];
     try { localStorage.setItem("mako-folded", JSON.stringify(folded)); } catch {}
     render();
   };
+  for (const b of $("list").querySelectorAll(".proj-head")) b.onclick = () => {
+    if (showAll) return;
+    foldedProjects.has(b.dataset.proj) ? foldedProjects.delete(b.dataset.proj) : foldedProjects.add(b.dataset.proj);
+    try { localStorage.setItem("mako-folded-projects", JSON.stringify([...foldedProjects])); } catch {}
+    render();
+  };
+  for (const b of $("list").querySelectorAll(".quiet")) b.onclick = () => {
+    openQuiet.has(b.dataset.key) ? openQuiet.delete(b.dataset.key) : openQuiet.add(b.dataset.key);
+    render();
+  };
   renderDetail();
+}
+
+// ---- The list on the left ----
+const shortProject = (p) => p.split("/").pop();
+const PROJECT_HUES = ["#2f6fde", "#2f9e5b", "#c27c0e", "#7b61d9", "#d14343", "#0f8b8d"];
+const projectDot = (p, cls = "p-dot") => `<i class="${cls}" style="background:${PROJECT_HUES[Math.max(0, liveProjects.indexOf(p)) % PROJECT_HUES.length]}"></i>`;
+const showTrackerMark = () => (data?.trackers || []).length > 1;
+// A task's row: its title (two lines at most), where it stands, the time on the right.
+function taskRow(r) {
+  const st = state(r);
+  // The card shows the task's status; its number is in the tooltip and the task's panel. A plain task needs no
+  // "Task" badge in the narrow list (a bug keeps "Bug"): the room goes to the status.
+  const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
+  return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
+    <span class="t">${esc(r.task.title)}</span>
+    <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${reviewBadge(r)}${checksBadge(r)}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span></button>`;
+}
+// The order inside a group: MRs to review first; the tasks of an agent that waits for you first; "New": the clear and small ones first, the not estimated last.
+const attnRank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
+const newRank = (r) => { const e = estimated(r); return e ? SIZE_RANK[e.size] * 5 + (5 - (e.clarity?.value || 0)) : 99; };
+const entryRank = (e) => e.ask ? -1 : e.g === "new" || e.g === "later" ? newRank(e.r) : e.g === "doing" ? attnRank(e.r) : 0;
+const byProjectOrder = (a, b) => liveProjects.indexOf(a) - liveProjects.indexOf(b);
+
+// By status: a group per state in the order of the work; with several projects in a group, a thin label per project.
+function listByStatus(entries, showAll) {
+  let html = "";
+  for (const [col, title] of COLUMNS) {
+    const items = entries.filter((e) => e.g === col).sort((a, b) => entryRank(a) - entryRank(b));
+    if (!items.length) continue;
+    const fold = !showAll && !!folded[col];
+    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
+    if (!fold) {
+      const ps = [...new Set(items.map((e) => e.p))].sort(byProjectOrder);
+      if (ps.length < 2) html += items.map((e) => e.html).join("");
+      else for (const p of ps) html += `<div class="sub" title="${esc(p)}">${projectDot(p, "p-dot sm")}${esc(shortProject(p))}</div>` + items.filter((e) => e.p === p).map((e) => e.html).join("");
+    }
+    html += `</div>`;
+  }
+  return html;
+}
+
+// By project: a group per project, its tasks in the order of the work; "Postponed" and "Done" each a folded line of its own.
+const QUIET = ["later", "done"], SUMMARY = { doing: "at work", blocked: "blocked", review: "in review", forme: "to review", new: "new", failed: "not done" };
+function listByProject(entries, showAll) {
+  const by = new Map();
+  for (const e of entries) by.set(e.p, [...(by.get(e.p) || []), e]);
+  const order = COLUMNS.map(([c]) => c);
+  const live = (p) => by.get(p).filter((e) => !QUIET.includes(e.g)).length > 0;
+  // The projects with something in work first.
+  const projects = [...by.keys()].sort((a, b) => live(b) - live(a) || shortProject(a).localeCompare(shortProject(b)));
+  let html = "";
+  for (const p of projects) {
+    const all = by.get(p).sort((a, b) => order.indexOf(a.g) - order.indexOf(b.g) || entryRank(a) - entryRank(b));
+    const active = all.filter((e) => !QUIET.includes(e.g)), isFolded = foldedProjects.has(p) && !showAll;
+    const count = (g) => all.filter((e) => e.g === g).length;
+    const summary = order.filter((g) => SUMMARY[g] && count(g)).map((g) => `${count(g)} ${SUMMARY[g]}`).join(" · ") || "nothing in work";
+    const dir = p.split("/").slice(0, -1).join("/");
+    html += `<div class="group-box proj${isFolded ? " folded" : ""}"><button class="proj-head" data-proj="${esc(p)}" aria-expanded="${!isFolded}" title="${esc(p)}">${ICON.chevron}${projectDot(p)}<b>${esc(shortProject(p))}</b>`
+      + `<span class="${isFolded ? "p-sum" : "p-path"}">${esc(isFolded ? summary : dir)}</span><span class="n">${all.length}</span></button>`;
+    if (!isFolded) {
+      html += active.map((e) => e.html).join("") || `<div class="p-none">${t("b.nothingInWork")}</div>`;
+      for (const g of QUIET) {
+        const rs = all.filter((e) => e.g === g);
+        if (!rs.length) continue;
+        const key = `${p}|${g}`, isOpen = showAll || openQuiet.has(key);
+        html += `<button class="quiet${isOpen ? " open" : ""}" data-key="${esc(key)}" aria-expanded="${isOpen}">${ICON.chevron}${COLUMNS.find(([c]) => c === g)[1]}<span class="n">${rs.length}</span></button>`;
+        if (isOpen) html += rs.map((e) => e.html).join("");
+      }
+    }
+    html += `</div>`;
+  }
+  return html;
 }
 
 // "Reviews for me": the MRs to review the list shows now (not in the archive; by the project and the filter).
@@ -590,7 +682,7 @@ function reviewAskRow(q) {
   const since = q.state === "open" ? q.since : q.doneAt;
   return `<button class="item rq ${q.id === selected ? "sel" : ""}" data-id="${esc(q.id)}" title="${esc(q.project)}${esc(q.ref)} · ${esc(q.title)}">
     <span class="t">${esc(q.title)}</span>
-    <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${trackerMark(q)}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="New commits since you last looked">updated</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Waiting " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
+    <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${showTrackerMark() ? trackerMark(q) : ""}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="New commits since you last looked">updated</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Waiting " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
 }
 
 // The open MR to review as its code host has it now ({check, files, item} or {error}), and the files unfolded.
@@ -1681,6 +1773,22 @@ const openNewTask = () => {
   $("nt-title")?.focus();
 };
 $("new-task").onclick = openNewTask;
+// The list by status or by project: the choice is remembered.
+$("group-by").onclick = () => {
+  groupBy = groupBy === "project" ? "status" : "project";
+  try { localStorage.setItem("mako-group", groupBy); } catch {}
+  render();
+};
+// "+": a menu of a new task or a chat; with only one of them to choose, it opens at once.
+const newPop = (on) => { $("new-pop").hidden = !on; $("new-menu").setAttribute("aria-expanded", on); };
+$("new-menu").onclick = () => {
+  const ways = [$("new-task"), $("new-chat")].filter((b) => !b.hidden);
+  if (ways.length === 1) return ways[0].click();
+  newPop($("new-pop").hidden);
+};
+$("new-pop").onclick = () => newPop(false);
+document.addEventListener("click", (e) => { if (!$("new-pop").hidden && !e.target.closest("#new-pop, #new-menu")) newPop(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("new-pop").hidden) { newPop(false); $("new-menu").focus(); } });
 
 function showNewTask() {
   const targets = newTaskTargets(), several = new Set(targets.map((x) => x.tracker)).size > 1;

@@ -80,42 +80,82 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .update-head a.button:hover { opacity: .9; }
 .search { color: var(--mute); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
 .search.err { color: var(--err); }
-.filter { flex: none; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-.filter[hidden] { display: none; }
-.filter { display: flex; flex-direction: column; gap: 6px; }
-.filter [hidden] { display: none; }
-.filter input { width: 100%; height: 28px; padding: 0 8px; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--card);
-  border: 1px solid var(--line); border-radius: 7px; }
-.filter select { width: 100%; height: 28px; padding: 0 6px; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--card);
-  border: 1px solid var(--line); border-radius: 7px; }
+/* The top of the list: one row, the filter, how the list is grouped, "+"; under it the menu of what the list shows. */
+.side-top { position: relative; flex: none; display: flex; gap: 6px; padding: 8px 8px 6px; }
+.find { flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--faint); }
+.find:focus-within { border-color: var(--accent); }
+.find input { flex: 1; min-width: 0; height: 28px; padding: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 13px; color: var(--fg); }
+.find input::-webkit-search-cancel-button { cursor: pointer; }
+.side-top .icon-btn { flex: none; width: 30px; height: 30px; border-radius: 8px; color: var(--mute); }
+#new-menu { font-size: 18px; line-height: 1; font-weight: 500; }
+#group-by.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+.new-pop { position: absolute; z-index: 5; top: 40px; right: 8px; min-width: 120px; padding: 4px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; background: var(--card); box-shadow: 0 6px 20px rgba(0, 0, 0, .15); }
+.new-pop[hidden], .new-pop button[hidden] { display: none; }
+.new-pop button { height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 13px; color: var(--fg); }
+.new-pop button:hover { background: var(--hover); }
+.filter { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 0 8px 8px; }
+.filter[hidden], .filter [hidden] { display: none; }
+/* The select sits invisible over a label, so the arrow follows the text. */
+.scope { position: relative; display: flex; align-items: center; height: 30px; padding: 0 26px 0 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--fg);
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%236f7277' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center; }
+.scope:hover { background-color: var(--hover); }
+.scope:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scope-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 12.5px; }
 .chip { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--mute); }
 .chip.on { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 .chip .n { opacity: .65; margin-left: 4px; }
 .work { flex: 1; display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 0; }
 .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-.side-bar { height: 36px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--line); }
+/* The foot of the list: when the trackers were checked, check now, pause, "?" (why a task is missing). */
+.side-bar { height: 34px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px 0 12px; border-top: 1px solid var(--line); }
 .side-bar .icon-btn { width: 26px; height: 26px; }
-#list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 24px; }
+.side-bar .why { padding: 0; font-weight: 600; color: var(--mute); }
+#list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 0 24px; border-top: 1px solid var(--line); }
 /* A group's heading sticks to the top while its group scrolls by; a click folds the group. */
-.group { position: sticky; top: 0; z-index: 1; width: 100%; height: 30px; align-items: flex-end; padding: 0 12px 4px 8px; font-size: 11.5px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: .05em; color: var(--mute); display: flex; gap: 4px; border: 0; border-radius: 0; background: var(--bg); text-align: left; }
+.group { position: sticky; top: 0; z-index: 1; width: 100%; height: 32px; align-items: center; padding: 0 12px 0 8px; font-size: 12px; font-weight: 600;
+  color: var(--mute); display: flex; gap: 4px; border: 0; border-radius: 0; background: var(--bg); text-align: left; }
 .group:hover { background: var(--bg); color: var(--fg); }
 .group:active { transform: none; }
-.group .n { color: var(--faint); margin-left: 2px; }
-.group .chev { flex: none; align-self: center; margin-top: 8px; transition: transform .15s; }
+.group .n { color: var(--faint); margin-left: auto; font-weight: 500; }
+.group .chev { flex: none; transition: transform .15s; }
 .group.folded .chev { transform: rotate(-90deg); }
-.item { display: flex; flex-direction: column; justify-content: center; gap: 3px; width: 100%; min-height: 48px; text-align: left; border: 0; border-radius: 0;
-  background: none; padding: 5px 10px; border-left: 2px solid transparent; }
+/* By project: a group per project; its heading folds it, folded it says what is in it. */
+.proj { padding-bottom: 6px; }
+.proj + .proj { border-top: 1px solid var(--line); }
+.proj.folded { padding-bottom: 0; }
+.proj-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; height: 34px; padding: 0 12px 0 8px; border: 0; border-radius: 0; background: var(--bg); color: var(--fg); font-size: 12.5px; text-align: left; }
+.proj-head:hover { background: var(--hover); }
+.proj-head:active { transform: none; }
+.proj-head .chev { flex: none; color: var(--faint); transition: transform .15s; }
+.proj.folded .proj-head .chev { transform: rotate(-90deg); }
+.proj-head b { font-weight: 600; white-space: nowrap; }
+.proj-head .p-path, .proj-head .p-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--faint); }
+.proj-head .p-sum { color: var(--mute); }
+.proj-head .n { margin-left: auto; flex: none; color: var(--faint); font-weight: 500; }
+.p-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.p-dot.sm { width: 7px; height: 7px; }
+.p-none { padding: 2px 12px 6px; font-size: 12px; color: var(--faint); }
+.quiet { display: flex; align-items: center; gap: 4px; width: 100%; height: 28px; padding: 0 12px 0 8px; border: 0; border-radius: 0; background: none; font-size: 12px; color: var(--mute); text-align: left; }
+.quiet:hover { color: var(--fg); background: none; }
+.quiet:active { transform: none; }
+.quiet .chev { flex: none; transform: rotate(-90deg); transition: transform .15s; }
+.quiet.open .chev { transform: none; }
+.quiet .n { margin-left: auto; color: var(--faint); font-weight: 500; }
+/* By status, several projects in a group: a thin label per project. */
+.sub { display: flex; align-items: center; gap: 6px; height: 24px; padding: 4px 12px 0 26px; font-size: 11.5px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item { display: flex; flex-direction: column; justify-content: center; gap: 4px; width: 100%; min-height: 0; text-align: left; border: 0; border-radius: 0;
+  background: none; padding: 7px 12px 8px 10px; border-left: 2px solid transparent; }
 .item:hover { background: var(--hover); }
 .item:active { transform: none; }
 .item.sel { background: var(--sel); border-left-color: var(--accent); }
-.item .t { display: block; overflow-wrap: anywhere; white-space: normal; line-height: 18px; }
+.item .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: normal; line-height: 18px; }
 .item .m { display: flex; gap: 6px; align-items: center; height: 16px; font-size: 11.5px; color: var(--mute); min-width: 0; }
 .item .m > * { flex: none; white-space: nowrap; }
 .item .m > .say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .item .m > .say.warn { color: var(--warn); font-weight: 600; }
 .item .m > .say.err { color: var(--err); }
-.item .ago { font-variant-numeric: tabular-nums; }
+.item .ago { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
 .item .tracker-mark { display: inline-flex; color: var(--fg); opacity: .8; }
 .item .tracker-mark svg { width: 13px; height: 13px; }
 .item.later { opacity: .55; }
@@ -1109,8 +1149,11 @@ details.journal .log { margin-top: 8px; }
   .paused-row .pt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   [data-pause-tracker], [data-resume-tracker] { flex: none; margin-left: 0; height: 32px; }
   /* The list: room to tap. */
-  .item { height: 56px; }
-  .new-task button { height: 36px; }
+  .item { min-height: 56px; }
+  .side-top .icon-btn { width: 44px; height: 44px; }
+  .find, .scope { height: 44px; }
+  .new-pop { top: 56px; }
+  .new-pop button { height: 40px; }
   /* The task, a screen of its own: «← Задачі» stays on top. */
   section { padding: 0 12px calc(40px + env(safe-area-inset-bottom)); }
   .back { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; width: calc(100% + 24px); height: 44px; margin: 0 -12px 4px;
@@ -1163,7 +1206,7 @@ details.journal .log { margin-top: 8px; }
   .chat-status { padding: 4px 12px; }
   .chat-progress { padding: 6px 12px; }
   .pg-bar { width: 72px; }
-  input, textarea, select, .chat-box textarea, .filter input, .filter select { font-size: 16px; }
+  input, textarea, select, .chat-box textarea, .filter input, .filter select, .find input { font-size: 16px; }
   .filter input, .filter select { height: 36px; }
   .menu-pop { right: auto; left: 0; max-width: calc(100vw - 24px); }
 }
@@ -1215,12 +1258,6 @@ details.menu > summary:hover, details.menu[open] > summary { background: var(--h
 .start-steps li.next { color: var(--faint); }
 .start-steps .t { margin-left: 8px; font-weight: 400; color: var(--mute); font-variant-numeric: tabular-nums; }
 
-/* «+ Задача»: the button over the list and the form where a card goes. */
-.new-task { flex: none; display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-.new-task button { flex: 1; height: 28px; padding: 0 8px; font-size: 12.5px; white-space: nowrap; }
-.new-task button.ghost { flex: none; }
-.new-task button[hidden] { display: none; }
-.new-task button[hidden] + button.ghost { flex: 1; }
 
 /* «Запитати про код»: the project's questions on the left, the chat, the file an answer points to on the right. */
 section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -1247,10 +1284,6 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .fc-item:hover .fc-remove, .fc-item.on .fc-remove, .fc-remove:focus-visible { opacity: 1; }
 .fc-remove:hover { color: var(--fg); }
 #fc-sub { overflow-wrap: anywhere; }
-/* «+ Task», «+ Chat» and «Why is a task missing?» share the bar: the last one gives way. */
-.new-task #new-chat { flex: none; }
-.new-task #new-task:not([hidden]) { flex: none; }
-.new-task button.ghost { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ca-chat .chat-hint #ca-task { height: 24px; font-size: 12px; }
 .ca-chat .chat-hint #ca-task[hidden] { display: none; }
 .src-link { font-family: var(--mono); }
