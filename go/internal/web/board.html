@@ -1259,8 +1259,10 @@ function mrCard(r, term) {
       // "1/2": the jobs passed of all of them (an allowed failure counts as passed); the word when there are none.
       const jobs = c.jobs || [], passed = jobs.filter((j) => j.status === "success" || j.status === "failed" && j.allowFailure).length;
       const head = `<a class="ci-st ${icon}" href="${esc(c.ciUrl || "#")}" target="_blank" rel="noopener" title="${esc(text)}: ${jobs.length ? `${passed} of ${jobs.length} jobs passed · ` : ""}open the pipeline">${jobs.length ? `${passed}/${jobs.length}` : esc(word)}</a>`;
-      const body = (jobsHTML(c.jobs) || row(icon, text, c.ciUrl)) + ((b) => b ? `<div class="mr-actions">${b}</div>` : "")(c.ci === "failed" && c.failed.length ? fix("ci", "The agent will fix CI in the terminal") : "");
-      rows += `<div class="mr-sec"><div class="mr-sec-h"><span class="files-h-t">CI</span>${head}</div>${body}</div>`;
+      const body = (jobsHTML(c.jobs) || row(icon, text, c.ciUrl)) ;
+      // CI failed: the agent's fix, the blue sparkle, next to the count.
+      const fx = c.ci === "failed" && c.failed.length ? fix("ci", "The agent will fix CI in the terminal") : "";
+      rows += `<div class="mr-sec"><div class="mr-sec-h ci-h"><span class="files-h-t">CI</span>${head}${fx}</div>${body}</div>`;
     } else rows += sec("CI", row("idle", "No CI"));
     let merging = "";
     if (c.threads.length) {
