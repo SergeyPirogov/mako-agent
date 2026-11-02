@@ -464,6 +464,14 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .mr-advice.past .mr-adv b { font-size: 12px; font-weight: 500; color: var(--mute); }
 .mr-advice.past .mr-why { color: var(--faint); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .mr-advice.past .mi { margin-top: 2px; opacity: .6; }
+/* "Check it yourself": what the agent advises you to look at, after the reviewer agent */
+.mr-advice.self { margin-top: 6px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 9%, var(--card)); }
+.mr-advice.self .mr-adv { padding: 0; }
+.mr-advice.self .mr-why { color: var(--fg); opacity: .8; }
+.mr-adv-a { margin-top: 6px; display: flex; gap: 6px; }
+.mr-adv-a button { height: 26px; padding: 0 10px; font-size: 12.5px; }
+.mr-advice.self .mr-adv-a button { background: var(--card); border-color: var(--line); color: var(--fg); }
+.mi.eye { color: var(--warn); }
 .mi { flex: none; }
 .mi.bad { color: var(--err); } .mi.ok { color: var(--ok); } .mi.run { color: var(--accent); } .mi.idle { color: var(--faint); } .mi.talk { color: var(--warn); }
 .fix-btn { width: 26px; height: 26px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0;
