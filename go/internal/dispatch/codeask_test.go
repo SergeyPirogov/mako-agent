@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -394,5 +395,46 @@ func TestRemoveQuestion(t *testing.T) {
 	}
 	if err := d.RemoveQuestion("chat-x"); err == nil {
 		t.Fatal("deleted what is not a question")
+	}
+}
+
+func TestDoneQuestion(t *testing.T) {
+	d, _, _ := setup(t)
+	cfg := *d.Config()
+	cfg.StateDir = t.TempDir()
+	d.Cfg = &cfg
+	key := "grp/app"
+	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
+		return append(all,
+			CodeThread{ID: "ask-one", Project: key, Title: "one", At: 1, Session: "s1"},
+			CodeThread{ID: "ask-two", Project: key, Title: "two", At: 2})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DoneQuestion("ask-one", " #42 "); err != nil {
+		t.Fatal(err)
+	}
+	var one, two CodeThread
+	for _, th := range d.CodeThreads(key) {
+		if th.ID == "ask-one" {
+			one = th
+		} else {
+			two = th
+		}
+	}
+	if one.Ticket != "#42" || one.At != 1 || one.Session != "s1" {
+		t.Fatalf("the done chat: %+v", one)
+	}
+	if two.Ticket != "" {
+		t.Fatalf("the other chat is marked: %+v", two)
+	}
+	b, _ := json.Marshal(two)
+	if strings.Contains(string(b), "ticket") {
+		t.Fatalf("an open chat has a ticket in its JSON: %s", b)
+	}
+	for _, c := range []struct{ id, ticket string }{{"ask-one", " "}, {"ask-none", "#1"}, {"chat-x", "#1"}} {
+		if err := d.DoneQuestion(c.id, c.ticket); err == nil {
+			t.Fatalf("marked done %+v", c)
+		}
 	}
 }

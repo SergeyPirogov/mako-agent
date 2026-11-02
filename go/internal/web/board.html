@@ -77,6 +77,8 @@
     </div>
   </form>
 </dialog>
+<!-- "Create ticket" / "Make a task" in a chat about code: the new-task form over the chat, which stays open. -->
+<dialog id="ca-ticket-dlg" aria-label="New task"><div id="ca-ticket-form"></div></dialog>
 <script src="/theme.js"></script>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
@@ -1818,13 +1820,14 @@ $("new-pop").onclick = () => newPop(false);
 document.addEventListener("click", (e) => { if (!$("new-pop").hidden && !e.target.closest("#new-pop, #new-menu")) newPop(false); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("new-pop").hidden) { newPop(false); $("new-menu").focus(); } });
 
-function showNewTask() {
+// The new-task form, in root: the page's own (showNewTask) or the dialog over a chat about code. It creates the task and
+// calls onCreated(res) — what comes next is the caller's. root has no "← Tasks" button unless onBack is given.
+function taskForm(root, { draft, onCreated, onCancel, onBack }) {
   const targets = newTaskTargets(), several = new Set(targets.map((x) => x.tracker)).size > 1;
   // The project the list is filtered by comes first.
-  const draft = taskDraft; taskDraft = null;
   const first = Math.max(0, draft ? targets.findIndex((x) => x.tracker === draft.tracker && x.project === draft.project) : targets.findIndex((x) => x.project === project));
   const options = targets.map((x, i) => `<option value="${i}" ${i === first ? "selected" : ""}>${esc(x.project)}${several ? ` · ${esc(x.name)} (${esc(x.tracker)})` : ""}</option>`).join("");
-  $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button>
+  root.innerHTML = `${onBack ? `<button class="ghost back" id="back">← Tasks</button>` : ""}
     <form class="new-form nt-form" id="new-form">
       <div class="nt-head">
         <h1>New task</h1>
@@ -1848,8 +1851,8 @@ function showNewTask() {
         <div class="nt-actions"><button type="button" id="nt-cancel">Cancel</button><button type="submit" class="primary" id="nt-submit">Create</button></div>
       </div>
     </form>`;
-  const close = () => { newOpen = false; render(); };
-  $("back").onclick = $("nt-cancel").onclick = close;
+  if (onBack) $("back").onclick = onBack;
+  $("nt-cancel").onclick = onCancel;
   if (draft) { $("nt-title").value = draft.title; $("nt-desc").value = draft.desc; }
   const target = () => targets[+$("nt-project").value];
   const fail = (msg) => { $("nt-error").textContent = msg; $("nt-error").hidden = !msg; };
@@ -1874,10 +1877,18 @@ function showNewTask() {
       return fail(res.error || "Could not create the task");
     }
     if (draft?.source) rememberTicket(draft.source, draft.draftTitle, res.id);
+    await onCreated(res);
+  };
+}
+
+function showNewTask() {
+  const draft = taskDraft; taskDraft = null;
+  const close = () => { newOpen = false; render(); };
+  taskForm($("detail"), { draft, onBack: close, onCancel: close, onCreated: async (res) => {
     newOpen = false;
     await load();
     select(res.id);
-  };
+  } });
 }
 
 // "Why is there no task?": a link to an issue; Mako checks it the way its search does and says what keeps it away.
@@ -2049,6 +2060,8 @@ async function showCode() {
     if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
     const made = e.target.closest("[data-task]");
     if (made) { e.preventDefault(); code = null; select(made.dataset.task); return; }
+    if (e.target.closest("[data-open-ticket]")) { openMade(code.ticket); return; }
+    if (e.target.closest("[data-ca-delete]")) { removeQuestion(code.thread); return; }
     // The agent's question: an option, or your own words.
     if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(code.thread)}`, pollCode)) return;
     const src = e.target.closest("[data-src]");
@@ -2059,17 +2072,7 @@ async function showCode() {
   };
   $("ca-threads").onclick = async (e) => {
     const x = e.target.closest("[data-ca-remove]");
-    if (x) {
-      e.stopPropagation();
-      const v = code, id = x.dataset.caRemove;
-      const t = v.threads?.find((t) => t.id === id);
-      if (!confirm(`Delete the question "${t?.title ?? ""}" from the history?`)) return;
-      const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
-      if (!r.ok) alert(r.error || "Failed");
-      if (v !== code) return;
-      if (id === v.thread) openThread(""); else loadThreads();
-      return;
-    }
+    if (x) { e.stopPropagation(); removeQuestion(x.dataset.caRemove); return; }
     const b = e.target.closest("[data-thread]");
     if (b) openThread(b.dataset.thread);
   };
@@ -2226,13 +2229,51 @@ function ticketCard(d, i, thread) {
       ${done ? `<button type="button" disabled>Ticket created</button>` : `<button type="button" class="primary" data-ticket="${i}">Create ticket</button>`}</div></div>`;
 }
 
-// "Create ticket": the agent's draft goes to the new task form, to be edited, given a tracker and created.
+// "Create ticket": the agent's draft goes to the new task form over the chat, to be edited, given a tracker and created.
+// The chat stays open; once the task exists it is marked done (see openTicketDialog).
 function toTicket(d, i) {
   const p = code.projects.find((x) => x.key === code.project);
-  taskDraft = { source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project };
+  openTicketDialog({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project });
+}
+
+// The form in a dialog over the chat. A task made, the chat is marked done with its id and stays: the developer opens
+// the task only if they want to.
+function openTicketDialog(draft) {
+  const v = code, thread = v.thread, dlg = $("ca-ticket-dlg"), box = $("ca-ticket-form");
+  const close = () => { dlg.close(); box.innerHTML = ""; };
+  taskForm(box, { draft, onCancel: close, onCreated: async (res) => {
+    close();
+    const r = !thread ? { ok: false, error: "the chat has no id yet" } : await fetch(`/api/code/done?id=${encodeURIComponent(thread)}&ticket=${encodeURIComponent(res.id)}`, { method: "POST" })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    if (!r.ok) toast(`Task ${res.id} created, but the chat was not marked done: ${r.error}`, true);
+    await load();
+    if (v !== code) return;
+    const t = v.threads?.find((x) => x.id === thread);
+    if (r.ok && t) t.ticket = res.id;
+    if (v.thread === thread) renderCode();
+    loadThreads();
+  } });
+  dlg.onclose = () => { box.innerHTML = ""; };
+  dlg.showModal();
+  $("nt-title").focus();
+}
+
+// The task made from the chat: the board goes to it, only on a click.
+function openMade(id) {
+  if (!id) return;
   code = null;
-  newOpen = "task";
-  render();
+  select(id);
+}
+
+// "×" in the history and "Delete question" in a done chat: the question goes, with its agent and pictures.
+async function removeQuestion(id) {
+  const v = code;
+  const t = v.threads?.find((t) => t.id === id);
+  if (!confirm(`Delete the question "${t?.title ?? ""}" from the history?`)) return;
+  const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+  if (!r.ok) alert(r.error || "Failed");
+  if (v !== code) return;
+  if (id === v.thread) openThread(""); else loadThreads();
 }
 
 // The project's latest question, to go on with; "New question" starts another.
@@ -2253,10 +2294,12 @@ async function loadThreads() {
   const r = await getJSON(`/api/code/threads?project=${encodeURIComponent(v.project)}`);
   if (v !== code || !$("ca-threads")) return;
   v.threads = r.threads ?? [];
-  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}">
-      <span>${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
+  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}${t.ticket ? " done" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}${t.ticket ? ` — done, task ${esc(t.ticket)}` : ""}">
+      <span>${t.ticket ? "✓ " : ""}${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
       <button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button></div>`).join("")
     : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
+  // The thread's mark came (or went) with the list: the banner and the draft cards follow.
+  if ((v.threads.find((t) => t.id === v.thread)?.ticket ?? "") !== (v.ticket ?? "")) renderCode();
 }
 
 async function pollCode() {
@@ -2278,7 +2321,10 @@ function renderCode() {
   const atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
   const items = s?.items ?? [];
   v.drafts = {};
-  v.list.innerHTML = `<div class="chat-col">${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, snap: s }) ||
+  v.ticket = v.threads?.find((t) => t.id === v.thread)?.ticket ?? "";
+  const done = v.ticket ? `<div class="ca-done"><span>✓ Chat is done: task <b>${esc(v.ticket)}</b> was created. You can still ask more here.</span><span class="spacer"></span>
+    <button type="button" data-open-ticket>Open task</button><button type="button" data-ca-delete>Delete question</button></div>` : "";
+  v.list.innerHTML = `<div class="chat-col">${done}${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, snap: s, ticket: v.ticket }) ||
       `<div class="files-empty">${v.thread ? "Loading the conversation…" : "Ask a question about the project's code: the agent will find the answer and show the places in the code."}</div>`}
     ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}</div>`;
   linkSources(v.list);
@@ -2335,10 +2381,7 @@ function toTask() {
   // The agent's ticket draft is not part of the answer: "Create ticket" is its way to a task.
   const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
     .map((it) => it.kind === "user" ? `**Question:** ${it.text}` : ticketOf(it.text).text.trim()).filter(Boolean).join("\n\n");
-  taskDraft = { title, desc: `${desc}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project };
-  code = null;
-  newOpen = "task";
-  render();
+  openTicketDialog({ title, desc: `${desc}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
 // A pasted screenshot goes to the tracker; a placeholder stands in the text until its link comes back.
