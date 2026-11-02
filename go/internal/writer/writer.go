@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/contextstat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -228,11 +229,17 @@ func clip(diff string) string {
 	return diff
 }
 
+// clipTo: s cut to n bytes at most, on a character's edge, with "…" when cut (a cut in the middle of a Cyrillic letter
+// left a broken character at the end).
 func clipTo(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	if len(s) <= n {
+		return s
 	}
-	return s
+	cut := n - len("…")
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 // TaskSummary: what the task came to, in Mako's language, for the card (and the issue comment): from the agent's last
