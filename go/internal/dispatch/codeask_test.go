@@ -347,3 +347,52 @@ func TestQuestionWhileSetup(t *testing.T) {
 		t.Fatalf("%v %+v", ok, snap)
 	}
 }
+
+// Deleting a question: it leaves the history for good and keeps the others, its agent stops, its pictures go.
+func TestRemoveQuestion(t *testing.T) {
+	d, _, _ := setup(t)
+	cfg := *d.Config()
+	cfg.StateDir = t.TempDir()
+	d.Cfg = &cfg
+	key := "grp/app"
+	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
+		return append(all,
+			CodeThread{ID: "ask-one", Project: key, Title: "one", At: 1},
+			CodeThread{ID: "ask-two", Project: key, Title: "two", At: 2})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.Attach("ask-one", "pic.png", []byte("png")); err != nil {
+		t.Fatal(err)
+	}
+	// Its agent is at work: a stand-in that never ends until stopped.
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\nread init\nsleep 60\n"), 0o755)
+	s := chat.Start(chat.Options{ID: "ask-one", Worktree: t.TempDir(), Command: bin, Prompt: "q", Gate: codeGate})
+	d.Chats.Put(s)
+
+	if err := d.RemoveQuestion("ask-one"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-s.Done():
+	default:
+		t.Fatal("the agent of the deleted question is still running")
+	}
+	if d.Chats.Get("ask-one") != nil {
+		t.Fatal("the chat is still kept")
+	}
+	ts := d.CodeThreads(key)
+	if len(ts) != 1 || ts[0].ID != "ask-two" {
+		t.Fatalf("history %+v", ts)
+	}
+	if _, err := os.Stat(d.ScreenshotDir("ask-one")); !os.IsNotExist(err) {
+		t.Fatalf("the pictures stay: %v", err)
+	}
+	if err := d.RemoveQuestion("ask-one"); err == nil {
+		t.Fatal("deleted a question twice")
+	}
+	if err := d.RemoveQuestion("chat-x"); err == nil {
+		t.Fatal("deleted what is not a question")
+	}
+}

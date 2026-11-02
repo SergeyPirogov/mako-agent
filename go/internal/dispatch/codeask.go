@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -229,6 +230,29 @@ func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 	return t.ID, d.launchQuestion(p, t, text, setup)
 }
 
+// RemoveQuestion deletes a question from the history: its agent stops when it is still answering, the question is
+// forgotten and the pictures attached to it are removed. The shared worktree stays: other questions use it, and
+// the conversation's transcript is Claude Code's own file in it.
+func (d *Dispatcher) RemoveQuestion(id string) error {
+	if !IsQuestion(id) {
+		return errors.New("no such question")
+	}
+	if _, ok := d.thread(id); !ok {
+		return errors.New("no such question")
+	}
+	// Stop the agent first: a turn that ends later would write the question's session back into the list.
+	if s := d.Chats.Get(id); s != nil {
+		stopChat(s)
+		d.Chats.Delete(id)
+	}
+	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
+		return slices.DeleteFunc(all, func(t CodeThread) bool { return t.ID == id })
+	}); err != nil {
+		return err
+	}
+	return os.RemoveAll(d.ScreenshotDir(id))
+}
+
 // setThreadDir: the question's conversation runs in dir from now on, a new one.
 func (d *Dispatcher) setThreadDir(id, dir string) {
 	d.updateThreads(func(all []CodeThread) []CodeThread {
@@ -281,6 +305,10 @@ func CodeArgs(model string) []string {
 // startQuestion runs the agent in the clone with the question; a question asked before goes on with its
 // conversation, shown from its transcript.
 func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string, setup *chat.SetupResult) error {
+	// Deleted while its worktree was being prepared: no agent for a question that is gone.
+	if _, ok := d.thread(t.ID); !ok {
+		return nil
+	}
 	command, err := term.Resolve(d.Config().Terminal.Command)
 	if err != nil {
 		return err
