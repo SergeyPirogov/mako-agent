@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
 func TestParseRemarks(t *testing.T) {
@@ -17,6 +18,9 @@ func TestParseRemarks(t *testing.T) {
 		"R3 [must] — no test for the refund",
 		"1. R4 (should) internal/x/y.go:7-9: rename the var",
 		"R5 [невідомо] щось",
+		"R6 [блокер] a.go — x",
+		"R7 [suggestion] b.go — y",
+		"R8 [порада] c.go — z",
 		"Not a remark at all",
 	}, "\n"))
 	want := []core.Remark{
@@ -24,6 +28,9 @@ func TestParseRemarks(t *testing.T) {
 		{ID: "R2", Weight: core.Should, File: "README.md", Text: "опиши новий прапорець"},
 		{ID: "R3", Weight: core.Must, Text: "no test for the refund"},
 		{ID: "R4", Weight: core.Should, File: "internal/x/y.go", Line: 7, Text: "rename the var"},
+		{ID: "R6", Weight: core.Must, File: "a.go", Text: "x"},
+		{ID: "R7", Weight: core.Should, File: "b.go", Text: "y"},
+		{ID: "R8", Weight: core.Should, File: "c.go", Text: "z"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v\nwant %+v", got, want)
@@ -110,5 +117,36 @@ func TestReviewComments(t *testing.T) {
 	}
 	if p := PriorText(a.Remarks); !strings.Contains(p, "fixed: коміт abc") || !strings.Contains(p, "no report") {
 		t.Errorf("prior: %s", p)
+	}
+}
+
+func TestRemarkWeightNames(t *testing.T) {
+	defer i18n.SetAgentLanguage(i18n.Default)
+	rs := []core.Remark{{ID: "R1", Weight: core.Must, Text: "a"}, {ID: "R2", Weight: core.Should, Text: "b"}}
+	for lang, want := range map[string][2]string{i18n.EN: {"[blocker]", "[suggestion]"}, i18n.UK: {"[блокер]", "[порада]"}} {
+		i18n.SetAgentLanguage(lang)
+		c := ReviewComment(1, core.AgentReview{State: "clean", Remarks: rs[1:]})
+		if !strings.Contains(c, want[1]) || strings.Contains(c, "[should]") || strings.Contains(c, "[варто]") || !strings.Contains(c, "1") {
+			t.Errorf("%s: comment %q", lang, c)
+		}
+		if l := RemarksList(rs); !strings.Contains(l, want[0]) || !strings.Contains(l, want[1]) {
+			t.Errorf("%s: list %q", lang, l)
+		}
+		// What the comments say reads back with the same weights.
+		if back := ParseRemarks(RemarksList(rs)); len(back) != 2 || back[0].Weight != core.Must || back[1].Weight != core.Should {
+			t.Errorf("%s: back %+v", lang, back)
+		}
+		// The reviewer's prompt keeps its own markers.
+		p := PriorText(rs)
+		if strings.Contains(p, want[0]) || strings.Contains(p, want[1]) || !strings.Contains(p, "R1 [") {
+			t.Errorf("%s: prior %q", lang, p)
+		}
+	}
+	i18n.SetAgentLanguage(i18n.EN)
+	if p := PriorText(rs); !strings.Contains(p, "[must]") || !strings.Contains(p, "[should]") {
+		t.Errorf("prior: %q", p)
+	}
+	if c := ReviewComment(1, core.AgentReview{State: "clean"}); strings.Contains(c, "suggestions") {
+		t.Errorf("a clean round without remarks: %q", c)
 	}
 }

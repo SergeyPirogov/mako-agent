@@ -26,9 +26,9 @@ var (
 // weightOf: the remark's weight from the reviewer's word for it, in either language.
 func weightOf(w string) (string, bool) {
 	switch strings.ToLower(strings.Trim(w, " *_`")) {
-	case "must", "треба", "обов'язково", "обовʼязково", "required", "blocker": // cyrillic-ok
+	case "must", "треба", "обов'язково", "обовʼязково", "required", "blocker", "блокер": // cyrillic-ok
 		return core.Must, true
-	case "should", "варто", "бажано", "nice", "optional", "minor": // cyrillic-ok
+	case "should", "варто", "бажано", "nice", "optional", "minor", "suggestion", "порада": // cyrillic-ok
 		return core.Should, true
 	}
 	return "", false
@@ -149,7 +149,7 @@ func ParseReport(text string, ids []string) map[string]Reply {
 	return out
 }
 
-// Clean: a round over remarks is clean when none of them, new or carried over still open, is a «must».
+// Clean: a round over remarks is clean when none of them, new or carried over still open, is a blocker (a «must»).
 func Clean(remarks []core.Remark) bool {
 	for _, r := range remarks {
 		if r.Weight == core.Must {
@@ -169,17 +169,28 @@ func Numbered(remarks []core.Remark, next int) []core.Remark {
 	return out
 }
 
-// weightWord: the weight as people read it.
+// weightWord: the weight as people read it, in the tracker's comments: blocker or suggestion.
 func weightWord(w string) string {
+	if w == core.Must {
+		return i18n.TA("review.blocker")
+	}
+	return i18n.TA("review.suggestion")
+}
+
+// promptWeightWord: the weight as the reviewer's own format has it, for the prompt: must or should.
+func promptWeightWord(w string) string {
 	if w == core.Must {
 		return i18n.TA("review.must")
 	}
 	return i18n.TA("review.should")
 }
 
-// RemarkLine: a remark in the reviewer's format, «R2 [треба] pay.go:42 — text».
-func RemarkLine(r core.Remark) string {
-	s := r.ID + " [" + weightWord(r.Weight) + "] "
+// RemarkLine: a remark for the tracker, «R2 [блокер] pay.go:42 — text».
+func RemarkLine(r core.Remark) string { return remarkLineWith(r, weightWord) }
+
+// remarkLineWith: a remark in the reviewer's format, with the weight worded by word.
+func remarkLineWith(r core.Remark, word func(string) string) string {
+	s := r.ID + " [" + word(r.Weight) + "] "
 	if r.File != "" {
 		s += "`" + r.File
 		if r.Line > 0 {
@@ -244,6 +255,9 @@ func ReviewComment(round int, a core.AgentReview) string {
 	} else if a.State == "clean" {
 		b.WriteString("\n" + i18n.TA("comment.reviewClean") + "\n")
 	}
+	if a.State == "clean" && len(a.Remarks) > 0 {
+		b.WriteString("\n" + i18n.TA("comment.reviewCleanNotes", len(a.Remarks)) + "\n")
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -277,7 +291,7 @@ func ReplyComment(a core.AgentReview, link string) string {
 func PriorText(remarks []core.Remark) string {
 	var b strings.Builder
 	for _, r := range remarks {
-		b.WriteString("- " + strings.ReplaceAll(RemarkLine(r), "\n", "\n  ") + "\n")
+		b.WriteString("- " + strings.ReplaceAll(remarkLineWith(r, promptWeightWord), "\n", "\n  ") + "\n")
 		ans := "no report"
 		switch r.Reply {
 		case core.Fixed:
