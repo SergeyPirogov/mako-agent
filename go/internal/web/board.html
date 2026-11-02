@@ -2052,7 +2052,22 @@ async function showCode() {
     const t = e.target.closest("[data-toggle]");
     if (t) { if (!code.flip.delete(t.dataset.toggle)) code.flip.add(t.dataset.toggle); renderCode(); }
   };
-  $("ca-threads").onclick = (e) => { const b = e.target.closest("[data-thread]"); if (b) openThread(b.dataset.thread); };
+  $("ca-threads").onclick = async (e) => {
+    const x = e.target.closest("[data-ca-remove]");
+    if (x) {
+      e.stopPropagation();
+      const v = code, id = x.dataset.caRemove;
+      const t = v.threads?.find((t) => t.id === id);
+      if (!confirm(`Delete the question "${t?.title ?? ""}" from the history?`)) return;
+      const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+      if (!r.ok) alert(r.error || "Failed");
+      if (v !== code) return;
+      if (id === v.thread) openThread(""); else loadThreads();
+      return;
+    }
+    const b = e.target.closest("[data-thread]");
+    if (b) openThread(b.dataset.thread);
+  };
   code.timer = setInterval(pollCode, 1000);
   openLatest(); loadWorkspace();
 }
@@ -2221,8 +2236,9 @@ async function loadThreads() {
   const r = await getJSON(`/api/code/threads?project=${encodeURIComponent(v.project)}`);
   if (v !== code || !$("ca-threads")) return;
   v.threads = r.threads ?? [];
-  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<button type="button" class="ca-thread ${t.id === v.thread ? "on" : ""}" data-thread="${esc(t.id)}" title="${esc(t.title)}">
-      <span>${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span></button>`).join("")
+  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}">
+      <span>${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
+      <button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button></div>`).join("")
     : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
 }
 
