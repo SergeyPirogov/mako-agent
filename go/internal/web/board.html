@@ -158,6 +158,8 @@ const ICON = {
   play: `<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5v14l12-7z" fill="currentColor"/></svg>`,
   fix: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4l-6.1-1.6a.5.5 0 0 1 0-1l6.1-1.6a2 2 0 0 0 1.4-1.4l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/><path d="M20 3v4M22 5h-4"/></svg>`,
   redo: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>`,
+  find: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>`,
+  swap: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg>`,
   stop: `<svg viewBox="0 0 24 24" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>`,
   clip: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg>`,
   up: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
@@ -2959,8 +2961,10 @@ function renderDetail() {
   const body = ws ? orca : bar && tab === "orca" ? orca : task;
   // How the agent is shown: its chat or its terminal; the same conversation either way.
   const view = r.view === "chat" ? "chat" : "terminal";
+  // Asked for during a turn, the other view waits for it to end: «Chat · after this turn».
+  const after = (to) => (r.viewNext === to ? ` <span class="after">· after this turn</span>` : "");
   const views = agentOn ? `<span class="seg" role="group" aria-label="Agent view">
-      <button type="button" class="${view === "chat" ? "on" : ""}" data-view="chat">Chat</button><button type="button" class="${view === "terminal" ? "on" : ""}" data-view="terminal">Terminal</button></span>` : "";
+      <button type="button" class="${view === "chat" ? "on" : ""}" data-view="chat">Chat${after("chat")}</button><button type="button" class="${view === "terminal" ? "on" : ""}" data-view="terminal">Terminal${after("terminal")}</button></span>` : "";
   $("detail").classList.toggle("ws", ws);
   $("detail").dataset.tab = ws ? (fileTab && tab === "orca" ? "file" : tab) : "";
   if (ws) $("detail").scrollTop = 0; // it does not scroll, but keeps where the task page was scrolled to
@@ -3047,12 +3051,14 @@ function renderDetail() {
     closeTerminal();
     const c = chatFor(r.id);
     $("term-slot").append(c.el);
+    drawViewNext(c.el, r);
     restoreChatScroll(c);
     if (typing) c.input.focus();
   } else if (term && $("term-slot")) {
     closeChat();
     const v = terminalFor(r.id);
     $("term-slot").append(v.el);
+    drawViewNext(v.el, r);
     if (r.live && v.gone) connect(v);
     requestAnimationFrame(() => { v.resize(); if (typing) v.term.focus(); });
   }
@@ -3093,11 +3099,11 @@ function renderDetail() {
     commitOpen[h] = await getJSON(`/api/commit?id=${encodeURIComponent(r.id)}&hash=${h}`);
     renderDetail();
   };
+  // The view it is in again, while a switch waits for the turn: that switch is cancelled.
   for (const btn of $("detail").querySelectorAll("[data-view]")) btn.onclick = async () => {
-    if (btn.classList.contains("on")) return;
+    if (btn.classList.contains("on") && !r.viewNext) return;
     btn.disabled = true;
-    await fetch(`/api/view?id=${encodeURIComponent(r.id)}&to=${btn.dataset.view}`, { method: "POST" });
-    await load();
+    await switchView(r.id, btn.dataset.view);
   };
   for (const btn of $("detail").querySelectorAll("[data-tab]")) btn.onclick = () => {
     tab = btn.dataset.tab; tabPicked = true;
@@ -3262,7 +3268,8 @@ function chatFor(id) {
   closeChat();
   const el = document.createElement("div");
   el.className = "chat";
-  el.innerHTML = `<div class="chat-progress" hidden></div>
+  el.innerHTML = `<div class="view-next" role="status" hidden></div>
+    <div class="chat-progress" hidden></div>
     <div class="chat-list" role="log" aria-live="polite"></div>
     <div class="chat-resume" hidden><button type="button" class="resume-btn on-light" data-chat-resume title="The agent has stopped. The conversation is saved in Claude Code.">${ICON.play}Continue conversation</button></div>
     <div class="chat-status" hidden><span class="dot"></span><b class="st"></b><span class="muted st-more"></span>
@@ -4016,23 +4023,52 @@ function toolDetail(it) {
   return it.output ? `<pre class="tool-out">${esc(it.output)}</pre>` : "";
 }
 
-// Mako's own terminal: one xterm for the open task, kept while the board re-renders around it.
+// Mako's own terminal: one xterm for the open task, kept while the board re-renders around it. Over it a bar with
+// the agent's state, its turn and actions; under it the agent's question as a panel, and the keys a phone has not.
 let tv = null;
+let termFont = (() => { try { return +localStorage.getItem("mako-term-font") || 12.5; } catch { return 12.5; } })();
+// The keys under the terminal: [label, what it sends, title, where]. "say:" types a line and presses Enter;
+// "desk" keys are on a wide window only, "phone" ones on a phone only.
+const TERM_KEYS = [
+  ["Esc", "\x1b", "Esc: interrupt the current step"],
+  ["⇧Tab", "\x1b[Z", "Shift+Tab: the next mode, as Claude Code cycles them"],
+  ["Ctrl+C", "\x03", "Ctrl+C: clear the input; twice, Claude quits"],
+  ["↑", "\x1b[A", "Arrow up"],
+  ["↓", "\x1b[B", "Arrow down"],
+  ["Tab", "\t", "Tab", "phone"],
+  ["/", "/", "A command: / and its name", "phone"],
+  ["/compact", "say:/compact", "Compact the conversation: Claude sums it up and goes on from the summary", "desk"],
+];
+// The mode Claude Code names under its input; nothing named there is "ask".
+const TERM_MODES = [[/accept edits on/i, "edits"], [/plan mode on/i, "plan"], [/bypass permissions on/i, "no questions"], [/auto mode on/i, "auto"]];
 function terminalFor(id) {
   if (tv?.id === id) return tv;
   closeTerminal();
-  // The terminal, and over its bottom the agent's question with its answers as buttons.
   const wrap = document.createElement("div");
   wrap.className = "term-wrap";
-  const el = document.createElement("div");
-  el.className = "term";
-  const ask = document.createElement("div");
-  ask.className = "ask";
-  ask.hidden = true;
-  wrap.append(el, ask);
+  wrap.innerHTML = `<div class="tbar" data-state="">
+      <span class="dot" aria-hidden="true"></span><b class="tb-st">Connecting…</b><span class="tb-more"></span>
+      <span class="tb-pg" hidden><span class="tb-bar" aria-hidden="true"></span><span class="tb-n"></span></span>
+      <span class="spacer"></span>
+      <span class="tb-find tb-desk" hidden><input type="search" placeholder="Find in the output" aria-label="Find in the output"><span class="tb-found"></span></span>
+      <button type="button" class="dk dki tb-desk" data-tb="find" title="Find in the output (Enter: the one before, Shift+Enter: the one after)" aria-label="Find in the output">${ICON.find}</button>
+      <button type="button" class="dk dki tb-desk" data-tb="smaller" title="Smaller text" aria-label="Smaller text">A−</button>
+      <button type="button" class="dk dki tb-desk" data-tb="bigger" title="Bigger text" aria-label="Bigger text">A+</button>
+      <button type="button" class="dk tb-desk" data-tb="app" title="Continue this conversation in Terminal.app (claude --resume); Mako's agent stops first">Open in Terminal.app</button>
+      <button type="button" class="dk tb-desk" data-tb="stop" title="Stop the agent: it closes, the conversation is kept and Resume continues it" hidden>${ICON.stop}Stop</button>
+      <span class="tb-views" role="group" aria-label="Agent view"><button type="button" data-tview="chat">Chat</button><button type="button" class="on" data-tview="terminal">Term</button></span>
+    </div>
+    <div class="view-next" role="status" hidden></div>
+    <div class="term-box"><div class="term"></div></div>
+    <div class="tdock" role="group" aria-label="The agent asks" hidden></div>
+    <div class="tkeys">${TERM_KEYS.map(([label, , title, where], i) => `<button type="button" class="dk${where ? ` tk-${where}` : ""}" data-tk="${i}" title="${esc(title)}">${label === "Ctrl+C" ? `<span class="tk-desk">Ctrl+C</span><span class="tk-phone">^C</span>` : esc(label)}${label === "⇧Tab" ? `<span class="tk-mode tk-desk"></span>` : ""}</button>`).join("")}
+      <span class="spacer"></span><span class="tk-ctx chat-ctx"></span><span class="tk-model"></span></div>
+    <form class="tsay"><input type="text" placeholder="Type to the agent…" aria-label="Type to the agent" enterkeyhint="send" autocomplete="off" autocapitalize="off">
+      <button type="submit" title="Send and press Enter" aria-label="Send and press Enter">${ICON.up}</button></form>`;
+  const el = wrap.querySelector(".term");
   const open = (e, uri) => { e?.preventDefault?.(); if (/^https?:\/\//i.test(uri)) window.open(uri, "_blank", "noopener"); };
   const term = new Terminal({
-    cursorBlink: true, scrollback: 20000, allowProposedApi: true, fontSize: 12.5,
+    cursorBlink: true, scrollback: 20000, allowProposedApi: true, fontSize: termFont,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
     linkHandler: { activate: open, allowNonHttpProtocols: false },
     theme: { background: "#14161b", foreground: "#e6e6e6", cursor: "#4c8dff", selectionBackground: "#3a4d7a" },
@@ -4041,26 +4077,144 @@ function terminalFor(id) {
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon.WebLinksAddon(open));
   term.open(el);
-  const v = (tv = { id, el: wrap, term, ws: null, gone: false, closed: false, asked: "", answered: { key: "", at: 0 } });
+  const v = (tv = { id, el: wrap, term, ws: null, gone: false, closed: false, asked: "", askedKey: "", answered: { key: "", at: 0 }, stat: null, mode: "", find: null,
+    dock: wrap.querySelector(".tdock") });
   v.send = (m) => v.ws?.readyState === WebSocket.OPEN && v.ws.send(JSON.stringify(m));
   v.resize = () => {
     if (!el.isConnected || !el.offsetWidth) return;
     fit.fit();
     v.send({ t: "r", cols: term.cols, rows: term.rows });
   };
+  // The keys and buttons give the focus back to the terminal; on a phone that would open the keyboard over it.
+  const refocus = () => { if (!narrow.matches) term.focus(); };
   term.onData((d) => v.send({ t: "i", d }));
   new ResizeObserver(() => v.resize()).observe(el);
-  ask.onclick = (e) => {
+  // The bar: find, the text's size, Terminal.app, Stop, and on a phone the switch to the chat.
+  const bar = wrap.querySelector(".tbar"), find = wrap.querySelector(".tb-find input");
+  bar.onclick = async (e) => {
+    const vb = e.target.closest("[data-tview]");
+    if (vb) { if (!vb.classList.contains("on")) switchView(id, vb.dataset.tview); return; }
+    const b = e.target.closest("[data-tb]");
+    if (!b) return;
+    const what = b.dataset.tb;
+    if (what === "find") { const box = find.parentElement; box.hidden = !box.hidden; if (box.hidden) closeFind(v); else { find.focus(); find.select(); } }
+    else if (what === "smaller" || what === "bigger") { setTermFont(v, termFont + (what === "bigger" ? 1 : -1)); refocus(); }
+    else if (what === "app") {
+      if (v.stat?.live && !confirm("Continue this conversation in Terminal.app? Mako's agent stops first: two Claudes on one conversation would each go their own way.")) return;
+      b.disabled = true;
+      const res = await fetch(`/api/terminalapp?id=${encodeURIComponent(id)}`, { method: "POST" }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+      b.disabled = false;
+      if (res.ok === false) toast(res.error, true);
+      else toast("The conversation goes on in Terminal.app");
+      load();
+    } else if (what === "stop") { b.disabled = true; await post("stop", id); pollTerm(v); }
+  };
+  find.oninput = () => findInTerm(v, find.value, -1);
+  find.onkeydown = (e) => {
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); findInTerm(v, find.value, e.shiftKey ? 1 : -1); }
+    if (e.key === "Escape") { e.preventDefault(); find.parentElement.hidden = true; closeFind(v); refocus(); }
+  };
+  // The agent's question: an option is the same key in the terminal; «Instead» rejects and tells it what to do.
+  v.dock.onclick = (e) => {
     const b = e.target.closest("button[data-key]");
     if (!b) return;
-    v.send({ t: "i", d: b.dataset.key });
-    v.answered = { key: v.asked, at: Date.now() };
-    ask.hidden = true;
-    term.focus();
+    const inp = v.dock.querySelector("[data-instead]");
+    answerTerm(v, b.dataset.key, inp?.dataset.instead === b.dataset.key ? inp.value.trim() : "");
   };
-  v.timer = setInterval(() => showChoice(v, ask), 1000);
+  v.dock.onkeydown = (e) => {
+    const inp = e.target.closest("[data-instead]");
+    if (inp && e.key === "Enter" && !e.isComposing && inp.value.trim()) { e.preventDefault(); answerTerm(v, inp.dataset.instead, inp.value.trim()); }
+  };
+  const keys = wrap.querySelector(".tkeys");
+  keys.onmousedown = (e) => { if (e.target.closest("button")) e.preventDefault(); }; // the terminal keeps its focus
+  keys.onclick = (e) => {
+    const b = e.target.closest("[data-tk]");
+    if (!b) return;
+    const send = TERM_KEYS[+b.dataset.tk][1];
+    v.send(send.startsWith("say:") ? { t: "s", d: send.slice(4) } : { t: "i", d: send });
+    refocus();
+  };
+  // A phone's line to the agent: typed there, sent with Enter; an empty one is Enter alone.
+  const say = wrap.querySelector(".tsay");
+  say.onsubmit = (e) => {
+    e.preventDefault();
+    const inp = say.querySelector("input");
+    if (inp.value.trim()) v.send({ t: "s", d: inp.value });
+    else v.send({ t: "i", d: "\r" });
+    inp.value = "";
+  };
+  v.timer = setInterval(() => { showChoice(v); tickChat(wrap); }, 1000);
+  v.statTimer = setInterval(() => pollTerm(v), 2000);
+  pollTerm(v);
   connect(v);
   return v;
+}
+async function pollTerm(v) {
+  const s = await getJSON(`/api/termstat?id=${encodeURIComponent(v.id)}`);
+  if (v !== tv || v.closed || s.error) return;
+  v.stat = s;
+  drawTermBar(v);
+}
+// The bar over the terminal and the right of the keys under it: what the agent does, its turn, plan and context.
+function drawTermBar(v) {
+  const s = v.stat ?? {}, el = v.el, t = s.turn ?? {};
+  const st = s.live ? s.state || "working" : "stopped";
+  el.querySelector(".tbar").dataset.state = st;
+  el.querySelector(".tb-st").textContent = { working: "Working", waiting: "Waiting for you", done: "Your turn" }[st] ?? "Stopped";
+  const more = [];
+  if (st === "waiting" && s.since) more.push(`<span data-since="${s.since}">${dur((Date.now() - s.since) / 1000)}</span>`);
+  // A phone's bar is narrow: the turn's time without its name.
+  const pre = narrow.matches ? "" : "this turn ";
+  if (st === "working" && t.since) more.push(`<span data-since="${t.since}" data-pre="${pre}">${pre}${dur((Date.now() - t.since) / 1000)}</span>`);
+  if (t.cost && st !== "stopped") more.push(`${st === "done" ? "last turn " : st === "waiting" ? "this turn " : ""}${t.estimate ? "≈" : ""}$${t.cost.toFixed(2)}`);
+  el.querySelector(".tb-more").innerHTML = more.map((x) => ` · ${x}`).join("");
+  const p = s.progress, pg = el.querySelector(".tb-pg");
+  pg.hidden = !p;
+  if (p) {
+    pg.title = p.current ? `Now: ${p.current}` : p.done === p.total ? "All done" : "";
+    pg.querySelector(".tb-bar").innerHTML = p.steps.map((x) => `<i class="${x.status === "completed" ? "done" : x.status === "in_progress" ? "now" : ""}"></i>`).join("");
+    pg.querySelector(".tb-n").textContent = `${p.done}/${p.total}`;
+  }
+  const stop = el.querySelector('[data-tb="stop"]');
+  stop.hidden = !s.live;
+  stop.disabled = false;
+  el.querySelector('[data-tb="app"]').hidden = !!data?.remote;
+  const ctx = el.querySelector(".tk-ctx"), share = s.window ? s.context / s.window : 0;
+  ctx.className = "tk-ctx chat-ctx" + (share > 0.8 ? " full" : "");
+  ctx.title = s.context ? `Context: ${kTok(s.context)}${s.window ? ` of ${kTok(s.window)} (${Math.round(share * 100)}%)` : ""}` : "";
+  ctx.innerHTML = !s.context ? "" : `<span>Context</span>${s.window ? `<span class="meter" aria-hidden="true"><i style="width:${Math.min(100, Math.round(share * 100))}%"></i></span>` : ""}<span>${kTok(s.context)}${s.window ? ` / ${kTok(s.window)}` : ""}</span>`;
+  el.querySelector(".tk-model").textContent = [shortModel(s.model), s.effort].filter(Boolean).join(" · ");
+}
+function setTermFont(v, size) {
+  termFont = Math.min(22, Math.max(9, size));
+  try { localStorage.setItem("mako-term-font", String(termFont)); } catch {}
+  v.term.options.fontSize = termFont;
+  v.resize();
+}
+// Find in the output: every match of the text in the terminal's lines, the newest first; step -1 goes up to
+// the one before, 1 down to the one after.
+function findInTerm(v, q, step) {
+  const b = v.term.buffer.active, out = v.el.querySelector(".tb-found");
+  if (v.find?.q !== q) {
+    const all = [], ql = q.toLowerCase();
+    if (ql) for (let y = 0; y < b.length; y++) {
+      const t = (b.getLine(y)?.translateToString(true) ?? "").toLowerCase();
+      for (let x = t.indexOf(ql); x >= 0; x = t.indexOf(ql, x + 1)) all.push({ x, y });
+    }
+    v.find = { q, all, i: all.length };
+  }
+  const f = v.find;
+  if (!f.all.length) { v.term.clearSelection(); out.textContent = q ? "none" : ""; return; }
+  f.i = (f.i + step + f.all.length) % f.all.length;
+  const m = f.all[f.i];
+  v.term.select(m.x, m.y, q.length);
+  v.term.scrollToLine(Math.max(0, m.y - (v.term.rows >> 1)));
+  out.textContent = `${f.i + 1}/${f.all.length}`;
+}
+function closeFind(v) {
+  v.find = null;
+  v.term.clearSelection();
+  v.el.querySelector(".tb-found").textContent = "";
 }
 
 // The agent's question: a numbered menu near the bottom of the screen («❯ 1. Yes / 2. … / 3. No») and the line
@@ -4094,29 +4248,63 @@ function parseChoice(lines) {
   }
   return null;
 }
-function showChoice(v, ask) {
+// The mode under Claude Code's input; the one seen last while a menu hides it.
+function screenMode(lines, was) {
+  const tail = lines.slice(-4).join("\n");
+  const m = TERM_MODES.find(([re]) => re.test(tail));
+  return m ? m[1] : /\? for shortcuts/.test(tail) ? "ask" : was;
+}
+function showChoice(v) {
   if (v.closed || !v.el.isConnected) return;
-  const c = v.gone ? null : parseChoice(screenLines(v.term));
+  const lines = v.gone ? [] : screenLines(v.term);
+  const mode = screenMode(lines, v.mode);
+  if (mode !== v.mode) { v.mode = mode; v.el.querySelector(".tk-mode").textContent = mode ? ` · ${mode}` : ""; }
+  const c = v.gone ? null : parseChoice(lines);
   const key = c ? c.question + c.options.map((o) => o.label).join("|") : "";
   // Just answered: the menu stays on the screen a moment longer than the answer takes.
   if (key && key === v.answered.key && Date.now() - v.answered.at < 10000) return;
-  if (key === v.asked && ask.hidden === !key) return;
-  v.asked = key;
-  ask.hidden = !key;
-  if (!c) return;
-  ask.innerHTML = `<span class="ask-q"><b>The agent asks:</b> ${esc(c.question)}</span>` + c.options.map((o, i) =>
-    `<button type="button" class="${i === 0 ? "primary" : ""}" data-key="${esc(o.key)}" title="Same as pressing ${esc(o.key)} in the terminal">${esc(o.key)}. ${esc(o.label)}</button>`).join("");
+  // The tool it asks for comes with the next status: the panel's title follows it.
+  const drawn = key && `${key}\n${v.stat?.state === "waiting" ? v.stat.tool ?? "" : ""}`;
+  if (drawn === v.asked) return;
+  v.asked = drawn;
+  v.askedKey = key;
+  drawTermDock(v, c);
+}
+// The panel under the terminal while the agent asks: what it asks, its options as buttons with their keys, and
+// for «No, and tell Claude what to do differently» a line for what to do instead.
+function drawTermDock(v, c) {
+  const d = v.dock, typed = d.querySelector("[data-instead]")?.value ?? "";
+  d.hidden = !c;
+  if (!c) { d.innerHTML = ""; return; }
+  const tool = v.stat?.state === "waiting" ? v.stat.tool ?? "" : "", name = tool.split(":")[0], arg = tool.slice(name.length + 1).trim();
+  const [title, code] = name === "Bash" ? ["Allow this command?", arg] : EDITS.includes(name) ? ["Allow this edit?", arg]
+    : name && !["AskUserQuestion", "ExitPlanMode"].includes(name) ? [`Allow ${name}?`, arg] : [c.question, ""];
+  const instead = c.options.find((o) => /^no,? and tell claude/i.test(o.label));
+  d.innerHTML = `<div class="dock-h"><span class="dock-ic" aria-hidden="true">${code ? "!" : "?"}</span><b>${esc(title)}</b>${code ? `<code class="td-cmd" title="${esc(code)}">${esc(code)}</code>` : ""}
+      <span class="muted td-hint">same as pressing the number in the terminal</span></div>
+    <div class="td-opts">${c.options.map((o, i) => `<button type="button" class="${i === 0 ? "primary" : ""}" data-key="${esc(o.key)}"><span class="kbd" aria-hidden="true">${esc(o.key)}</span>${esc(o.label.replace(/\s*\(esc\)\s*$/i, ""))}</button>`).join("")}</div>
+    ${instead ? `<label class="td-instead"><span class="muted">Instead:</span><input type="text" data-instead="${esc(instead.key)}" value="${esc(typed)}" placeholder="tell the agent what to do differently…" aria-label="Tell the agent what to do differently" autocomplete="off"></label>` : ""}`;
+}
+function answerTerm(v, key, text) {
+  v.send({ t: "i", d: key });
+  // Rejected: Claude Code is back at its input, and the words go there.
+  if (text) setTimeout(() => v.send({ t: "s", d: text }), 400);
+  v.answered = { key: v.askedKey, at: Date.now() };
+  v.asked = "";
+  v.dock.hidden = true;
+  if (!narrow.matches) v.term.focus();
 }
 function connect(v) {
   v.gone = false;
   v.ws?.close();
-  const ws = (v.ws = new WebSocket(`ws://${location.host}/ws/term?id=${encodeURIComponent(v.id)}`));
+  const ws = (v.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/term?id=${encodeURIComponent(v.id)}`));
   ws.onopen = () => v.resize();
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.t === "init") { v.term.reset(); v.term.write(m.d); v.gone = m.gone; }
-    else if (m.t === "o") v.term.write(m.d);
-    else if (m.t === "x") { v.gone = true; load(); }
+    // The agent's question shows as soon as its menu is drawn, not at the next second.
+    if (m.t === "init") { v.term.reset(); v.gone = m.gone; v.term.write(m.d, () => showChoice(v)); }
+    else if (m.t === "o") v.term.write(m.d, () => showChoice(v));
+    else if (m.t === "x") { v.gone = true; load(); pollTerm(v); }
   };
   ws.onclose = () => { if (ws === v.ws && !v.closed && !v.gone) setTimeout(() => ws === v.ws && !v.closed && connect(v), 2000); };
 }
@@ -4124,9 +4312,34 @@ function closeTerminal() {
   if (!tv) return;
   tv.closed = true;
   clearInterval(tv.timer);
+  clearInterval(tv.statTimer);
   tv.ws?.close();
   tv.term.dispose();
   tv = null;
+}
+// The agent shown the other way. In the middle of a turn Mako moves it once the turn ends; now: at once.
+async function switchView(id, to, now) {
+  await fetch(`/api/view?id=${encodeURIComponent(id)}&to=${to}${now ? "&now=1" : ""}`, { method: "POST" });
+  await load();
+}
+// The switch asked for during the turn, over the terminal or the chat: Cancel, or Switch now.
+function drawViewNext(el, r) {
+  const box = el?.querySelector(".view-next");
+  if (!box) return;
+  const next = r?.viewNext ?? "";
+  box.hidden = !next;
+  for (const b of el.querySelectorAll("[data-tview]")) b.classList.toggle("next", b.dataset.tview === next);
+  box.onclick = (e) => {
+    const b = e.target.closest("[data-vn]");
+    if (!b) return;
+    b.disabled = true;
+    if (b.dataset.vn === "now") switchView(r.id, next, true);
+    else switchView(r.id, r.view === "chat" ? "chat" : "terminal");
+  };
+  if (box.dataset.next === next) return;
+  box.dataset.next = next;
+  box.innerHTML = !next ? "" : `${ICON.swap}<span class="vn-t"><b>Moves to the ${next} when this turn ends</b> — the agent keeps working, the conversation carries over.</span>
+    <button type="button" data-vn="cancel">Cancel</button><button type="button" data-vn="now" title="Interrupts the current step; the agent then continues in the ${next}">Switch now</button>`;
 }
 
 // #digest:<ms>: the morning push's link, the digest from that time.
