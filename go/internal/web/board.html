@@ -2109,11 +2109,11 @@ function trendCard(days) {
 
 // "Needs attention": what waits for you or went wrong in the period; a row opens those tasks in the list.
 function attentionCard(s) {
-  const n = (kind) => attentionTasks({ kind }).length;
   const merge = attentionTasks({ kind: "merge" });
   const oldest = Math.min(...merge.map((r) => Date.parse(r.finishedAt || r.updatedAt)).filter((t) => t > 0));
   const reasons = (s.reasons || []).slice(0, 3).map((x) => `${x.count} ${esc(x.text.length > 40 ? x.text.slice(0, 39) + "…" : x.text)}`).join(" · ");
-  const fix = n("fix"), failed = n("failed"), unclear = n("unclear");
+  // The counts are Summarize's, as the other cards show them; only the MRs waiting now are counted here.
+  const fix = s.review?.waiting || 0, failed = s.failed || 0, unclear = unclearOf(s);
   const rows = [
     ["fix", fix, "warn", `${plural(fix, "review round waits", "review rounds wait")} for «Fix»`, "the remarks never reached the agent"],
     ["failed", failed, "err", `${plural(failed, "task", "tasks")} failed`, reasons],
@@ -2125,7 +2125,10 @@ function attentionCard(s) {
   return scard("Needs attention", rows.length ? rows.map(row).join("") : `<div class="muted need-none">Nothing needs attention</div>`, "", "needs");
 }
 
-// What "Needs attention" lists, and how the list names it.
+// The tasks the agent hardly understood (clarity 1–2): every task is in one project's group, so their sum.
+const unclearOf = (s) => (s.projects || []).reduce((n, g) => n + (g.unclear || 0), 0);
+// What "Needs attention" lists in the task list, and how the list names it. The tests repeat Summarize's
+// (go/internal/core): fix — reviewStats.add's Waiting, failed — Summarize's failed case, unclear — the groups' Unclear.
 const NEEDS = {
   fix: { label: "review waits for «Fix»", test: (r) => { const a = r.agentReviews?.at(-1); return a?.state === "notes" && !a.sent; } },
   failed: { label: "failed", test: (r) => r.status === "failed" || r.status === "cancelled" || r.reviewState === "closed" },
@@ -2133,7 +2136,8 @@ const NEEDS = {
   // An MR waits for its merge now, whenever it was taken.
   merge: { label: "MR waits for merge", now: true, test: (r) => !r.archivedAt && r.status === "done" && !!r.prUrl && r.reviewState !== "merged" && r.reviewState !== "closed" },
 };
-// Taken in the stats' period, as Summarize counts it: handed off (or failed before) at its start or later.
+// Taken in the stats' period, as Summarize counts it (stats.go: Summarize, takenSince): handed off (or failed
+// before) at its start or later.
 function inPeriod(r) {
   if (!r.startedAt && r.status !== "failed") return false;
   if (!statsDays) return true;
@@ -2312,7 +2316,7 @@ function forecastCard(f) {
 // The agent's assessment of the finished tasks, out of 5.
 function assessCard(s) {
   if (!s.assessed) return "";
-  const unclear = attentionTasks({ kind: "unclear" }).length;
+  const unclear = unclearOf(s);
   const row = (what, x) => `<span>${what}</span>${meter(x / 5, "acc")}<b>${x.toFixed(1)}</b>`;
   return scard("Agent's assessment", `<div class="scores">${row("Description clarity", s.clarity)}${row("Completeness", s.completeness)}${row("Complexity", s.complexity)}${row("Risk of the change", s.risk)}</div>`
     + `<div class="snote">Out of 5.${unclear ? ` ${unclear} ${plural(unclear, "task", "tasks")} scored 2 or less on clarity · <a href="#" data-need="unclear">show them</a>` : ""}</div>`,
