@@ -3,9 +3,11 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
@@ -62,10 +64,7 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 	case core.Asking, core.Snoozed, core.Queued, core.HandedOff:
 		return c, fmt.Errorf("the task is still in progress")
 	}
-	d.mu.Lock()
-	starting := d.starting[id]
-	d.mu.Unlock()
-	if starting || d.agentBusy(r) {
+	if d.busyOrStarting(r) {
 		return c, fmt.Errorf("the agent is still working")
 	}
 	repo := d.repoOf(r)
@@ -222,6 +221,7 @@ func samePath(a, b string) bool {
 type WorktreeUse struct {
 	Repo      string         `json:"repo"`
 	Path      string         `json:"path"`
+	Base      string         `json:"base,omitempty"` // the base branch ahead/behind are counted against
 	Bytes     int64          `json:"bytes"`
 	Worktrees []WorktreeSize `json:"worktrees"`
 	// Cleanable: the worktrees of merged or archived tasks, which «Прибрати змерджені» takes away.
@@ -229,18 +229,36 @@ type WorktreeUse struct {
 	CleanableBytes int64 `json:"cleanableBytes"`
 }
 
+// WorktreeSize: one worktree with what the settings show about it.
 type WorktreeSize struct {
 	gitx.Worktree
 	Bytes     int64  `json:"bytes"`
 	Task      string `json:"task,omitempty"`
 	Cleanable bool   `json:"cleanable,omitempty"`
+
+	Dirty           int    `json:"dirty"`    // files changed and not committed
+	Unpushed        int    `json:"unpushed"` // commits origin/<branch> does not have
+	HasRemote       bool   `json:"hasRemote"`
+	Ahead           int    `json:"ahead"` // against the repository's base branch
+	Behind          int    `json:"behind"`
+	LastCommitAt    string `json:"lastCommit,omitempty"`
+	LastCommitTitle string `json:"lastCommitTitle,omitempty"`
+	ModifiedAt      string `json:"modifiedAt,omitempty"` // the newest file in the folder
+
+	// Of the task the worktree belongs to.
+	TaskStatus  core.Status `json:"taskStatus,omitempty"`
+	ReviewState string      `json:"reviewState,omitempty"`
+	Executor    string      `json:"executor,omitempty"`
+	AgentBusy   bool        `json:"agentBusy,omitempty"`
 }
 
-// WorktreeUsage: the worktrees of every configured repository and their size, the biggest project first.
-func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
-	records := d.Store.All()
+// metaJobs: git processes running at once while the settings read the worktrees.
+const metaJobs = 4
+
+// configuredRepos: every configured repository that is on the disk, once.
+func (d *Dispatcher) configuredRepos() []*config.Repo {
 	seen := map[string]bool{}
-	out := []WorktreeUse{}
+	var out []*config.Repo
 	for _, t := range d.Config().Trackers {
 		for _, p := range t.Projects {
 			for _, repo := range p.Repos {
@@ -248,36 +266,232 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 					continue
 				}
 				seen[repo.Path] = true
-				wts, err := gitx.Worktrees(ctx, repo.Path)
-				if err != nil || len(wts) == 0 {
-					continue
-				}
-				u := WorktreeUse{Repo: repo.Name, Path: repo.Path}
-				for _, w := range wts {
-					s := WorktreeSize{Worktree: w, Bytes: gitx.DirSize(w.Path)}
-					for _, r := range records {
-						if r.Repo != "" && r.Repo != repo.Name {
-							continue
-						}
-						if samePath(w.Path, r.Worktree) || (w.Branch != "" && slices.Contains(attemptBranches(r, repo), w.Branch)) {
-							s.Task, s.Cleanable = r.ID, cleanable(r)
-							break
-						}
-					}
-					u.Bytes += s.Bytes
-					if s.Cleanable {
-						u.Cleanable++
-						u.CleanableBytes += s.Bytes
-					}
-					u.Worktrees = append(u.Worktrees, s)
-				}
-				sort.Slice(u.Worktrees, func(i, j int) bool { return u.Worktrees[i].Bytes > u.Worktrees[j].Bytes })
-				out = append(out, u)
+				out = append(out, repo)
 			}
 		}
 	}
+	return out
+}
+
+// taskOf: the task the worktree belongs to, by its folder or by the branch of one of its attempts.
+func taskOf(records []core.Record, repo *config.Repo, w gitx.Worktree) (core.Record, bool) {
+	for _, r := range records {
+		if r.Repo != "" && r.Repo != repo.Name {
+			continue
+		}
+		if samePath(w.Path, r.Worktree) || (w.Branch != "" && slices.Contains(attemptBranches(r, repo), w.Branch)) {
+			return r, true
+		}
+	}
+	return core.Record{}, false
+}
+
+// busyOrStarting: the task's agent works, or its start is under way.
+func (d *Dispatcher) busyOrStarting(r core.Record) bool {
+	d.mu.Lock()
+	starting := d.starting[r.ID]
+	d.mu.Unlock()
+	return starting || d.agentBusy(r)
+}
+
+// WorktreeUsage: the worktrees of every configured repository, their size and state, the biggest project first.
+func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
+	records := d.Store.All()
+	out := []WorktreeUse{}
+	sem := make(chan struct{}, metaJobs)
+	var wg sync.WaitGroup
+	for _, repo := range d.configuredRepos() {
+		wts, err := gitx.Worktrees(ctx, repo.Path)
+		if err != nil || len(wts) == 0 {
+			continue
+		}
+		u := WorktreeUse{Repo: repo.Name, Path: repo.Path, Base: repo.BaseBranch, Worktrees: make([]WorktreeSize, len(wts))}
+		for i, w := range wts {
+			s := &u.Worktrees[i]
+			s.Worktree = w
+			if r, ok := taskOf(records, repo, w); ok {
+				s.Task, s.Cleanable = r.ID, cleanable(r)
+				s.TaskStatus, s.ReviewState, s.Executor = r.Status, r.ReviewState, r.Executor
+				s.AgentBusy = d.busyOrStarting(r)
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				fillMeta(ctx, s, repo.BaseBranch)
+			}()
+		}
+		out = append(out, u)
+	}
+	wg.Wait()
+	for i := range out {
+		u := &out[i]
+		for _, s := range u.Worktrees {
+			u.Bytes += s.Bytes
+			if s.Cleanable {
+				u.Cleanable++
+				u.CleanableBytes += s.Bytes
+			}
+		}
+		sort.Slice(u.Worktrees, func(i, j int) bool { return u.Worktrees[i].Bytes > u.Worktrees[j].Bytes })
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Bytes > out[j].Bytes })
 	return out
+}
+
+// fillMeta reads the size and the git state of a worktree; what git cannot tell stays empty.
+func fillMeta(ctx context.Context, s *WorktreeSize, base string) {
+	var mod time.Time
+	s.Bytes, mod = gitx.DirStat(s.Path)
+	if !mod.IsZero() {
+		s.ModifiedAt = mod.UTC().Format(time.RFC3339)
+	}
+	if s.Prunable || !exists(s.Path) {
+		return // the folder is gone: git has nothing to say about it
+	}
+	if n, err := gitx.Dirty(ctx, s.Path); err == nil {
+		s.Dirty = n
+	}
+	s.Unpushed = gitx.Unpushed(ctx, s.Path)
+	s.HasRemote = gitx.HasRemoteBranch(ctx, s.Path, s.Branch)
+	if base != "" {
+		s.Ahead, s.Behind, _ = gitx.AheadBehind(ctx, s.Path, base)
+	}
+	if at, title, err := gitx.LastCommit(ctx, s.Path); err == nil {
+		s.LastCommitAt, s.LastCommitTitle = at.UTC().Format(time.RFC3339), title
+	}
+}
+
+// WorktreeRef names a worktree to remove: the project it is of and its folder.
+type WorktreeRef struct {
+	Repo string `json:"repo"`
+	Path string `json:"path"`
+}
+
+// KeptWorktree: a worktree left because of what it holds.
+type KeptWorktree struct {
+	Path     string `json:"path"`
+	Dirty    int    `json:"dirty"`
+	Unpushed int    `json:"unpushed"`
+}
+
+type WorktreeError struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
+
+// RemoveResult: what «Видалити вибрані» took away and what it left.
+type RemoveResult struct {
+	Removed  int             `json:"removed"`
+	Branches int             `json:"branches"`
+	Kept     []KeptWorktree  `json:"kept"`
+	Errors   []WorktreeError `json:"errors"`
+}
+
+// RemoveWorktrees removes the chosen worktrees, Mako's or not. Only a folder `git worktree list` gives for the
+// named repository goes (never the main checkout); a task whose agent works keeps its worktree; one with
+// uncommitted or unpushed work is listed in Kept and stays unless force.
+func (d *Dispatcher) RemoveWorktrees(ctx context.Context, items []WorktreeRef, force bool) RemoveResult {
+	res := RemoveResult{Kept: []KeptWorktree{}, Errors: []WorktreeError{}}
+	fail := func(path string, err error) {
+		res.Errors = append(res.Errors, WorktreeError{Path: path, Error: err.Error()})
+	}
+	repos := map[string]*config.Repo{}
+	for _, repo := range d.configuredRepos() {
+		repos[repo.Name] = repo
+	}
+	records := d.Store.All()
+	for _, it := range items {
+		repo := repos[it.Repo]
+		if repo == nil {
+			fail(it.Path, fmt.Errorf("unknown project %q", it.Repo))
+			continue
+		}
+		// The list is read for each: the removal before it changed it.
+		wts, err := gitx.Worktrees(ctx, repo.Path)
+		if err != nil {
+			fail(it.Path, err)
+			continue
+		}
+		i := slices.IndexFunc(wts, func(w gitx.Worktree) bool { return samePath(w.Path, it.Path) })
+		if i < 0 {
+			fail(it.Path, fmt.Errorf("not a worktree of %s", repo.Name))
+			continue
+		}
+		w := wts[i]
+		rec, mako := taskOf(records, repo, w)
+		if mako && d.busyOrStarting(rec) {
+			fail(w.Path, fmt.Errorf("the agent of %s is still working", rec.ID))
+			continue
+		}
+		if exists(w.Path) && !w.Prunable {
+			dirty, derr := gitx.Dirty(ctx, w.Path)
+			unpushed := 0
+			if derr == nil {
+				unpushed = gitx.Unpushed(ctx, w.Path)
+			}
+			if derr != nil && !force {
+				fail(w.Path, derr)
+				continue
+			}
+			if (dirty > 0 || unpushed > 0) && !force {
+				res.Kept = append(res.Kept, KeptWorktree{Path: w.Path, Dirty: dirty, Unpushed: unpushed})
+				continue
+			}
+		}
+		// The branch goes with the worktree unless another worktree has it checked out.
+		branch := w.Branch
+		for j, o := range wts {
+			if j != i && o.Branch == branch {
+				branch = ""
+			}
+		}
+		if mako && !onTerminal(rec) {
+			err = d.RemoveWorkspace(ctx, repo.Path, w.Path, branch)
+		} else {
+			if mako && (d.Sessions.Get(rec.ID) != nil || d.Chats.Get(rec.ID) != nil) {
+				d.StopTerminal(rec.ID)
+				time.Sleep(500 * time.Millisecond) // the agent lets go of the folder
+			}
+			err = gitx.DropWorktree(ctx, repo.Path, w.Path, branch)
+		}
+		if err != nil {
+			if mako {
+				d.Fault(rec.ID, "worktree kept", err)
+			}
+			fail(w.Path, err)
+			continue
+		}
+		res.Removed++
+		if branch != "" && !gitx.HasBranch(ctx, repo.Path, branch) {
+			res.Branches++
+		}
+		if mako {
+			d.Store.Update(rec.ID, func(r *core.Record) { r.WorktreeKept = 0 })
+			d.Log(rec.ID, "worktree removed from the settings: "+w.Path)
+		}
+	}
+	return res
+}
+
+// OpenWorktreePath shows a worktree of a configured repository in Finder.
+func (d *Dispatcher) OpenWorktreePath(ctx context.Context, repoName, path string) error {
+	for _, repo := range d.configuredRepos() {
+		if repo.Name != repoName {
+			continue
+		}
+		wts, err := gitx.Worktrees(ctx, repo.Path)
+		if err != nil {
+			return err
+		}
+		for _, w := range wts {
+			if samePath(w.Path, path) && exists(w.Path) {
+				return exec.Command("open", w.Path).Start()
+			}
+		}
+	}
+	return fmt.Errorf("not a worktree of %s", repoName)
 }
 
 // changeStat: the size of a change set.

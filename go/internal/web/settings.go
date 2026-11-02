@@ -15,6 +15,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
@@ -143,6 +144,40 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "cleanup": s.D.CleanMerged(r.Context())})
+	})
+	// «Видалити вибрані»: the chosen worktrees, Mako's or not; one with uncommitted or unpushed work stays
+	// (and is listed) unless force.
+	mux.HandleFunc("POST /api/settings/worktrees/remove", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var in struct {
+			Items []dispatch.WorktreeRef `json:"items"`
+			Force bool                   `json:"force"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, s.D.RemoveWorktrees(r.Context(), in.Items, in.Force))
+	})
+	// «Finder» on a worktree: from the Mac only.
+	mux.HandleFunc("POST /api/settings/worktrees/open", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) || remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var in dispatch.WorktreeRef
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.D.OpenWorktreePath(r.Context(), in.Repo, in.Path); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("POST /api/pause", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {

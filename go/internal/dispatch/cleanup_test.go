@@ -132,3 +132,155 @@ func TestCleanMergedLeavesWorkingAgents(t *testing.T) {
 		t.Fatalf("left: %v %v, through Orca: %v", exists(old), exists(cur), removed)
 	}
 }
+
+func commitIn(t *testing.T, dir, file string) {
+	t.Helper()
+	os.WriteFile(filepath.Join(dir, file), []byte("x"), 0o644)
+	git(t, dir, "add", file)
+	git(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "add "+file)
+}
+
+// «Видалити вибрані» takes a worktree that is not a task's, with its branch.
+func TestRemoveWorktreesNotMako(t *testing.T) {
+	d, id, repo, _, cur, _, curBranch, other := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	name := d.repoOf(r).Name
+
+	res := d.RemoveWorktrees(ctx, []WorktreeRef{{Repo: name, Path: other}}, false)
+	if res.Removed != 1 || res.Branches != 1 || len(res.Kept) != 0 || len(res.Errors) != 0 {
+		t.Fatalf("result: %+v", res)
+	}
+	if exists(other) || gitx.HasBranch(ctx, repo, "fix/9-other") {
+		t.Fatal("the worktree or its branch is left")
+	}
+	if !exists(cur) || !gitx.HasBranch(ctx, repo, curBranch) {
+		t.Fatal("removed a worktree that was not chosen")
+	}
+}
+
+func TestRemoveWorktreesRefusesForeignPaths(t *testing.T) {
+	d, id, repo, old, _, _, _, _ := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	name := d.repoOf(r).Name
+	stray := t.TempDir()
+
+	res := d.RemoveWorktrees(ctx, []WorktreeRef{
+		{Repo: name, Path: repo},                                         // the main checkout
+		{Repo: name, Path: stray},                                        // not in `git worktree list`
+		{Repo: "no-such-repo", Path: old},                                // another repository
+		{Repo: name, Path: filepath.Join(old, "..", "wt-1", "..", "..")}, // a parent folder
+	}, true)
+	if res.Removed != 0 || len(res.Errors) != 4 {
+		t.Fatalf("result: %+v", res)
+	}
+	if !exists(repo) || !exists(stray) || !exists(old) {
+		t.Fatal("removed a folder that is not a worktree of the repository")
+	}
+}
+
+func TestRemoveWorktreesKeepsUnsavedWork(t *testing.T) {
+	d, id, repo, _, _, _, _, other := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	name := d.repoOf(r).Name
+	ref := []WorktreeRef{{Repo: name, Path: other}}
+
+	// Uncommitted file.
+	os.WriteFile(filepath.Join(other, "half.txt"), []byte("x"), 0o644)
+	res := d.RemoveWorktrees(ctx, ref, false)
+	if res.Removed != 0 || len(res.Kept) != 1 || res.Kept[0].Dirty != 1 || !exists(other) {
+		t.Fatalf("dirty: %+v", res)
+	}
+	// An unpushed commit: the branch is on the remote, one commit ahead of it.
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	git(t, repo, "init", "-q", "--bare", remote)
+	git(t, repo, "remote", "set-url", "origin", remote)
+	os.Remove(filepath.Join(other, "half.txt"))
+	git(t, other, "push", "-q", "origin", "fix/9-other")
+	commitIn(t, other, "new.txt")
+	res = d.RemoveWorktrees(ctx, ref, false)
+	if res.Removed != 0 || len(res.Kept) != 1 || res.Kept[0].Unpushed != 1 || !samePath(res.Kept[0].Path, other) || !exists(other) {
+		t.Fatalf("unpushed: %+v", res)
+	}
+	// «Видалити разом зі змінами».
+	res = d.RemoveWorktrees(ctx, ref, true)
+	if res.Removed != 1 || res.Branches != 1 || exists(other) || gitx.HasBranch(ctx, repo, "fix/9-other") {
+		t.Fatalf("forced: %+v", res)
+	}
+}
+
+func TestRemoveWorktreesLeavesWorkingAgents(t *testing.T) {
+	d, id, repo, _, cur, _, curBranch, _ := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	name := d.repoOf(r).Name
+	ref := []WorktreeRef{{Repo: name, Path: cur}}
+
+	d.Store.Update(id, func(r *core.Record) { r.Executor = "orca" })
+	d.mu.Lock()
+	d.agents[id] = &Agent{State: "working"}
+	d.mu.Unlock()
+	if res := d.RemoveWorktrees(ctx, ref, true); res.Removed != 0 || len(res.Errors) != 1 || !exists(cur) {
+		t.Fatalf("under a working agent: %+v", res)
+	}
+	d.mu.Lock()
+	d.agents[id].State = "done"
+	d.starting[id] = true
+	d.mu.Unlock()
+	if res := d.RemoveWorktrees(ctx, ref, true); res.Removed != 0 || len(res.Errors) != 1 || !exists(cur) {
+		t.Fatalf("while starting: %+v", res)
+	}
+	d.mu.Lock()
+	delete(d.starting, id)
+	d.mu.Unlock()
+
+	// Idle: an Orca task goes through RemoveWorkspace, and stops asking about its worktree.
+	var through []string
+	d.RemoveWorkspace = func(ctx context.Context, repoPath, worktree, branch string) error {
+		through = append(through, branch)
+		return gitx.DropWorktree(ctx, repoPath, worktree, branch)
+	}
+	d.Store.Update(id, func(r *core.Record) { r.WorktreeKept = 3 })
+	if res := d.RemoveWorktrees(ctx, ref, false); res.Removed != 1 || len(through) != 1 || through[0] != curBranch {
+		t.Fatalf("through Orca: %+v %v", res, through)
+	}
+	if exists(cur) || gitx.HasBranch(ctx, repo, curBranch) {
+		t.Fatal("the worktree or its branch is left")
+	}
+	if r, _ := d.Store.Get(id); r.WorktreeKept != 0 {
+		t.Fatal("the task still asks about the removed worktree")
+	}
+}
+
+// The settings read what each worktree holds.
+func TestWorktreeUsageMetadata(t *testing.T) {
+	d, id, repo, _, cur, _, _, other := cleanupSetup(t)
+	ctx := context.Background()
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	git(t, repo, "init", "-q", "--bare", remote)
+	git(t, repo, "remote", "set-url", "origin", remote)
+	git(t, other, "push", "-q", "origin", "fix/9-other")
+	commitIn(t, other, "new.txt")
+	os.WriteFile(filepath.Join(other, "half.txt"), []byte("x"), 0o644)
+
+	var got, task WorktreeSize
+	for _, w := range d.WorktreeUsage(ctx)[0].Worktrees {
+		switch {
+		case samePath(w.Path, other):
+			got = w
+		case samePath(w.Path, cur):
+			task = w
+		}
+	}
+	if got.Dirty != 1 || got.Unpushed != 1 || !got.HasRemote || got.Ahead != 1 || got.Behind != 0 {
+		t.Fatalf("git state: %+v", got)
+	}
+	if got.LastCommitTitle != "add new.txt" || got.LastCommitAt == "" || got.ModifiedAt == "" || got.Bytes == 0 || got.Task != "" {
+		t.Fatalf("commit and files: %+v", got)
+	}
+	if task.Task != id || task.Executor != terminalExecutor || task.ReviewState != "merged" || task.TaskStatus != core.Done || task.HasRemote || task.AgentBusy {
+		t.Fatalf("task: %+v", task)
+	}
+}

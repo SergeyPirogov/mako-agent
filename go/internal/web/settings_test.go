@@ -110,3 +110,36 @@ func TestSaveAgentLanguage(t *testing.T) {
 		t.Fatalf("saved: %s", b)
 	}
 }
+
+// Removing worktrees and opening them in Finder is for the board's own page only, and a body that is no JSON is
+// refused.
+func TestWorktreeRemoveEndpoints(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: t.TempDir()}).Handler())
+	defer srv.Close()
+	post := func(path, origin, body string) *http.Response {
+		req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	for _, p := range []string{"/api/settings/worktrees/remove", "/api/settings/worktrees/open"} {
+		if res := post(p, "https://evil.example", `{}`); res.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s from another site: %d", p, res.StatusCode)
+		}
+		if res := post(p, srv.URL, `not json`); res.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s with a bad body: %d", p, res.StatusCode)
+		}
+	}
+	res := post("/api/settings/worktrees/remove", srv.URL, `{"items":[{"repo":"x","path":"/tmp/x"}],"force":true}`)
+	var out dispatch.RemoveResult
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil || res.StatusCode != 200 || out.Removed != 0 || len(out.Errors) != 1 {
+		t.Fatalf("unknown project: %d %+v %v", res.StatusCode, out, err)
+	}
+}
