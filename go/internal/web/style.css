@@ -572,7 +572,23 @@ section.ws #term-slot:has(.term-wrap) { padding: 0; }
 .mr-h a { font-weight: 600; }
 .mr-h .mr-st { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mr-h .mr-st .spin { display: inline-block; vertical-align: -2px; margin-right: 6px; }
-.branch-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.mr-sp { flex: 1; }
+/* The branch block: its label and the two openers on the first line, the name on the whole width under them (a click copies it). */
+.br-card .mr-h { margin-bottom: 2px; }
+.branch-name { position: relative; display: block; width: calc(100% + 12px); margin: 0 -6px 4px; padding: 3px 24px 3px 6px; border: 0; border-radius: 6px; background: none;
+  text-align: left; font: 12px/17px var(--mono); color: var(--fg); overflow-wrap: break-word; transition: background .25s, color .25s; }
+.branch-name:hover { background: var(--hover); }
+.branch-name:active { transform: none; }
+.branch-name .bn-pre { color: var(--mute); }
+.branch-name .bn-num { font-weight: 700; }
+.branch-name .bn-copy { position: absolute; right: 6px; top: 5px; display: inline-flex; color: var(--mute); opacity: 0; transition: opacity .15s; }
+.branch-name:hover .bn-copy, .branch-name:focus-visible .bn-copy { opacity: 1; }
+.branch-name.copied { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.branch-name.copied .bn-pre, .branch-name.copied .bn-copy { color: var(--ok); }
+.br-card .mr-row { min-height: 22px; }
+.br-card .mr-row > a, .br-card .mr-row > span { padding: 2px 0; font-size: 12.5px; }
+.br-card .mr-row > svg, .br-card .mr-row > .mi { margin-top: 4px; }
+.br-card .mr-row > button { margin-top: 0; }
 .mr-h button.icon { width: 26px; height: 26px; }
 .mr-h button.icon.ready { color: var(--ok); }
 .mr-h button.icon:disabled { opacity: .4; cursor: default; background: none; }
