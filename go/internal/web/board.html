@@ -1218,6 +1218,17 @@ function branchCard(r, term) {
 const JOB = { success: ["ok", "✓", "passed"], failed: ["bad", "✗", "failed"], running: ["run", "⟳", "running"], pending: ["wait", "◷", "waiting"],
   created: ["wait", "◷", "waiting"], preparing: ["wait", "◷", "preparing"], waiting_for_resource: ["wait", "◷", "waiting"], scheduled: ["wait", "◷", "scheduled"],
   manual: ["idle", "▶", "manual"], canceled: ["idle", "⊘", "canceled"], skipped: ["idle", "⊘", "skipped"] };
+const JOB_SVG = {
+  ok: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>`,
+  bad: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+  warn: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v9M12 19v.5"/></svg>`,
+  run: `<svg class="jspin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>`,
+  wait: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="3.2 3.2" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg>`,
+  idle: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M7 17L17 7"/></svg>`,
+};
+const jobLook = (j) => j.status === "failed" && j.allowFailure ? ["warn", "failed, allowed"] : (([c, , w]) => [c, w])(JOB[j.status] ?? ["idle", "", j.status]);
+// "1 of 2 passed": the note on the CI section.
+const jobsNote = (jobs) => !jobs?.length ? "" : `${jobs.filter((j) => j.status === "success" || j.status === "failed" && j.allowFailure).length} of ${jobs.length} passed`;
 function jobsHTML(jobs) {
   if (!jobs?.length) return "";
   const stages = [];
@@ -1226,11 +1237,12 @@ function jobsHTML(jobs) {
     if (!st) stages.push((st = { name: j.stage || "", jobs: [] }));
     st.jobs.push(j);
   }
-  return `<div class="stages">${stages.map((st) => `<div class="stage">${st.name ? `<span class="stage-name">${esc(st.name)}</span>` : ""}${st.jobs.map((j) => {
-    const allowed = j.status === "failed" && j.allowFailure;
-    const [cls, mark, word] = allowed ? ["warn", "!", "failed, allowed"] : JOB[j.status] ?? ["idle", "•", j.status];
-    return `<a class="job ${cls}" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.name)}: ${esc(word)}"><span class="jm">${mark}</span><span class="jn">${esc(j.name)}</span><span class="js">${esc(word)}</span></a>`;
-  }).join("")}</div>`).join("")}</div>`;
+  // The bar: a segment a job, in its state's colour.
+  const bar = `<div class="ci-bar" aria-hidden="true">${jobs.map((j) => `<i class="${jobLook(j)[0]}"></i>`).join("")}</div>`;
+  return bar + `<div class="ci-jobs">${stages.map((st) => `${st.name && stages.length > 1 ? `<div class="ci-stage">${esc(st.name)}</div>` : ""}${st.jobs.map((j) => {
+    const [cls, word] = jobLook(j);
+    return `<a class="job ${cls}" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.name)}: ${esc(word)}"><span class="jm">${JOB_SVG[cls] ?? JOB_SVG.idle}</span><span class="jn">${esc(j.name)}</span><span class="js">${esc(word)}</span></a>`;
+  }).join("")}`).join("")}</div>`;
 }
 
 function mrCard(r, term) {
@@ -1246,10 +1258,9 @@ function mrCard(r, term) {
   else if (c.state === "open") {
     if (c.ci) {
       const [icon, text] = CI[c.ci] ?? ["run", `CI: ${c.ci}`];
-      const n = c.jobs?.length || 0;
       rows += sec("CI", row(icon, c.ci === "failed" && c.failed.length ? `${text}: ${c.failed.map((j) => j.name).join(", ")}` : text, c.ciUrl,
         c.ci === "failed" && c.failed.length ? fix("ci", "The agent will fix CI in the terminal") : "") + jobsHTML(c.jobs),
-        n ? `${n} ${plural(n, "job", "jobs")}` : "");
+        jobsNote(c.jobs));
     } else rows += sec("CI", row("idle", "No CI"));
     let merging = "";
     if (c.threads.length) {
