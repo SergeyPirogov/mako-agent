@@ -115,6 +115,8 @@ type recordView struct {
 	// not being started waits.
 	Starting *dispatch.StartProgress `json:"starting,omitempty"`
 	QueueWhy string                  `json:"queueWhy,omitempty"`
+	// WillPlan: the queued task's agent starts with a plan (dispatch.WillPlan): the card puts the plan next.
+	WillPlan bool `json:"-"`
 	// Card: the card's main action and its stages for the task's state.
 	Card cardView `json:"card"`
 }
@@ -200,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 				v.CIWait = s.D.CIWait(rec)
 			}
 			if rec.Status == core.Queued {
+				v.WillPlan = s.D.WillPlan(rec)
 				if v.Starting = s.D.Starting(rec.ID); v.Starting == nil {
 					v.QueueWhy = queueWhy
 				}
