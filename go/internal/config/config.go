@@ -32,8 +32,10 @@ type Config struct {
 	Path            string
 	Home            string // the folder of mako.config.json and .env
 	StateDir        string
-	PollIntervalSec int
-	WipLimit        int
+	// BugReportWebhook: where "Report a bug" sends the report (a Slack-compatible incoming webhook); "" = not set.
+	BugReportWebhook string
+	PollIntervalSec  int
+	WipLimit         int
 	// WipAuto: WipLimit is AutoWip, worked out from this Mac's cores and memory, not the number in the config.
 	WipAuto bool
 	// LimitPausePct: at this share of a Claude usage limit (5 hours or the week) used, the queue waits for it
@@ -313,6 +315,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		AgentLanguage:    lang,
 		UnknownLanguage:  unknown,
 		StateDir:         Expand(raw.StateDir),
+		BugReportWebhook: strings.TrimSpace(raw.BugReportWebhook),
 		PollIntervalSec:  orInt(raw.PollIntervalSec, 60),
 		WipLimit:         orInt(raw.WipLimit, 0),
 		WipAuto:          raw.WipAuto,
@@ -592,6 +595,7 @@ type rawConfig struct {
 	AgentLanguage    string                 `json:"agentLanguage"`
 	Language         string                 `json:"language"` // older configs: read as agentLanguage
 	StateDir         string                 `json:"stateDir"`
+	BugReportWebhook string                 `json:"bugReportWebhook"`
 	PollIntervalSec  *int                   `json:"pollIntervalSec"`
 	WipLimit         *int                   `json:"wipLimit"`
 	WipAuto          bool                   `json:"wipAuto"`
