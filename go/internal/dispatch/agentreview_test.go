@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -565,5 +566,58 @@ func TestReviewUnpushed(t *testing.T) {
 	idle()
 	if last := replied(t, d, id); !last.Unverified || last.SentHead == "" {
 		t.Fatalf("unpushed fix: %+v", last)
+	}
+}
+
+// «Check it yourself»: the tick is the task's, with the branch's HEAD; new commits make it stale, and unticking
+// clears it.
+func TestSelfCheck(t *testing.T) {
+	d, _, id, wt, _, _ := reviewSetup(t)
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Pay")
+	git(t, wt, "push", "-q", "origin", "fix/5-pay")
+	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(string(out))
+
+	if err := d.SelfCheck(id, true); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := d.Store.Get(id)
+	if r.SelfCheck == nil || r.SelfCheck.Commit != head || r.SelfCheck.At == "" {
+		t.Fatalf("self-check %+v, want commit %s", r.SelfCheck, head)
+	}
+	if n := d.SelfCheckBehind(r); n != 0 {
+		t.Fatalf("a fresh tick is %d commits behind", n)
+	}
+
+	// Two commits later the tick is stale by two; the board's look at the branch is kept for 15 seconds.
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "More")
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Even more")
+	d.mu.Lock()
+	delete(d.branches, id)
+	d.mu.Unlock()
+	if n := d.SelfCheckBehind(r); n != 2 {
+		t.Fatalf("behind %d, want 2", n)
+	}
+
+	// Ticking again moves the tick to the new HEAD.
+	if err := d.SelfCheck(id, true); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = d.Store.Get(id)
+	if r.SelfCheck.Commit == head || d.SelfCheckBehind(r) != 0 {
+		t.Fatalf("the tick did not move: %+v", r.SelfCheck)
+	}
+
+	if err := d.SelfCheck(id, false); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ = d.Store.Get(id); r.SelfCheck != nil || d.SelfCheckBehind(r) != 0 {
+		t.Fatalf("the tick stayed: %+v", r.SelfCheck)
+	}
+	if err := d.SelfCheck("nope", true); err == nil {
+		t.Fatal("a tick on a task that does not exist")
 	}
 }
