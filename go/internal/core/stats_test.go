@@ -245,3 +245,26 @@ func TestSummarizeCancelledBothSpellings(t *testing.T) {
 		t.Fatalf("reasons %+v", st.Reasons)
 	}
 }
+
+func TestOfProject(t *testing.T) {
+	at := "2026-10-05T10:00:00Z"
+	all := []Record{
+		{ID: "a", Status: Done, StartedAt: at, Task: Task{Project: "org/one"}, Cost: 1},
+		{ID: "b", Status: Failed, StartedAt: at, Task: Task{Project: "org/two"}, Error: "x", Cost: 2},
+		{ID: "c", Status: Done, StartedAt: at, Repo: "org/one", Cost: 4}, // no project: by its repository
+	}
+	if got := OfProject(all, ""); len(got) != 3 {
+		t.Fatalf("all: %+v", got)
+	}
+	one := OfProject(all, "org/one")
+	if len(one) != 2 || one[0].ID != "a" || one[1].ID != "c" {
+		t.Fatalf("org/one: %+v", one)
+	}
+	st := Summarize(one, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	if st.Taken != 2 || st.Succeeded != 2 || st.Failed != 0 || st.Cost != 5 || len(st.Projects) != 1 || st.Projects[0].Name != "org/one" {
+		t.Fatalf("%+v", st)
+	}
+	if got := OfProject(all, "org/none"); len(got) != 0 {
+		t.Fatalf("none: %+v", got)
+	}
+}

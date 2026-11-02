@@ -58,3 +58,26 @@ func TestSummarizeContext(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestSummarizeContextRelative(t *testing.T) {
+	wt := "/Users/me/wt/task-1"
+	st := Summarize([]Record{{Status: Done, StartedAt: "2026-10-07T10:00:00Z", Worktree: wt, Metrics: &Metrics{Context: []ContextRun{{
+		Phase: PhaseWork, Peak: 10, Files: []Heavy{{wt + "/go/a.go", 1, 500}, {"/etc/hosts", 1, 10}},
+		Commands: []Heavy{{"cd " + wt + " && go test " + wt + "/go/...", 1, 300}},
+	}}}}}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	if got := fmt.Sprint(st.Context.Files); got != "[{go/a.go 1 500} {/etc/hosts 1 10}]" {
+		t.Fatal(got)
+	}
+	if got := fmt.Sprint(st.Context.Commands); got != "[{cd . && go test go/... 1 300}]" {
+		t.Fatal(got)
+	}
+}
+
+func TestSummarizeContextLegacySources(t *testing.T) {
+	st := Summarize([]Record{{Status: Done, StartedAt: "2026-10-07T10:00:00Z", Metrics: &Metrics{Context: []ContextRun{
+		{Phase: PhaseWork, Peak: 10, Tools: map[string]int{"Відповіді": 5, SourceReplies: 3}}, // cyrillic-ok
+	}}}}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	if got := st.Context.Phases[PhaseWork].Tools; len(got) != 1 || got[SourceReplies] != 8 {
+		t.Fatalf("%v", got)
+	}
+}

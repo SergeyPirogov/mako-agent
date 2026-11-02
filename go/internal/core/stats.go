@@ -182,10 +182,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		if t, err := time.Parse(time.RFC3339Nano, r.StartedAt); err == nil && t.After(weekAgo) {
 			st.LastWeek++
 		}
-		project := r.Task.Project
-		if project == "" {
-			project = r.Repo
-		}
+		project := projectOf(r)
 		executor := r.Executor
 		if executor == "" {
 			executor = "—"
@@ -343,6 +340,28 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		return a.Count > b.Count || a.Count == b.Count && a.Text < b.Text
 	})
 	return st
+}
+
+// projectOf: the project a record is counted under: its task's, else its repository.
+func projectOf(r Record) string {
+	if r.Task.Project != "" {
+		return r.Task.Project
+	}
+	return r.Repo
+}
+
+// OfProject: the records of one project, as Summarize names it; all of them for "".
+func OfProject(records []Record, project string) []Record {
+	if project == "" {
+		return records
+	}
+	out := make([]Record, 0, len(records))
+	for _, r := range records {
+		if projectOf(r) == project {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // bySize counts r by the size its estimate expected, and against the size it came to when it has both.

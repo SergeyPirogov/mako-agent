@@ -185,7 +185,8 @@ func (s *Server) Handler() http.Handler {
 			since = time.Now().AddDate(0, 0, -n)
 		}
 		reply.Models = core.Models
-		reply.Stats = core.Summarize(all, time.Now(), since)
+		// project: the statistics of one project only (none: all of them).
+		reply.Stats = core.Summarize(core.OfProject(all, r.URL.Query().Get("project")), time.Now(), since)
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
 		for _, rec := range all {
