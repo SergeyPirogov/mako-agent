@@ -54,7 +54,7 @@ func TestChanges(t *testing.T) {
 		t.Fatalf("new file %q", d)
 	}
 	h, err := Log(ctx, dir, "main", 1)
-	if err != nil || len(h.Commits) != 1 || !h.More || h.Commits[0].Subject != "Fix two" || !h.Commits[0].Mine || len(h.Commits[0].Parents) != 1 {
+	if err != nil || len(h.Commits) != 1 || h.More || h.Commits[0].Subject != "Fix two" || len(h.Commits[0].Parents) != 0 {
 		t.Fatalf("log %+v %v", h, err)
 	}
 	if !strings.Contains(strings.Join(h.Commits[0].Refs, ","), "fix/1") {
@@ -81,6 +81,67 @@ func TestChanges(t *testing.T) {
 	// A path outside the worktree is never read.
 	if d, _ := FileDiff(ctx, dir, "main", "../../etc/passwd", false); strings.Contains(d, "root") {
 		t.Fatal("read outside the worktree")
+	}
+}
+
+func TestLogOnlyBranchCommits(t *testing.T) {
+	dir := t.TempDir()
+	g := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	commit := func(file, msg string) {
+		os.WriteFile(filepath.Join(dir, file), []byte(msg), 0o644)
+		g("add", ".")
+		g("commit", "-q", "-m", msg)
+	}
+	g("init", "-q", "-b", "main")
+	commit("a.txt", "base one")
+	commit("b.txt", "base two")
+	g("checkout", "-q", "-b", "fix/2")
+	commit("c.txt", "task one")
+	commit("d.txt", "task two")
+	ctx := context.Background()
+	subjects := func(h *History) string {
+		var s []string
+		for _, c := range h.Commits {
+			s = append(s, c.Subject)
+		}
+		return strings.Join(s, ",")
+	}
+
+	h, err := Log(ctx, dir, "main", 10)
+	if err != nil || subjects(h) != "task two,task one" || h.More {
+		t.Fatalf("log %+v %v", h, err)
+	}
+	if h, _ = Log(ctx, dir, "main", 1); len(h.Commits) != 1 || !h.More {
+		t.Fatalf("paged log %+v", h)
+	}
+
+	// Main moves on and is merged into the branch: its commits stay out, the merge has no parent on main's side.
+	g("checkout", "-q", "main")
+	commit("e.txt", "base three")
+	g("checkout", "-q", "fix/2")
+	g("merge", "-q", "--no-ff", "-m", "merge main", "main")
+	h, err = Log(ctx, dir, "main", 10)
+	if err != nil || subjects(h) != "merge main,task two,task one" {
+		t.Fatalf("log after merge %+v %v", h, err)
+	}
+	if len(h.Commits[0].Parents) != 1 || h.Commits[0].Parents[0] != h.Commits[1].Hash {
+		t.Fatalf("merge parents %v", h.Commits[0].Parents)
+	}
+	cs, _ := Changes(ctx, dir, "main")
+	if len(cs.Commits) != len(h.Commits) {
+		t.Fatalf("badge %d, log %d", len(cs.Commits), len(h.Commits))
+	}
+
+	// A branch with nothing of its own: no commits.
+	g("checkout", "-q", "-b", "fix/3", "main")
+	if h, err = Log(ctx, dir, "main", 10); err != nil || len(h.Commits) != 0 || h.More {
+		t.Fatalf("empty branch %+v %v", h, err)
 	}
 }
 

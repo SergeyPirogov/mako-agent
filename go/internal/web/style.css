@@ -760,8 +760,7 @@ section.ws .insp-card { max-height: none; }
 .cg-toggle { flex: none; width: 16px; height: 20px; padding: 0; border: 0; background: none; color: var(--faint); font-size: 13px; }
 .cg-toggle:hover { background: none; color: var(--fg); }
 .cg-toggle:active { transform: none; }
-.cg-subj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mute); }
-.cg-row.mine .cg-subj { color: var(--fg); }
+.cg-subj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 .cg-ref { flex: none; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 18px; line-height: 16px; padding: 0 7px;
   border-radius: 9px; border: 1px solid var(--line); font-size: 11px; color: var(--mute); }
 .cg-ref.head { border-color: var(--accent); color: var(--accent); }

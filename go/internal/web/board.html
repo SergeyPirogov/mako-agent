@@ -1036,7 +1036,7 @@ function commitGraph(commits) {
     });
     const open = commitOpen[c.hash];
     const when = new Date(c.at * 1000).toLocaleString(LANG, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-    return `<div class="cg-row ${c.mine ? "mine" : ""}" title="${esc(c.hash.slice(0, 8))} · ${esc(c.author)} · ${esc(when)}">
+    return `<div class="cg-row" title="${esc(c.hash.slice(0, 8))} · ${esc(c.author)} · ${esc(when)}">
         <svg class="cg-lanes" width="${width}" height="${H}" fill="none" stroke-width="1.6" aria-hidden="true">${svg}</svg>
         <button type="button" class="cg-toggle" data-commit="${esc(c.hash)}" aria-label="${open ? "Collapse" : "Expand"} commit">${open ? "▾" : "›"}</button>
         <span class="cg-subj">${esc(c.subject)}</span>${refs.slice(0, 2).join("")}${refs.length > 2 ? `<span class="cg-ref more">+${refs.length - 2}</span>` : ""}</div>
