@@ -3,9 +3,11 @@ package dispatch
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
@@ -46,30 +48,85 @@ func wantsPlan(t config.Terminal, task core.Task, e *core.Estimate, picked bool)
 	return false
 }
 
-// workMode: the mode the agent works in once its plan is approved: the configured one.
-func workMode(t config.Terminal) string {
+// WorkMode: the mode the agent works in once its plan is approved: the configured one.
+func WorkMode(t config.Terminal) string {
 	if t.PermissionMode == "" || t.PermissionMode == "plan" {
 		return "auto"
 	}
 	return t.PermissionMode
 }
 
+// PlanApproval: how the plan's work goes on: the mode and model it is done in ("" the configured mode, the model it
+// has), and your notes on the plan, which the agent reads as it starts.
+type PlanApproval struct {
+	Mode, Model string
+	Notes       chat.PlanNotes
+}
+
 // ApprovePlan approves the plan the task's agent offers: it leaves plan mode and does what it planned.
-func (d *Dispatcher) ApprovePlan(id, requestID string) error {
+func (d *Dispatcher) ApprovePlan(id, requestID string, o PlanApproval) error {
 	c := d.Chats.Get(id)
 	if c == nil {
 		return fmt.Errorf("the agent is not running")
 	}
-	if err := c.ApprovePlan(requestID, workMode(d.Config().Terminal)); err != nil {
-		return err
+	mode := o.Mode
+	if mode == "" || mode == "plan" {
+		mode = WorkMode(d.Config().Terminal)
+	} else if !slices.Contains(chat.Modes, mode) {
+		return fmt.Errorf("unknown mode %q", mode)
+	}
+	model := strings.TrimSpace(o.Model)
+	notes := o.Notes.Text()
+	// Once the agent has its answer the plan is approved, whatever failed after it: the task goes on, the log says.
+	partly := c.ApprovePlan(requestID, mode, model, notes)
+	if partly != nil && !errors.Is(partly, chat.ErrApprovedButNot) {
+		return partly
+	}
+	if model != "" && c.Model() != model {
+		model = "" // it did not reach the agent: the run goes on with the one it has
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Planning = false
-		if r.AgentRoute != nil {
-			r.SetRoute(core.PhaseWork, *r.AgentRoute) // the same session goes on: its route stays the plan's
+		// The same session goes on: its route stays the plan's, with the model picked on approval.
+		if r.AgentRoute != nil || model != "" {
+			route := core.Route{}
+			if r.AgentRoute != nil {
+				route = *r.AgentRoute
+			}
+			if model != "" && model != route.Model {
+				route.Model, route.Why = model, "picked when the plan was approved"
+			}
+			r.AgentRoute = &route
+			r.SetRoute(core.PhaseWork, route)
+		}
+		if model != "" {
+			r.AgentModel = model
 		}
 	})
-	d.Log(id, "plan approved: the agent is carrying it out")
+	msg := "plan approved: the agent is carrying it out in mode " + mode
+	if model != "" {
+		msg += ", model " + model
+	}
+	if notes != "" {
+		msg += "; notes: " + clipText(firstLine(notes), 120)
+	}
+	d.Log(id, msg)
+	if partly != nil {
+		d.Log(id, partly.Error())
+	}
+	return nil
+}
+
+// RejectPlan turns the plan of the task's agent down: it carries nothing out and waits for you.
+func (d *Dispatcher) RejectPlan(id, requestID string) error {
+	c := d.Chats.Get(id)
+	if c == nil {
+		return fmt.Errorf("the agent is not running")
+	}
+	if err := c.RejectPlan(requestID); err != nil {
+		return err
+	}
+	d.Log(id, "plan rejected")
 	return nil
 }
 

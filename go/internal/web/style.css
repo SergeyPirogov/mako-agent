@@ -832,6 +832,83 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .plan-card.done .plan-h .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-card.done .plan-h .tw { margin-left: auto; }
 .plan-card.done .plan-body { padding: 0 12px 10px; border-top: 1px solid var(--line); }
+/* The agent's plan waiting to be approved: numbered steps, a note on any of them */
+.plan-doc { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); max-width: 760px; }
+.plan-doc-h { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; background: var(--bg); }
+.plan-doc-h b { font-size: 15px; font-weight: 650; flex: 1; }
+.plan-doc-h .muted { font-size: 12.5px; }
+.plan-doc-md, .pl-intro, .pl-outro { padding: 8px 14px; border-top: 1px solid var(--line); }
+.pl-step { padding: 8px 14px 10px; border-top: 1px solid var(--line); }
+.pl-step.noted, .pl-step.editing { background: color-mix(in srgb, var(--warn) 7%, var(--card)); }
+.pl-step-h { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 2px 0; border: 0; background: none; text-align: left; font: inherit; font-size: 13.5px; color: var(--fg); cursor: pointer; height: auto; }
+.pl-step-h:hover .pl-t { text-decoration: underline; text-decoration-color: var(--faint); }
+.pl-n { width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--hover); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.pl-t { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pl-t code, .pl-body code { font-size: 12px; }
+.pl-body { margin-left: 34px; color: var(--mute); font-size: 13px; }
+.pl-body > :first-child { margin-top: 0; } .pl-body > :last-child { margin-bottom: 0; }
+.pl-note, .pl-edit { margin: 6px 0 0 34px; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); font-size: 13px; }
+.pl-note span { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.pl-note b { flex: none; font-weight: 600; }
+.pl-edit { flex-direction: column; align-items: stretch; }
+.pl-edit textarea { font: inherit; color: var(--fg); background: none; border: 0; outline: none; resize: vertical; }
+.pl-edit-b { display: flex; gap: 6px; justify-content: flex-end; }
+.pl-edit-b button { height: 28px; padding: 0 10px; }
+.pl-risk { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--mute); }
+.pl-risk > b { color: var(--warn); font-weight: 600; flex: none; }
+.pl-risk .md > :first-child { margin-top: 0; } .pl-risk .md > :last-child { margin-bottom: 0; }
+/* The panel in place of the input while the agent waits on you */
+.chat-dock { flex: none; border-top: 2px solid var(--warn); background: color-mix(in srgb, var(--warn) 7%, var(--card)); padding: 12px 16px max(12px, env(safe-area-inset-bottom)); max-height: 55%; overflow: auto; }
+.chat-dock[hidden], .chat-foot[hidden], .dock-warn[hidden] { display: none; }
+.dock-in { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.dock-h { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.dock-h b { font-weight: 600; flex: none; }
+.dock-h > .muted:not(.dock-wait) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-wait { margin-left: auto; flex: none; font-size: 12px; }
+.dock-ic { width: 20px; height: 20px; flex: none; border-radius: 6px; background: color-mix(in srgb, var(--warn) 25%, var(--card)); color: var(--warn); font-weight: 700; font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center; }
+.dock-q { font-weight: 600; overflow-wrap: anywhere; }
+.dock-opts { display: flex; flex-direction: column; gap: 6px; }
+.dopt { display: flex; gap: 10px; align-items: flex-start; width: 100%; height: auto; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+  color: var(--fg); text-align: left; font: inherit; cursor: pointer; }
+.dopt:hover { border-color: var(--faint); }
+.dopt.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--card)); box-shadow: 0 0 0 1px var(--accent); }
+.dopt-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dopt-t b { font-weight: 600; }
+.dopt-t .muted { font-size: 12.5px; }
+.rd { width: 16px; height: 16px; flex: none; margin-top: 2px; border: 1.5px solid var(--faint); border-radius: 50%; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; }
+.rd.checkbox { border-radius: 4px; }
+.dopt.on .rd { border-color: var(--accent); }
+.dopt.on .rd::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.dopt.on .rd.checkbox::after { border-radius: 2px; }
+.kbd { flex: none; margin-left: auto; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; color: var(--mute); }
+.dock-other { display: flex; gap: 10px; align-items: center; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--card); }
+.dock-other .muted { font-size: 13px; flex: none; }
+.dock-other input { flex: 1; min-width: 0; border: 0; outline: none; font: inherit; font-size: 13px; color: var(--fg); background: none; }
+.dock-note { font: inherit; font-size: 13.5px; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; resize: vertical; min-height: 36px; box-sizing: border-box; width: 100%; }
+.dock-note:focus, .dock-other:focus-within { border-color: var(--accent); outline: none; }
+.dock-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.dock-row .spacer { flex: 1; }
+.dock-row button { height: 32px; padding: 0 12px; }
+.dock-row button.link { height: auto; padding: 0; }
+.dock-row select { height: 30px; max-width: 220px; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; }
+.dock-warn { font-size: 12px; color: var(--err); }
+.chat-dock .perm-cmd { max-height: 160px; overflow: auto; }
+.perm-done code { font-size: 12px; }
+@media (max-width: 760px) {
+  .chat-dock { padding: 10px 12px max(12px, env(safe-area-inset-bottom)); max-height: 65%; }
+  .kbd, .dock-keys { display: none; }
+  .dopt { min-height: 44px; }
+  .dock-row .spacer { display: none; }
+  .dock-row button:not(.link) { flex: 1; }
+  .dock-row [data-dock-answer], .dock-row [data-plan-do="approve"], .dock-row [data-d="allow"] { flex: 2; }
+  .dock-row select { flex: 1; max-width: none; }
+  .dock-row button:not(.link) { height: auto; min-height: 40px; white-space: normal; }
+  .dock-row [data-d="always"] { flex-basis: 100%; order: -1; }
+  .dock-row .link { flex-basis: 100%; order: 9; text-align: center; padding: 4px 0; }
+  .pl-body, .pl-note, .pl-edit { margin-left: 0; }
+}
 /* The agent's questions */
 .perm.ask-card .ask-item { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .ask-text { font-weight: 600; }
