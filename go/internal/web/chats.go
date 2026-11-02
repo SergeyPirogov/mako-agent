@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
+	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 )
 
 // chatRoutes: the chats without a task — their list, opening one with its first message, and removing one. The
@@ -66,8 +67,8 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 		}
 	case "plan":
 		// Not the task's ApprovePlan: it would note the plan in the task store, making a task of the chat.
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
-		err = s.D.FreePlan(id, r.URL.Query().Get("req"), r.URL.Query().Get("do") == "approve", string(body))
+		do, o := readPlan(r)
+		err = s.D.FreePlan(id, r.URL.Query().Get("req"), do, o)
 	case "permit", "answer", "choose", "interrupt", "mode":
 		err = controlChat(c, action, r)
 	default:
@@ -79,6 +80,21 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// readPlan: the answer to the agent's plan, of a task or of a chat: the body {do: approve | revise | reject, mode,
+// model, notes: {steps: [{n, title, note}], whole}}; do may come in the query instead (a notification's button:
+// ?do=approve, no body).
+func readPlan(r *http.Request) (string, dispatch.PlanApproval) {
+	var in struct {
+		Do, Mode, Model string
+		Notes           chat.PlanNotes
+	}
+	json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in)
+	if in.Do == "" {
+		in.Do = r.URL.Query().Get("do")
+	}
+	return in.Do, dispatch.PlanApproval{Mode: in.Mode, Model: in.Model, Notes: in.Notes}
 }
 
 // controlChat: the running agent's controls in its chat — an answer to its question, an option of one, the mode,

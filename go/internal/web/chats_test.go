@@ -70,9 +70,17 @@ read init
 read msg
 echo '{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Зробити"}}}'
 read answer
-echo '{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Зробити й протестувати"}}}'
+echo "$answer" > revise.json
+echo '{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Зробити все"}}}'
+read answer
+echo "$answer" > reject.json
+echo '{"type":"control_request","request_id":"p3","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Зробити й протестувати"}}}'
 read answer
 echo "$answer" > approve.json
+read mode
+echo "$mode" > mode.json
+read notes
+echo "$notes" > notes.json
 read more
 `), 0o755)
 	s := chat.Start(chat.Options{ID: "chat-p", Worktree: dir, Command: bin, Prompt: "Зроби", Mode: "plan"})
@@ -83,6 +91,18 @@ read more
 		for deadline := time.Now().Add(10 * time.Second); s.Asked() == nil || s.Asked().ID != id; time.Sleep(10 * time.Millisecond) {
 			if time.Now().After(deadline) {
 				t.Fatalf("no plan %s", id)
+			}
+		}
+	}
+	read := func(name, want string) string {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			b, _ := os.ReadFile(filepath.Join(dir, name))
+			if strings.Contains(string(b), want) {
+				return string(b)
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: %s", name, b)
 			}
 		}
 	}
@@ -98,22 +118,46 @@ read more
 		return out
 	}
 	asked("p1")
-	if out := plan("req=p1&do=revise", "Додай тести"); out["ok"] != true {
+	// Revised: the agent reads the notes as text, not the request's JSON.
+	if out := plan("req=p1", `{"do":"revise","notes":{"steps":[{"n":1,"title":"Зробити","note":"Додай тести"}]}}`); out["ok"] != true {
 		t.Fatalf("revise %v", out)
 	}
+	if b := read("revise.json", `"behavior":"deny"`); !strings.Contains(b, "Step 1 (Зробити): Додай тести") || strings.Contains(b, `\"steps\"`) {
+		t.Fatalf("revise %s", b)
+	}
+	// Rejected: turned down, not sent back for changes.
 	asked("p2")
-	if out := plan("req=p2&do=approve", ""); out["ok"] != true {
+	if out := plan("req=p2", `{"do":"reject"}`); out["ok"] != true {
+		t.Fatalf("reject %v", out)
+	}
+	if b := read("reject.json", `"behavior":"deny"`); strings.Contains(b, "Додай тести") {
+		t.Fatalf("reject %s", b)
+	}
+	if st := s.Snapshot(); !planStatus(st, "p2", "denied") {
+		t.Fatalf("p2 not rejected: %+v", st.Items)
+	}
+	// Approved in the mode picked.
+	asked("p3")
+	if out := plan("req=p3", `{"do":"approve","mode":"acceptEdits","notes":{"whole":"Обережно з міграціями"}}`); out["ok"] != true {
 		t.Fatalf("approve %v", out)
 	}
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if b, _ := os.ReadFile(filepath.Join(dir, "approve.json")); strings.Contains(string(b), `"behavior":"allow"`) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the plan was not approved")
-		}
+	read("approve.json", `"behavior":"allow"`)
+	read("mode.json", `"acceptEdits"`)
+	read("notes.json", "Обережно з міграціями") // the notes come as your message once it goes on
+	if out := plan("req=p3", `{"do":"nope"}`); out["ok"] != false {
+		t.Fatalf("unknown action %v", out)
 	}
 	if _, ok := store.Get("chat-p"); ok {
 		t.Fatal("approving the plan made a task of the chat")
 	}
+}
+
+// planStatus: the plan request's item in the conversation has the status.
+func planStatus(s chat.Snapshot, req, status string) bool {
+	for _, it := range s.Items {
+		if it.ID == req {
+			return it.Status == status
+		}
+	}
+	return false
 }

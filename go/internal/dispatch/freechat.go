@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -363,15 +364,30 @@ func (d *Dispatcher) RemoveFreeChat(id string) error {
 	return dropWorktree(repo, c.Dir)
 }
 
-// FreePlan: the plan the chat's agent offers, approved (it goes on in the work mode) or sent back with your notes;
-// unlike a task's, nothing is noted in the task store.
-func (d *Dispatcher) FreePlan(id, requestID string, approve bool, notes string) error {
+// FreePlan answers the plan the chat's agent offers as a task's is answered (do: approve with the mode, model and
+// notes picked; revise with your notes; reject), but nothing is noted in the task store: that would make a task of
+// the chat.
+func (d *Dispatcher) FreePlan(id, requestID, do string, o PlanApproval) error {
 	c := d.Chats.Get(id)
 	if c == nil {
 		return errors.New("the agent is not running")
 	}
-	if approve {
-		return c.ApprovePlan(requestID, workMode(d.Config().Terminal))
+	switch do {
+	case "approve":
+		mode, err := d.approvalMode(o.Mode)
+		if err != nil {
+			return err
+		}
+		err = c.ApprovePlan(requestID, mode, strings.TrimSpace(o.Model), o.Notes.Text())
+		if errors.Is(err, chat.ErrApprovedButNot) {
+			log.Printf("[%s] %v", id, err) // approved: the agent goes on, what failed after it is only said
+			return nil
+		}
+		return err
+	case "revise":
+		return c.RevisePlan(requestID, o.Notes.Text())
+	case "reject":
+		return c.RejectPlan(requestID)
 	}
-	return c.RevisePlan(requestID, notes)
+	return fmt.Errorf("unknown plan action %q", do)
 }

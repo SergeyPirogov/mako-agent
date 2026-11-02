@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -483,26 +484,17 @@ func (s *Server) Handler() http.Handler {
 				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
 				err = s.D.Say(id, strings.TrimSpace(string(body)))
 			case action == "plan":
-				// The agent's plan: {do: approve | revise | reject, mode, model, notes: {steps: [{n, title, note}], whole}}; do
-				// may come in the query instead.
-				var in struct {
-					Do, Mode, Model string
-					Notes           chat.PlanNotes
-				}
-				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in)
-				if in.Do == "" {
-					in.Do = r.URL.Query().Get("do") // a notification's button: ?do=approve, no body
-				}
+				do, o := readPlan(r)
 				req := r.URL.Query().Get("req")
-				switch in.Do {
+				switch do {
 				case "approve":
-					err = s.D.ApprovePlan(id, req, dispatch.PlanApproval{Mode: in.Mode, Model: in.Model, Notes: in.Notes})
+					err = s.D.ApprovePlan(id, req, o)
 				case "revise":
-					err = s.D.RevisePlan(id, req, in.Notes.Text())
+					err = s.D.RevisePlan(id, req, o.Notes.Text())
 				case "reject":
 					err = s.D.RejectPlan(id, req)
 				default:
-					err = fmt.Errorf("unknown plan action %q", in.Do)
+					err = fmt.Errorf("unknown plan action %q", do)
 				}
 			default:
 				err = controlChat(c, action, r)
