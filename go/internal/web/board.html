@@ -45,7 +45,7 @@
       <button class="icon-btn" id="pause"></button>
     </div>
     <div class="new-task" id="new-task-bar"><button id="new-task" hidden data-t="b.newTask">+ Task</button><button class="ghost" id="why-btn" data-t-title="b.whyHint" data-t="b.why">Why is there no task?</button></div>
-    <div class="filter" id="filter"><select id="scope"></select><input id="q" type="search" data-t-ph="b.filter" autocomplete="off" spellcheck="false"></div>
+    <div class="filter" id="filter"><span id="need-chip" hidden></span><select id="scope"></select><input id="q" type="search" data-t-ph="b.filter" autocomplete="off" spellcheck="false"></div>
     <nav id="list" aria-label="Tasks"></nav>
   </div>
   <section id="detail"><div class="empty" data-t="b.pick">Pick a task on the left</div></section>
@@ -89,6 +89,12 @@ let folded = (() => { try { return { ...FOLDED_BY_DEFAULT, ...JSON.parse(localSt
 let query = "";
 const FILTER_FROM = 15;
 let statsDays = localStorage.getItem("mako-stats-days") || "";
+// "Stats": the tab open and the project counted (none: all), remembered; the cut of "Breakdown" and "Heaviest",
+// and the days shown as a table.
+let statsTab = localStorage.getItem("mako-stats-tab") || "overview", statsProject = localStorage.getItem("mako-stats-project") || "";
+let breakdownBy = "project", heavyBy = "files", trendTable = false;
+// The list narrowed from "Needs attention" ({kind, reason}), until its chip is closed.
+let attention = null;
 // A phone's width: the list and the task are screens of their own, the right panel a tab.
 const narrow = matchMedia("(max-width: 760px)");
 // skew: how far this clock is from Mako's (a phone's may differ), for the times counted here.
@@ -279,6 +285,7 @@ async function load() {
     const q = new URLSearchParams();
     if (document.visibilityState === "visible") q.set("seen", "1");
     if (statsDays) q.set("days", statsDays);
+    if (statsProject) q.set("project", statsProject);
     data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`)).json();
     if (data.now) skew = Date.now() - data.now;
     // The words of the page, the first time.
@@ -502,18 +509,26 @@ function render() {
   if (!many && !$("q").value) query = "";
   $("scope").hidden = projects.length < 2 && !archived;
   $("q").hidden = !many && !query;
-  $("filter").hidden = $("scope").hidden && $("q").hidden;
+  // Narrowed from "Stats" → "Needs attention": a chip says to what, its × shows all the tasks again.
+  const need = attention && NEEDS[attention.kind];
+  if (!need) attention = null;
+  const chip = need ? `<span class="chip need-chip" title="${esc(attention.reason || "")}">Needs attention: ${esc(attention.reason ? `failed · ${attention.reason}` : need.label)}`
+    + `<button type="button" class="icon" id="need-clear" aria-label="Show all tasks" title="Show all tasks">×</button></span>` : "";
+  if ($("need-chip").dataset.html !== chip) $("need-chip").innerHTML = $("need-chip").dataset.html = chip;
+  $("need-chip").hidden = !need;
+  if ($("need-clear")) $("need-clear").onclick = () => { attention = null; render(); };
+  $("filter").hidden = !need && $("scope").hidden && $("q").hidden;
   $("q").oninput = () => { query = $("q").value; render(); };
   $("scope").onchange = () => {
     const v = $("scope").value;
-    showArchive = v === "archive";
+    showArchive = v === "archive"; attention = null;
     if (!showArchive) { project = v.replace(/^p:/, ""); try { localStorage.setItem("mako-project", project); } catch {} }
     render();
   };
 
   // The filter matches the title, the number ("#12", "PROJ-12") and the project.
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const rows = visible().filter((r) => {
+  const rows = (attention ? attentionTasks(attention) : visible()).filter((r) => {
     const hay = `${r.task.title} ${r.id} ${r.task.project}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   });
@@ -525,10 +540,10 @@ function render() {
     // A held-up task keeps its column for its actions, but is listed under "Blocked".
     const items = rows.filter((r) => groupOf(r) === col).sort((a, b) => (col === "new" || col === "later" ? newRank(a) - newRank(b) : col === "doing" ? rank(a) - rank(b) : 0));
     // Others' MRs where I am a reviewer: open ones in "Reviews for me", finished ones in "Done".
-    const asks = col === "forme" || col === "done" ? reviewAsks(words).filter((q) => (q.state === "open") === (col === "forme")) : [];
+    const asks = !attention && (col === "forme" || col === "done") ? reviewAsks(words).filter((q) => (q.state === "open") === (col === "forme")) : [];
     if (!items.length && !asks.length) continue;
     // While filtering, every match shows: a folded group would hide what was asked for.
-    const fold = !words.length && !!folded[col];
+    const fold = !words.length && !attention && !!folded[col];
     html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length + asks.length}</span></button>`;
     for (const q of fold ? [] : asks) html += reviewAskRow(q);
     for (const r of fold ? [] : items) {
@@ -543,10 +558,10 @@ function render() {
     html += `</div>`;
   }
   $("new-task").hidden = !newTaskTargets().length;
-  $("list").innerHTML = html || `<div class="empty">${words.length ? "Nothing found" : showArchive ? "The archive is empty" : "No tasks. Mako checks the trackers and will show new tasks assigned to you here."}</div>`;
+  $("list").innerHTML = html || `<div class="empty">${words.length || attention ? "Nothing found" : showArchive ? "The archive is empty" : "No tasks. Mako checks the trackers and will show new tasks assigned to you here."}</div>`;
   for (const b of $("list").querySelectorAll(".item")) b.onclick = () => select(b.dataset.id);
   for (const b of $("list").querySelectorAll(".group")) b.onclick = () => {
-    if (words.length) return;
+    if (words.length || attention) return;
     folded[b.dataset.col] = !folded[b.dataset.col];
     try { localStorage.setItem("mako-folded", JSON.stringify(folded)); } catch {}
     render();
@@ -1999,78 +2014,392 @@ async function uploadImage(area, t, file, busy, fail) {
   if (!res.ok) fail("The screenshot failed to upload: " + (res.error || "unknown error"));
 }
 
-// How the taken tasks went: shown where a task's card goes while none is open.
+// "Stats" (#280): a header with the period and the project, five tabs; shown where a task's card goes while none is
+// open. The tab, the period and the project are remembered.
 function statsHTML(s) {
-  const period = `<select id="stats-days" aria-label="Statistics period">${[["", "All time"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]]
-    .map(([v, l]) => `<option value="${v}"${v === statsDays ? " selected" : ""}>${l}</option>`).join("")}</select>`;
-  const head = `<div class="stats-head"><h1>Statistics</h1>${period}</div>`;
-  if (!s?.taken && statsDays) return `<div class="stats">${head}<div class="text" style="color:var(--mute)">The agent took no tasks in this period</div></div>`;
-  if (!s?.taken) return `<div class="empty">Pick a task on the left. Statistics will appear once the agent takes its first task.</div>`;
-  const pct = (n) => s.taken ? Math.round((n / s.taken) * 100) : 0;
-  const dur = durText;
-  const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
-  const share = (n, of) => of ? `${Math.round((n / of) * 100)}%` : "—";
-  const failedNote = s.cancelled ? `${pct(s.failed)}% · ${s.cancelled} of them cancelled` : `${pct(s.failed)}%`;
-  return `<div class="stats">
-    ${head}
-    <div class="stat-row main">
-      ${tile("Tasks taken", s.taken, s.running ? `${s.running} still in progress` : "")}
-      ${tile("Merged", s.merged, `${pct(s.merged)}%${s.succeeded > s.merged ? ` · in review ${s.succeeded - s.merged}` : ""}`)}
-      ${tile("No rework", share(s.clean, s.ended), s.ended ? `${s.clean} of ${s.ended} finished` : "none finished yet")}
-      ${tile("Take to merge", s.leadSeconds ? dur(s.leadSeconds) : "—", "median")}
-      ${tile("Unsuccessful", s.failed, failedNote)}
-      ${tile("Spent by the agent", `$${(s.cost || 0).toFixed(2)}`, s.priced ? `≈ $${(s.cost / s.priced).toFixed(2)} per task${s.tokens ? ` · ${tok(s.tokens)} tokens in total` : ""}` : "Mako's agent only")}
-    </div>
-    ${trendHTML(s.days)}
-    ${stagesHTML(s.stages, s.staged, dur)}
-    <h3>Time and attempts</h3>
-    <div class="stat-row small">
-      ${tile("Agent to MR", s.medianSeconds ? dur(s.medianSeconds) : "—", s.avgSeconds ? `median · average ${dur(s.avgSeconds)}` : "")}
-      ${tile("Review to merge", s.reviewSeconds ? dur(s.reviewSeconds) : "—", "average")}
-      ${tile("Retries", s.retried || 0, `${pct(s.retried || 0)}% of tasks`)}
-      ${s.merged ? tile("CI fixes", (s.ciFixes || 0).toFixed(1), "rounds per merged task") : ""}
-      ${s.merged ? tile("Comment fixes", (s.reviewFixes || 0).toFixed(1), "rounds per merged task") : ""}
-    </div>
-    ${phasesHTML(s)}
-    ${reviewStatsHTML(s.review)}
-    ${contextHTML(s.context)}
-    ${s.assessed ? `<h3>Agent assessment <span class="muted">· ${s.assessed} ${plural(s.assessed, "task", "tasks")}</span></h3>
-    <div class="stat-row">
-      ${tile("Task description", `${s.clarity.toFixed(1)}/5`, "how well described")}
-      ${tile("Complexity", `${s.complexity.toFixed(1)}/5`, "average")}
-      ${tile("Task completed", `${s.completeness.toFixed(1)}/5`, "how fully")}
-      ${tile("Change risk", `${s.risk.toFixed(1)}/5`, "average")}
-    </div>` : ""}
-    ${forecastHTML(s.forecast)}
-    ${bySizeHTML(s.bySize, dur)}
-    ${clarityHTML(s)}
-    ${groupsHTML("By project", s.projects, "Project")}
-    ${groupsHTML("By agent", s.executors, "Agent", (n) => n === "terminal" ? "Mako agent" : n === "—" ? "—" : `Orca · ${n}`)}
-    ${groupsHTML("By model", [...(s.models || []).filter((g) => g.name !== "—"), ...(s.models || []).filter((g) => g.name === "—")], "Model", (n) => n === "—" ? "Unknown" : n[0].toUpperCase() + n.slice(1), 1)}
-    <h3>Failure reasons</h3>
-    ${s.reasons.length ? `<dl class="facts">${s.reasons.map((x) => `<dt>${x.count}</dt><dd>${linkify(x.text)}</dd>`).join("")}</dl>` : `<div class="text" style="color:var(--mute)">No failures</div>`}
-    <p class="stats-note">"No rework" means merged without "Retry differently", new attempts, or fixes after review, out of those merged or failed. "Take to merge" is from handing the task to the agent to the MR merge; "Agent to MR" is until the MR is opened, and review is from the MR to the merge. "Where the time goes" is the average per merged task: the agent works, waits for you (a question, a permission, a plan, its turn is over), the MR waits for CI, the MR waits for review and merge. "Spent by the agent", "≈ per task" and the costs in the tables cover only the work and plan of Mako's own agent: an agent in Orca does not report its costs. The assessment, the agent's review, the assessment and retro are separate, in "What was spent on", for all tasks. The time stages run from the hand-off to the agent; the time of the agent's review before the MR is the agent's time. Tokens are everything the model read and wrote, including cache. "Context" is from the usage of each model call: the start is the first call (system prompt, tools, MCP, CLAUDE.md, memory and the task prompt), the peak is the largest; "What fills the context" is the growth between calls, split among tool results by their size, so it is approximate. By model, a task is counted under the model of its last attempt, with its whole budget.</p>
-  </div>`;
+  const period = segs("stats-days", [["7", "7 days"], ["30", "30 days"], ["90", "90 days"], ["", "All time"]], statsDays, "Statistics period");
+  const projects = statsProjects();
+  const pick = projects.length > 1 || statsProject ? `<label class="stats-project"><span>Project</span><select id="stats-project" aria-label="Project">`
+    + `<option value="">All projects</option>${projects.map((p) => `<option value="${esc(p)}"${p === statsProject ? " selected" : ""}>${esc(p)}</option>`).join("")}</select></label>` : "";
+  const head = `<div class="stats-head"><h1>Stats</h1>${period}${pick}</div>`;
+  const tabs = `<nav class="stats-tabs" role="tablist" aria-label="Stats">${STATS_TABS.map(([k, l]) =>
+    `<button type="button" role="tab" data-tab="${k}" aria-selected="${k === statsTab}" class="${k === statsTab ? "on" : ""}">${l}</button>`).join("")}</nav>`;
+  if (!s?.taken && !statsDays && !statsProject) return `<div class="empty">Pick a task on the left. Statistics will appear once the agent takes its first task.</div>`;
+  if (!s?.taken) return `<div class="stats">${head}${tabs}<div class="text muted">The agent took no tasks in this period</div></div>`;
+  const tab = { time: timeTab, cost: costTab, quality: qualityTab, context: contextTab }[statsTab] || overviewTab;
+  return `<div class="stats">${head}${tabs}${tab(s)}</div>`;
 }
 
-// The tasks taken each day: how many got merged, failed or are still going; the hover tells the numbers.
-function trendHTML(days) {
+const STATS_TABS = [["overview", "Overview"], ["time", "Time"], ["cost", "Cost"], ["quality", "Quality"], ["context", "Context"]];
+const INFO_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>`;
+const money = (x) => `$${(x || 0).toFixed(2)}`;
+const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+// The project a record counts under, as the stats name it: its task's, else its repository.
+const projectOf = (r) => r.task?.project || r.repo || "";
+// The projects the stats can be narrowed to: those of every record, the archive too.
+function statsProjects() {
+  const ps = [...new Set((data?.records || []).map(projectOf).filter(Boolean))].sort();
+  if (statsProject && data?.records?.length && !ps.includes(statsProject)) statsProject = "";
+  return ps;
+}
+
+// One key number: its name with ⓘ (what it counts), the value and a muted line under it.
+function metric(label, value, note = "", info = "") {
+  const i = info ? `<span class="info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}">${INFO_ICON}</span>` : "";
+  return `<div class="metric"><div class="metric-l">${label}${i}</div><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
+}
+// A share as a thin bar; with its percent next to it.
+const meter = (share, cls = "") => `<span class="meter"><i class="${cls}" style="width:${Math.max(0, Math.min(1, share || 0)) * 100}%"></i></span>`;
+const meterPct = (share, cls = "") => `<span class="mbar">${meter(share, cls)}<span class="n">${Math.round((share || 0) * 100)}%</span></span>`;
+const meterText = (share, text, cls = "") => `<span class="mbar">${meter(share, cls)}<span class="n">${text}</span></span>`;
+// A card of the stats: its title, a muted note or a control on the right, the body.
+const scard = (title, body, aside = "", cls = "") => `<div class="scard ${cls}"><div class="scard-h"><h2>${title}</h2>${aside ? `<span class="aside">${aside}</span>` : ""}</div>${body}</div>`;
+// Segments: one of a few options, the chosen one raised.
+const segs = (id, options, value, label = "") => `<div class="segs" id="${id}" role="group"${label ? ` aria-label="${esc(label)}"` : ""}>${options.map(([v, l]) =>
+  `<button type="button" data-v="${esc(v)}" class="${v === value ? "on" : ""}" aria-pressed="${v === value}">${l}</button>`).join("")}</div>`;
+const lastUnknown = (gs) => [...(gs || []).filter((g) => g.name !== "—"), ...(gs || []).filter((g) => g.name === "—")];
+const nameModel = (n) => n === "—" ? "Not recorded" : cap(n);
+const nameAgent = (n) => n === "terminal" ? "Mako agent" : n === "—" ? "Not recorded" : `Orca · ${n}`;
+
+function overviewTab(s) {
+  const pct = (n, of = s.taken) => of ? Math.round((n / of) * 100) : 0;
+  const inReview = s.succeeded - s.merged;
+  const spent = s.cost >= 100 ? `$${Math.round(s.cost)}` : money(s.cost);
+  return `<div class="metrics">
+      ${metric("Merged", s.merged, `${pct(s.merged)}% of ${s.taken} taken${inReview > 0 ? ` · ${inReview} in review` : ""}${s.running ? ` · ${s.running} running` : ""}`,
+        "Tasks whose MR was merged, of the tasks handed to an agent in the period.")}
+      ${metric("First pass", s.ended ? `${pct(s.clean, s.ended)}%` : "—", s.ended ? `${s.clean} of ${s.ended} done without rework` : "none finished yet",
+        "Merged without \"Retry differently\", another attempt or fixes after a review, of the tasks merged or failed.")}
+      ${metric("Lead time", s.leadSeconds ? durText(s.leadSeconds) : "—", "median, hand-off → merge",
+        "From handing the task to the agent to the merge of its MR: the median over the merged tasks.")}
+      ${metric("Spent", s.cost ? spent : "—", s.priced ? `${money(s.cost / s.priced)} per task${s.tokens ? ` · ${tok(s.tokens)} tokens` : ""}` : "Mako's agent only",
+        "What Mako's own agent spent on the plan and the work; an agent in Orca does not report it. Tokens: everything the model read and wrote, cache included.")}
+    </div>
+    <div class="srow">${trendCard(s.days)}${attentionCard(s)}</div>
+    ${stagesCard(s, true)}
+    ${breakdownCard(s)}`;
+}
+
+// The tasks taken each day: merged, still open, failed; the hover tells the numbers. "As a table" shows them so.
+function trendCard(days) {
   if (!days?.some((d) => d.taken)) return "";
   // The days before the first task tell nothing: from it on, though a week at least.
   days = days.slice(Math.max(0, Math.min(days.findIndex((d) => d.taken), days.length - 7)));
   const top = Math.max(...days.map((d) => d.taken));
-  const date = (d) => new Date(d + "T12:00:00").toLocaleDateString(LANG, { day: "numeric", month: "short" });
+  const peak = days.find((d) => d.taken === top);
+  const date = (d, long) => new Date(d + "T12:00:00").toLocaleDateString(LANG, long ? { weekday: "short", day: "numeric", month: "short" } : { day: "numeric", month: "short" });
+  const toggle = `<button type="button" class="link" id="trend-table">${trendTable ? "As a chart" : "As a table"}</button>`;
+  const legend = `<div class="legend"><span><i class="merged"></i>Merged</span><span><i class="other"></i>In review or running</span><span><i class="failed"></i>Failed</span><span class="spacer"></span>${toggle}</div>`;
+  const aside = `most: ${top} on ${date(peak.date)}`;
+  if (trendTable) {
+    const row = (d) => `<tr><td>${date(d.date, true)}</td><td class="n">${d.taken}</td><td class="n">${d.merged}</td><td class="n">${d.failed}</td><td class="n">${d.cost ? money(d.cost) : "—"}</td></tr>`;
+    return scard("Tasks per day", `<div class="table-wrap"><table class="stable"><thead><tr><th>Day</th><th class="n">Taken</th><th class="n">Merged</th><th class="n">Failed</th><th class="n">Spent</th></tr></thead>`
+      + `<tbody>${days.filter((d) => d.taken).reverse().map(row).join("")}</tbody></table></div>${legend}`, aside, "grow");
+  }
   const seg = (cls, n) => n ? `<i class="${cls}" style="height:${(n / top) * 100}%"></i>` : "";
   const label = (i) => i === 0 || i === days.length - 1 || (days.length > 10 && i === Math.floor(days.length / 2));
   const col = (d, i) => {
     const other = d.taken - d.merged - d.failed;
-    const tip = `${date(d.date)}: taken ${d.taken}${d.taken ? ` · merged ${d.merged} · failed ${d.failed} · still going ${other}${d.cost ? ` · $${d.cost.toFixed(2)}` : ""}` : ""}`;
-    return `<div class="day" title="${esc(tip)}"><div class="bar">${seg("failed", d.failed)}${seg("other", other)}${seg("merged", d.merged)}</div>`
-      + `<span>${label(i) ? date(d.date) : ""}</span></div>`;
+    const tip = d.taken ? `<div class="tip"><b>${date(d.date, true)}</b> · ${d.taken} taken<br>${d.merged} merged · ${d.failed} failed · ${other} open${d.cost ? `<br>${money(d.cost)} spent` : ""}</div>` : "";
+    return `<div class="day${i > days.length / 2 ? " late" : ""}" tabindex="${d.taken ? 0 : -1}" aria-label="${esc(`${date(d.date)}: taken ${d.taken}, merged ${d.merged}, failed ${d.failed}`)}">`
+      + `<div class="bar">${seg("failed", d.failed)}${seg("other", other)}${seg("merged", d.merged)}</div>${tip}<span>${label(i) ? date(d.date) : ""}</span></div>`;
   };
-  return `<h3>By day <span class="muted">· most ${top} ${plural(top, "task", "tasks")} in a day</span></h3>
-    <div class="trend">${days.map(col).join("")}</div>
-    <div class="legend"><span><i class="merged"></i>merged</span><span><i class="other"></i>MR in review or still in progress</span><span><i class="failed"></i>failed</span></div>`;
+  return scard("Tasks per day", `<div class="trend">${days.map(col).join("")}</div>${legend}`, aside, "grow");
+}
+
+// "Needs attention": what waits for you or went wrong in the period; a row opens those tasks in the list.
+function attentionCard(s) {
+  const n = (kind) => attentionTasks({ kind }).length;
+  const merge = attentionTasks({ kind: "merge" });
+  const oldest = Math.min(...merge.map((r) => Date.parse(r.finishedAt || r.updatedAt)).filter((t) => t > 0));
+  const reasons = (s.reasons || []).slice(0, 3).map((x) => `${x.count} ${esc(x.text.length > 40 ? x.text.slice(0, 39) + "…" : x.text)}`).join(" · ");
+  const fix = n("fix"), failed = n("failed"), unclear = n("unclear");
+  const rows = [
+    ["fix", fix, "warn", `${plural(fix, "review round waits", "review rounds wait")} for «Fix»`, "the remarks never reached the agent"],
+    ["failed", failed, "err", `${plural(failed, "task", "tasks")} failed`, reasons],
+    ["unclear", unclear, "", `${plural(unclear, "task", "tasks")} the agent hardly understood`, "description clarity 2/5 or less"],
+    ["merge", merge.length, "", `${plural(merge.length, "MR waits", "MRs wait")} for your merge`, oldest < Infinity ? `for ${durText(Math.max(0, Date.now() - skew - oldest) / 1000)}` : ""],
+  ].filter((r) => r[1] > 0);
+  const row = ([kind, count, tone, what, note]) => `<a href="#" class="need" data-need="${kind}"><b class="${tone}">${count}</b>`
+    + `<span class="what">${what}${note ? `<small>${note}</small>` : ""}</span><span class="go" aria-hidden="true">→</span></a>`;
+  return scard("Needs attention", rows.length ? rows.map(row).join("") : `<div class="muted need-none">Nothing needs attention</div>`, "", "needs");
+}
+
+// What "Needs attention" lists, and how the list names it.
+const NEEDS = {
+  fix: { label: "review waits for «Fix»", test: (r) => { const a = r.agentReviews?.at(-1); return a?.state === "notes" && !a.sent; } },
+  failed: { label: "failed", test: (r) => r.status === "failed" || r.status === "cancelled" || r.reviewState === "closed" },
+  unclear: { label: "hardly understood", test: (r) => r.assessment?.state === "done" && (r.assessment.clarity?.value || 0) <= 2 },
+  // An MR waits for its merge now, whenever it was taken.
+  merge: { label: "MR waits for merge", now: true, test: (r) => !r.archivedAt && r.status === "done" && !!r.prUrl && r.reviewState !== "merged" && r.reviewState !== "closed" },
+};
+// Taken in the stats' period, as Summarize counts it: handed off (or failed before) at its start or later.
+function inPeriod(r) {
+  if (!r.startedAt && r.status !== "failed") return false;
+  if (!statsDays) return true;
+  return Date.parse(r.startedAt || r.updatedAt) >= Date.now() - skew - Number(statsDays) * 86400e3;
+}
+// The records a "Needs attention" row stands for: of the stats' project and period; reason: one failure's.
+function attentionTasks(f) {
+  const need = NEEDS[f?.kind];
+  if (!need || !data) return [];
+  return data.records.filter((r) => (!statsProject || projectOf(r) === statsProject) && (need.now || inPeriod(r)) && need.test(r)
+    && (!f.reason || failReason(r) === f.reason));
+}
+// Why a task failed, in the words Summarize counts it by (stats.go: reason, cancelled).
+const cancelMark = (e) => e === "Cancelled" || e === "\u0421\u043a\u0430\u0441\u043e\u0432\u0430\u043d\u043e"; // older records' «cancelled»
+function failReason(r) {
+  const e = r.error || "";
+  const cancelled = r.status === "cancelled" && cancelMark(e) || e.toLowerCase().includes("cancelled by the developer");
+  if (cancelled && (r.status !== "cancelled" || cancelMark(e))) return "Cancelled";
+  const line = e.trim().split("\n")[0].trim();
+  if (!line) return "No reason";
+  const cs = [...line];
+  return cs.length > 160 ? cs.slice(0, 160).join("") + "…" : line;
+}
+// Opens the list with the tasks of a "Needs attention" row; its chip over the list takes the filter off.
+function openAttention(f) {
+  attention = f;
+  statsOpen = false; selected = null; query = ""; $("q").value = "";
+  render();
+}
+
+// What each stage of a merged task's time takes in.
+// A short time with its seconds while under 10 minutes: 12 s, 1 min 16 s; longer ones as durText.
+const durFine = (sec) => sec < 60 ? `${Math.round(sec)} s` : sec < 600 ? `${Math.floor(sec / 60)} min${Math.round(sec % 60) ? ` ${Math.round(sec % 60)} s` : ""}` : durText(sec);
+const STAGE_WHAT = { agent: "estimate, plan, work and the agent review before the MR", you: "a question, a permission, the plan to approve, the agent's turn is over",
+  ci: "the MR's checks are running", review: "the MR is green and waits for review and the merge" };
+// Where the time of a merged task goes, on average by stage; short: the legend only, with a link to "Time".
+function stagesCard(s, short) {
+  const st = s.stages || {}, stages = Object.keys(STAGE_NAMES).filter((k) => st[k] >= 1);
+  const total = stages.reduce((n, k) => n + st[k], 0);
+  if (!s.staged || !total) return "";
+  const share = (k) => Math.round((st[k] / total) * 100);
+  const bar = `<div class="stage-bar">${stages.map((k) => `<i class="s-${k}" style="width:${(st[k] / total) * 100}%" title="${esc(`${STAGE_NAMES[k]}: ${durFine(st[k])}`)}"></i>`).join("")}</div>`;
+  const key = (k) => `<span class="key"><i class="s-${k}"></i>${cap(STAGE_NAMES[k])}</span>`;
+  const body = short
+    ? `<div class="stage-grid">${stages.map((k) => `<div>${key(k)}<br><b>${durFine(st[k])}</b> <span class="muted">· ${share(k)}%</span></div>`).join("")}</div>`
+    : `<table class="stable plain"><tbody>${stages.map((k) => `<tr><td>${key(k)}</td><td class="nowrap"><b>${durFine(st[k])}</b> <span class="muted">${share(k)}%</span></td><td class="muted">${STAGE_WHAT[k]}</td></tr>`).join("")}</tbody></table>`;
+  return scard("Where a merged task's time goes", bar + body, `average of ${s.staged} ${plural(s.staged, "task", "tasks")}${short ? ` · <a href="#" data-go="time">Time →</a>` : ""}`);
+}
+
+const BREAKDOWNS = { project: ["Project", "projects", (n) => n], agent: ["Agent", "executors", nameAgent], model: ["Model", "models", nameModel], author: ["Author", "authors", (n) => n] };
+// How the tasks went by project, agent, model or author: one table, the cut picked over it.
+function breakdownCard(s) {
+  const [col, key, name] = BREAKDOWNS[breakdownBy] || BREAKDOWNS.project;
+  const groups = lastUnknown(s[key]);
+  const rated = groups.some((g) => g.assessed);
+  const row = (g) => `<tr><td>${esc(name(g.name))}</td><td class="n">${g.taken}</td><td class="w">${meterPct(g.taken ? g.succeeded / g.taken : 0, "ok")}</td>`
+    + `<td class="n">${g.cost ? money(g.cost) : `<span class="muted">not tracked</span>`}</td>${rated ? `<td class="n">${g.assessed ? `${g.clarity.toFixed(1)}/5` : `<span class="muted">—</span>`}</td>` : ""}</tr>`;
+  const table = groups.length
+    ? `<div class="table-wrap"><table class="stable"><thead><tr><th>${col}</th><th class="n">Taken</th><th title="An MR open or merged, of the taken">Success</th><th class="n">Spent</th>${rated ? `<th class="n" title="How well the tasks are described, by the agent's assessment">Clarity</th>` : ""}</tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`
+    : `<div class="muted pad">Nothing recorded</div>`;
+  return scard("Breakdown", table, segs("breakdown-by", Object.entries(BREAKDOWNS).map(([k, [l]]) => [k, l]), breakdownBy, "Break down by"), "flush");
+}
+
+function timeTab(s) {
+  const pct = (n) => s.taken ? Math.round((n / s.taken) * 100) : 0;
+  return `<div class="metrics">
+      ${metric("Lead time", s.leadSeconds ? durText(s.leadSeconds) : "—", "median, hand-off → merge", "From handing the task to the agent to the merge of its MR: the median over the merged tasks.")}
+      ${metric("Agent to MR", s.medianSeconds ? durText(s.medianSeconds) : "—", s.avgSeconds ? `median · average ${durText(s.avgSeconds)}` : "median", "From handing the task to the agent until its MR is opened.")}
+      ${metric("MR to merge", s.reviewSeconds ? durText(s.reviewSeconds) : "—", "average", "From the MR's opening to its merge, over the merged tasks.")}
+      ${metric("Rework", s.retried || 0, `${plural(s.retried || 0, "retry", "retries")}${s.merged ? ` · ${(s.ciFixes || 0).toFixed(2)} CI fixes per merge` : ""}`, "Tasks taken more than once: \"Retry differently\" or another attempt.")}
+    </div>
+    ${stagesCard(s, false)}
+    ${bySizeCard(s.bySize)}
+    <div class="metrics three">
+      ${metric("Retries", `${s.retried || 0} <span class="muted">· ${pct(s.retried || 0)}% of tasks</span>`, "taken more than once")}
+      ${metric("CI fix rounds", `${(s.ciFixes || 0).toFixed(2)} <span class="muted">· per merged task</span>`, "«Fix» after a red CI")}
+      ${metric("Review fix rounds", `${(s.reviewFixes || 0).toFixed(2)} <span class="muted">· per merged task</span>`, "human MR comments sent to the agent")}
+    </div>`;
+}
+
+// How the tasks of each expected size went: the agent's time, merged with no rework, what they cost.
+function bySizeCard(groups) {
+  const gs = (groups || []).filter((g) => g.taken);
+  if (!gs.length) return "";
+  const top = Math.max(...gs.map((g) => g.timed ? g.seconds : 0)) || 1;
+  const tokened = gs.some((g) => g.tokened);
+  const row = (g) => `<tr><td>${cap(SIZE_NAMES[g.size] || esc(g.size))}</td><td class="n">${g.taken}</td>`
+    + `<td class="w">${g.timed ? meterText(g.seconds / top, durText(g.seconds), "acc") : "—"}</td>`
+    + `<td class="n">${g.ended ? `${g.clean} of ${g.ended}` : "—"}</td><td class="n">${g.priced ? money(g.cost) : "—"}</td>${tokened ? `<td class="n">${g.tokened ? tok(Math.round(g.tokens)) : "—"}</td>` : ""}</tr>`;
+  const big = gs.find((g) => g.size === "big");
+  const hint = big?.ended && !big.clean ? `<div class="snote">No big task went through without rework: worth splitting them before the hand-off.</div>` : "";
+  const n = gs.reduce((a, g) => a + g.taken, 0);
+  return scard("By task size", `<div class="table-wrap"><table class="stable"><thead><tr><th>Size</th><th class="n">Tasks</th>`
+    + `<th title="From the hand-off to the MR, average">Agent time</th><th class="n" title="Merged without rework, of those merged or failed">First pass</th>`
+    + `<th class="n" title="Plan and work of Mako's agent, average">Per task</th>${tokened ? `<th class="n" title="Average per task">Tokens</th>` : ""}</tr></thead><tbody>${gs.map(row).join("")}</tbody></table></div>${hint}`,
+    `the size from the agent's estimate · ${n} estimated ${plural(n, "task", "tasks")}`, "flush");
+}
+
+function costTab(s) {
+  const ph = s.phases || {};
+  const around = (ph.estimate || 0) + (ph.review || 0) + (ph.assess || 0);
+  return `<div class="metrics">
+      ${metric("Spent", s.cost ? money(s.cost) : "—", s.priced ? `${s.priced} ${plural(s.priced, "task", "tasks")} with a price` : "Mako's agent only", "What Mako's own agent spent on the plan and the work; an agent in Orca does not report it.")}
+      ${metric("Per task", s.priced ? money(s.cost / s.priced) : "—", "average")}
+      ${metric("Tokens", s.tokens ? tok(s.tokens) : "—", "read and written, cache included")}
+      ${metric("Around the work", around ? money(around) : "—", "estimate, agent review, retro", "Spent outside the plan and the work, for every task: the estimate before the start, the agent's review and the assessment with the retro.")}
+    </div>
+    <div class="srow">${phasesCard(s)}${costDaysCard(s.days)}</div>
+    ${modelsCard(s)}`;
+}
+
+// What each phase of the work cost over the period: $ as bars, and the tokens.
+function phasesCard(s) {
+  const ph = s.phases || {}, pt = s.phaseTokens || {};
+  const keys = Object.keys(PHASE_NAMES).filter((k) => ph[k] || pt[k]).sort((a, b) => (ph[b] || 0) - (ph[a] || 0));
+  if (!keys.length) return "";
+  const top = Math.max(...keys.map((k) => ph[k] || 0)) || 1, sum = keys.reduce((n, k) => n + (ph[k] || 0), 0);
+  const row = (k) => `<div class="hrow"><span>${cap(PHASE_NAMES[k])}</span>${meter((ph[k] || 0) / top, "acc")}<b>${ph[k] ? money(ph[k]) : "—"}</b><span class="muted">${pt[k] ? tok(pt[k]) : ""}</span></div>`;
+  return scard("By phase", keys.map(row).join("") + `<div class="snote">Phases are recorded since the metrics came in; older tasks count only in the total.</div>`, `${money(sum)} recorded by phase`, "grow");
+}
+
+// What the agent spent on the tasks taken each day.
+function costDaysCard(days) {
+  if (!days?.some((d) => d.cost)) return "";
+  days = days.slice(Math.max(0, Math.min(days.findIndex((d) => d.taken), days.length - 7)));
+  const top = Math.max(...days.map((d) => d.cost || 0));
+  const date = (d) => new Date(d + "T12:00:00").toLocaleDateString(LANG, { day: "numeric", month: "short" });
+  const col = (d, i) => `<div class="day${i > days.length / 2 ? " late" : ""}" tabindex="${d.cost ? 0 : -1}" aria-label="${esc(`${date(d.date)}: ${money(d.cost)}`)}"><div class="bar">${d.cost ? `<i class="cost" style="height:${(d.cost / top) * 100}%"></i>` : ""}</div>`
+    + `${d.cost ? `<div class="tip"><b>${date(d.date)}</b> · ${money(d.cost)}<br>${d.taken} taken</div>` : ""}<span>${i === 0 || i === days.length - 1 ? date(d.date) : ""}</span></div>`;
+  return scard("Per day", `<div class="trend small">${days.map(col).join("")}</div>`, `most: ${money(top)}`, "grow");
+}
+
+// By model: how its tasks went and what a task cost; the model not recorded goes last.
+function modelsCard(s) {
+  const gs = lastUnknown(s.models);
+  if (!gs.length) return "";
+  const per = (g) => g.taken ? g.cost / g.taken : 0;
+  const top = Math.max(...gs.map(per)) || 1;
+  const row = (g) => `<tr><td>${esc(nameModel(g.name))}</td><td class="n">${g.taken}</td><td class="n">${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td>`
+    + `<td class="w">${g.cost ? meterText(per(g) / top, money(per(g)), "acc") : `<span class="muted">not tracked</span>`}</td><td class="n">${g.cost ? money(g.cost) : "—"}</td><td class="n">${g.tokens ? tok(g.tokens) : "—"}</td></tr>`;
+  const orca = (s.executors || []).filter((g) => g.name !== "terminal" && g.name !== "—").reduce((n, g) => n + g.taken, 0);
+  return scard("By model", `<div class="table-wrap"><table class="stable"><thead><tr><th>Model</th><th class="n">Tasks</th><th class="n">Success</th><th>Per task</th><th class="n">Spent</th><th class="n">Tokens</th></tr></thead><tbody>${gs.map(row).join("")}</tbody></table></div>`
+    + `<div class="snote">Only the agent in Mako reports its spend${orca ? `: ${orca} Orca ${plural(orca, "task is", "tasks are")} not counted` : ""}. A task counts under the model of its last attempt.</div>`, "", "flush");
+}
+
+function qualityTab(s) {
+  return `${reviewCard(s.review)}<div class="srow">${forecastCard(s.forecast)}${assessCard(s)}</div>${failuresCard(s)}`;
+}
+
+// The reviewer agent's rounds as a funnel: its remarks, the agent's answers, the next rounds' verdicts, converged.
+function reviewCard(v) {
+  if (!v?.rounds) return "";
+  const answered = v.fixed + v.notFixed + v.partly;
+  const of = v.remarks || 1;
+  const step = (what, n, share, note) => `<div class="fstep"><span>${what}</span><b>${n}</b>${meter(share, "acc")}<small>${note}</small></div>`;
+  const body = `<div class="funnel">
+      ${step("Remarks", v.remarks, v.remarks ? 1 : 0, `${v.remarks ? v.perRound.toFixed(1) : 0} per round · ${v.must} «must»`)}
+      ${step("Answered by the agent", answered, answered / of, `fixed ${v.fixed} · partly ${v.partly} · declined ${v.notFixed}${v.noReply ? ` · no reply ${v.noReply}` : ""}`)}
+      ${step("Closed next round", v.closed, v.closed / of, `accepted explanations ${v.accepted} · open ${v.open}`)}
+      ${step("Converged", `${v.converged} <span class="muted">of ${v.tasks} ${plural(v.tasks, "task", "tasks")}</span>`, v.tasks ? v.converged / v.tasks : 0, `escalated to you ${v.escalated}${v.unverified ? ` · "fixed" without commits ${v.unverified}` : ""}`)}
+    </div>`;
+  const waiting = v.waiting ? `<div class="swarn"><span><b>${v.waiting} ${plural(v.waiting, "round waits", "rounds wait")} for «Fix»</b> — their remarks never reached the agent, so the numbers above miss them.</span><a href="#" data-need="fix">Show the tasks</a></div>` : "";
+  return scard("Agent review", body + waiting, `${v.rounds} ${plural(v.rounds, "round", "rounds")} on ${v.tasks} ${plural(v.tasks, "task", "tasks")}${v.converged ? ` · ${v.toClean.toFixed(1)} rounds to a clean one` : ""}`);
+}
+
+// The size the estimate expected before the work against the one the assessment found after it.
+function forecastCard(f) {
+  if (!f?.compared) return "";
+  const sizes = Object.keys(SIZE_NAMES);
+  const cells = f.matrix.map((row, i) => `<span class="mx-l">${SIZE_NAMES[sizes[i]]}</span>${row.map((n, j) => `<b class="${i === j ? "hit" : ""}${n ? "" : " zero"}">${n}</b>`).join("")}`).join("");
+  return scard("Size estimate", `<div class="matrix"><span></span>${sizes.map((x) => `<span class="mx-h">${SIZE_NAMES[x]}</span>`).join("")}${cells}</div>`
+    + `<div class="snote">Rows: the estimate before the work · columns: the assessment after it. Outlined: the same size both times.</div>`,
+    `right ${f.hits} of ${f.compared} · ${Math.round((f.hits / f.compared) * 100)}%`, "grow");
+}
+
+// The agent's assessment of the finished tasks, out of 5.
+function assessCard(s) {
+  if (!s.assessed) return "";
+  const unclear = attentionTasks({ kind: "unclear" }).length;
+  const row = (what, x) => `<span>${what}</span>${meter(x / 5, "acc")}<b>${x.toFixed(1)}</b>`;
+  return scard("Agent's assessment", `<div class="scores">${row("Description clarity", s.clarity)}${row("Completeness", s.completeness)}${row("Complexity", s.complexity)}${row("Risk of the change", s.risk)}</div>`
+    + `<div class="snote">Out of 5.${unclear ? ` ${unclear} ${plural(unclear, "task", "tasks")} scored 2 or less on clarity · <a href="#" data-need="unclear">show them</a>` : ""}</div>`,
+    `${s.assessed} ${plural(s.assessed, "task", "tasks")}`, "grow");
+}
+
+// Why tasks failed, the most frequent first: each row opens the tasks that failed so.
+function failuresCard(s) {
+  const rs = s.reasons || [];
+  if (!rs.length) return scard("Why tasks failed", `<div class="muted pad">No failures</div>`);
+  const top = Math.max(...rs.map((x) => x.count));
+  const row = (x) => `<a href="#" class="hrow link-row" data-need="failed" data-reason="${esc(x.text)}" title="${esc(x.text)}"><span class="clip">${esc(x.text)}</span>${meter(x.count / top, "err")}<b>${x.count}</b></a>`;
+  return scard("Why tasks failed", rs.map(row).join(""), `${s.failed} of ${s.taken} · ${Math.round((s.failed / s.taken) * 100)}%`);
+}
+
+// The context window the bars of "Context" are drawn against.
+const CTX_WINDOW = 200_000;
+function contextTab(s) {
+  const c = s.context, phases = ctxPhases(c?.phases);
+  if (!phases.length) return `<div class="text muted">No context recorded yet: it is counted from the agent's sessions in Mako.</div>`;
+  const main = c.phases.work ? "work" : phases[0], p = c.phases[main];
+  const metrics = `<div class="metrics">
+      ${metric(`Start of the ${PHASE_NAMES[main]}`, tok(Math.round(p.start)), `median${p.prompt ? ` · task prompt ≈ ${tok(Math.round(p.prompt))}` : ""}`, "The first model call: system prompt, tools, MCP, CLAUDE.md, memory and the task prompt.")}
+      ${metric("Peak", tok(Math.round(p.peak)), `median${p.peakShare ? `, ${pctText(p.peakShare)} of the window` : ""} · max ${tok(p.maxPeak)}`, "The largest context of a session, the median over the sessions.")}
+      ${metric("From the cache", pctText(cacheShare(p)), "of everything the model read", "Read from the prompt cache, of all the input: the cache is cheaper and faster.")}
+      ${metric("Compactions", p.compactions, `in ${p.compacted} of ${p.runs} ${PHASE_NAMES[main]} ${plural(p.runs, "run", "runs")}`, "Claude Code compacted the context when it ran out.")}
+    </div>`;
+  const w = (n) => `${Math.min(1, n / CTX_WINDOW) * 100}%`;
+  const row = (k) => { const x = c.phases[k], cache = cacheShare(x), grew = Math.max(0, x.peak - x.start);
+    return `<tr><td>${cap(PHASE_NAMES[k])}</td><td class="n">${x.runs}</td>`
+      + `<td class="w"><span class="mbar"><span class="meter"><i class="acc" style="width:${w(x.start)}"></i>${grew >= 1000 ? `<i class="grew" style="width:${w(grew)}"></i>` : ""}</span>`
+      + `<span class="n">${grew >= 1000 ? `${tok(Math.round(x.start))} → ${tok(Math.round(x.peak))}` : tok(Math.round(x.peak))}</span></span></td>`
+      + `<td class="n">${tok(x.maxPeak)}</td><td class="n${cache < 0.5 ? " low" : ""}">${pctText(cache)}</td></tr>`; };
+  const byPhase = scard("By phase", `<div class="table-wrap"><table class="stable"><thead><tr><th>Phase</th><th class="n">Runs</th><th>Context</th><th class="n">Max</th><th class="n">Cache</th></tr></thead><tbody>${phases.map(row).join("")}</tbody></table></div>`
+    + `<div class="legend pad"><span><i class="acc"></i>Start: system prompt, tools, MCP, CLAUDE.md, memory, task</span><span><i class="grew"></i>Grew during the run</span></div>`,
+    `bar: start → peak, of a ${tok(CTX_WINDOW)} window`, "flush");
+  return metrics + byPhase + `<div class="srow">${fillsCard(c, phases)}${heavyCard(c)}</div>`;
+}
+
+// What filled the context, by what came in: the growth between the model's calls split by its size (approximate).
+function fillsCard(c, phases) {
+  const total = {};
+  for (const k of phases) for (const [t, n] of Object.entries(c.phases[k].tools || {})) total[t] = (total[t] || 0) + n;
+  const tools = Object.keys(total).filter((t) => total[t] > 0).sort((a, b) => total[b] - total[a]);
+  if (!tools.length) return "";
+  const sum = tools.reduce((n, t) => n + total[t], 0);
+  const shown = tools.slice(0, 3), rest = tools.slice(3), other = rest.reduce((n, t) => n + total[t], 0);
+  const name = (t) => ({ Bash: "Bash output", Replies: "Agent's own replies" })[t] || t;
+  const parts = [...shown.map((t, i) => [name(t), total[t], `f${i}`]), ...(other ? [[`Other: ${rest.slice(0, 3).join(", ")}${rest.length > 3 ? "…" : ""}`, other, "f3"]] : [])];
+  return scard("What fills the context", `<div class="stage-bar">${parts.map(([t, n, cls]) => `<i class="${cls}" style="width:${(n / sum) * 100}%" title="${esc(t)}"></i>`).join("")}</div>`
+    + `<div class="fills">${parts.map(([t, n, cls]) => `<span><i class="${cls}"></i>${esc(t)}</span><b>${tok(n)}</b><span class="muted">${pctText(n / sum)}</span>`).join("")}</div>`,
+    `≈ ${tok(sum)} added`, "grow");
+}
+
+// The heaviest files read and the commands with the largest output, their paths relative to the task's worktree.
+function heavyCard(c) {
+  if (!c.files?.length && !c.commands?.length) return "";
+  const by = heavyBy === "commands" && c.commands?.length || !c.files?.length ? "commands" : "files";
+  const hs = (by === "files" ? c.files : c.commands).slice(0, 8);
+  const row = (h) => `<div class="hrow heavy"><code title="${esc(h.name)}">${esc(h.name.length > 70 ? h.name.slice(0, 69) + "…" : h.name)}</code><span class="muted">${h.count}×</span><b>${tok(h.tokens)}</b></div>`;
+  return scard("Heaviest", hs.map(row).join(""), segs("heavy-by", [["files", "Files"], ["commands", "Commands"]], by, "Heaviest"), "grow");
+}
+
+// The controls of "Stats": the period, the project, the tabs, the cuts and the "Needs attention" rows.
+function bindStats() {
+  const d = $("detail");
+  for (const b of d.querySelectorAll("#stats-days button")) b.onclick = () => {
+    statsDays = b.dataset.v;
+    try { localStorage.setItem("mako-stats-days", statsDays); } catch {}
+    load();
+  };
+  if ($("stats-project")) $("stats-project").onchange = (e) => {
+    statsProject = e.target.value;
+    try { localStorage.setItem("mako-stats-project", statsProject); } catch {}
+    e.target.blur();
+    load();
+  };
+  for (const b of d.querySelectorAll(".stats-tabs [data-tab], [data-go]")) b.onclick = (e) => {
+    e.preventDefault();
+    statsTab = b.dataset.tab || b.dataset.go;
+    try { localStorage.setItem("mako-stats-tab", statsTab); } catch {}
+    render();
+  };
+  for (const b of d.querySelectorAll("#breakdown-by button")) b.onclick = () => { breakdownBy = b.dataset.v; render(); };
+  for (const b of d.querySelectorAll("#heavy-by button")) b.onclick = () => { heavyBy = b.dataset.v; render(); };
+  if ($("trend-table")) $("trend-table").onclick = () => { trendTable = !trendTable; render(); };
+  for (const a of d.querySelectorAll("[data-need]")) a.onclick = (e) => { e.preventDefault(); openAttention({ kind: a.dataset.need, reason: a.dataset.reason }); };
 }
 
 // Mako's own errors, one row per kind: "Send for analysis" writes them into an issue in Mako's repository.
@@ -2110,14 +2439,6 @@ function bindFaults() {
   };
 }
 
-// One row per project or agent: how its tasks went. Hidden while there is only one.
-// min: the fewest groups worth a table; a known model is worth one even alone.
-function groupsHTML(title, groups, col, name = (n) => n, min = 2) {
-  if (!groups || groups.length < min || groups.every((g) => g.name === "—")) return "";
-  const rated = groups.some((g) => g.assessed), tokened = groups.some((g) => g.tokens);
-  const row = (g) => `<tr><td>${esc(name(g.name))}</td><td>${g.taken}</td><td>${g.succeeded}</td><td>${g.failed}</td><td>${g.taken ? Math.round((g.succeeded / g.taken) * 100) : 0}%</td><td>${g.cost ? `$${g.cost.toFixed(2)}` : "—"}</td>${tokened ? `<td>${g.tokens ? tok(g.tokens) : "—"}</td>` : ""}${rated ? `<td>${g.assessed ? `${g.clarity.toFixed(1)}/5` : "—"}</td>` : ""}</tr>`;
-  return `<h3>${title}</h3><div class="table"><table><thead><tr><th>${col}</th><th>Taken</th><th>Succeeded</th><th>Unsuccessful</th><th>Success</th><th>Spent</th>${tokened ? "<th>Tokens</th>" : ""}${rated ? `<th title="How well the tasks are described, by the agent's assessment">Description</th>` : ""}</tr></thead><tbody>${groups.map(row).join("")}</tbody></table></div>`;
-}
 
 const SIZE_NAMES = { small: "small", medium: "medium", big: "big" };
 const STAGE_NAMES = { agent: "agent working", you: "waiting for you", ci: "waiting for CI", review: "waiting for review" };
@@ -2160,115 +2481,11 @@ function stageBar(seconds, dur) {
     <div class="legend stage-legend">${stages.map((k) => `<span><i class="s-${k}"></i>${STAGE_NAMES[k]} <b>${dur(seconds[k])}</b> <span class="muted">· ${Math.round((seconds[k] / total) * 100)}%</span></span>`).join("")}</div>`;
 }
 
-function stagesHTML(stages, staged, dur) {
-  const bar = staged ? stageBar(stages, dur) : "";
-  return bar ? `<h3>Where the time goes <span class="muted">· average per merged task, ${staged} ${plural(staged, "task", "tasks")}</span></h3>${bar}` : "";
-}
-
-// What each phase of the work cost over the period: $ and tokens.
-function phasesHTML(s) {
-  const phases = Object.keys(PHASE_NAMES).filter((k) => s.phases?.[k] || s.phaseTokens?.[k]);
-  if (!phases.length) return "";
-  const tile = (k) => `<div class="stat"><span>${PHASE_NAMES[k]}</span><b>${s.phases[k] ? `$${s.phases[k].toFixed(2)}` : "—"}</b>`
-    + `<small>${s.phaseTokens?.[k] ? `${tok(s.phaseTokens[k])} tokens` : ""}${s.cost && s.phases[k] ? ` · ${Math.round((s.phases[k] / s.cost) * 100)}%` : ""}</small></div>`;
-  return `<h3>What was spent on</h3><div class="stat-row small">${phases.map(tile).join("")}</div>`;
-}
-
 // The phases of the context, in the order the board shows them: the ones that have runs.
 const ctxPhases = (phases) => Object.keys(PHASE_NAMES).filter((k) => phases?.[k]?.runs);
 // The cache's share of all the input: what was read from it, of everything the model read.
 const cacheShare = (p) => { const all = (p.input || 0) + (p.cacheRead || 0) + (p.cacheCreate || 0); return all ? p.cacheRead / all : 0; };
 const pctText = (x) => `${Math.round(x * 100)}%`;
-
-// How the agents' context filled over the period: the start, the peak, the compactions and the cache, by phase;
-// what filled it, by tool; the heaviest files and commands.
-// How the reviewer agent's rounds went: remarks per round, the agent's answers, the next rounds' verdicts.
-function reviewStatsHTML(v) {
-  if (!v?.rounds) return "";
-  const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
-  const answered = v.fixed + v.notFixed + v.partly, checked = v.closed + v.open + v.accepted;
-  const share = (x, of) => of ? pctText(x / of) : "—";
-  return `<h3>Agent review</h3><div class="stat-row small">
-      ${tile("Rounds", v.rounds, `${v.tasks} ${plural(v.tasks, "task", "tasks")} · clean ${v.clean}`)}
-      ${tile("Remarks per round", v.remarks ? v.perRound.toFixed(1) : "—", v.remarks ? `${v.remarks} in total · "must" ${v.must}` : "no numbered ones yet")}
-      ${tile("Agent fixed", share(v.fixed, answered), `partly ${v.partly} · declined ${v.notFixed}${v.noReply ? ` · no reply ${v.noReply}` : ""}`)}
-      ${tile("Next round", share(v.closed, checked), `closed ${v.closed} · explanations accepted ${v.accepted} · not closed ${v.open}`)}
-      ${tile("Rounds to clean", v.converged ? v.toClean.toFixed(1) : "—", `converged ${v.converged} of ${v.tasks}${v.escalated ? ` · to a human ${v.escalated}` : ""}`)}
-      ${tile("Waiting for \"Fix\"", v.waiting, v.unverified ? `"fixed" without commits: ${v.unverified}` : "")}
-    </div>`;
-}
-function contextHTML(c) {
-  const phases = ctxPhases(c?.phases);
-  if (!phases.length) return "";
-  const main = c.phases.work ? "work" : phases[0], p = c.phases[main];
-  const tile = (label, value, note = "") => `<div class="stat"><span>${label}</span><b>${value}</b>${note ? `<small>${note}</small>` : ""}</div>`;
-  const tiles = `<div class="stat-row small">
-      ${tile("Starting context", tok(Math.round(p.start)), `median${p.prompt ? ` · task prompt ≈ ${tok(Math.round(p.prompt))}` : ""}`)}
-      ${tile("Context peak", tok(Math.round(p.peak)), `median${p.peakShare ? ` · ${pctText(p.peakShare)} of the window` : ""} · largest ${tok(p.maxPeak)}`)}
-      ${tile("Compactions", p.compactions, `${p.compacted} of ${p.runs} ${plural(p.runs, "session", "sessions")}`)}
-      ${tile("Cache", pctText(cacheShare(p)), "read from the cache, of all the input")}
-    </div>`;
-  const row = (k) => { const x = c.phases[k]; return `<tr><td>${PHASE_NAMES[k]}</td><td>${x.runs}</td><td>${tok(Math.round(x.start))}</td>`
-    + `<td>${tok(Math.round(x.peak))}${x.peakShare ? ` <span class="muted">· ${pctText(x.peakShare)}</span>` : ""}</td><td>${x.compactions || "—"}</td><td>${pctText(cacheShare(x))}</td></tr>`; };
-  const byPhase = phases.length > 1 ? `<div class="table"><table><thead><tr><th>Phase</th><th>Sessions</th><th title="Median: system prompt, tools, MCP, CLAUDE.md, memory and prompt">Start</th><th title="Median, share of the model window">Peak</th><th>Compactions</th><th>Cache</th></tr></thead><tbody>${phases.map(row).join("")}</tbody></table></div>` : "";
-  return `<h3>Context <span class="muted">· ${PHASE_NAMES[main]}</span></h3>${tiles}${byPhase}${toolsTable(phases, (k) => c.phases[k].tools)}${heavyHTML(c.files, c.commands)}`;
-}
-
-// What filled the context, by tool, in each phase: the growth between the model's calls split by the size of
-// what came in.
-function toolsTable(phases, toolsOf) {
-  const total = {};
-  for (const k of phases) for (const [t, n] of Object.entries(toolsOf(k) || {})) total[t] = (total[t] || 0) + n;
-  const tools = Object.keys(total).filter((t) => total[t] > 0).sort((a, b) => total[b] - total[a]);
-  if (!tools.length) return "";
-  const sum = tools.reduce((n, t) => n + total[t], 0);
-  const multi = phases.length > 1;
-  const row = (t) => `<tr><td>${esc(t)}</td>${multi ? phases.map((k) => `<td>${toolsOf(k)?.[t] ? tok(toolsOf(k)[t]) : "—"}</td>`).join("") : ""}<td>${tok(total[t])} <span class="muted">· ${pctText(total[t] / sum)}</span></td></tr>`;
-  return `<h4 class="sub">What fills the context</h4><div class="table"><table><thead><tr><th>What</th>${multi ? phases.map((k) => `<th>${PHASE_NAMES[k]}</th>`).join("") : ""}<th>Total</th></tr></thead><tbody>${tools.map(row).join("")}</tbody></table></div>`;
-}
-
-// The heaviest files read and the commands with the largest output.
-function heavyHTML(files, commands) {
-  const list = (title, hs, what) => hs?.length ? `<div><h4 class="sub">${title}</h4><dl class="facts heavy">${hs.map((h) => `<dt>${tok(h.tokens)}</dt><dd><code title="${esc(h.name)}">${esc(h.name.length > 90 ? "…" + h.name.slice(-89) : h.name)}</code> <span class="muted">· ${h.count} ${what(h.count)}</span></dd>`).join("")}</dl></div>` : "";
-  const body = list("Heaviest files", files, (n) => plural(n, "read", "reads")) + list("Heaviest commands", commands, (n) => plural(n, "run", "runs"));
-  return body ? `<div class="heavy-lists">${body}</div>` : "";
-}
-
-// The size the estimate expected before the start against the one the finished task came to.
-function forecastHTML(f) {
-  if (!f?.compared) return "";
-  const sizes = Object.keys(SIZE_NAMES);
-  const row = (cells, i) => `<tr><td>${SIZE_NAMES[sizes[i]]}</td>${cells.map((n, j) => `<td class="${i === j ? "hit" : ""}">${n || "—"}</td>`).join("")}</tr>`;
-  return `<h3>Forecast vs actual size <span class="muted">· ${f.compared} ${plural(f.compared, "task", "tasks")} · hits ${Math.round((f.hits / f.compared) * 100)}%</span></h3>
-    <div class="table"><table class="forecast"><thead><tr><th>Expected ↓ · came out →</th>${sizes.map((x) => `<th>${SIZE_NAMES[x]}</th>`).join("")}</tr></thead>
-    <tbody>${f.matrix.map(row).join("")}</tbody></table></div>`;
-}
-
-// How the tasks of each expected size went: merged with no rework, and what the agent spent on them.
-function bySizeHTML(groups, dur) {
-  if (!groups?.some((g) => g.taken)) return "";
-  const tokened = groups.some((g) => g.tokened);
-  const row = (g) => `<tr><td>${SIZE_NAMES[g.size] || esc(g.size)}</td><td>${g.taken}</td>`
-    + `<td>${g.ended ? `${Math.round((g.clean / g.ended) * 100)}% <span class="muted">· ${g.clean} of ${g.ended}</span>` : "—"}</td>`
-    + `<td>${g.timed ? dur(g.seconds) : "—"}</td><td>${g.priced ? `$${g.cost.toFixed(2)}` : "—"}</td>${tokened ? `<td>${g.tokened ? tok(g.tokens) : "—"}</td>` : ""}</tr>`;
-  return `<h3>By expected size</h3><div class="table"><table><thead><tr><th>Size</th><th>Taken</th>`
-    + `<th title="Merged without 'Retry differently', new attempts, or fixes after review, out of those merged or failed">No rework</th>`
-    + `<th title="From hand-off to the agent until the MR">Agent time</th><th title="Work and plan of Mako's agent, average per task; without the agent's assessment and review">Cost</th>${tokened ? `<th title="Average per task">Tokens</th>` : ""}</tr></thead><tbody>${groups.filter((g) => g.taken).map(row).join("")}</tbody></table></div>`;
-}
-
-// Where the agents most often did not understand the task: clarity 1–2 in the final assessment.
-function clarityHTML(s) {
-  const table = (groups, col) => {
-    const rated = (groups || []).filter((g) => g.assessed)
-      .sort((a, b) => b.unclear / b.assessed - a.unclear / a.assessed || b.assessed - a.assessed);
-    if (!rated.length) return "";
-    const row = (g) => `<tr><td>${esc(g.name)}</td><td>${g.assessed}</td><td>${g.clarity.toFixed(1)}/5</td>`
-      + `<td>${g.unclear ? `${g.unclear} <span class="muted">· ${Math.round((g.unclear / g.assessed) * 100)}%</span>` : "—"}</td></tr>`;
-    return `<div class="table"><table><thead><tr><th>${col}</th><th>Assessed</th><th>Description</th><th title="Description clarity 1–2 out of 5">Did not understand</th></tr></thead><tbody>${rated.map(row).join("")}</tbody></table></div>`;
-  };
-  const body = table(s.projects, "Project") + table(s.authors, "Author");
-  return body ? `<h3>Description quality</h3>${body}` : "";
-}
 
 // "While you were away": what waits for you, the MRs to merge, what failed and got merged, with links to the tasks.
 function digestHTML(d) {
@@ -2483,14 +2700,10 @@ function renderDetail() {
   if (!r) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     // The period's list is open: the next refresh would close it.
-    if (document.activeElement?.id === "stats-days") return;
+    if (document.activeElement?.id === "stats-project") return;
     $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Tasks</button>` : "") + statsHTML(data.stats) + faultsHTML(data.faults);
     if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
-    if ($("stats-days")) $("stats-days").onchange = (e) => {
-      statsDays = e.target.value;
-      try { localStorage.setItem("mako-stats-days", statsDays); } catch {}
-      load();
-    };
+    bindStats();
     bindFaults();
     return;
   }
