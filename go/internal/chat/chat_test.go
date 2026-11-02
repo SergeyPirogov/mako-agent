@@ -310,8 +310,9 @@ func TestPlan(t *testing.T) {
 			got = append(got, it.ID+":"+it.Status+":"+it.Text)
 		}
 	}
-	if strings.Join(got, " ") != "p1:revised:Додай тести p2:approved:Step 1: і про README p3:denied:" || snap.Mode != "acceptEdits" || snap.Model != "opus" {
-		t.Fatalf("items %v mode %q", got, snap.Mode)
+	// The notes are in the message to the agent, not on the plan as well.
+	if strings.Join(got, " ") != "p1:revised:Додай тести p2:approved: p3:denied:" || snap.Mode != "acceptEdits" || snap.Model != "opus" {
+		t.Fatalf("items %v mode %q model %q", got, snap.Mode, snap.Model)
 	}
 }
 
@@ -420,5 +421,45 @@ func TestSendRollsBackFailedWrite(t *testing.T) {
 		if it.Kind == "user" && it.Text == "ще" {
 			t.Fatal("a message that was not delivered shows as sent")
 		}
+	}
+}
+
+// Claude Code takes back a request it waits on (an interrupt): it is no longer asked, the session is not left
+// waiting, and an answer to it is refused.
+const cancelClaude = `#!/bin/sh
+read init
+read msg
+echo '{"type":"control_request","request_id":"q1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Which?","options":[{"label":"A"}]}]}}}'
+read interrupt
+echo '{"type":"control_cancel_request","request_id":"q1"}'
+echo '{"type":"control_request","request_id":"b1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}'
+echo '{"type":"result","subtype":"error_during_execution","duration_ms":10}'
+read more
+`
+
+func TestCancelledRequest(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(cancelClaude), 0o755)
+	s := Start(Options{ID: "a#4", Worktree: dir, Command: bin, Prompt: "Go"})
+	defer s.Stop()
+	eventually(t, func() bool { it := s.Asked(); return it != nil && it.ID == "q1" }, func() string { return "not asked" })
+	if err := s.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	// q1 is taken back by its id, b1 dies with the turn.
+	eventually(t, func() bool { st, _, _ := s.State(); return st == "done" && s.Asked() == nil },
+		func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
+	var got []string
+	for _, it := range s.Snapshot().Items {
+		if it.Kind == "permission" {
+			got = append(got, it.ID+":"+it.Status)
+		}
+	}
+	if strings.Join(got, " ") != "q1:cancelled b1:cancelled" {
+		t.Fatalf("items %v", got)
+	}
+	if s.Answer("q1", map[string]string{"Which?": "A"}) == nil {
+		t.Fatal("answered a cancelled question")
 	}
 }

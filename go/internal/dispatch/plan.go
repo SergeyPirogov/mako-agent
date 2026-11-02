@@ -77,8 +77,13 @@ func (d *Dispatcher) ApprovePlan(id, requestID string, o PlanApproval) error {
 	}
 	model := strings.TrimSpace(o.Model)
 	notes := o.Notes.Text()
-	if err := c.ApprovePlan(requestID, mode, model, notes); err != nil {
-		return err
+	// Once the agent has its answer the plan is approved, whatever failed after it: the task goes on, the log says.
+	partly := c.ApprovePlan(requestID, mode, model, notes)
+	if partly != nil && !errors.Is(partly, chat.ErrApprovedButNot) {
+		return partly
+	}
+	if model != "" && c.Model() != model {
+		model = "" // it did not reach the agent: the run goes on with the one it has
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Planning = false
@@ -106,6 +111,9 @@ func (d *Dispatcher) ApprovePlan(id, requestID string, o PlanApproval) error {
 		msg += "; notes: " + clipText(firstLine(notes), 120)
 	}
 	d.Log(id, msg)
+	if partly != nil {
+		d.Log(id, partly.Error())
+	}
 	return nil
 }
 

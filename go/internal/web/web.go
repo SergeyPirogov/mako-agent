@@ -477,12 +477,16 @@ func (s *Server) Handler() http.Handler {
 				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
 				err = s.D.Say(id, strings.TrimSpace(string(body)))
 			case action == "plan":
-				// The agent's plan: {do: approve | revise | reject, mode, model, notes: {steps: [{n, title, note}], whole}}.
+				// The agent's plan: {do: approve | revise | reject, mode, model, notes: {steps: [{n, title, note}], whole}}; do
+				// may come in the query instead.
 				var in struct {
 					Do, Mode, Model string
 					Notes           chat.PlanNotes
 				}
 				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in)
+				if in.Do == "" {
+					in.Do = r.URL.Query().Get("do") // a notification's button: ?do=approve, no body
+				}
 				req := r.URL.Query().Get("req")
 				switch in.Do {
 				case "approve":

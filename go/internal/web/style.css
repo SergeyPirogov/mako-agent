@@ -837,7 +837,7 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .plan-doc-h { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; background: var(--bg); }
 .plan-doc-h b { font-size: 15px; font-weight: 650; flex: 1; }
 .plan-doc-h .muted { font-size: 12.5px; }
-.plan-doc-md, .pl-intro { padding: 8px 14px; border-top: 1px solid var(--line); }
+.plan-doc-md, .pl-intro, .pl-outro { padding: 8px 14px; border-top: 1px solid var(--line); }
 .pl-step { padding: 8px 14px 10px; border-top: 1px solid var(--line); }
 .pl-step.noted, .pl-step.editing { background: color-mix(in srgb, var(--warn) 7%, var(--card)); }
 .pl-step-h { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 2px 0; border: 0; background: none; text-align: left; font: inherit; font-size: 13.5px; color: var(--fg); cursor: pointer; height: auto; }

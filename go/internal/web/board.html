@@ -3341,6 +3341,8 @@ function chatTurns(s, v) {
   return turns.map((t, k) => t.who === "user" ? userTurn(t, items[t.item], v)
     : agentTurn(t, items, v, k === turns.length - 1 && s.state === "working")).join("");
 }
+// chat.PlanNotesPrefix: how the message with your notes on an approved plan begins.
+const PLAN_NOTES = "The plan is approved. Notes from the developer to take into account while carrying it out:";
 function userTurn(t, it, v) {
   if (!it) return "";
   if (t.prompt && !v.code) return chatItem(it, 0, v);
@@ -3349,6 +3351,11 @@ function userTurn(t, it, v) {
     return m ? `<a href="/api/screenshots/${esc(m[1])}/${esc(m[2])}" target="_blank" rel="noopener"><img src="/api/screenshots/${esc(m[1])}/${esc(m[2])}" alt="Attached picture"></a>`
       : `<code>${esc(p)}</code>`;
   }).join("");
+  // Your notes on an approved plan: shown as the notes, without the words that tell the agent what they are.
+  if (t.text?.startsWith(PLAN_NOTES)) {
+    return `<div class="msg me"><div class="who">Notes on the approved plan</div><div class="bubble">${linkify(t.text.slice(PLAN_NOTES.length).trim())}</div>
+      ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
+  }
   return `<div class="msg me">${t.text ? `<div class="bubble">${linkify(t.text)}</div>` : ""}${pics ? `<div class="me-pics">${pics}</div>` : ""}
     ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
 }
@@ -3479,7 +3486,7 @@ function chatItem(it, i, v) {
       if (it.tool === "AskUserQuestion") return askCard(it);
       const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200);
       if (it.status !== "asked") {
-        return `<div class="perm-done ${it.status}">${{ allowed: "✓ You allowed once", always: "✓ Always allowed", denied: "✗ You said no" }[it.status] ?? it.status}: <code>${esc(it.tool === "Bash" ? arg : `${it.tool} ${arg}`)}</code></div>`;
+        return `<div class="perm-done ${it.status}">${{ allowed: "✓ You allowed once", always: "✓ Always allowed", denied: "✗ You said no", cancelled: "✗ Not answered: the agent stopped asking" }[it.status] ?? it.status}: <code>${esc(it.tool === "Bash" ? arg : `${it.tool} ${arg}`)}</code></div>`;
       }
       const sug = Array.isArray(it.suggestions) ? it.suggestions[0] : null;
       const always = !sug ? "" : sug.type === "addRules" ? `Allow ${(sug.rules ?? []).map((r) => r.ruleContent || r.toolName).join(", ")}`
@@ -3506,7 +3513,7 @@ function planCard(it, v) {
   const plan = it.input?.plan ?? "";
   if (it.status !== "asked") {
     const key = `plan:${it.id}`, shown = v.flip.has(key);
-    const what = { approved: "✓ Plan approved", allowed: "✓ Plan approved", revised: "↺ Plan sent back for changes", denied: "✗ Plan rejected" }[it.status] ?? it.status;
+    const what = { approved: "✓ Plan approved", allowed: "✓ Plan approved", revised: "↺ Plan sent back for changes", denied: "✗ Plan rejected", cancelled: "✗ Plan not answered: the agent stopped asking" }[it.status] ?? it.status;
     return `<div class="plan-card done ${esc(it.status)}"><button type="button" class="plan-h" data-toggle="${esc(key)}"><b>${what}</b>
         ${it.text ? `<span class="muted">${esc(it.text.split("\n")[0].slice(0, 120))}</span>` : ""}<span class="muted tw">${shown ? "▾" : "▸"}</span></button>
       ${shown ? `<div class="md plan-body">${md(plan)}</div>` : ""}</div>`;
@@ -3528,6 +3535,7 @@ function planCard(it, v) {
       <span class="muted">${doc.files ? `${doc.files} ${plural(doc.files, "file", "files")} · ` : ""}nothing changed yet</span></div>
     ${doc.intro ? `<div class="md pl-intro">${md(doc.intro)}</div>` : ""}
     ${steps.map(stepHTML).join("")}
+    ${doc.outro ? `<div class="md pl-outro">${md(doc.outro)}</div>` : ""}
     ${doc.risk ? `<div class="pl-risk"><b>Risk</b><div class="md">${md(doc.risk)}</div></div>` : ""}</div>`;
 }
 // A step's title: its inline code and bold, nothing more.
@@ -3620,6 +3628,8 @@ function drawDock(v, it) {
   }
   if (kind === "plan") {
     const models = [...new Set(data?.models ?? [])], cur = v.snap.model ? shortModel(v.snap.model) : "";
+    // The effort the run started with stays: Claude Code takes no other in a running session.
+    const effort = data?.records?.find((x) => x.id === v.id)?.agentRoute?.effort ?? "";
     const mode = v.notes.mode || v.snap.workMode || "auto";
     const steps = v.snap.plan?.steps?.length ?? 0, noted = Object.keys(v.notes.steps).map(Number).sort((a, b) => a - b);
     const sub = noted.length ? `${noted.length} ${plural(noted.length, "note", "notes")} on ${plural(noted.length, "step", "steps")} ${noted.join(", ")}` : "";
@@ -3627,7 +3637,7 @@ function drawDock(v, it) {
     d.innerHTML = `<div class="dock-in"><div class="dock-h"><span class="dock-ic" aria-hidden="true">✓</span><b>Approve the plan?</b><span class="muted">${[sub, hint].filter(Boolean).map((x) => ` · ${x}`).join("")}</span>${wait}</div>
       <textarea class="dock-note" rows="1" data-whole placeholder="A note on the whole plan (optional)…" aria-label="A note on the whole plan">${esc(v.notes.whole)}</textarea>${warn}
       <div class="dock-row"><span class="muted">Work on</span>
-        <select data-plan-model aria-label="The model to work with"><option value="">${esc(cur || "the same model")}</option>${models.filter((m) => m !== cur && m !== v.snap.model).map((m) => `<option value="${esc(m)}" ${m === v.notes.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>
+        <select data-plan-model aria-label="The model to work with"${effort ? ` title="Effort ${esc(effort)}: the one the run started with, it stays"` : ""}><option value="">${esc([cur || "the same model", effort].filter(Boolean).join(" · "))}</option>${models.filter((m) => m !== cur && m !== v.snap.model).map((m) => `<option value="${esc(m)}" ${m === v.notes.model ? "selected" : ""}>${esc([m, effort].filter(Boolean).join(" · "))}</option>`).join("")}</select>
         <select data-plan-mode aria-label="The mode to work in">${MODES.filter(([m]) => m !== "plan").map(([m, label, hint]) => `<option value="${m}" ${m === mode ? "selected" : ""} title="${hint}">${label}</option>`).join("")}</select>
         ${instead}<span class="spacer"></span>
         <button type="button" data-plan-do="reject">Reject</button><button type="button" data-plan-do="revise">Send the notes back</button><button type="button" class="primary" data-plan-do="approve">Approve</button></div></div>`;

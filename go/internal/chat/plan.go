@@ -17,10 +17,12 @@ type PlanStep struct {
 }
 
 // PlanDoc: the agent's plan (ExitPlanMode) split into steps; Steps is empty when the plan has no numbered ones and
-// the board draws it as it is. Intro: what comes before the steps; Risk: a section on the risks.
+// the board draws it as it is. Intro: what comes before the steps; Outro: other sections after them («Out of
+// scope»); Risk: a section on the risks.
 type PlanDoc struct {
 	Intro string     `json:"intro,omitempty"`
 	Steps []PlanStep `json:"steps"`
+	Outro string     `json:"outro,omitempty"`
 	Risk  string     `json:"risk,omitempty"`
 	Files int        `json:"files,omitempty"` // how many files the steps name
 }
@@ -29,14 +31,15 @@ var (
 	planItem    = regexp.MustCompile(`^(\d+)[.)]\s+(.*)$`)                                           // 1. Do it
 	planHeading = regexp.MustCompile(`^#{1,6}\s+(?:(?:Step|Крок)\s+)?(\d+)[.):]?\s*[-—:.]?\s*(.*)$`) // ### 1. Do it, ## Step 2: Do it; cyrillic-ok: plans in Ukrainian
 	anyHeading  = regexp.MustCompile(`^#{1,6}\s+(.*)$`)
-	riskHeading = regexp.MustCompile(`(?i)^\**(risks?|ризик\S*)\**\s*:?\**\s*(.*)$`) // cyrillic-ok: plans in Ukrainian
+	riskHeading = regexp.MustCompile(`(?i)^\**(?:risks?|ризик(?:и|ів)?)(?:\**\s*:\**\s*|\**\s+|\**$)(.*)$`) // a whole word: not «Risky»; cyrillic-ok: plans in Ukrainian
 	inlineCode  = regexp.MustCompile("`([^`\n]+)`")
 	fileLike    = regexp.MustCompile(`^[\w.\-]+(/[\w.\-]+)*\.[A-Za-z0-9]{1,8}$|^[\w.\-]+(/[\w.\-]+)+/?$`)
 )
 
 // ParsePlan splits the agent's markdown plan into its steps: the items of a numbered list at the start of a line,
-// or headings that number them («### 1. …», «## Step 2: …»). A «Risk» heading or line ends the steps and is kept
-// apart. Steps in a nested list stay in their step's text.
+// or headings that number them («### 1. …», «## Step 2: …»). A step ends at the next one, at a heading as high as
+// the steps' own (any heading for a list) and, for a list, at a paragraph that is not indented under it. A «Risk»
+// heading or line is kept apart. Steps in a nested list stay in their step's text.
 func ParsePlan(md string) PlanDoc {
 	doc := PlanDoc{Steps: []PlanStep{}}
 	lines := strings.Split(strings.ReplaceAll(md, "\r\n", "\n"), "\n")
@@ -48,8 +51,10 @@ func ParsePlan(md string) PlanDoc {
 			break
 		}
 	}
-	var intro, risk, body []string
-	lead := "" // the rest of a step's first line, after its bold title
+	var intro, outro, risk, body []string
+	stepLevel := 0 // the level of the headings that number the steps (### is 3)
+	blank := false // the line before was empty
+	lead := ""     // the rest of a step's first line, after its bold title
 	var cur *PlanStep
 	inRisk, fence := false, false
 	flush := func() {
@@ -70,6 +75,9 @@ func ParsePlan(md string) PlanDoc {
 			if byHeading {
 				if m := planHeading.FindStringSubmatch(t); m != nil {
 					start = m[1] + "\x00" + m[2]
+					if stepLevel == 0 {
+						stepLevel = headingLevel(t)
+					}
 				}
 			} else if m := planItem.FindStringSubmatch(t); m != nil && l == strings.TrimLeft(l, " \t") {
 				start = m[1] + "\x00" + m[2] // a nested item (indented) stays in its step's text
@@ -82,9 +90,10 @@ func ParsePlan(md string) PlanDoc {
 			if r := riskHeading.FindStringSubmatch(label); r != nil && (heading != nil || strings.HasPrefix(t, "**")) {
 				flush()
 				inRisk = true
-				if r[2] != "" {
-					risk = append(risk, r[2])
+				if r[1] != "" {
+					risk = append(risk, r[1])
 				}
+				blank = false
 				continue
 			}
 			if start != "" {
@@ -95,13 +104,21 @@ func ParsePlan(md string) PlanDoc {
 				title, rest := splitTitle(p[1])
 				cur = &PlanStep{N: n, Title: title}
 				lead = rest
+				blank = false
 				continue
 			}
-			if heading != nil && cur != nil && !byHeading {
-				// Another section after the list: it is not a step's text.
+			switch {
+			case heading != nil && cur != nil && (!byHeading || headingLevel(t) <= stepLevel):
+				// Another section after the steps («## Verification»): it is not the last step's text.
+				flush()
+			case heading != nil && inRisk:
+				inRisk = false
+			case cur != nil && !byHeading && blank && t != "" && l == strings.TrimLeft(l, " \t"):
+				// A paragraph after the list, not indented under its item: the list is over.
 				flush()
 			}
 		}
+		blank = t == ""
 		switch {
 		case inRisk:
 			risk = append(risk, l)
@@ -109,10 +126,13 @@ func ParsePlan(md string) PlanDoc {
 			body = append(body, l)
 		case len(doc.Steps) == 0:
 			intro = append(intro, l)
+		default:
+			outro = append(outro, l)
 		}
 	}
 	flush()
 	doc.Intro, doc.Risk = strings.TrimSpace(strings.Join(intro, "\n")), strings.TrimSpace(strings.Join(risk, "\n"))
+	doc.Outro = strings.TrimSpace(strings.Join(outro, "\n"))
 	seen := map[string]bool{}
 	for i := range doc.Steps {
 		s := &doc.Steps[i]
@@ -128,9 +148,14 @@ func ParsePlan(md string) PlanDoc {
 	}
 	doc.Files = len(seen)
 	if len(doc.Steps) == 0 {
-		doc.Intro, doc.Risk = "", ""
+		doc.Intro, doc.Outro, doc.Risk = "", "", ""
 	}
 	return doc
+}
+
+// headingLevel: how many # a markdown heading begins with.
+func headingLevel(t string) int {
+	return len(t) - len(strings.TrimLeft(t, "#"))
 }
 
 // splitTitle: a step's first line without the bold around it. «**Do it** — how» is the title «Do it» and «how»,

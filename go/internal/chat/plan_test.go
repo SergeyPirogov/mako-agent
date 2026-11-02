@@ -44,3 +44,34 @@ func TestPlanNotesText(t *testing.T) {
 		t.Fatal("whole only")
 	}
 }
+
+// «Risky …» or «Risk-free …» is not the risk section: only the word itself is.
+func TestParsePlanRiskWord(t *testing.T) {
+	doc := ParsePlan("1. Move the code\n\n## Risky migration\nrun it twice\n\n## Risk-free cleanup\ndrop the flag\n\n**Risks:** the board breaks\n")
+	if len(doc.Steps) != 1 || doc.Steps[0].Body != "" || doc.Risk != "the board breaks" {
+		t.Fatalf("%+v", doc)
+	}
+	if doc.Outro != "## Risky migration\nrun it twice\n\n## Risk-free cleanup\ndrop the flag" {
+		t.Fatalf("outro %q", doc.Outro)
+	}
+	for _, risk := range []string{"## Risk", "### Risks:", "**Risk**", "## Ризики"} { // cyrillic-ok: plans in Ukrainian
+		if d := ParsePlan("1. a\n" + risk + "\nx"); d.Risk != "x" {
+			t.Errorf("%q: %+v", risk, d)
+		}
+	}
+}
+
+// A heading as high as the steps' own ends the last step; a lower one stays in it.
+func TestParsePlanHeadingEndsStep(t *testing.T) {
+	doc := ParsePlan("## Plan\n### 1. Shell\n#### Details\nmore\n### 2. Check\ngo test\n### Verification\nopen the page\n## Out of scope\nthe API\n")
+	if len(doc.Steps) != 2 || doc.Steps[0].Body != "#### Details\nmore" || doc.Steps[1].Body != "go test" {
+		t.Fatalf("%+v", doc)
+	}
+	if doc.Outro != "### Verification\nopen the page\n## Out of scope\nthe API" || doc.Intro != "## Plan" {
+		t.Fatalf("%+v", doc)
+	}
+	// A paragraph after a list, not indented under it, is not the last step's text.
+	if d := ParsePlan("1. a\n2. b\n   more of b\n\nThat is all."); d.Steps[1].Body != "more of b" || d.Outro != "That is all." {
+		t.Fatalf("%+v", d)
+	}
+}
