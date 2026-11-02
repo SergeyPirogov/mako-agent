@@ -566,8 +566,9 @@ section.ws #term-slot:has(.term-wrap) { padding: 0; }
 /* The branch block: its label and the two openers on the first line, the name on the whole width under them (a click copies it). */
 .br-card .mr-h { margin-bottom: 2px; }
 .branch-name { position: relative; display: block; width: calc(100% + 12px); margin: 0 -6px 4px; padding: 3px 24px 3px 6px; border: 0; border-radius: 6px; background: none;
-  text-align: left; font: 12px/17px var(--mono); color: var(--fg); overflow-wrap: normal; word-break: normal; transition: background .25s, color .25s; }
+  text-align: left; font: 12px/17px var(--mono); color: var(--fg); overflow-wrap: break-word; transition: background .25s, color .25s; }
 .branch-name:hover { background: var(--hover); }
+.branch-name:active { transform: none; }
 .branch-name .bn-pre { color: var(--mute); }
 .branch-name .bn-num { font-weight: 700; }
 .branch-name .bn-copy { position: absolute; right: 6px; top: 5px; display: inline-flex; color: var(--mute); opacity: 0; transition: opacity .15s; }

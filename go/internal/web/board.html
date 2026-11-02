@@ -1194,8 +1194,9 @@ const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-b
 const commits = (n) => `${n} ${plural(n, "commit", "commits")}`;
 
 // The branch's name for the panel: the prefix ("feature/") muted, the task number marked, a line may break only after "/" and "-".
+let nameFlashUntil = 0; // until when the name shows it was copied: a redraw of the panel keeps the flash
 function branchName(name) {
-  const m = /^(.*\/)?(\d+)?(.*)$/s.exec(name);
+  const m = /^(.*\/)?(?:(\d+)(?=[-_]|$))?(.*)$/s.exec(name);
   const wrap = (t) => t.split(/([/-])/).map((x, i) => (i % 2 ? `${x}<wbr>` : esc(x))).join("");
   return `${m[1] ? `<span class="bn-pre">${wrap(m[1])}</span>` : ""}${m[2] ? `<b class="bn-num">${m[2]}</b>` : ""}${wrap(m[3])}`;
 }
@@ -1216,12 +1217,12 @@ function branchCard(r, term) {
     if (b.unpushed) st.push(["run", `${commits(b.unpushed)} not pushed`, fixBtn(live, "push", "The agent will push the branch")]);
     else if (b.pushed) st.push(["ok", "Everything is pushed", ""]);
     if (b.dirty) st.push(["idle", `${b.dirty} ${plural(b.dirty, "file", "files")} not committed`, ""]);
-    rows = st.every((x) => x[0] === "ok") ? row("ok", st.map((x) => x[1]).join(" · ")) : st.map((x) => row(...x)).join("");
+    rows = st.every((x) => x[0] === "ok") ? row("ok", st.map((x) => x[1]).join(" · ")) : st.map((x) => row(x[0], x[1], "", x[2])).join("");
   }
   return `<div class="mr-card br-card"><div class="mr-h"><span class="files-h-t">Branch</span><span class="mr-sp"></span>
       <button type="button" class="icon" data-open="finder" title="Show in Finder" aria-label="Show in Finder">${ICON.folder}</button>
       ${data.editor ? `<button type="button" class="icon" data-open="editor" title="Open in ${esc(data.editor)}" aria-label="Open in ${esc(data.editor)}">${ICON.code}</button>` : ""}
-    </div>${b.name ? `<button type="button" class="branch-name" data-copy="${esc(b.name)}" title="Copy branch name" aria-label="Copy branch name ${esc(b.name)}">${branchName(b.name)}<span class="bn-copy">${ICON.copy}</span></button>` : ""}${rows}</div>`;
+    </div>${b.name ? `<button type="button" class="branch-name${Date.now() < nameFlashUntil ? " copied" : ""}" data-copy="${esc(b.name)}" title="Copy branch name" aria-label="Copy branch name ${esc(b.name)}">${branchName(b.name)}<span class="bn-copy">${ICON.copy}</span></button>` : ""}${rows}</div>`;
 }
 
 // The pipeline's jobs, a line each with its state in words, under their stage's name (GitLab has stages).
@@ -3350,9 +3351,13 @@ function renderDetail() {
   };
   for (const btn of $("detail").querySelectorAll("[data-file]")) btn.onclick = () => openFile(btn.dataset.file);
   for (const btn of $("detail").querySelectorAll("[data-copy]")) btn.onclick = () => {
-    navigator.clipboard?.writeText(btn.dataset.copy);
-    // The branch name flashes green for a moment: it was copied.
-    if (btn.classList.contains("branch-name")) { btn.classList.add("copied"); setTimeout(() => btn.classList.remove("copied"), 1200); }
+    const done = navigator.clipboard?.writeText(btn.dataset.copy);
+    // The branch name flashes green for a moment, only when it was really copied; the flash outlives a redraw of the panel.
+    if (btn.classList.contains("branch-name")) done?.then(() => {
+      nameFlashUntil = Date.now() + 1200;
+      const mark = (on) => { for (const el of document.querySelectorAll(".branch-name")) el.classList.toggle("copied", on); };
+      mark(true); setTimeout(() => mark(false), 1200);
+    }, () => {});
   };
   for (const btn of $("detail").querySelectorAll("[data-open]")) btn.onclick = () => fetch(`/api/open?id=${encodeURIComponent(r.id)}&in=${btn.dataset.open}`, { method: "POST" });
   for (const btn of $("detail").querySelectorAll("[data-open-file]")) btn.onclick = () =>
