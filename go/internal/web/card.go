@@ -35,8 +35,8 @@ const (
 	stEstimate = "estimate"
 	stPlan     = "plan"
 	stWork     = "work"
-	stReview   = "review"
 	stCI       = "ci"
+	stReview   = "review"
 	stMerge    = "merge"
 )
 
@@ -244,7 +244,7 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	routed(&work, r, core.PhaseWork)
 	routed(&rev, r, core.PhaseReview)
 	routed(&ci, r, core.PhaseCIFix)
-	return []stageView{est, plan, work, rev, ci, merge}
+	return []stageView{est, plan, work, ci, rev, merge}
 }
 
 // questionsNote: «3 questions» for the estimate's Markdown points.
