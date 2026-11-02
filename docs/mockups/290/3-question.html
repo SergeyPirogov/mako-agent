@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent chat: a question</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.muted{color:#6f7277}
+.btn{font:inherit;font-size:13px;height:32px;padding:0 12px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;display:inline-flex;align-items:center;gap:6px}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:32px;padding:0;justify-content:center}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.tab{font-size:14px;padding:8px 2px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px;font-size:12.5px}
+.seg span{padding:3px 10px;border-radius:7px;color:#6f7277}
+.seg span.on{background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.time{font-size:11.5px;color:#6f7277}
+.me{align-self:flex-end;max-width:70%;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.me .bub{background:#f0f0ee;border-radius:14px 14px 4px 14px;padding:8px 12px}
+.ag{display:flex;gap:10px}
+.av{width:24px;height:24px;border-radius:50%;background:#1c1d1f;flex:none;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
+.ab{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.box{border:1px solid #ececea;border-radius:10px;overflow:hidden;background:#fff}
+.row{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:13px;min-height:22px}
+.row .mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.row .r{margin-left:auto;flex:none;font-size:12px;color:#6f7277;display:inline-flex;gap:8px;align-items:center}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #e7e7e4;border-radius:10px;background:#fff;text-align:left;font:inherit;color:#1c1d1f;width:100%}
+.opt.on{border-color:#2f6fde;background:#f6f9fe;box-shadow:0 0 0 1px #2f6fde}
+.rd{width:16px;height:16px;border-radius:50%;border:1.5px solid #c9cbcf;flex:none;margin-top:2px;display:inline-flex;align-items:center;justify-content:center}
+.opt.on .rd{border-color:#2f6fde}
+.opt.on .rd i{width:8px;height:8px;border-radius:50%;background:#2f6fde}
+.kbd{font-size:11px;border:1px solid #e7e7e4;border-radius:4px;padding:0 5px;color:#6f7277;margin-left:auto;flex:none}
+.f{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0}
+.f .m{width:14px;font-size:11px;font-weight:700;color:#2f6fde}
+.f .n{margin-left:auto;font-size:12px}
+.add{color:#2f9e5b}.del{color:#d14343}
+</style>
+
+<div class="b" style="width:1040px;height:900px;box-sizing:border-box;padding:0 28px 20px;display:flex;flex-direction:column;gap:12px;overflow:hidden">
+  <div style="display:flex;gap:24px;align-items:center;border-bottom:1px solid #e7e7e4;padding-top:10px">
+    <span class="tab">Task</span><span class="tab on">Agent <span style="color:#8a5a08;font-weight:600">· waiting for you</span></span>
+    <span style="flex:1"></span>
+    <span class="seg"><span class="on">Chat</span><span>Terminal</span></span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+    <a href="#" class="mono">mako-agent#280</a>
+    <span style="font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Redesign the Stats page: tabs, key metrics, Needs attention</span>
+    <span class="muted"><b style="color:#8a5a08;font-weight:600">Waiting for you</b> · 3 min</span>
+    <button class="btn icon" aria-label="More actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+  </div>
+
+  <div style="display:flex;gap:16px;flex:1;min-height:0">
+    <div class="card" style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+      <div style="flex:1;min-height:0;padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:hidden;justify-content:flex-end">
+        <div class="ag">
+          <span class="av"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg></span>
+          <div class="ab">
+            <div style="display:flex;align-items:baseline;gap:8px;font-size:13px"><b style="font-weight:600">Claude</b><span class="time">12:20</span></div>
+            <div class="box"><div class="row"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><b style="font-weight:600">7 steps</b><span class="mono muted">Read web.go · grep "api/state" · Edit web.go ×2</span><span class="r">▸</span></div></div>
+            <div style="font-size:12.5px;color:#6f7277;display:flex;gap:6px;align-items:center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>You allowed once: <span class="mono">npm run build</span></div>
+            <div>The tab and the period are remembered per viewer. One thing is not in the task: should the project filter also narrow the task list on the left, or only the stats?</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:2px solid #e5a23b;background:#fffaf0;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <span style="width:20px;height:20px;border-radius:6px;background:#f6e3bd;color:#8a5a08;font-weight:700;font-size:12px;display:inline-flex;align-items:center;justify-content:center">?</span>
+          <b style="font-weight:600">The agent asks</b><span class="muted">· Project filter · question 1 of 1</span>
+        </div>
+        <div style="font-weight:600">Where does the project filter apply?</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button class="opt on"><span class="rd"><i></i></span><span><b style="font-weight:600">Stats only</b><br><span class="muted" style="font-size:12.5px">The task list stays as it is; simpler, no shared state</span></span><span class="kbd">1</span></button>
+          <button class="opt"><span class="rd"></span><span><b style="font-weight:600">Stats and the task list</b><br><span class="muted" style="font-size:12.5px">One filter for the whole board, kept in the URL</span></span><span class="kbd">2</span></button>
+          <label style="display:flex;gap:10px;align-items:center;padding:8px 12px;border:1px dashed #d9d9d6;border-radius:10px;background:#fff"><span class="muted" style="font-size:13px;flex:none">Other</span><input type="text" placeholder="Your own answer…" style="flex:1;border:0;outline:none;font:inherit;font-size:13px;background:transparent"></label>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="muted" style="font-size:12.5px">1–2 to pick · Enter to answer</span>
+          <span style="flex:1"></span>
+          <button class="btn">Stop the agent</button>
+          <button class="btn pri">Answer</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:270px;flex:none;display:flex;flex-direction:column;gap:12px">
+      <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px">
+        <span class="mono" style="font-size:12px">feature/280-redesign-the-stats-page</span>
+        <span style="font-size:12.5px;color:#2f9e5b">✓ up to date with main</span>
+        <span style="font-size:12.5px" class="muted">1 commit not pushed</span>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;flex:1">
+        <div style="display:flex;gap:16px;padding:0 14px;border-bottom:1px solid #e7e7e4"><span class="tab on">Changes 7</span><span class="tab">Commits 1</span><span class="tab">MR —</span></div>
+        <div style="padding:8px 14px">
+          <div class="f"><span class="m">M</span><span>core/stats.go</span><span class="n"><span class="add">+23</span> <span class="del">−4</span></span></div>
+          <div class="f"><span class="m">M</span><span>web/board.html</span><span class="n"><span class="add">+312</span> <span class="del">−140</span></span></div>
+          <div class="f"><span class="m">M</span><span>web/style.css</span><span class="n"><span class="add">+88</span> <span class="del">−12</span></span></div>
+          <div class="f"><span class="m">M</span><span>web/web.go</span><span class="n"><span class="add">+9</span> <span class="del">−2</span></span></div>
+          <div class="f muted"><span class="m"></span>3 more files</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent chat: the plan</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.muted{color:#6f7277}
+.btn{font:inherit;font-size:13px;height:32px;padding:0 12px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;display:inline-flex;align-items:center;gap:6px}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:32px;padding:0;justify-content:center}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.tab{font-size:14px;padding:8px 2px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px;font-size:12.5px}
+.seg span{padding:3px 10px;border-radius:7px;color:#6f7277}
+.seg span.on{background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.time{font-size:11.5px;color:#6f7277}
+.av{width:24px;height:24px;border-radius:50%;background:#1c1d1f;flex:none;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
+.st{display:flex;gap:12px;padding:10px 14px;border-top:1px solid #f2f2f0;font-size:13.5px}
+.st .n{width:22px;height:22px;border-radius:50%;background:#f0f0ee;font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.st .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+</style>
+
+<div class="b" style="width:1040px;height:900px;box-sizing:border-box;padding:0 28px 20px;display:flex;flex-direction:column;gap:12px;overflow:hidden">
+  <div style="display:flex;gap:24px;align-items:center;border-bottom:1px solid #e7e7e4;padding-top:10px">
+    <span class="tab">Task</span><span class="tab on">Agent <span style="color:#8a5a08;font-weight:600">· waiting for you</span></span>
+    <span style="flex:1"></span>
+    <span class="seg"><span class="on">Chat</span><span>Terminal</span></span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+    <a href="#" class="mono" style="font-size:12.5px">mako-agent#280</a>
+    <span style="font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Redesign the Stats page: tabs, key metrics, Needs attention</span>
+    <span class="muted"><b style="color:#8a5a08;font-weight:600">Plan</b> · ready 2 min ago · $1.30</span>
+    <button class="btn icon" aria-label="More actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+  </div>
+
+  <div class="card" style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+    <div style="flex:1;min-height:0;padding:16px 18px;display:flex;gap:10px;overflow:hidden">
+      <span class="av"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg></span>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:baseline;gap:8px;font-size:13px"><b style="font-weight:600">Claude</b><span class="time">11:31 · read 14 files, 5 min</span></div>
+        <div>Here is the plan. Nothing is changed yet.</div>
+        <div style="border:1px solid #e7e7e4;border-radius:12px;overflow:hidden;max-width:760px">
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fafaf8">
+            <b style="font-weight:650;font-size:15px;flex:1">Plan · 6 steps</b>
+            <span class="muted" style="font-size:12.5px">7 files · ≈ 30 min</span>
+          </div>
+          <div class="st"><span class="n">1</span><span class="t"><b style="font-weight:600">Filter the stats by project</b><span class="muted">a <span class="mono">project</span> parameter in <span class="mono">Summarize</span> and <span class="mono">/api/state</span>; a test</span></span></div>
+          <div class="st"><span class="n">2</span><span class="t"><b style="font-weight:600">Relative paths in the heaviest files and commands</b><span class="muted"><span class="mono">core/context.go</span>, cut the worktree prefix</span></span></div>
+          <div class="st" style="background:#fffaf0"><span class="n">3</span><span class="t"><b style="font-weight:600">Page shell: header, period segments, five tabs</b><span class="muted"><span class="mono">web/board.html</span>, <span class="mono">style.css</span>; the tab and period in localStorage</span>
+            <span style="display:flex;gap:8px;align-items:flex-start;margin-top:6px;padding:8px 10px;border-radius:8px;background:#fff;border:1px solid #f0d9a8;font-size:13px"><b style="font-weight:600;flex:none">You:</b><span style="flex:1">keep the period in the URL too, so a link opens the same view</span><a href="#" style="font-size:12.5px;flex:none">Remove</a></span></span></div>
+          <div class="st"><span class="n">4</span><span class="t"><b style="font-weight:600">Overview: key metrics, tasks per day, Needs attention</b><span class="muted">each Needs attention row opens the task list with its filter</span></span></div>
+          <div class="st"><span class="n">5</span><span class="t"><b style="font-weight:600">Time, Cost, Quality, Context tabs</b><span class="muted">move the existing sections, drop the <span class="mono">stats-note</span> paragraph, add ⓘ</span></span></div>
+          <div class="st"><span class="n">6</span><span class="t"><b style="font-weight:600">Check</b><span class="muted"><span class="mono">go test ./...</span>, screenshots at 1200 and 390 px</span></span></div>
+          <div style="padding:10px 14px;border-top:1px solid #f2f2f0;font-size:13px;display:flex;gap:8px"><b style="font-weight:600;color:#8a5a08">Risk</b><span class="muted">board.html is shared by every page: the stats code moves, nothing else changes</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border-top:2px solid #e5a23b;background:#fffaf0;padding:12px 16px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <b style="font-weight:600">Approve the plan?</b><span class="muted">· 1 note on step 3 · a click on a step adds one</span>
+      </div>
+      <label style="display:flex;border:1px solid #e7e7e4;border-radius:10px;background:#fff;padding:8px 12px"><span style="position:absolute;left:-9999px">Notes on the whole plan</span><textarea rows="1" placeholder="A note on the whole plan (optional)…" style="flex:1;border:0;resize:none;font:inherit;font-size:13.5px;outline:none;padding:0;background:transparent"></textarea></label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="muted" style="font-size:12.5px">Work on</span>
+        <button class="btn" style="height:30px;font-size:12.5px">opus 5.5 · high ▾</button>
+        <button class="btn" style="height:30px;font-size:12.5px">Edits without asking ▾</button>
+        <span style="flex:1"></span>
+        <button class="btn">Reject</button>
+        <button class="btn">Send the notes back</button>
+        <button class="btn pri">Approve with the note</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

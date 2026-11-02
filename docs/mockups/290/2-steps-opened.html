@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent chat: steps opened</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.muted{color:#6f7277}
+.btn{font:inherit;font-size:13px;height:32px;padding:0 12px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;display:inline-flex;align-items:center;gap:6px}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:32px;padding:0;justify-content:center}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.tab{font-size:14px;padding:8px 2px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px;font-size:12.5px}
+.seg span{padding:3px 10px;border-radius:7px;color:#6f7277}
+.seg span.on{background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.time{font-size:11.5px;color:#6f7277}
+.ag{display:flex;gap:10px}
+.av{width:24px;height:24px;border-radius:50%;background:#1c1d1f;flex:none;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
+.ab{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.box{border:1px solid #ececea;border-radius:10px;overflow:hidden;background:#fff}
+.row{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:13px;min-height:22px}
+.row+.row{border-top:1px solid #f2f2f0}
+.row .mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.row .r{margin-left:auto;flex:none;font-size:12px;color:#6f7277;display:inline-flex;gap:8px;align-items:center}
+.bad{background:#fbe9e9;color:#b03030;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:8px}
+.ok{background:#e6f4ec;color:#1f7a44;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:8px}
+.add{color:#2f9e5b}.del{color:#d14343}
+pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre;overflow:hidden}
+.dl{display:block;padding:0 12px}
+.dl.p{background:#eaf6ef}.dl.m{background:#fbeeee}
+.f{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0}
+.f .m{width:14px;font-size:11px;font-weight:700;color:#2f6fde}
+.f .n{margin-left:auto;font-size:12px}
+</style>
+
+<div class="b" style="width:1040px;height:900px;box-sizing:border-box;padding:0 28px 20px;display:flex;flex-direction:column;gap:12px;overflow:hidden">
+  <div style="display:flex;gap:24px;align-items:center;border-bottom:1px solid #e7e7e4;padding-top:10px">
+    <span class="tab">Task</span><span class="tab on">Agent</span>
+    <span style="flex:1"></span>
+    <span class="seg"><span class="on">Chat</span><span>Terminal</span></span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+    <a href="#" class="mono">mako-agent#280</a>
+    <span style="font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Redesign the Stats page: tabs, key metrics, Needs attention</span>
+    <span class="muted"><b style="color:#2f6fde;font-weight:600">Work</b> · 24 min · $4.90</span>
+    <button class="btn icon" aria-label="More actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+  </div>
+
+  <div style="display:flex;gap:16px;flex:1;min-height:0">
+    <div class="card" style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #e7e7e4;background:#fafaf8;font-size:13px">
+        <b style="font-weight:600;flex:none">Progress 2 of 6</b>
+        <span style="display:flex;gap:3px;width:120px;flex:none"><i style="flex:1;height:6px;border-radius:3px;background:#2f9e5b"></i><i style="flex:1;height:6px;border-radius:3px;background:#2f9e5b"></i><i style="flex:1;height:6px;border-radius:3px;background:#2f6fde"></i><i style="flex:1;height:6px;border-radius:3px;background:#e7e7e4"></i><i style="flex:1;height:6px;border-radius:3px;background:#e7e7e4"></i><i style="flex:1;height:6px;border-radius:3px;background:#e7e7e4"></i></span>
+        <span class="muted" style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">now: tests for the project filter</span>
+        <button class="btn" style="height:26px;font-size:12.5px">All steps ▾</button>
+      </div>
+
+      <div style="flex:1;min-height:0;padding:16px 18px;display:flex;flex-direction:column;gap:16px;overflow:hidden">
+        <div class="ag">
+          <span class="av"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg></span>
+          <div class="ab">
+            <div style="display:flex;align-items:baseline;gap:8px;font-size:13px"><b style="font-weight:600">Claude</b><span class="time">11:52</span></div>
+            <div>Adding the filter by project to <span class="mono">Summarize</span> and a test for it.</div>
+            <div class="box">
+              <div class="row"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f6fde" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><b style="font-weight:600">Changed</b><span class="mono">internal/core/stats.go</span><span class="r"><span class="add">+23</span><span class="del">−4</span>▾</span></div>
+              <div style="border-top:1px solid #f2f2f0;padding:6px 0;background:#fcfcfb">
+                <pre><span class="dl muted">@@ func Summarize(records []Record, now, since time.Time</span><span class="dl m">-func Summarize(records []Record, now, since time.Time) Stats {</span><span class="dl p">+func Summarize(records []Record, now, since time.Time, project string) Stats {</span><span class="dl">         if !since.IsZero() &amp;&amp; !takenSince(r, since) {</span><span class="dl">                 continue</span><span class="dl">         }</span><span class="dl p">+        if project != "" &amp;&amp; projectOf(r) != project {</span><span class="dl p">+                continue</span><span class="dl p">+        }</span></pre>
+              </div>
+              <div class="row" style="justify-content:center"><a href="#" style="font-size:12.5px">Open the whole diff →</a></div>
+            </div>
+            <div class="box" style="border-color:#f1c9c9">
+              <div class="row" style="background:#fdf5f5"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d14343" stroke-width="2.6" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg><b style="font-weight:600">Tests failed</b><span class="mono">go test ./internal/core</span><span class="r"><span class="bad">1 failed</span><span class="ok">47 passed</span>▾</span></div>
+              <div style="border-top:1px solid #f2f2f0;padding:8px 12px;background:#1c1d1f;color:#e9e9ea">
+                <pre style="font-size:11.5px">--- FAIL: TestSummarizeProject (0.00s)
+    stats_test.go:212: taken = 3, want 2
+FAIL	mako/internal/core	0.418s</pre>
+              </div>
+              <div class="row"><span class="muted" style="font-size:12.5px">last 3 of 214 lines</span><a href="#" style="margin-left:auto;font-size:12.5px">Whole output</a><a href="#" style="font-size:12.5px">Copy</a></div>
+            </div>
+            <div>The record's project comes from the repo when the task has none — the test fixture has none. Using <span class="mono">projectOf</span> there too.</div>
+            <div class="box">
+              <div class="row"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><b style="font-weight:600">3 steps</b><span class="mono muted">Edit stats_test.go · go test ./internal/core</span><span class="r"><span class="ok">48 passed</span>▸</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <a href="#" style="position:absolute;left:50%;bottom:176px;transform:translateX(-50%);display:inline-flex;align-items:center;gap:6px;background:#1c1d1f;color:#fff;font-size:12.5px;padding:6px 12px;border-radius:16px;box-shadow:0 4px 14px rgba(0,0,0,.18)">↓ 4 new · to the latest</a>
+
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid #e7e7e4;background:#fafaf8;font-size:13px">
+        <span style="width:8px;height:8px;border-radius:50%;background:#2f6fde;box-shadow:0 0 0 4px #d6e3fb"></span>
+        <b style="font-weight:600">Working</b><span class="muted">· git commit · this turn 4 min · $0.51</span>
+        <button class="btn" style="margin-left:auto;height:28px"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="#1c1d1f"/></svg>Stop</button>
+      </div>
+
+      <div style="padding:10px 12px 12px">
+        <div style="border:1px solid #e7e7e4;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex"><span style="position:absolute;left:-9999px">Message to the agent</span><textarea rows="2" placeholder="The agent reads it after the current step…" style="flex:1;border:0;resize:none;font:inherit;color:#1c1d1f;outline:none;padding:0"></textarea></label>
+          <div style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+            <button class="btn" style="height:28px;font-size:12.5px">Auto ▾</button>
+            <button class="btn" style="height:28px;font-size:12.5px">opus 5.5 · high ▾</button>
+            <span style="display:inline-flex;align-items:center;gap:6px;color:#6f7277">Context<span style="display:inline-flex;width:64px;height:6px;border-radius:3px;background:#f0f0ee"><i style="width:52%;background:#6f7277;border-radius:3px"></i></span>104k / 200k</span>
+            <span style="flex:1"></span>
+            <button class="btn icon" style="height:30px;width:30px" aria-label="Attach a picture"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7277" stroke-width="2" aria-hidden="true"><path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg></button>
+            <button class="btn pri icon" style="height:30px;width:30px" aria-label="Send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:270px;flex:none;display:flex;flex-direction:column;gap:12px">
+      <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px">
+        <span class="mono" style="font-size:12px">feature/280-redesign-the-stats-page</span>
+        <span style="font-size:12.5px;color:#2f9e5b">✓ up to date with main</span>
+        <span style="font-size:12.5px" class="muted">4 files uncommitted</span>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;flex:1">
+        <div style="display:flex;gap:16px;padding:0 14px;border-bottom:1px solid #e7e7e4"><span class="tab on">Changes 4</span><span class="tab">Commits 0</span><span class="tab">MR —</span></div>
+        <div style="padding:8px 14px">
+          <div class="f"><span class="m">M</span><span>core/context.go</span><span class="n"><span class="add">+21</span> <span class="del">−2</span></span></div>
+          <div class="f"><span class="m">M</span><span>core/context_test.go</span><span class="n add">+14</span></div>
+          <div class="f"><span class="m">M</span><span>core/stats.go</span><span class="n"><span class="add">+23</span> <span class="del">−4</span></span></div>
+          <div class="f"><span class="m">M</span><span>core/stats_test.go</span><span class="n add">+23</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

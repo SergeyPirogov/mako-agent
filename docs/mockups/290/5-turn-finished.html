@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent chat: turn finished</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.muted{color:#6f7277}
+.btn{font:inherit;font-size:13px;height:32px;padding:0 12px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;display:inline-flex;align-items:center;gap:6px}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:32px;padding:0;justify-content:center}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.tab{font-size:14px;padding:8px 2px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px;font-size:12.5px}
+.seg span{padding:3px 10px;border-radius:7px;color:#6f7277}
+.seg span.on{background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.time{font-size:11.5px;color:#6f7277}
+.av{width:24px;height:24px;border-radius:50%;background:#1c1d1f;flex:none;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}
+.box{border:1px solid #ececea;border-radius:10px;overflow:hidden;background:#fff}
+.row{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:13px}
+.row .mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.row .r{margin-left:auto;flex:none;font-size:12px;color:#6f7277}
+.ok{background:#e6f4ec;color:#1f7a44;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:8px}
+.add{color:#2f9e5b}.del{color:#d14343}
+.chip{font:inherit;font-size:13px;height:32px;padding:0 12px;border-radius:16px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;display:inline-flex;align-items:center;gap:6px}
+.chip.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.sum{display:flex;flex-direction:column;gap:2px}
+.sum span{font-size:12px;color:#6f7277}
+.sum b{font-size:15px;font-weight:650}
+.f{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0}
+.f .m{width:14px;font-size:11px;font-weight:700;color:#2f6fde}
+.f .n{margin-left:auto;font-size:12px}
+</style>
+
+<div class="b" style="width:1040px;height:900px;box-sizing:border-box;padding:0 28px 20px;display:flex;flex-direction:column;gap:12px;overflow:hidden">
+  <div style="display:flex;gap:24px;align-items:center;border-bottom:1px solid #e7e7e4;padding-top:10px">
+    <span class="tab">Task</span><span class="tab on">Agent</span>
+    <span style="flex:1"></span>
+    <span class="seg"><span class="on">Chat</span><span>Terminal</span></span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+    <a href="#" class="mono">mako-agent#280</a>
+    <span style="font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Redesign the Stats page: tabs, key metrics, Needs attention</span>
+    <span class="muted"><b style="font-weight:600;color:#1c1d1f">Turn finished</b> · 46 min · $8.31</span>
+    <button class="btn icon" aria-label="More actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+  </div>
+
+  <div style="display:flex;gap:16px;flex:1;min-height:0">
+    <div class="card" style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+      <div style="flex:1;min-height:0;padding:16px 18px;display:flex;flex-direction:column;gap:14px;overflow:hidden;justify-content:flex-end">
+        <div style="display:flex;gap:10px">
+          <span class="av"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg></span>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:baseline;gap:8px;font-size:13px"><b style="font-weight:600">Claude</b><span class="time">12:41</span></div>
+            <div class="box"><div class="row"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#2f9e5b" stroke-width="3" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><b style="font-weight:600">Ran the checks</b><span class="mono muted">go test ./... · screenshots 1200 and 390 px</span><span class="r"><span class="ok">214 passed</span> ▸</span></div></div>
+            <div>The Stats page is done:</div>
+            <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:2px">
+              <li>five tabs with the period segments and the project filter; the period goes into the URL as you asked;</li>
+              <li>Overview with Needs attention — each row opens the task list with its filter;</li>
+              <li>the explanations moved to ⓘ, the <span class="mono">stats-note</span> paragraph is gone.</li>
+            </ul>
+            <div><b style="font-weight:600">Not done:</b> «Around the work» on Cost waits for the phase costs from #286, so the tile is hidden for now.</div>
+
+            <div style="border:1px solid #e7e7e4;border-radius:12px;padding:12px 14px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;background:#fafaf8">
+              <div class="sum"><span>Turn</span><b>18 min</b></div>
+              <div class="sum"><span>Spent</span><b>$2.41</b></div>
+              <div class="sum"><span>Changed</span><b>7 files</b><span><span class="add">+412</span> <span class="del">−160</span></span></div>
+              <div class="sum"><span>Tests</span><b style="color:#1f7a44">✓ 214</b></div>
+              <div class="sum"><span>Commits</span><b>2</b><span>not pushed</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding:0 12px 8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="chip pri">Push and open the MR</button>
+        <button class="chip">Show the diff</button>
+        <button class="chip">Run the agent review</button>
+        <button class="chip">What else could break?</button>
+      </div>
+
+      <div style="margin:0 12px 8px;display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:10px;background:#fdf1dc;font-size:13px;color:#6b4606">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg>
+        <span style="flex:1">Context is 86% full: the next turn may get compacted.</span>
+        <button class="btn" style="height:26px;font-size:12.5px">Compact now</button>
+        <button class="btn" style="height:26px;font-size:12.5px">New conversation</button>
+      </div>
+
+      <div style="padding:0 12px 12px">
+        <div style="border:1px solid #e7e7e4;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:10px">
+          <label style="display:flex"><span style="position:absolute;left:-9999px">Message to the agent</span><textarea rows="2" placeholder="What next?" style="flex:1;border:0;resize:none;font:inherit;color:#1c1d1f;outline:none;padding:0"></textarea></label>
+          <div style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+            <button class="btn" style="height:28px;font-size:12.5px">Auto ▾</button>
+            <button class="btn" style="height:28px;font-size:12.5px">opus 5.5 · high ▾</button>
+            <span style="display:inline-flex;align-items:center;gap:6px;color:#8a5a08">Context<span style="display:inline-flex;width:64px;height:6px;border-radius:3px;background:#f0f0ee"><i style="width:86%;background:#c27c0e;border-radius:3px"></i></span>172k / 200k</span>
+            <span style="flex:1"></span>
+            <button class="btn icon" style="height:30px;width:30px" aria-label="Attach a picture"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6f7277" stroke-width="2" aria-hidden="true"><path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg></button>
+            <button class="btn pri icon" style="height:30px;width:30px" aria-label="Send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width:270px;flex:none;display:flex;flex-direction:column;gap:12px">
+      <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px">
+        <span class="mono" style="font-size:12px">feature/280-redesign-the-stats-page</span>
+        <span style="font-size:12.5px;color:#2f9e5b">✓ up to date with main</span>
+        <span style="font-size:12.5px" class="muted">2 commits not pushed</span>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;flex:1">
+        <div style="display:flex;gap:16px;padding:0 14px;border-bottom:1px solid #e7e7e4"><span class="tab on">Changes 7</span><span class="tab">Commits 2</span><span class="tab">MR —</span></div>
+        <div style="padding:8px 14px">
+          <div class="f"><span class="m">M</span><span>core/context.go</span><span class="n"><span class="add">+21</span> <span class="del">−2</span></span></div>
+          <div class="f"><span class="m">M</span><span>core/stats.go</span><span class="n"><span class="add">+23</span> <span class="del">−4</span></span></div>
+          <div class="f"><span class="m">M</span><span>web/board.html</span><span class="n"><span class="add">+268</span> <span class="del">−142</span></span></div>
+          <div class="f"><span class="m">M</span><span>web/style.css</span><span class="n"><span class="add">+70</span> <span class="del">−10</span></span></div>
+          <div class="f muted"><span class="m"></span>3 more files</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
