@@ -59,10 +59,10 @@ func TestTerminalHandOff(t *testing.T) {
 	waitFor(t, func() bool {
 		b, _ := os.ReadFile(argsFile)
 		args = string(b)
-		return strings.HasSuffix(args, "haiku\n")
+		return strings.HasSuffix(args, "high\n")
 	}, "the agent's args were not written")
 	if !strings.HasPrefix(args, "--settings\n") || !strings.Contains(args, "Кнопка оплати не працює") ||
-		!strings.HasSuffix(args, "--permission-mode\nauto\n--model\nhaiku\n") {
+		!strings.HasSuffix(args, "--permission-mode\nauto\n--model\nhaiku\n--effort\nhigh\n") {
 		t.Fatalf("args %q", args)
 	}
 	// The setup ran in the worktree before the agent.
@@ -91,7 +91,7 @@ func TestTerminalHandOff(t *testing.T) {
 	}
 }
 
-// Nothing picked, no estimate, no model in the settings: Mako's agent starts with Sonnet, the model the board showed,
+// Nothing picked, no estimate: Mako's agent starts with the medium work route, sonnet · high, the model the board showed,
 // and the task keeps it as the model that did the work.
 func TestTerminalDefaultModel(t *testing.T) {
 	d, _, _ := setup(t)
@@ -112,7 +112,7 @@ func TestTerminalDefaultModel(t *testing.T) {
 
 	d.Poll(ctx)
 	before, _ := d.Store.Get("grp/app#5")
-	if m := StartModel(d.Config(), before); m != "sonnet" {
+	if m := d.StartModel(before); m != "sonnet" {
 		t.Fatalf("start model %q", m)
 	}
 	d.Take(ctx, "grp/app#5")
@@ -130,12 +130,13 @@ func TestTerminalDefaultModel(t *testing.T) {
 		t.Fatalf("status %s, agent model %q, error %q", r.Status, r.AgentModel, r.Error)
 	}
 	var args string
-	for i := 0; i < 200 && !strings.HasSuffix(args, "sonnet\n"); i++ {
+	for i := 0; i < 200 && !strings.HasSuffix(args, "high\n"); i++ {
 		b, _ := os.ReadFile(argsFile)
 		args = string(b)
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !strings.HasSuffix(args, "--model\nsonnet\n") {
+	// No estimate: the medium route of the work, the effort after the model.
+	if !strings.HasSuffix(args, "--model\nsonnet\n--effort\nhigh\n") {
 		t.Fatalf("args %q", args)
 	}
 }

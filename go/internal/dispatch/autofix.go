@@ -48,6 +48,9 @@ func (d *Dispatcher) AutoFix(ctx context.Context, now time.Time) {
 		if err != nil || c == nil || c.State != "open" {
 			continue
 		}
+		if c.CI == "success" && r.CIRed > 0 {
+			d.Store.Update(r.ID, func(rec *core.Record) { rec.CIRed = 0 }) // green: the next red starts over
+		}
 		kind, key, seen := toFix(c, r.AutoFixed)
 		if !maps.Equal(seen, r.AutoFixed) {
 			// Fixed meanwhile: a problem that comes back is asked about again.
@@ -76,12 +79,8 @@ func (d *Dispatcher) autoAsk(ctx context.Context, id, kind string) error {
 	if err != nil {
 		return err
 	}
-	if d.Live(id) {
-		err = d.sayTo(id, text)
-	} else {
-		err = d.resume(id, text)
-	}
-	if err != nil {
+	d.seenCI(id, kind)
+	if err := d.deliver(id, text, askPhase(kind)); err != nil {
 		return err
 	}
 	d.asked(id, kind)

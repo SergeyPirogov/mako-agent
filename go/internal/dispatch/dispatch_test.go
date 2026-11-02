@@ -502,6 +502,10 @@ func TestRedo(t *testing.T) {
 	if r.Status != core.HandedOff || r.Attempt != 2 || r.Branch != "fix/5-knopka-oplaty-ne-pratsyuye-try2" || r.PRURL != "" {
 		t.Fatalf("not started over: %+v", r)
 	}
+	// A retry goes a level up; the model picked for it stays.
+	if r.Escalation != 1 || len(r.EscalatedFor) != 1 || r.EscalatedFor[0] != "retry" || r.RouteOf(core.PhaseWork).Model != "opus" {
+		t.Fatalf("retry escalation %d %v, route %+v", r.Escalation, r.EscalatedFor, r.RouteOf(core.PhaseWork))
+	}
 	if f.mrs[0]["state"] != "closed" {
 		t.Fatalf("old MR left open: %v", f.mrs[0]["state"])
 	}
@@ -553,7 +557,7 @@ func TestPausedTrackerNotSearched(t *testing.T) {
 }
 
 // Orca's agent does not report its model: the task keeps the one it was asked for, and a new attempt with
-// none forgets the last attempt's.
+// none is asked for its work's route.
 func TestOrcaAgentModel(t *testing.T) {
 	d, _, jobs := setup(t)
 	ctx := context.Background()
@@ -568,7 +572,7 @@ func TestOrcaAgentModel(t *testing.T) {
 	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status, r.Model, r.Worktree = core.Queued, "", "" })
 	d.Push(ctx, "grp/app#5")
 	d.Wait()
-	if r, _ := d.Store.Get("grp/app#5"); len(*jobs) != 2 || r.AgentModel != "" {
+	if r, _ := d.Store.Get("grp/app#5"); len(*jobs) != 2 || (*jobs)[1].Model != "sonnet" || r.AgentModel != "sonnet" {
 		t.Fatalf("jobs %d, agent model %q, error %q", len(*jobs), r.AgentModel, r.Error)
 	}
 }

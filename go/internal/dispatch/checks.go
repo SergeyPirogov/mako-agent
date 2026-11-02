@@ -147,7 +147,10 @@ func (d *Dispatcher) maybeCheck(id string) {
 		d.Log(id, fmt.Sprintf("check failed %d time(s) in a row: MR not opened, the task needs attention", fails))
 		notify.Inform(notify.Stopped, i18n.T("notify.attention", id), i18n.T("notify.checksFailed", checksLine(results)), link)
 	default:
-		if err := d.tellAgent(id, checksRequest(results, fails, term.CheckTries())); err != nil {
+		if fails == 2 {
+			d.escalate(id, "CI red ×2")
+		}
+		if err := d.deliver(id, checksRequest(results, fails, term.CheckTries()), core.PhaseCIFix); err != nil {
 			d.Fault(id, "check result not sent to the agent", err)
 		}
 	}

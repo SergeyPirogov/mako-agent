@@ -95,6 +95,15 @@ func TestCardStageMetrics(t *testing.T) {
 		got["ci"].Seconds != 120 || got["merge"].Seconds != 300 {
 		t.Errorf("stage metrics: %+v", got)
 	}
+	// Each stage shows the route its phase ran with; the CI the route of the agent's fixes.
+	r.Metrics.Routes = map[string]core.Route{core.PhaseWork: {Model: "opus", Effort: "high", Why: "big, escalated: CI red ×2"}, core.PhaseCIFix: {Model: "sonnet", Effort: "medium"}}
+	got = map[string]stageView{}
+	for _, s := range stagesOf(recordView{Record: r, Column: r.Column(now.UnixMilli())}, now) {
+		got[s.Key] = s
+	}
+	if got["work"].Route != "opus · high" || got["work"].Why != "big, escalated: CI red ×2" || got["ci"].Route != "sonnet · medium" || got["plan"].Route != "" {
+		t.Errorf("stage routes: %+v", got)
+	}
 	n := recordView{Record: core.Record{Status: core.Asking, Estimate: &core.Estimate{State: "done", Questions: "1. a?\n2. b?\n   more of b\n3) c?"}}, Column: "new"}
 	if s := stagesOf(n, now)[0]; s.Note != "3 questions" {
 		t.Errorf("estimate note %q", s.Note)

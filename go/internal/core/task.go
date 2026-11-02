@@ -104,10 +104,12 @@ type Record struct {
 	// «Повторити інакше»: what to do differently this attempt, what the last one came to, and the model for it.
 	RetryNote   string `json:"retryNote,omitempty"`
 	LastAttempt string `json:"lastAttempt,omitempty"`
-	Model       string `json:"model,omitempty"` // "" — the configured one (or the estimate's, when the settings say)
+	Model       string `json:"model,omitempty"` // "" — by the routes (see Route)
 	// AgentModel: the model the agent last worked with: Claude Code's own name of it when its chat reported one,
 	// else the one Mako asked for ("opus"); "" unknown (the agent's default).
 	AgentModel string `json:"agentModel,omitempty"`
+	// AgentRoute: the model and the effort Mako started the agent's current run with, and why.
+	AgentRoute *Route `json:"agentRoute,omitempty"`
 	// PlanFirst: «план спочатку» picked on the card from the estimate: the agent starts with a plan.
 	PlanFirst bool    `json:"planFirst,omitempty"`
 	Cost      float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
@@ -129,6 +131,14 @@ type Record struct {
 	ReviewFixes int `json:"reviewFixes,omitempty"`
 	// CIFixes: how many times the agent was asked to fix the MR's CI, by you or by itself.
 	CIFixes int `json:"ciFixes,omitempty"`
+	// CIRed: the CI failed this many times in a row (the MR's or the checks before it); a pass starts it over.
+	CIRed int `json:"ciRed,omitempty"`
+	// Escalation: the levels the agent's next runs go up, for the reasons in EscalatedFor ("CI red ×2", "retry",
+	// "review ×2"); it only grows.
+	Escalation   int      `json:"escalation,omitempty"`
+	EscalatedFor []string `json:"escalatedFor,omitempty"`
+	// RunPhase: the phase the agent's next run is for, when not its work (core.PhaseCIFix); "" once it starts.
+	RunPhase string `json:"runPhase,omitempty"`
 	// Metrics: where the task's time went, by stage, and what each phase of it cost; kept as it goes.
 	Metrics *Metrics `json:"metrics,omitempty"`
 	// AgentReviews: the rounds of the reviewer agent over the branch, the oldest first.

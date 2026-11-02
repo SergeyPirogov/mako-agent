@@ -109,6 +109,17 @@ func TestChecksFailThenPassOpenMR(t *testing.T) {
 		t.Fatal("checked the same commit twice")
 	}
 
+	// Red the second time in a row: the agent's fix goes a level up.
+	if r, _ := d.Store.Get(id); r.Escalation != 0 {
+		t.Fatalf("escalated after one failure: %d", r.Escalation)
+	}
+	commit(t, wt, "pay2.go")
+	checkNow(t, d, id)
+	idle()
+	if r, _ := d.Store.Get(id); r.Checks.Fails != 2 || r.Escalation != 1 || r.EscalatedFor[0] != "CI red ×2" {
+		t.Fatalf("second failure: fails %d, escalation %d %v", r.Checks.Fails, r.Escalation, r.EscalatedFor)
+	}
+
 	// Fixed: the checks pass, Mako pushes the branch and opens the MR.
 	commit(t, wt, "pay_test.go")
 	checkNow(t, d, id)
