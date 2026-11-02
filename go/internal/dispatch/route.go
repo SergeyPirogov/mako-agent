@@ -38,6 +38,10 @@ func routeFor(cfg *config.Config, r core.Record, phase, mode string) core.Route 
 		mode = cfg.RouteMode
 	}
 	route = core.Step(route, core.ModeShift(mode))
+	route.Size, route.Mode = size, mode
+	if route.Mode == "" {
+		route.Mode = core.ModeBalanced
+	}
 	why := []string{size}
 	if !estimated {
 		why[0] = "medium (no estimate)"
@@ -47,7 +51,9 @@ func routeFor(cfg *config.Config, r core.Record, phase, mode string) core.Route 
 	}
 	agent := slices.Contains(agentPhases, phase)
 	if agent && r.Escalation > 0 {
+		base := route
 		route = core.Step(route, r.Escalation)
+		route.BaseModel, route.BaseEffort = base.Model, base.Effort // the stats count the task under the route it failed on
 		why = append(why, "escalated: "+strings.Join(r.EscalatedFor, ", "))
 	}
 	picked := r.Model
@@ -56,6 +62,9 @@ func routeFor(cfg *config.Config, r core.Record, phase, mode string) core.Route 
 	}
 	if picked != "" && (agent || phase == core.PhaseReview) {
 		route.Model = picked
+		if route.BaseModel != "" {
+			route.BaseModel = picked
+		}
 		why = append(why, "model picked")
 	}
 	route.Why = strings.Join(why, ", ")
@@ -115,7 +124,8 @@ func effortArgs(effort string) []string {
 // orcaModel: the model Orca's agent is asked for: its work's route (Orca takes no effort).
 func (d *Dispatcher) orcaModel(r core.Record) string {
 	route := d.routeOf(r, core.PhaseWork)
-	d.noteRoute(r.ID, core.PhaseWork, core.Route{Model: route.Model, Why: route.Why})
+	route.Effort, route.BaseEffort = "", ""
+	d.noteRoute(r.ID, core.PhaseWork, route)
 	return route.Model
 }
 

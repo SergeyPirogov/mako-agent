@@ -212,3 +212,69 @@ func TestTurnCostEstimate(t *testing.T) {
 		t.Fatalf("exact after the result: %+v", c)
 	}
 }
+
+// A finished turn sums up: its time and cost from the result, the files it edited (each once) with their lines,
+// its last test run, its commits. The turn going on has none yet.
+func TestTurnSummary(t *testing.T) {
+	items := []Item{
+		{Kind: "user", Text: "Go", At: 1000},
+		tool("Edit", "ok", map[string]string{"file_path": "/w/a.go", "old_string": "a", "new_string": "a\nb"}, ""),
+		tool("Bash", "error", map[string]string{"command": "go test ./..."}, "--- FAIL: TestX (0.00s)\n--- PASS: TestY (0.00s)\n"),
+		tool("Edit", "ok", map[string]string{"file_path": "/w/a.go", "old_string": "x", "new_string": "y"}, ""),
+		tool("Write", "ok", map[string]string{"file_path": "/w/b.go", "content": "p\nq\nr"}, ""),
+		{Kind: "text", Text: "Fixed."},
+		tool("Bash", "ok", map[string]string{"command": "go test ./..."}, "--- PASS: TestX (0.00s)\n--- PASS: TestY (0.00s)\n"),
+		tool("Bash", "ok", map[string]string{"command": `git commit -m "x"`}, "[f a91c0e2] x\n"),
+		{Kind: "result", Seconds: 65, Cost: 0.84},
+		{Kind: "user", Text: "More"},
+		tool("Bash", "running", map[string]string{"command": "make"}, ""),
+	}
+	turns := Group(items, "/w")
+	want := &Summary{Seconds: 65, Cost: 0.84, Files: 2, Add: 6, Del: 2, Tests: &Tests{Passed: 2}, Commits: 1}
+	if got := turns[1].Summary; !reflect.DeepEqual(got, want) {
+		t.Errorf("summary: %+v (tests %+v)", got, got.Tests)
+	}
+	if turns[3].Summary != nil {
+		t.Errorf("the turn going on: %+v", turns[3].Summary)
+	}
+}
+
+// A replayed conversation has no results: a turn your next message follows is over, and so is the last one once
+// nobody runs the conversation; the time runs from your message to its last step.
+func TestTurnSummaryWithoutResult(t *testing.T) {
+	read := tool("Read", "ok", map[string]string{"file_path": "/w/a.go"}, "")
+	read.At, read.End = 2000, 31000
+	items := []Item{{Kind: "user", Text: "Look", At: 1000}, read, {Kind: "user", Text: "And now", At: 40000}, {Kind: "text", Text: "Done.", At: 41000}}
+	turns := Group(items, "/w")
+	if s := turns[1].Summary; s == nil || s.Seconds != 30 || s.Files != 0 || s.Tests != nil {
+		t.Errorf("ended by your message: %+v", s)
+	}
+	if turns[3].Summary != nil {
+		t.Errorf("the last turn of a live conversation: %+v", turns[3].Summary)
+	}
+	snap := Drawn(Snapshot{Items: items}, "/w")
+	if s := snap.Turns[3].Summary; s == nil || s.Seconds != 1 {
+		t.Errorf("the last turn of a conversation nobody runs: %+v", s)
+	}
+}
+
+// The result of a turn says what this turn cost, not the process's total; a compaction drops the context until the
+// next request says it.
+func TestTurnCostAndCompact(t *testing.T) {
+	s := &Session{state: "working", pending: map[string]json.RawMessage{}, cmd: &exec.Cmd{}}
+	s.handle([]byte(`{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":1000},"content":[]},"parent_tool_use_id":null}`))
+	s.handle([]byte(`{"type":"result","total_cost_usd":0.5}`))
+	s.handle([]byte(`{"type":"result","total_cost_usd":0.8}`))
+	snap := s.Snapshot()
+	if n := len(snap.Items); n != 2 || snap.Items[0].Cost != 0.5 || math.Abs(snap.Items[1].Cost-0.3) > 1e-9 {
+		t.Fatalf("results: %+v", snap.Items)
+	}
+	if snap.Context != 1000 {
+		t.Fatalf("context: %d", snap.Context)
+	}
+	s.handle([]byte(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":1000}}`))
+	snap = s.Snapshot()
+	if snap.Context != 0 || snap.Items[len(snap.Items)-1].Kind != "compact" {
+		t.Fatalf("after compaction: context %d, items %+v", snap.Context, snap.Items)
+	}
+}

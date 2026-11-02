@@ -178,3 +178,46 @@ func TestRestartFor(t *testing.T) {
 		t.Error("planning")
 	}
 }
+
+// The route keeps the task's size and the mode it came from, and an escalated one its own model and effort, for
+// the stats.
+func TestRouteForKeepsKind(t *testing.T) {
+	cfg := &config.Config{EstimateModel: true, Routes: core.DefaultRoutes(), RouteMode: core.ModeBalanced}
+	got := routeFor(cfg, routeTask("small"), core.PhaseWork, core.ModeCost)
+	if got.Size != "small" || got.Mode != core.ModeCost || got.Escalated() {
+		t.Errorf("cost: %+v", got)
+	}
+	if got := routeFor(&config.Config{Routes: core.DefaultRoutes()}, routeTask(""), core.PhaseWork, ""); got.Size != "medium" || got.Mode != core.ModeBalanced {
+		t.Errorf("no mode: %+v", got)
+	}
+	r := routeTask("big")
+	r.Escalation, r.EscalatedFor = 1, []string{"retry"}
+	got = routeFor(cfg, r, core.PhaseWork, "")
+	if got.Label() != "opus · xhigh" || got.BaseModel != "opus" || got.BaseEffort != "high" {
+		t.Errorf("escalated: %+v", got)
+	}
+	r.Model = "sonnet"
+	if got := routeFor(cfg, r, core.PhaseWork, ""); got.BaseModel != "sonnet" || got.BaseEffort != "high" {
+		t.Errorf("escalated, model picked: %+v", got)
+	}
+	if got := routeFor(cfg, r, core.PhaseReview, ""); got.Escalated() {
+		t.Errorf("the reviewer is not escalated: %+v", got)
+	}
+}
+
+// Orca's agent: its work's route is kept with the size and the mode, without an effort (Orca takes none).
+func TestOrcaModelKeepsRoute(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := New(&config.Config{StateDir: t.TempDir(), EstimateModel: true, Routes: core.DefaultRoutes(), RouteMode: core.ModeQuality}, store, nil)
+	r := routeTask("small")
+	r.ID = "g/a#1"
+	r.Escalation, r.EscalatedFor = 1, []string{"retry"}
+	store.Update(r.ID, func(x *core.Record) { *x = r })
+	if m := d.orcaModel(r); m != "sonnet" {
+		t.Fatalf("model %q", m)
+	}
+	got, _ := store.Get(r.ID)
+	if route := got.RouteOf(core.PhaseWork); route.Size != "small" || route.Mode != core.ModeQuality || route.Effort != "" || route.BaseEffort != "" || route.BaseModel != "sonnet" {
+		t.Fatalf("kept %+v", route)
+	}
+}

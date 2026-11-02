@@ -44,7 +44,7 @@
       <button class="icon-btn" id="poll" data-t-title="tray.poll"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
       <button class="icon-btn" id="pause"></button>
     </div>
-    <div class="new-task" id="new-task-bar"><button id="new-task" hidden data-t="b.newTask">+ Task</button><button class="ghost" id="why-btn" data-t-title="b.whyHint" data-t="b.why">Why is there no task?</button></div>
+    <div class="new-task" id="new-task-bar"><button id="new-task" hidden data-t="b.newTask">+ Task</button><button id="new-chat" hidden data-t="b.newChat" data-t-title="b.newChatHint">+ Chat</button><button class="ghost" id="why-btn" data-t-title="b.whyHint" data-t="b.why">Why is there no task?</button></div>
     <div class="filter" id="filter"><span id="need-chip" hidden></span><select id="scope"></select><input id="q" type="search" data-t-ph="b.filter" autocomplete="off" spellcheck="false"></div>
     <nav id="list" aria-label="Tasks"></nav>
   </div>
@@ -162,6 +162,7 @@ const ICON = {
   clip: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg>`,
   up: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
   shield: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></svg>`,
+  warn: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg>`,
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
 const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "Bug" : "Task"}</span>`;
@@ -193,7 +194,7 @@ const cardStatus = (r) => {
   // Left in "New" by auto-take: why, in the row ("large", "description has questions").
   if (r.column === "new" && r.autoSkip) return [r.autoSkip, "", `Not taken automatically:  ${r.autoSkip}`];
   if (st === "review" && r.ciWait) return ["MR · CI running", "warn", "MR is open, CI is still running: it goes to review when CI passes"];
-  if (st === "review") return !r.agentReviews?.length && adviseReview(r) ? ["MR in review · review advised", "warn", ADVISE + (r.assessment.review?.why ? `: ${r.assessment.review.why}` : "")] : ["MR in review", ""];
+  if (st === "review") return !r.agentReviews?.length && adviseReview(r) ? ["MR in review · AI review advised", "warn", ADVISE + (r.assessment.review?.why ? `: ${r.assessment.review.why}` : "")] : ["MR in review", ""];
   if (st === "starting") return [LABEL[st], "", `Starting: ${startStep(r)?.label ?? "preparing the start"}`];
   if (st === "queued") return [LABEL[st], "", r.queueWhy ? `Queued:  ${r.queueWhy}` : ""];
   return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
@@ -561,6 +562,7 @@ function render() {
     html += `</div>`;
   }
   $("new-task").hidden = !newTaskTargets().length;
+  $("new-chat").hidden = !(data?.trackers || []).length;
   $("list").innerHTML = html || `<div class="empty">${words.length || attention ? "Nothing found" : showArchive ? "The archive is empty" : "No tasks. Mako checks the trackers and will show new tasks assigned to you here."}</div>`;
   for (const b of $("list").querySelectorAll(".item")) b.onclick = () => select(b.dataset.id);
   for (const b of $("list").querySelectorAll(".group")) b.onclick = () => {
@@ -683,7 +685,12 @@ async function loadWork() {
     if (empty) renderDetail();
   });
   await Promise.all([
-    part(`/api/changes?${q}`, (v) => { changes = v; if (!v.error) changesOf.set(r.id, v); }, !changes),
+    part(`/api/changes?${q}`, (v) => {
+      changes = v;
+      if (!v.error) changesOf.set(r.id, v);
+      // The chat's next actions follow the branch.
+      if (cv?.id === r.id && cv.snap) drawNextActions(cv);
+    }, !changes),
     part(path && `/api/diff?${q}&path=${encodeURIComponent(path)}${diffWhole ? "&whole=1" : ""}`, (v) => {
       diffs[path] = v.error ? `⚠ ${v.error}` : v.diff || "";
       if (!v.error) dropChangedNotes(r.id, path, diffs[path]);
@@ -1042,11 +1049,13 @@ const IBADGE_SPIN = `<svg class="spin" width="11" height="11" viewBox="0 0 24 24
 // The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
 // tabPicked: you chose the open task's tab yourself; Mako does not switch it for you then.
 let itab = "changes", itabPicked = false, tabPicked = false;
+// The reviewer agent is reading the branch or the agent is fixing its remarks: the MR is not ready to merge yet.
+const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing";
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
     : !c ? ["", ""] : c.ci === "failed" || c.conflicts ? ["!", "bad"] : c.threads.length ? [String(c.threads.length), "warn"]
-    : ["running", "pending", "created"].includes(c.ci) ? ["⟳", "run"] : c.mergeable ? ["✓", "ok"] : ["", ""];
+    : ["running", "pending", "created"].includes(c.ci) || mergeHeld(r) ? ["⟳", "run"] : c.mergeable ? ["✓", "ok"] : ["", ""];
   const nCommits = commitLog ? `${commitLog.commits.length}${commitLog.more ? "+" : ""}` : String(cs.length);
   const tabs = [["changes", "Changes", [String(nFiles), ""]], ["commits", "Commits", [nCommits, ""]], ["mr", "MR", mrBadge]];
   const panel = itab === "commits" ? (commitLog ? commitGraph(commitLog.commits) : `<div class="files-empty">Loading history…</div>`)
@@ -1063,6 +1072,7 @@ const MR_ICON = {
   ok: `<svg class="mi ok" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>`,
   run: `<svg class="mi run" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   idle: `<svg class="mi idle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>`,
+  eye: `<svg class="mi eye" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`,
   talk: `<svg class="mi talk" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>`,
 };
 const CI = { failed: ["bad", "CI failed"], running: ["run", "CI running"], pending: ["run", "CI pending"], created: ["run", "CI pending"],
@@ -1161,8 +1171,11 @@ function mrCard(r, term) {
     `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
   const open = live && !r.prUrl ? icon(`data-ask="open"`, "Open MR: the agent commits, pushes and opens it", "pr") : "";
   const update = live && r.prUrl && state === "open" ? icon(`data-ask="push"`, "Update MR: the agent commits and pushes what it has done", "push") : "";
-  const merge = c?.state === "open" && !waitCI ? icon("data-merge", c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
-    "merge", c.mergeable ? "ready" : "", !c.mergeable) : "";
+  const reviewing = r.reviewStep === "running", fixing = r.reviewStep === "fixing", held = mergeHeld(r);
+  const merge = c?.state === "open" && !waitCI ? icon("data-merge", reviewing ? "The reviewer agent is reviewing the branch: merge once it finishes"
+    : fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
+    : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
+    "merge", c.mergeable && !held ? "ready" : "", !c.mergeable || held) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "open"}</a>` : ""}
@@ -1195,8 +1208,8 @@ function checksHTML(r, card) {
 // The reviewer agent's rounds over the branch: the last one as a line of the MR card, all of them in the task. It
 // starts only from "Review"; its remarks wait in the task for your "Fix".
 const REVIEW_STATE = { running: ["run", "The reviewer agent is reviewing the branch…"], notes: ["talk", "The reviewer left remarks"],
-  clean: ["ok", "Agent review passed"], failed: ["bad", "Agent review failed"], skipped: ["idle", "Agent review skipped"] };
-const skippedText = (a) => `Agent review skipped${a.reason ? `: ${a.reason}` : ""}`;
+  clean: ["ok", "AI review passed"], failed: ["bad", "AI review failed"], skipped: ["idle", "AI review skipped"] };
+const skippedText = (a) => `AI review skipped${a.reason ? `: ${a.reason}` : ""}`;
 const reviewBtn = (label, cls = "ghost", title = "The reviewer agent will read the task and the branch diff and leave remarks in the task; you pass them to the agent with the Fix button") =>
   `<button type="button" class="${cls}" data-a="agentreview" title="${esc(title)}">${label}</button>`;
 const skipBtn = () => `<button type="button" class="ghost" data-a="reviewskip" title="No review needed: the reviewer will not run until you change your mind">Skip</button>`;
@@ -1208,27 +1221,43 @@ function adviseReview(r) {
   if (a?.state !== "done") return null;
   return a.review ? a.review.need : (a.risk?.value ?? 0) >= 4;
 }
-const ADVISE = "The agent advises a review";
-// "Review" in the MR card: what the agent advises, what the reviewer did, and your choice: "Run review" or "Skip".
+const ADVISE = "AI review advised";
+// "Check it yourself": once the reviewer agent has had its say, the agent's advice is what is left for you to look
+// at. You tick it off here; it is remembered in this browser, per task.
+const selfKey = (r) => `mako-checked:${r.id}`;
+const selfChecked = (r) => { try { return !!localStorage.getItem(selfKey(r)); } catch { return false; } };
+const adviceText = (r, need) => r.assessment?.review?.why || (need ? r.assessment?.risk?.why : "") || "";
+// A line of advice: its title, the reason under it, and its button under the reason (the side panel is narrow).
+const adviceBlock = (icon, title, why, btn = "", cls = "") => `<div class="mr-row mr-advice ${cls}">${MR_ICON[icon]}
+  <div class="mr-adv"><b>${esc(title)}</b>${why ? `<span class="mr-why" title="${esc(why)}">${esc(why)}</span>` : ""}${btn ? `<div class="mr-adv-a">${btn}</div>` : ""}</div></div>`;
+// "Review" in the MR card, two things kept apart: the reviewer agent (the advice to run it, "Run AI review" / "Skip",
+// its result), then you: what the agent advises you to look at yourself, with "Checked". An assessment from before
+// the advice had a "check" of its own: once the reviewer ran, its reason is what is left for you.
 function reviewSection(r) {
-  const a = r.assessment, need = adviseReview(r);
-  let advice = "";
-  if (a?.state === "running") advice = row("run", "The agent is judging whether a review is needed…");
-  else if (need !== null) {
-    const why = a.review?.why || (need ? a.risk?.why : "") || "";
-    advice = need ? row("talk", ADVISE + (why ? `: ${why}` : "")) : row("ok", "The agent thinks no review is needed" + (why ? `: ${why}` : ""));
+  const a = r.assessment, need = adviseReview(r), ran = !!r.agentReviews?.length;
+  const why = need !== null ? adviceText(r, need) : "";
+  const check = a?.review ? (a.review.check ?? (ran && need ? why : "")) : "";
+  let ai = "", you = "", note = "";
+  if (a?.state === "running") ai = row("run", "The agent is judging whether a review is needed…");
+  else if (need === true && !ran) { ai = adviceBlock("talk", "AI review advised", why); note = "advised"; }
+  else if (need === false && !ran) ai = adviceBlock("ok", "No AI review needed", why, "", "past");
+  if (check && selfChecked(r)) you = adviceBlock("ok", "You checked it", check, `<button type="button" class="ghost" data-self="0" title="Not checked after all">Undo</button>`, "past");
+  else if (check) {
+    you = adviceBlock("eye", "Check it yourself before the merge", check, `<button type="button" class="ghost" data-self="1" title="Mark it as looked at">Checked</button>`, "self");
+    note ||= "check yourself";
   }
-  const body = advice + reviewerRow(r, need);
-  return body ? sec("Review", body, need === true && !r.agentReviews?.length ? "advised" : "") : "";
+  // Before the reviewer: its advice, then "Run AI review" / "Skip"; after it: its result. Then what is left for you.
+  const body = (ran ? reviewerRow(r, need) : ai + reviewerRow(r, need)) + you;
+  return body ? sec("Review", body, note) : "";
 }
 function reviewerRow(r, need) {
   const last = r.agentReviews?.at(-1), step = r.reviewStep, ready = step === "ready";
-  const choice = (label = "Run review") => ready ? `<div class="mr-actions">${reviewBtn(label, "primary")}${skipBtn()}</div>` : "";
+  const choice = (label = "Run AI review") => ready ? `<div class="mr-actions">${reviewBtn(label, "primary")}${skipBtn()}</div>` : "";
   if (step === "running") return row("run", REVIEW_STATE.running[1], "");
   if (!last) return ready ? (need === null ? row("idle", "No review by the reviewer yet") : "") + choice() : "";
   switch (last.state) {
     // Left by a restart of Mako in the middle of a round.
-    case "running": return row("bad", "Agent review interrupted", "", ready ? reviewBtn("Try again") : "");
+    case "running": return row("bad", "AI review interrupted", "", ready ? reviewBtn("Try again") : "");
     case "skipped": return row("idle", last.reason === "skipped by you" ? "Review skipped by you" : skippedText(last), "", ready ? reviewBtn("Do it anyway") : "");
     case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Try again") : "");
     case "notes": {
@@ -1237,14 +1266,15 @@ function reviewerRow(r, need) {
       if (!last.sent) return row("talk", `The reviewer left ${what}: you pass them to the agent when it finishes`, "");
       if (step === "fixing") return row("run", "The agent is fixing the reviewer's remarks", "");
       const tally = replyTally(last);
-      if (r.agentReviews.some((a) => a.escalated)) return row("bad", "Agent review rounds did not converge: the decision is yours" + (last.replyAt ? ` · the agent replied${tally}` : ""), "",
+      if (r.agentReviews.some((a) => a.escalated)) return row("bad", "AI review rounds did not converge: the decision is yours" + (last.replyAt ? ` · the agent replied${tally}` : ""), "",
         ready ? reviewBtn("Another round", "ghost", "Round limit reached: another round is your decision") : "");
       return row(last.unverified ? "bad" : "talk", (last.replyAt ? "The agent replied to the remarks" + tally : "The agent worked on the remarks")
         + (last.unverified ? " · ⚠ says \"fixed\", but there are no new commits" : "") + (ready ? "" : ": no new pushed changes in the branch yet"), "", ready ? reviewBtn("Review again") : "");
     }
   }
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
-  return row(icon, text, "", ready ? reviewBtn("Review again") : "");
+  const n = r.agentReviews.length;
+  return row(icon, text + (last.state === "clean" && n > 1 ? ` · ${n} rounds` : ""), "", ready ? reviewBtn("Review again") : "");
 }
 // «: ✅ 2 · ❌ 1»: how the agent answered on the round's remarks, "" with no answers.
 function replyTally(a) {
@@ -1270,9 +1300,9 @@ const initials = (name) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).ma
 function reviewBadge(r) {
   const last = r.agentReviews?.at(-1);
   if (!last) return "";
-  if (last.state === "clean") return `<span class="reviewed" title="Agent review passed">✓ review</span>`;
+  if (last.state === "clean") return `<span class="reviewed" title="AI review passed">✓ review</span>`;
   if (last.state !== "notes") return "";
-  if (last.escalated && last.sent) return `<span class="remarks human" title="Agent review rounds did not converge: the decision is yours">👤 review</span>`;
+  if (last.escalated && last.sent) return `<span class="remarks human" title="AI review rounds did not converge: the decision is yours">👤 review</span>`;
   if (last.sent) return "";
   const n = last.remarks?.length;
   return `<span class="remarks" title="The reviewer's remarks are waiting for Fix">⏳ ${n ? `${n} ${plural(n, "remark", "remarks")}` : "remarks"}</span>`;
@@ -1302,7 +1332,7 @@ function reviewerHTML(r) {
     for (const b of r.agentReviews.slice(i + 1)) for (const c of b.checks || []) v[c.id] ??= c;
     return v;
   };
-  return `<h3>Agent review</h3>` + r.agentReviews.map((a, i) => {
+  return `<h3>AI review</h3>` + r.agentReviews.map((a, i) => {
     const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1] + (a.sent ? ", passed to the agent" : "");
     const links = [extLink(a.commentUrl, "comment in the task"), extLink(a.mrCommentUrl, "comment in the MR"), extLink(a.replyUrl, "agent's reply"), extLink(a.mrReplyUrl, "agent's reply in the MR")].filter(Boolean).join(" · ");
     const structured = a.remarks?.length || a.checks?.length;
@@ -1856,6 +1886,112 @@ async function showCode() {
   openLatest(); loadWorkspace();
 }
 
+// A chat without a task: a conversation with the agent in a project, as in a task's chat (modes, permissions, plan,
+// pictures), in the chat's own worktree on its own branch from main. The first message makes the worktree and
+// starts the agent; the chats are listed on the left, «×» removes one with its worktree (its branch stays).
+let freeChat = null; // the open chat's id, "" a new one; null: the view is closed
+let freeChats = [], fcListed = null; // the chats on the left, and for which open chat they were last read
+const FC_SUB = "A conversation with the agent without a task. Each chat gets its own worktree on a new branch from the base branch, prepared like a task's; the agent works as in a task's chat: it changes the code, commits and can open an MR, asking as the mode says.";
+function openFreeChat(id = "") {
+  selected = null; statsOpen = false; newOpen = "chat"; digest = null; freeChat = id;
+  history.replaceState(null, "", `#${id || "chat"}`);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  if ($("free-chat")) mountFreeChat();
+  render();
+  if (!id) document.querySelector("#fc-new-box textarea")?.focus();
+}
+$("new-chat").onclick = () => openFreeChat("");
+
+async function showFreeChat() {
+  closeChat(); fcListed = null;
+  $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button><div class="code-ask" id="free-chat">
+    <div class="ca-head"><h1>Chat</h1>
+      <select id="fc-project" aria-label="Project"></select>
+      <button type="button" id="fc-new">New chat</button></div>
+    <p class="muted ca-sub" id="fc-sub">${FC_SUB}</p>
+    <div class="ca-body">
+      <aside class="ca-history"><div class="ca-h">Chats</div><div id="fc-list"></div></aside>
+      <div class="fc-slot" id="fc-slot"></div>
+    </div></div>`;
+  $("back").onclick = () => { newOpen = false; freeChat = null; closeChat(); history.replaceState(null, "", location.pathname); render(); };
+  const projects = await getJSON("/api/code/projects").then((r) => r.projects ?? []);
+  if (!$("free-chat")) return;
+  let saved = ""; try { saved = localStorage.getItem("mako-chat-project") || ""; } catch {}
+  const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
+  $("fc-project").innerHTML = projects.map((p) => `<option value="${esc(p.key)}" ${p.key === start?.key ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+  $("fc-project").disabled = !projects.length;
+  $("fc-project").onchange = (e) => { try { localStorage.setItem("mako-chat-project", e.target.value); } catch {} };
+  $("fc-project").dataset.none = projects.length ? "" : "1";
+  $("fc-new").onclick = () => openFreeChat("");
+  $("fc-list").onclick = async (e) => {
+    const x = e.target.closest("[data-fc-remove]");
+    if (x) {
+      e.stopPropagation();
+      const c = freeChats.find((c) => c.id === x.dataset.fcRemove);
+      if (!confirm(`Delete the chat "${c?.title ?? ""}" and its worktree? Uncommitted changes in it will be lost; the branch ${c?.branch ?? ""} stays.`)) return;
+      const r = await fetch(`/api/chats/remove?id=${encodeURIComponent(x.dataset.fcRemove)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+      if (!r.ok) alert(r.error || "Failed");
+      if (x.dataset.fcRemove === freeChat) openFreeChat(""); else loadFreeChats();
+      return;
+    }
+    const b = e.target.closest("[data-fc]");
+    if (b) openFreeChat(b.dataset.fc);
+  };
+  mountFreeChat();
+}
+
+// The open chat in the middle: the task's chat for it, or the field of a new one.
+function mountFreeChat() {
+  const slot = $("fc-slot");
+  if (!slot) return;
+  if (fcListed !== freeChat) loadFreeChats();
+  if (freeChat) {
+    if (cv?.id === freeChat && cv.el.parentElement === slot) return;
+    const v = chatFor(freeChat);
+    slot.replaceChildren(v.el);
+    restoreChatScroll(v);
+    return;
+  }
+  if ($("fc-new-box")) return;
+  closeChat();
+  const none = $("fc-project")?.dataset.none === "1";
+  slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty">${none
+      ? "There are no project clones on this Mac. A clone appears when Mako takes a task of the project, or set a path to it in the settings."
+      : "Write what to do or ask: the first message creates the chat's worktree and branch and starts the agent."}</div></div></div>
+    <div class="chat-foot"><div class="chat-box"><textarea rows="2" aria-label="Message to the agent" placeholder="E.g.: try out a faster cache for the board; explain how the update works"></textarea>
+      <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.up}</button></div>
+      <div class="chat-keys" hidden></div></div></div>`;
+  const input = slot.querySelector("textarea"), keys = slot.querySelector(".chat-keys"), btn = slot.querySelector(".chat-send");
+  input.disabled = btn.disabled = none;
+  const send = async () => {
+    const text = input.value.trim(), project = $("fc-project")?.value;
+    if (!text || !project) return;
+    input.disabled = btn.disabled = true;
+    keys.hidden = false; keys.classList.remove("err"); keys.textContent = "Creating the worktree…";
+    const r = await fetch("/api/chats/new", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project, text }) })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    input.disabled = btn.disabled = false;
+    if (!r.ok) { keys.classList.add("err"); keys.textContent = `⚠ ${r.error}`; return; }
+    openFreeChat(r.id);
+  };
+  input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+  btn.onclick = send;
+}
+
+async function loadFreeChats() {
+  fcListed = freeChat;
+  const r = await getJSON("/api/chats");
+  if (!$("fc-list")) return;
+  freeChats = r.chats ?? [];
+  const cur = freeChats.find((c) => c.id === freeChat);
+  $("fc-sub").textContent = cur ? `${cur.dir} · ${cur.branch}` : FC_SUB;
+  $("fc-list").innerHTML = freeChats.length ? freeChats.map((c) => `<div class="ca-thread fc-item ${c.id === freeChat ? "on" : ""}" role="button" tabindex="0" data-fc="${esc(c.id)}" title="${esc(c.title)}">
+      <span>${esc(c.title)}</span><span class="muted">${esc(projectName(c.project))} · ${esc(ago(new Date(c.at).toISOString()))}</span>
+      <button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="Delete the chat and its worktree" aria-label="Delete the chat">×</button></div>`).join("")
+    : `<div class="muted ca-none">No chats yet.</div>`;
+}
+const projectName = (key) => [...($("fc-project")?.options ?? [])].find((o) => o.value === key)?.textContent ?? key.split("/").slice(1).join("/");
+
 // The shared worktree, bottom right: its branch, and a warning when something changed it, with "Reset and update".
 async function loadWorkspace() {
   const v = code;
@@ -2248,7 +2384,54 @@ function costTab(s) {
       ${metric("Around the work", around ? money(around) : "—", "estimate, agent review, retro", "Spent outside the plan and the work, for every task: the estimate before the start, the agent's review and the assessment with the retro.")}
     </div>
     <div class="srow">${phasesCard(s)}${costDaysCard(s.days)}</div>
-    ${modelsCard(s)}`;
+    ${modelsCard(s)}
+    ${routingCard(s)}`;
+}
+
+// A route's first pass this low, over this many finished tasks: the route is worth a level up.
+const LOW_FIRST_PASS = 0.5, LOW_FIRST_PASS_MIN = 3;
+const ESCALATION_NAMES = { ci: "CI red twice", retry: "Retry differently", review: "Review rounds ran out" };
+
+// Routing: does picking the model by phase and size pay off: what the period cost against the same work on one
+// model, how each route went, the escalations and the modes. Hidden with no routes recorded.
+function routingCard(s) {
+  const routes = s.routes || [];
+  if (!routes.length) return "";
+  const pct = (n, of) => of ? Math.round((n / of) * 100) : 0;
+  const actual = s.whatIfActual || 0, wi = s.whatIf || {};
+  const vs = (model) => {
+    const v = wi[model] || 0, d = v - actual;
+    const diff = !actual ? "" : d > 0 ? `<span class="ok">routing saves ${money(d)} · ${pct(d, v)}%</span>` : d < 0 ? `<span class="low">routing costs ${money(-d)} more</span>` : "the same";
+    return metric(`All on ${cap(model)}`, v ? money(v) : "—", diff);
+  };
+  const whatIf = s.whatIfTasks
+    ? `<div class="metrics three">${metric("Routed", money(actual), `${s.whatIfTasks} ${plural(s.whatIfTasks, "task", "tasks")} with tokens by kind`, "What these tasks' phases actually cost, by Claude Code's report.")}${vs("opus")}${vs("sonnet")}</div>`
+      + `<div class="snote">Estimate at list prices, not a bill: the tokens of each phase (input, output, cache read and write) at the price of one model.</div>`
+    : `<div class="snote">No tasks with tokens by kind yet: the comparison with one model appears with the next tasks.</div>`;
+
+  const low = (g) => g.ended >= LOW_FIRST_PASS_MIN && g.clean / g.ended < LOW_FIRST_PASS;
+  const label = (g) => `${cap(PHASE_NAMES[g.phase] || g.phase)} · ${SIZE_NAMES[g.size] || esc(g.size)} → ${esc(g.model === "—" ? "default" : g.model)}${g.effort ? ` · ${esc(g.effort)}` : ""}`;
+  const row = (g) => `<tr class="${low(g) ? "raise" : ""}"${low(g) ? ` title="Low first pass: worth raising this route"` : ""}><td>${label(g)}</td><td class="n">${g.taken}</td><td class="n">${pct(g.succeeded, g.taken)}%</td>`
+    + `<td class="n${low(g) ? " low" : ""}">${g.ended ? `${pct(g.clean, g.ended)}% <span class="muted">${g.clean}/${g.ended}</span>` : "—"}</td>`
+    + `<td class="n">${g.priced ? money(g.cost) : "—"}</td><td class="n">${g.medianSeconds ? durText(g.medianSeconds) : "—"}</td></tr>`;
+  const byRoute = `<div class="table-wrap"><table class="stable"><thead><tr><th>Phase · size → model · effort</th><th class="n">Tasks</th><th class="n" title="An MR open or merged, of the taken">Success</th>`
+    + `<th class="n" title="Merged without rework, of those merged or failed">First pass</th><th class="n" title="The phase's spend, average per task">Per task</th><th class="n" title="From the hand-off to the MR">Median time</th></tr></thead><tbody>${routes.map(row).join("")}</tbody></table></div>`
+    + (routes.some(low) ? `<div class="snote">Highlighted: first pass under ${LOW_FIRST_PASS * 100}% over ${LOW_FIRST_PASS_MIN}+ finished tasks — worth raising that route in Settings → Routes.</div>` : "");
+
+  const e = s.escalations || {};
+  const esc_ = e.tasks
+    ? `<div class="pad"><b>${e.tasks}</b> ${plural(e.tasks, "task", "tasks")} lifted a level · merged after it: <b>${e.merged}</b> of ${e.ended} finished${e.tasks > e.ended ? ` · ${e.tasks - e.ended} still going` : ""}</div>`
+      + `<div class="table-wrap"><table class="stable"><thead><tr><th>Why</th><th class="n">Tasks</th><th class="n">Merged</th></tr></thead><tbody>${(e.reasons || []).map((r) =>
+        `<tr><td>${esc(ESCALATION_NAMES[r.reason] || r.reason)}</td><td class="n">${r.tasks}</td><td class="n">${r.merged}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="snote">No task was escalated in this period.</div>`;
+
+  const modes = (s.modes || []).length > 1
+    ? `<h3 class="sub">By mode</h3><div class="table-wrap"><table class="stable"><thead><tr><th>Mode</th><th class="n">Tasks</th><th class="n">Success</th><th class="n">First pass</th><th class="n">Per task</th></tr></thead><tbody>${s.modes.map((m) =>
+        `<tr><td>${cap(esc(m.mode))}</td><td class="n">${m.taken}</td><td class="n">${pct(m.succeeded, m.taken)}%</td><td class="n">${m.ended ? `${pct(m.clean, m.ended)}%` : "—"}</td><td class="n">${m.taken && m.cost ? money(m.cost / m.taken) : "—"}</td></tr>`).join("")}</tbody></table></div>`
+    : "";
+
+  return scard("Routing", `<div class="pad">${whatIf}</div><h3 class="sub">By route</h3>${byRoute}<h3 class="sub">Escalations</h3>${esc_}${modes}`,
+    "routing vs one model", "flush routing");
 }
 
 // What each phase of the work cost over the period: $ as bars, and the tokens.
@@ -2302,7 +2485,7 @@ function reviewCard(v) {
       ${step("Converged", `${v.converged} <span class="muted">of ${v.tasks} ${plural(v.tasks, "task", "tasks")}</span>`, v.tasks ? v.converged / v.tasks : 0, `escalated to you ${v.escalated}${v.unverified ? ` · "fixed" without commits ${v.unverified}` : ""}`)}
     </div>`;
   const waiting = v.waiting ? `<div class="swarn"><span><b>${v.waiting} ${plural(v.waiting, "round waits", "rounds wait")} for «Fix»</b> — their remarks never reached the agent, so the numbers above miss them.</span><a href="#" data-need="fix">Show the tasks</a></div>` : "";
-  return scard("Agent review", body + waiting, `${v.rounds} ${plural(v.rounds, "round", "rounds")} on ${v.tasks} ${plural(v.tasks, "task", "tasks")}${v.converged ? ` · ${v.toClean.toFixed(1)} rounds to a clean one` : ""}`);
+  return scard("AI review", body + waiting, `${v.rounds} ${plural(v.rounds, "round", "rounds")} on ${v.tasks} ${plural(v.tasks, "task", "tasks")}${v.converged ? ` · ${v.toClean.toFixed(1)} rounds to a clean one` : ""}`);
 }
 
 // The size the estimate expected before the work against the one the assessment found after it.
@@ -2413,15 +2596,18 @@ function faultsHTML(fs) {
   if (!fs?.length) return "";
   const fresh = fs.filter((f) => !f.reported).length;
   const at = (t) => new Date(t).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  const row = (f) => `<li class="${f.reported ? "reported" : ""}"><div><b>${esc(f.what)}</b> <span class="muted">${f.count}× · ${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span></div>`
-    + `<div class="fault-text">${esc(f.error)}</div>`
-    + (f.reported ? `<div class="muted">under analysis: ${/^https?:/.test(f.reported) ? `<a href="${esc(f.reported)}" target="_blank" rel="noopener">${esc(f.reported)}</a>` : esc(f.reported)}</div>` : "") + `</li>`;
-  return `<div class="stats faults">
-    <div class="digest-head"><h3>Mako errors <span class="muted">${fs.length}</span></h3>
+  const link = (u) => /^https?:/.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : esc(u);
+  const row = (f) => `<div class="fault-row${f.reported ? " reported" : ""}"><b class="fault-n" title="${f.count} ${plural(f.count, "time", "times", "times")}">${f.count}×</b>`
+    + `<div class="fault-main"><div class="fault-top"><b>${esc(f.what)}</b><span class="muted">${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span>`
+    + (f.reported ? `<span class="badge ok" title="Under analysis">under analysis</span>` : "") + `</div>`
+    + `<div class="fault-text" title="${esc(f.error)}">${esc(f.error)}</div>`
+    + (f.reported ? `<div class="fault-issue">${link(f.reported)}</div>` : "") + `</div></div>`;
+  const aside = `${fresh ? `${fresh} new · ` : ""}${fs.length} ${plural(fs.length, "kind", "kinds", "kinds")}`;
+  return `<div class="scard faults"><div class="scard-h"><h2>Mako errors</h2><span class="aside">${aside}</span>
       <span class="actions">${fresh && !data.remote ? `<button id="faults-report"${faultsBusy ? " disabled" : ""} title="Create a task with these errors in the Mako repository, so the agent can sort them out">${faultsBusy ? "Creating the task…" : `Send for analysis: ${fresh}`}</button>` : ""}
       ${data.remote ? "" : `<button class="ghost" id="faults-clear">Clear</button>`}</span></div>
-    <ul class="digest-list">${fs.map(row).join("")}</ul>
-    <p class="stats-note">What failed on the Mako side: search, comments, statuses, MR checks, worktree. Identical errors are merged into one.</p>
+    <div class="fault-list">${fs.map(row).join("")}</div>
+    <div class="snote">What failed on the Mako side: search, comments, statuses, MR checks, worktree. Identical errors are merged into one.</div>
   </div>`;
 }
 // The board re-renders every few seconds: the report under way is remembered here, not in the button.
@@ -2525,7 +2711,8 @@ function headHTML(r, title = true) {
 // The task's facts in one muted line: repo · branch (copy) · model · assignees · priority · labels. The project is in
 // the number already, the worktree's path is in "⋯".
 function metaLine(r) {
-  const t = r.task, parts = [];
+  const t = r.task, parts = [], a = agentOf(r);
+  if (a?.state === "waiting") parts.push(`<span title="${esc(a.reason || "The agent waits for you")}"><b class="wait">Waiting for you</b>${a.since ? ` · ${dur((Date.now() - a.since) / 1000)}` : ""}</span>`);
   const branch = r.branch || r.branchName;
   if (r.repo) parts.push(`<span title="Repository">${esc(r.repo)}</span>`);
   if (branch && r.column !== "done") parts.push(`<span title="Branch"><code>${esc(branch)}</code><button type="button" class="icon" data-copy="${esc(branch)}" title="Copy branch name" aria-label="Copy branch name">${ICON.copy}</button></span>`);
@@ -2591,9 +2778,9 @@ function moreMenu(r) {
   return `<details class="menu more"><summary class="btn icon" title="More actions" aria-label="More actions">⋯</summary><div class="menu-pop">${items.join("")}</div></details>`;
 }
 
-// The stage strip: Estimate → Plan → Work → Review → CI → Merge, each with its time and cost (r.card.stages, from
+// The stage strip: Estimate → Plan → Work → Checks (CI and the AI review) → Merge, each with its time and cost (r.card.stages, from
 // the record's metrics). A click on a stage opens what it holds under the strip.
-const STAGE_LABEL = { estimate: "Estimate", plan: "Plan", work: "Work", review: "Review", ci: "CI", merge: "Merge" };
+const STAGE_LABEL = { estimate: "Estimate", plan: "Plan", work: "Work", checks: "Checks", merge: "Merge" };
 const STAGE_MARK = {
   done: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>`,
   fail: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
@@ -2606,7 +2793,11 @@ function stripHTML(r, card) {
   if (!ss?.length) return "";
   const open = stageOpen[r.id];
   const cells = ss.map((s) => {
-    const sub = [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
+    // Checks: its two lines (CI, the review) alone, the time and cost in the panel; a merge not reached yet: how long
+    // the MR has waited.
+    const sub = s.key === "checks" ? s.note || "—"
+      : s.key === "merge" && s.state === "todo" && s.seconds >= 60 ? `waiting ${durText(s.seconds)}`
+      : [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
     return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${s.route ? esc(` · ${s.route}${s.why ? ` — ${s.why}` : ""}`) : ""}">
       <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b></span><small>${esc(sub)}</small></button>`;
   }).join(`<span class="sep"></span>`);
@@ -2616,8 +2807,8 @@ function stripHTML(r, card) {
 function stageMore(r, key, card) {
   const term = r.executor === "terminal" && r.worktree;
   if (key === "estimate") return estimateHTML(r, card);
-  if (key === "review") return `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
-  if (key === "ci") return checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`;
+  if (key === "checks") return (checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`)
+    + `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
   return cycleHTML(r, card);
 }
 
@@ -2680,7 +2871,7 @@ function doneHTML(r, card) {
   if (ch) kv.push(["Changed", `${ch.files} ${plural(ch.files, "file", "files")}`, `+${ch.added} −${ch.removed}${ch.commits ? ` · ${ch.commits} ${plural(ch.commits, "commit", "commits")}` : ""}`]);
   const rework = (r.ciFixes || 0) + (r.reviewFixes || 0);
   kv.push(["Rework", rework ? `${rework}` : "none", [r.ciFixes ? `CI ${r.ciFixes}` : "", r.reviewFixes ? `comments ${r.reviewFixes}` : ""].filter(Boolean).join(" · ")]);
-  if (r.agentReviews?.length) kv.push(["Agent review", `${r.agentReviews.length} ${plural(r.agentReviews.length, "round", "rounds")}`]);
+  if (r.agentReviews?.length) kv.push(["AI review", `${r.agentReviews.length} ${plural(r.agentReviews.length, "round", "rounds")}`]);
   const seconds = { ...(m?.seconds || {}) };
   const bar = stageBar(seconds, durText);
   const grid = `<div class="sum-grid">${kv.map(([k, v, s]) => `<div class="kv"><span>${k}</span><b>${esc(v)}</b>${s ? `<span>${esc(s)}</span>` : ""}</div>`).join("")}</div>`;
@@ -2702,12 +2893,14 @@ function renderDetail() {
   if (!r && newOpen) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     // The form keeps what is typed: the board re-renders every few seconds.
+    if (newOpen === "chat") { $("detail").classList.add("ws"); if (!$("free-chat")) showFreeChat(); else mountFreeChat(); return; }
+    closeChat(); // a chat without a task left open
     if (newOpen === "code") { $("detail").classList.add("ws"); if (!$("code-ask")) showCode(); }
     else if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (!$("new-form")) showNewTask();
     return;
   }
   if (!r) {
-    closeTerminal(); shown = ""; $("detail").classList.remove("ws");
+    closeTerminal(); closeChat(); shown = ""; $("detail").classList.remove("ws");
     // The period's list is open: the next refresh would close it.
     if (document.activeElement?.id === "stats-project") return;
     $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Tasks</button>` : "") + statsHTML(data.stats) + faultsHTML(data.faults);
@@ -2982,6 +3175,10 @@ function renderDetail() {
     if (btn.dataset.a === "cancel" && r.starting && !confirm("Cancel the launch? Preparation will be stopped and the created worktree removed.")) return;
     post(btn.dataset.a, r.id, btn.dataset.x);
   };
+  for (const btn of $("detail").querySelectorAll("[data-self]")) btn.onclick = () => {
+    try { btn.dataset.self === "1" ? localStorage.setItem(selfKey(r), "1") : localStorage.removeItem(selfKey(r)); } catch {}
+    renderDetail();
+  };
   for (const btn of $("detail").querySelectorAll("[data-redo]")) btn.onclick = () => openRedo(r);
   $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
 }
@@ -3094,8 +3291,10 @@ function chatFor(id) {
     <div class="chat-resume" hidden><button type="button" class="resume-btn on-light" data-chat-resume title="The agent has stopped. The conversation is saved in Claude Code.">${ICON.play}Continue conversation</button></div>
     <div class="chat-status" hidden><span class="dot"></span><b class="st"></b><span class="muted st-more"></span>
       <button type="button" class="chat-stop-btn" title="Interrupt the current step, like Esc in the terminal">${ICON.stop}Stop</button></div>
+    <div class="chat-dock" hidden></div>
     <div class="chat-foot">
-      <div class="chat-quick">${["Continue", "Run the tests", "Open the MR"].map((q) => `<button type="button" class="chip" data-quick="${q}">${q}</button>`).join("")}</div>
+      <div class="chat-quick"></div>
+      <div class="chat-ctxwarn" role="status" hidden></div>
       <div class="chat-box composer">
         <div class="chat-att" hidden></div>
         <textarea rows="2" aria-label="Message to the agent"></textarea>
@@ -3162,7 +3361,27 @@ function chatFor(id) {
     const x = e.target.closest("[data-unattach]");
     if (x) { v.att.splice(+x.dataset.unattach, 1); drawAttached(v); }
   };
-  for (const q of el.querySelectorAll("[data-quick]")) q.onclick = () => say(q.dataset.quick);
+  // The next actions after a turn: a message to the agent, or one of Mako's own actions on the task.
+  el.querySelector(".chat-quick").onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.quick) { say(b.dataset.quick); return; }
+    const next = b.dataset.next;
+    if (next === "open" || next === "push") {
+      fetch(`/api/ask?id=${encodeURIComponent(id)}&kind=${next}`, { method: "POST" }).then((x) => x.json()).catch(() => ({}))
+        .then((r) => { warn(r.ok === false ? r.error : ""); v.version = -1; pollChat(); });
+    } else if (next === "agentreview") post("agentreview", id);
+    else if (next === "diff") { const f = changesOf.get(id)?.files?.[0]; if (f) openFile(f.path); }
+  };
+  // The context nearly full: compact the conversation now, or start a new one.
+  el.querySelector(".chat-ctxwarn").onclick = (e) => {
+    if (e.target.closest("[data-compact]")) say("/compact");
+    else if (e.target.closest("[data-fresh]")) {
+      if (!confirm("Start a new conversation with the agent? It starts the task over in the same worktree: the work in the branch stays, this conversation's context is dropped.")) return;
+      fetch(`/api/fresh?id=${encodeURIComponent(id)}`, { method: "POST" }).then((x) => x.json()).catch(() => ({}))
+        .then((r) => { warn(r.ok === false ? r.error : ""); v.version = -1; v.atEnd = true; pollChat(); });
+    }
+  };
   v.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   el.querySelector(".chat-send").onclick = send;
   // The mode: a button and its menu, like the model's.
@@ -3191,27 +3410,36 @@ function chatFor(id) {
     if (t) { if (!v.flip.delete(t.dataset.toggle)) v.flip.add(t.dataset.toggle); renderChat(v); return; }
     // The agent's questions: an option, or your own words.
     if (answerClick(e, `/api/answer?id=${encodeURIComponent(id)}`, pollChat)) return;
-    // The plan: approve it, or open the field for notes and send them.
+    // The plan in the conversation: a click on a step opens a note on it.
+    if (planNoteClick(e, v)) return;
+    permitClick(e, id);
+  };
+  v.list.onkeydown = (e) => {
+    const ta = e.target.closest("[data-step-note]");
+    if (!ta) return;
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); saveStepNote(v, +ta.dataset.stepNote, ta.value); }
+    if (e.key === "Escape") { e.preventDefault(); v.notes.open = 0; redrawPlan(v); }
+  };
+  v.list.oninput = (e) => { const ta = e.target.closest("[data-step-note]"); if (ta) v.notes.draft = ta.value; };
+  // The panel in place of the input: the agent's question, its plan or a permission it waits on.
+  const dock = el.querySelector(".chat-dock");
+  dock.onclick = (e) => {
+    if (e.target.closest("[data-write-instead]")) { v.writeFor = dock.dataset.req; e.target.closest("[data-write-instead]").remove(); renderChat(v); v.input.focus(); return; }
+    if (e.target.closest("[data-dock-stop]")) { fetch(`/api/interrupt?id=${encodeURIComponent(id)}`, { method: "POST" }); return; }
+    const o = e.target.closest("[data-o]");
+    if (o) { dockPick(v, +o.dataset.o); return; }
+    if (e.target.closest("[data-dock-answer]")) { dockAnswer(v); return; }
     const pd = e.target.closest("[data-plan-do]");
-    if (pd) {
-      const card = pd.closest("[data-plan]"), fix = card.querySelector(".plan-fix"), notes = fix.querySelector("textarea");
-      if (pd.dataset.planDo === "revise" && fix.hidden) {
-        fix.hidden = false;
-        pd.textContent = "Send edits";
-        notes.focus();
-        return;
-      }
-      if (pd.dataset.planDo === "revise" && !notes.value.trim()) return notes.focus();
-      pd.disabled = true;
-      fetch(`/api/plan?id=${encodeURIComponent(id)}&req=${encodeURIComponent(card.dataset.plan)}&do=${pd.dataset.planDo}`,
-        { method: "POST", body: pd.dataset.planDo === "revise" ? notes.value.trim() : "" }).then(() => pollChat());
-      return;
-    }
-    const p = e.target.closest("[data-permit]");
-    if (p) {
-      p.disabled = true;
-      fetch(`/api/permit?id=${encodeURIComponent(id)}&req=${encodeURIComponent(p.dataset.permit)}&decision=${p.dataset.d}`, { method: "POST" }).then(() => pollChat());
-    }
+    if (pd) { planDo(v, pd); return; }
+    permitClick(e, id);
+  };
+  dock.oninput = (e) => {
+    if (e.target.matches("[data-other]")) { v.dock.other[v.dock.q] = e.target.value; if (e.target.value.trim()) { v.dock.picks[v.dock.q] = []; drawDockOpts(v); } }
+    if (e.target.matches("[data-whole]")) { v.notes.whole = e.target.value; planButtons(v); }
+  };
+  dock.onchange = (e) => {
+    if (e.target.matches("[data-plan-model]")) v.notes.model = e.target.value;
+    if (e.target.matches("[data-plan-mode]")) v.notes.mode = e.target.value;
   };
   v.timer = setInterval(pollChat, 1000);
   pollChat();
@@ -3265,6 +3493,10 @@ function renderChat(v) {
   v.total = (s.turns ?? []).reduce((n, t) => n + (t.who === "user" ? 1 : (t.blocks ?? []).length), 0);
   if (v.atEnd || v.version <= 1) v.seen = v.total;
   const fresh = v.total - v.seen;
+  // What the agent waits on now: drawn in the panel in place of the input, not in the conversation.
+  const asked = s.live ? [...(s.items ?? [])].reverse().find((it) => it.kind === "permission" && it.status === "asked") : null;
+  v.dockReq = asked?.id ?? "";
+  if (v.notes?.req !== v.dockReq) v.notes = { req: v.dockReq, steps: {}, whole: "", open: 0, draft: "", model: "", mode: "" };
   list.innerHTML = `<div class="chat-col">${chatTurns(s, v) || `<div class="files-empty">${s.live ? "The agent is waiting: tell it what to do." : "The conversation will appear here once the agent starts."}</div>`}
     <button type="button" class="chat-new" data-new ${fresh > 0 && !v.atEnd ? "" : "hidden"}>↓ ${fresh} new · to the latest</button></div>`;
   // Stays at the end while the agent writes, unless the reader scrolled up: then right where they were.
@@ -3285,7 +3517,8 @@ function renderChat(v) {
   }
   // The line above the input: what the agent does, this turn's time, cost and steps, and Stop.
   const st = v.el.querySelector(".chat-status"), t = s.turn ?? {};
-  st.hidden = !s.live && !s.asleep && !s.items.length;
+  // The panel waiting on you says it itself, with its own Stop.
+  st.hidden = !s.live && !s.asleep && !s.items.length || !!asked;
   st.className = `chat-status ${s.state}`;
   st.querySelector(".st").textContent = { working: "Working", waiting: "Waiting for you", done: "Your turn" }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
   const more = [];
@@ -3296,7 +3529,9 @@ function renderChat(v) {
   st.querySelector(".chat-stop-btn").hidden = !live;
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
-  v.el.querySelector(".chat-quick").hidden = live;
+  drawNextActions(v);
+  drawDock(v, asked);
+  v.el.querySelector(".chat-foot").hidden = !!asked && v.writeFor !== asked.id;
   const mode = MODES.find(([m]) => m === (s.mode || "default")) ?? MODES[1], modeBtn = v.el.querySelector(".chat-mode-btn");
   modeBtn.innerHTML = `${ICON.shield}${mode[1]} ▾`;
   modeBtn.disabled = !s.live;
@@ -3305,8 +3540,48 @@ function renderChat(v) {
   const ctx = v.el.querySelector(".chat-ctx"), share = s.window ? s.context / s.window : 0;
   ctx.className = "chat-ctx" + (share > 0.8 ? " full" : "");
   ctx.title = s.context ? `Context: ${kTok(s.context)}${s.window ? ` of ${kTok(s.window)} (${Math.round(share * 100)}%)` : ""}` : "";
+  drawCtxWarn(v, live, share);
   ctx.innerHTML = !s.context ? "" : `<span>Context</span>${s.window ? `<span class="meter" aria-hidden="true"><i style="width:${Math.min(100, Math.round(share * 100))}%"></i></span>` : ""}<span>${kTok(s.context)}${s.window ? ` / ${kTok(s.window)}` : ""}</span>`;
-  v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent reads it after the current step…" : "What next? Write to the agent…";
+  v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent reads it after the current step…" : "What next?";
+}
+// What to do after the agent's turn, by the state of the task: its last test run, its branch, its MR. The first is
+// the main one. While the agent works there are none.
+function nextActions(v) {
+  const s = v.snap, r = data?.records.find((x) => x.id === v.id), ch = changesOf.get(v.id), b = ch?.branch;
+  const sum = [...(s.turns ?? [])].reverse().find((t) => t.who === "agent")?.summary;
+  const out = [];
+  if (sum?.tests?.failed) out.push({ label: "Fix the tests", quick: "The tests failed: fix them and run them again." });
+  if (r && b && (b.unpushed > 0 || (!b.pushed && b.ahead > 0))) {
+    out.push(r.prUrl ? { label: "Push the commits", next: "push" } : { label: "Push and open the MR", next: "open" });
+  }
+  if (r && b?.dirty) out.push({ label: "Commit", quick: "Commit the changes with a proper message, as the task's instructions say." });
+  if (r?.prUrl && !["merged", "closed"].includes(r.reviewState)) {
+    if (r.reviewStep === "ready") out.push({ label: "Run the agent review", next: "agentreview" });
+    out.push({ label: "Open the MR", href: r.prUrl });
+  }
+  if (r && ch?.files?.length) out.push({ label: "Show the diff", next: "diff" });
+  out.push({ label: "What else could break?", quick: "What else could break because of these changes? Check the places that depend on them and tell me what you find." });
+  return out;
+}
+function drawNextActions(v) {
+  const box = v.el.querySelector(".chat-quick"), s = v.snap;
+  if (!box || !s) return;
+  box.hidden = s.state === "working" || s.state === "waiting";
+  if (box.hidden) return;
+  box.innerHTML = nextActions(v).map((a, i) => {
+    const cls = `chip${i === 0 && !a.href ? " pri" : ""}`;
+    return a.href ? `<a class="${cls}" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.label)}</a>`
+      : `<button type="button" class="${cls}" ${a.quick ? `data-quick="${esc(a.quick)}"` : `data-next="${a.next}"`}>${esc(a.label)}</button>`;
+  }).join("");
+}
+// The context over 80% after a turn: say so before it is compacted by itself, with a way to do it now.
+function drawCtxWarn(v, live, share) {
+  const box = v.el.querySelector(".chat-ctxwarn"), task = data?.records.some((x) => x.id === v.id);
+  box.hidden = live || share <= 0.8;
+  if (box.hidden) return;
+  box.innerHTML = `${ICON.warn}<span class="cw-t">Context is ${Math.round(share * 100)}% full: the next turn may get compacted.</span>
+    <button type="button" data-compact title="Send /compact: Claude sums the conversation up and goes on from the summary">Compact now</button>
+    ${task ? `<button type="button" data-fresh title="Start the task over in the same worktree, without this conversation">New conversation</button>` : ""}`;
 }
 const toolArg = (input) => {
   for (const k of ["command", "file_path", "pattern", "url", "description", "prompt"]) {
@@ -3321,8 +3596,10 @@ const EDITS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
 function chatTurns(s, v) {
   const items = s?.items ?? [], turns = s?.turns ?? [];
   return turns.map((t, k) => t.who === "user" ? userTurn(t, items[t.item], v)
-    : agentTurn(t, items, v, k === turns.length - 1 && s.state === "working")).join("");
+    : agentTurn(t, items, v, k === turns.length - 1 && s.state === "working", k === turns.length - 1)).join("");
 }
+// chat.PlanNotesPrefix: how the message with your notes on an approved plan begins.
+const PLAN_NOTES = "The plan is approved. Notes from the developer to take into account while carrying it out:";
 function userTurn(t, it, v) {
   if (!it) return "";
   if (t.prompt && !v.code) return chatItem(it, 0, v);
@@ -3331,16 +3608,40 @@ function userTurn(t, it, v) {
     return m ? `<a href="/api/screenshots/${esc(m[1])}/${esc(m[2])}" target="_blank" rel="noopener"><img src="/api/screenshots/${esc(m[1])}/${esc(m[2])}" alt="Attached picture"></a>`
       : `<code>${esc(p)}</code>`;
   }).join("");
+  // Your notes on an approved plan: shown as the notes, without the words that tell the agent what they are.
+  if (t.text?.startsWith(PLAN_NOTES)) {
+    return `<div class="msg me"><div class="who">Notes on the approved plan</div><div class="bubble">${linkify(t.text.slice(PLAN_NOTES.length).trim())}</div>
+      ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
+  }
   return `<div class="msg me">${t.text ? `<div class="bubble">${linkify(t.text)}</div>` : ""}${pics ? `<div class="me-pics">${pics}</div>` : ""}
     ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
 }
 const SPARK = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg>`;
-function agentTurn(t, items, v, live) {
-  const blocks = (t.blocks ?? []).map((b) => chatBlock(b, items, v)).join("");
+function agentTurn(t, items, v, live, last) {
+  // The turn's end is its summary (a replayed conversation has no end of its own: the summary closes it).
+  const sum = t.summary && !v.code ? turnSummary(t.summary, v, last) : "";
+  let blocks = (t.blocks ?? []).map((b) => sum && items[b.item]?.kind === "result" && b.kind === "item" ? "" : chatBlock(b, items, v)).join("");
+  if (sum) blocks += sum;
   if (!blocks) return "";
   return `<div class="turn"><span class="av" aria-hidden="true">${SPARK}</span><div class="turn-b">
     <div class="turn-h"><b>Claude</b><span class="time">${hhmm(t.at)}${live && t.at ? ` · <span data-since="${t.at}" data-pre="working ">working ${dur((Date.now() - t.at) / 1000)}</span>` : ""}</span></div>
     ${blocks}</div></div>`;
+}
+// A finished turn in five figures: its time, its cost, the files it changed, its last test run, its commits (and, for
+// the last turn, whether the branch has them pushed).
+function turnSummary(m, v, last) {
+  const cell = (label, value, more = "", cls = "") => `<div class="ts-c"><span>${label}</span><b${cls ? ` class="${cls}"` : ""}>${value}</b>${more ? `<span>${more}</span>` : ""}</div>`;
+  const tests = !m.tests ? cell("Tests", "not run", "", "muted")
+    : m.tests.failed ? cell("Tests", `✗ ${m.tests.failed} failed`, m.tests.passed ? `${m.tests.passed} passed` : "", "bad")
+    : cell("Tests", `✓ ${m.tests.passed}`, "passed", "ok");
+  const b = last ? changesOf.get(v.id)?.branch : null;
+  const pushed = !m.commits || !b ? "" : b.unpushed > 0 || !b.pushed ? "not pushed" : "pushed";
+  return `<div class="turn-sum" aria-label="Turn summary">
+    ${cell("Turn", dur(m.seconds || 0))}
+    ${cell("Spent", m.cost ? `$${m.cost.toFixed(2)}` : "—")}
+    ${cell("Changed", `${m.files} ${plural(m.files, "file", "files")}`, m.add || m.del ? `<span class="add">+${m.add}</span> <span class="del">−${m.del}</span>` : "")}
+    ${tests}
+    ${cell("Commits", String(m.commits), pushed)}</div>`;
 }
 const STEP_ICON = {
   commands: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8"/></svg>`,
@@ -3453,11 +3754,15 @@ function chatItem(it, i, v) {
           ${detail ? `<span class="muted">${shown ? "▾" : "▸"}</span>` : ""}</button>${shown ? detail : ""}</div>`;
     }
     case "permission": {
-      if (it.tool === "AskUserQuestion") return askCard(it);
+      // The request waited on is in the panel under the conversation; the plan stays here as a document to note on.
+      const docked = !v.code && it.status === "asked";
+      if (docked && it.id !== v.dockReq) return `<div class="perm-done">✗ Not answered: the agent stopped</div>`;
       if (it.tool === "ExitPlanMode") return planCard(it, v);
+      if (docked) return "";
+      if (it.tool === "AskUserQuestion") return askCard(it);
       const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200);
       if (it.status !== "asked") {
-        return `<div class="perm-done ${it.status}">${{ allowed: "✓ Allowed", always: "✓ Always allowed", denied: "✗ Denied" }[it.status] ?? it.status}: ${esc(it.tool)} ${esc(arg)}</div>`;
+        return `<div class="perm-done ${it.status}">${{ allowed: "✓ You allowed once", always: "✓ Always allowed", denied: "✗ You said no", cancelled: "✗ Not answered: the agent stopped asking" }[it.status] ?? it.status}: <code>${esc(it.tool === "Bash" ? arg : `${it.tool} ${arg}`)}</code></div>`;
       }
       const sug = Array.isArray(it.suggestions) ? it.suggestions[0] : null;
       const always = !sug ? "" : sug.type === "addRules" ? `Allow ${(sug.rules ?? []).map((r) => r.ruleContent || r.toolName).join(", ")}`
@@ -3474,6 +3779,8 @@ function chatItem(it, i, v) {
     }
     case "error":
       return `<div class="notice">${esc(it.text)}</div>`;
+    case "compact":
+      return `<div class="turn-end">Conversation compacted: the agent goes on from its summary</div>`;
     case "image":
       return `<figure class="shot">${pic(it.text, it.output)}<figcaption>Screenshot · ${esc(it.output)}</figcaption></figure>`;
   }
@@ -3484,17 +3791,193 @@ function planCard(it, v) {
   const plan = it.input?.plan ?? "";
   if (it.status !== "asked") {
     const key = `plan:${it.id}`, shown = v.flip.has(key);
-    const what = { approved: "✓ Plan approved", allowed: "✓ Plan approved", revised: "↺ Plan sent back for changes", denied: "✗ Plan rejected" }[it.status] ?? it.status;
+    const what = { approved: "✓ Plan approved", allowed: "✓ Plan approved", revised: "↺ Plan sent back for changes", denied: "✗ Plan rejected", cancelled: "✗ Plan not answered: the agent stopped asking" }[it.status] ?? it.status;
     return `<div class="plan-card done ${esc(it.status)}"><button type="button" class="plan-h" data-toggle="${esc(key)}"><b>${what}</b>
         ${it.text ? `<span class="muted">${esc(it.text.split("\n")[0].slice(0, 120))}</span>` : ""}<span class="muted tw">${shown ? "▾" : "▸"}</span></button>
       ${shown ? `<div class="md plan-body">${md(plan)}</div>` : ""}</div>`;
   }
-  return `<div class="plan-card" data-plan="${esc(it.id)}"><div class="plan-h"><b>Agent plan</b><span class="muted">· nothing changed yet, waiting for you</span></div>
-    <div class="md plan-body">${md(plan)}</div>
-    <div class="plan-fix" hidden><textarea rows="3" placeholder="What to change in the plan…" aria-label="Plan changes"></textarea></div>
-    <div class="perm-btns"><button type="button" class="primary" data-plan-do="approve">Approve and proceed</button>
-      <button type="button" data-plan-do="revise">Request changes</button></div></div>`;
+  if (v.code) return `<div class="plan-card"><div class="md plan-body">${md(plan)}</div></div>`;
+  // Waiting to be approved: a document of numbered steps; a click on a step opens a note on it.
+  const doc = v.snap?.plan, steps = doc?.steps ?? [], n = v.notes ?? { steps: {} };
+  if (!steps.length) return `<div class="plan-doc"><div class="plan-doc-h"><b>Plan</b><span class="muted">nothing changed yet</span></div><div class="md plan-doc-md">${md(plan)}</div></div>`;
+  const stepHTML = (st) => {
+    const note = n.steps[st.n], editing = n.open === st.n;
+    return `<div class="pl-step${note ? " noted" : ""}${editing ? " editing" : ""}">
+      <button type="button" class="pl-step-h" data-step="${st.n}" title="${note ? "Change the note on this step" : "Add a note on this step"}" aria-expanded="${editing}"><span class="pl-n">${st.n}</span><span class="pl-t">${inl(st.title)}</span></button>
+      ${st.body ? `<div class="md pl-body">${md(st.body)}</div>` : ""}
+      ${editing ? `<div class="pl-edit"><textarea rows="2" data-step-note="${st.n}" placeholder="A note on step ${st.n}…" aria-label="A note on step ${st.n}">${esc(n.draft)}</textarea>
+          <span class="pl-edit-b"><button type="button" class="ghost" data-note-cancel>Cancel</button><button type="button" class="primary" data-note-save="${st.n}">Save</button></span></div>`
+        : note ? `<div class="pl-note"><b>You:</b><span>${esc(note)}</span><button type="button" class="link" data-note-remove="${st.n}">Remove</button></div>` : ""}</div>`;
+  };
+  return `<div class="plan-doc" data-plan="${esc(it.id)}"><div class="plan-doc-h"><b>Plan · ${steps.length} ${plural(steps.length, "step", "steps")}</b>
+      <span class="muted">${doc.files ? `${doc.files} ${plural(doc.files, "file", "files")} · ` : ""}nothing changed yet</span></div>
+    ${doc.intro ? `<div class="md pl-intro">${md(doc.intro)}</div>` : ""}
+    ${steps.map(stepHTML).join("")}
+    ${doc.outro ? `<div class="md pl-outro">${md(doc.outro)}</div>` : ""}
+    ${doc.risk ? `<div class="pl-risk"><b>Risk</b><div class="md">${md(doc.risk)}</div></div>` : ""}</div>`;
 }
+// A step's title: its inline code and bold, nothing more.
+const inl = (t) => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+// A click on the plan's steps: open a note on one, save it, take it back. True when the click was theirs.
+function planNoteClick(e, v) {
+  const n = v.notes;
+  if (!n) return false;
+  const step = e.target.closest("[data-step]");
+  if (step) { n.open = n.open === +step.dataset.step ? 0 : +step.dataset.step; n.draft = n.steps[n.open] ?? ""; redrawPlan(v); v.list.querySelector("[data-step-note]")?.focus(); return true; }
+  const save = e.target.closest("[data-note-save]");
+  if (save) { saveStepNote(v, +save.dataset.noteSave, save.closest(".pl-edit").querySelector("textarea").value); return true; }
+  if (e.target.closest("[data-note-cancel]")) { n.open = 0; redrawPlan(v); return true; }
+  const rm = e.target.closest("[data-note-remove]");
+  if (rm) { delete n.steps[rm.dataset.noteRemove]; redrawPlan(v); return true; }
+  return false;
+}
+function saveStepNote(v, step, text) {
+  text = text.trim();
+  if (text) v.notes.steps[step] = text; else delete v.notes.steps[step];
+  v.notes.open = 0; v.notes.draft = "";
+  redrawPlan(v);
+}
+// The plan's notes changed: the document and the panel that counts them.
+function redrawPlan(v) {
+  v.dockKey = "";
+  renderChat(v);
+}
+// The notes as /api/plan takes them: each on its step's number and title.
+function planNotesOf(v) {
+  const steps = v.snap?.plan?.steps ?? [];
+  return { steps: Object.entries(v.notes.steps).map(([k, note]) => ({ n: +k, title: steps[+k - 1]?.title ?? "", note })), whole: v.notes.whole.trim() };
+}
+const hasNotes = (v) => Object.keys(v.notes.steps).length > 0 || !!v.notes.whole.trim();
+function planButtons(v) {
+  const d = v.el.querySelector(".chat-dock"), notes = hasNotes(v);
+  const a = d.querySelector('[data-plan-do="approve"]'), r = d.querySelector('[data-plan-do="revise"]');
+  if (a) a.textContent = notes ? "Approve with the note" : "Approve";
+  if (r) r.disabled = !notes;
+}
+function planDo(v, b) {
+  const what = b.dataset.planDo;
+  if (what === "revise" && !hasNotes(v)) return;
+  for (const x of v.el.querySelectorAll(".chat-dock [data-plan-do]")) x.disabled = true;
+  const body = { do: what, mode: v.notes.mode || v.snap.workMode || "", model: v.notes.model, notes: planNotesOf(v) };
+  fetch(`/api/plan?id=${encodeURIComponent(v.id)}&req=${encodeURIComponent(v.dockReq)}`, { method: "POST", body: JSON.stringify(body) })
+    .then((r) => r.json()).catch(() => ({ ok: false, error: "the answer did not reach Mako" }))
+    .then((r) => { if (r.ok === false) { dockWarn(v, r.error); planButtons(v); for (const x of v.el.querySelectorAll(".chat-dock [data-plan-do]")) if (x.dataset.planDo !== "revise") x.disabled = false; } pollChat(); });
+}
+function permitClick(e, id) {
+  const p = e.target.closest("[data-permit]");
+  if (!p) return false;
+  p.disabled = true;
+  fetch(`/api/permit?id=${encodeURIComponent(id)}&req=${encodeURIComponent(p.dataset.permit)}&decision=${p.dataset.d}`, { method: "POST" }).then(() => pollChat());
+  return true;
+}
+const dockWarn = (v, msg) => { const w = v.el.querySelector(".dock-warn"); if (w) { w.hidden = !msg; w.textContent = msg ? `⚠ ${msg}` : ""; } };
+// «Always allow» names the rule Claude suggests keeping.
+function alwaysLabel(it) {
+  const sug = Array.isArray(it.suggestions) ? it.suggestions[0] : null;
+  return !sug ? "" : sug.type === "addRules" ? `Always allow ${(sug.rules ?? []).map((r) => r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName).join(", ")}`
+    : sug.type === "setMode" && sug.mode === "acceptEdits" ? "Always allow file edits" : "Always allow";
+}
+const shortModel = (m) => String(m ?? "").replace(/^claude-/, "").replace(/-(\d+)-(\d+)$/, " $1.$2");
+// The panel in place of the input while the agent waits on you. Drawn anew only for another request, so what you
+// picked or typed stays while the chat is polled.
+function drawDock(v, it) {
+  const d = v.el.querySelector(".chat-dock");
+  d.hidden = !it;
+  if (!it) { d.innerHTML = ""; d.dataset.kind = d.dataset.req = ""; v.dockKey = ""; return; }
+  const kind = it.tool === "AskUserQuestion" ? "ask" : it.tool === "ExitPlanMode" ? "plan" : "perm";
+  const key = `${it.id}:${kind}`;
+  if (v.dockKey === key && kind !== "plan") return;
+  if (v.dockKey === key && kind === "plan") return planButtons(v);
+  v.dockKey = key;
+  d.dataset.kind = kind; d.dataset.req = it.id;
+  const since = v.snap.since || Date.now();
+  const wait = `<span class="dock-wait muted" data-since="${since}" data-pre="waiting ">waiting ${dur((Date.now() - since) / 1000)}</span>`;
+  const instead = v.writeFor === it.id ? "" : `<button type="button" class="link" data-write-instead>Write instead</button>`;
+  const warn = `<div class="dock-warn" hidden></div>`;
+  if (kind === "ask") {
+    if (v.dock?.req !== it.id) v.dock = { req: it.id, q: 0, picks: {}, other: {} };
+    d.innerHTML = `<div class="dock-in"><div class="dock-h"><span class="dock-ic" aria-hidden="true">?</span><b>The agent asks</b><span class="muted dock-of"></span>${wait}</div>
+      <div class="dock-q"></div><div class="dock-opts" role="group"></div>
+      <label class="dock-other"><span class="muted">Other</span><input type="text" data-other placeholder="Your own answer…" aria-label="Your own answer"></label>${warn}
+      <div class="dock-row"><span class="muted dock-keys"></span>${instead}<span class="spacer"></span>
+        <button type="button" data-dock-stop>Stop the agent</button><button type="button" class="primary" data-dock-answer>Answer</button></div></div>`;
+    drawDockQuestion(v);
+    return;
+  }
+  if (kind === "plan") {
+    const models = [...new Set(data?.models ?? [])], cur = v.snap.model ? shortModel(v.snap.model) : "";
+    // The effort the run started with stays: Claude Code takes no other in a running session.
+    const effort = data?.records?.find((x) => x.id === v.id)?.agentRoute?.effort ?? "";
+    const mode = v.notes.mode || v.snap.workMode || "auto";
+    const steps = v.snap.plan?.steps?.length ?? 0, noted = Object.keys(v.notes.steps).map(Number).sort((a, b) => a - b);
+    const sub = noted.length ? `${noted.length} ${plural(noted.length, "note", "notes")} on ${plural(noted.length, "step", "steps")} ${noted.join(", ")}` : "";
+    const hint = steps ? "a click on a step adds a note" : "";
+    d.innerHTML = `<div class="dock-in"><div class="dock-h"><span class="dock-ic" aria-hidden="true">✓</span><b>Approve the plan?</b><span class="muted">${[sub, hint].filter(Boolean).map((x) => ` · ${x}`).join("")}</span>${wait}</div>
+      <textarea class="dock-note" rows="1" data-whole placeholder="A note on the whole plan (optional)…" aria-label="A note on the whole plan">${esc(v.notes.whole)}</textarea>${warn}
+      <div class="dock-row"><span class="muted">Work on</span>
+        <select data-plan-model aria-label="The model to work with"${effort ? ` title="Effort ${esc(effort)}: the one the run started with, it stays"` : ""}><option value="">${esc([cur || "the same model", effort].filter(Boolean).join(" · "))}</option>${models.filter((m) => m !== cur && m !== v.snap.model).map((m) => `<option value="${esc(m)}" ${m === v.notes.model ? "selected" : ""}>${esc([m, effort].filter(Boolean).join(" · "))}</option>`).join("")}</select>
+        <select data-plan-mode aria-label="The mode to work in">${MODES.filter(([m]) => m !== "plan").map(([m, label, hint]) => `<option value="${m}" ${m === mode ? "selected" : ""} title="${hint}">${label}</option>`).join("")}</select>
+        ${instead}<span class="spacer"></span>
+        <button type="button" data-plan-do="reject">Reject</button><button type="button" data-plan-do="revise">Send the notes back</button><button type="button" class="primary" data-plan-do="approve">Approve</button></div></div>`;
+    planButtons(v);
+    return;
+  }
+  const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200), always = alwaysLabel(it);
+  d.innerHTML = `<div class="dock-in"><div class="dock-h"><span class="dock-ic" aria-hidden="true">!</span><b>The agent asks for permission</b><span class="muted">· ${esc(it.tool)}</span>${wait}</div>
+    <code class="perm-cmd">${esc(arg)}</code>${warn}
+    <div class="dock-row">${instead}<span class="spacer"></span>
+      <button type="button" class="danger" data-permit="${esc(it.id)}" data-d="deny">No</button>
+      ${always ? `<button type="button" data-permit="${esc(it.id)}" data-d="always" title="${esc(always)}">${esc(always.length > 56 ? always.slice(0, 55) + "…" : always)}</button>` : ""}
+      <button type="button" class="primary" data-permit="${esc(it.id)}" data-d="allow">Allow</button></div></div>`;
+}
+const dockQuestions = (v) => v.snap?.items?.find((x) => x.id === v.dock?.req && x.kind === "permission")?.input?.questions ?? [];
+function drawDockQuestion(v) {
+  const d = v.el.querySelector(".chat-dock"), qs = dockQuestions(v), i = v.dock.q, q = qs[i] ?? {};
+  d.querySelector(".dock-of").textContent = `${q.header ? ` · ${q.header}` : ""} · question ${i + 1} of ${qs.length}`;
+  d.querySelector(".dock-q").textContent = q.question ?? "";
+  const other = d.querySelector("[data-other]");
+  other.value = v.dock.other[i] ?? "";
+  const n = (q.options ?? []).length;
+  d.querySelector(".dock-keys").textContent = n ? `${n > 1 ? `1–${Math.min(n, 9)}` : "1"} to pick${q.multiSelect ? " (several)" : ""} · Enter to ${i < qs.length - 1 ? "go on" : "answer"}` : "Enter to answer";
+  d.querySelector("[data-dock-answer]").textContent = i < qs.length - 1 ? "Next" : "Answer";
+  drawDockOpts(v);
+}
+function drawDockOpts(v) {
+  const d = v.el.querySelector(".chat-dock"), q = dockQuestions(v)[v.dock.q] ?? {}, picked = v.dock.picks[v.dock.q] ?? [];
+  const role = q.multiSelect ? "checkbox" : "radio";
+  d.querySelector(".dock-opts").innerHTML = (q.options ?? []).map((o, k) => `<button type="button" class="dopt${picked.includes(k) ? " on" : ""}" role="${role}" aria-checked="${picked.includes(k)}" data-o="${k}">
+      <span class="rd ${role}" aria-hidden="true"></span><span class="dopt-t"><b>${esc(o.label)}</b>${o.description ? `<span class="muted">${esc(o.description)}</span>` : ""}</span>${k < 9 ? `<span class="kbd" aria-hidden="true">${k + 1}</span>` : ""}</button>`).join("");
+}
+function dockPick(v, k) {
+  const q = dockQuestions(v)[v.dock.q];
+  if (!q || k < 0 || k >= (q.options ?? []).length) return;
+  const cur = v.dock.picks[v.dock.q] ?? [];
+  v.dock.picks[v.dock.q] = q.multiSelect ? (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]) : [k];
+  v.dock.other[v.dock.q] = "";
+  v.el.querySelector(".chat-dock [data-other]").value = "";
+  drawDockOpts(v);
+}
+// Next question, or all the answers to the agent: your own words over what you picked.
+function dockAnswer(v) {
+  const qs = dockQuestions(v), answer = (i) => (v.dock.other[i] ?? "").trim() || (v.dock.picks[i] ?? []).map((k) => qs[i].options[k].label).join(", ");
+  if (!answer(v.dock.q)) { dockWarn(v, "pick an answer or write your own"); return; }
+  dockWarn(v, "");
+  if (v.dock.q < qs.length - 1) { v.dock.q++; drawDockQuestion(v); return; }
+  const answers = Object.fromEntries(qs.map((q, i) => [q.question, answer(i)]));
+  const b = v.el.querySelector("[data-dock-answer]");
+  b.disabled = true;
+  fetch(`/api/answer?id=${encodeURIComponent(v.id)}&req=${encodeURIComponent(v.dock.req)}`, { method: "POST", body: JSON.stringify(answers) })
+    .then((r) => r.json()).catch(() => ({ ok: false, error: "the answer did not reach Mako" }))
+    .then((r) => { if (r.ok === false) { dockWarn(v, r.error); b.disabled = false; } pollChat(); });
+}
+// The agent's question from the keyboard: 1–9 pick an option, Enter answers. Not while you type somewhere else.
+document.addEventListener("keydown", (e) => {
+  const v = cv, d = v?.el.isConnected && v.el.querySelector(".chat-dock");
+  if (!d || d.hidden || d.dataset.kind !== "ask" || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+  const t = e.target, typing = t.matches?.("input, textarea, select, [contenteditable], [contenteditable] *"), own = t.matches?.("[data-other]");
+  if (/^[1-9]$/.test(e.key) && !typing) { e.preventDefault(); dockPick(v, +e.key - 1); return; }
+  if (e.key === "Enter" && !e.shiftKey && (own || (!typing && !t.closest?.("button, a")))) { e.preventDefault(); dockAnswer(v); }
+});
 // The agent asks: its questions with their options as buttons, and a line for your own answer.
 // A click in the agent's question (askCard): an option picked, or the answers sent to url&req=<its request>, then
 // after(). True when the click was the question's.
@@ -3526,7 +4009,8 @@ function askCard(it) {
   const qs = it.input?.questions ?? [];
   if (it.status !== "asked") {
     const a = it.answers ?? {};
-    return `<div class="perm-done ${it.status}">${it.status === "answered" ? `✓ ${Object.entries(a).map(([q, x]) => `${esc(q)} → <b>${esc(x)}</b>`).join(" · ")}` : `✗ No answer`}</div>`;
+    const ans = Object.entries(a), one = ans.length === 1;
+    return `<div class="perm-done ${it.status}" title="${esc(ans.map(([q, x]) => `${q} → ${x}`).join("\n"))}">${it.status === "answered" ? `✓ Answered: ${ans.map(([q, x]) => one ? `<b>${esc(x)}</b>` : `${esc(q)} → <b>${esc(x)}</b>`).join(" · ")}` : `✗ No answer`}</div>`;
   }
   return `<div class="perm ask-card" data-question="${esc(it.id)}"><div class="perm-h"><b>The agent asks</b></div>
     ${qs.map((q) => `<div class="ask-item" data-q="${esc(q.question)}" data-multi="${q.multiSelect ? 1 : 0}"><div class="ask-text">${q.header ? `<span class="muted">${esc(q.header)} · </span>` : ""}${esc(q.question)}</div>
@@ -3675,8 +4159,12 @@ const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
 else if (location.hash === "#code") newOpen = "code";
+// #chat: a new chat without a task; #chat-<id>: that chat.
+else if (location.hash === "#chat" || location.hash.startsWith("#chat-")) { newOpen = "chat"; freeChat = location.hash.slice(1) === "chat" ? "" : location.hash.slice(1); }
 // #stats: straight to "Stats".
 else if (location.hash === "#stats") statsOpen = true;
+// #stats:cost: straight to a tab of "Stats".
+else if (STATS_TABS.some(([k]) => location.hash === `#stats:${k}`)) { statsOpen = true; statsTab = location.hash.slice(7); }
 // On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
 else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
@@ -3689,6 +4177,7 @@ window.addEventListener("hashchange", () => {
   if (since) return loadDigest(since);
   const id = decodeURIComponent(location.hash.slice(1));
   if (id === "new") return openNewTask();
+  if (id === "chat" || id.startsWith("chat-")) return openFreeChat(id === "chat" ? "" : id);
   if (id && id !== selected) select(id);
 });
 // Back at the board: look at once, so what happened meanwhile shows without waiting for the next poll.

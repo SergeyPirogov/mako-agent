@@ -66,7 +66,7 @@ func (d *Dispatcher) keepImage(id, file string, data []byte) (path, local string
 // Attach keeps a picture you attach to a message for the task's agent: the message names its path (chat.ImageLine)
 // and the agent reads it from there.
 func (d *Dispatcher) Attach(id, name string, data []byte) (path, local string, err error) {
-	if _, ok := d.Store.Get(id); !ok {
+	if _, ok := d.Store.Get(id); !ok && !d.isFreeChat(id) {
 		return "", "", fmt.Errorf("no task %q", id)
 	}
 	if name = safeFile(name); name == "" {

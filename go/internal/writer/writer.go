@@ -74,6 +74,7 @@ var (
 type Spend struct {
 	USD     float64
 	Tokens  int
+	Usage   core.Usage // Tokens by kind
 	Context []core.ContextRun
 }
 
@@ -179,8 +180,8 @@ func (o *output) parse() (text string, spend Spend, ok bool) {
 	if o.result == nil || json.Unmarshal(o.result, &r) != nil {
 		return "", Spend{}, false
 	}
-	u := r.Usage
-	spend = Spend{USD: r.Cost, Tokens: u.Input + u.Output + u.CacheRead + u.CacheCreate}
+	u := core.Usage{Input: r.Usage.Input, Output: r.Usage.Output, CacheRead: r.Usage.CacheRead, CacheCreate: r.Usage.CacheCreate}
+	spend = Spend{USD: r.Cost, Tokens: u.Total(), Usage: u}
 	for _, run := range o.ctx.Runs {
 		run.Window = o.ctx.Window // 0 when the stream did not tell it: answer knows the model
 		spend.Context = append(spend.Context, run)
@@ -454,9 +455,11 @@ func Assess(ctx context.Context, dir, baseBranch string, route core.Route, t cor
 		"Also the size the task came to: \"small\" (a few lines in one place), \"medium\" (several files of one part), or \"big\" (many parts, new subsystems, migrations).",
 		"Base the scores on the task's text and the actual changes, not on what the agent says about itself.",
 		"Answer with JSON only, no code fences, in this shape, each \"why\" one short sentence in " + lang() + ":",
-		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"size":"small","missing":"...","review":{"need":false,"why":"..."}}`,
+		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"size":"small","missing":"...","review":{"need":false,"why":"...","check":"..."}}`,
 		"\"missing\": in " + lang() + ", at most 3 short points on what the description should have said (\"\" when nothing).",
-		"\"review\": your advice to the developer whether a review (by them or a reviewer agent) is worth it before the merge: \"need\" true when the change is risky, subtle or touches what is easy to break, false when it is plain and safe; \"why\" one short sentence in " + lang() + ".",
+		"\"review\": two separate pieces of advice before the merge.",
+		"- \"need\" and \"why\": whether a reviewer agent (another AI that reads the diff) is worth running: true when the code is risky, subtle or touches what is easy to break, false when it is plain and safe; \"why\" one short sentence in " + lang() + " about the code, not about manual checks.",
+		"- \"check\": what the developer should look at themselves before the merge, that neither the tests nor a reviewer reading the diff can tell (how the page looks, a flow to click through, a real service to try), one short sentence in " + lang() + "; \"\" when nothing.",
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
 		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
 		"", "Summary of the work:", orNone(summary),
@@ -484,8 +487,9 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 		Size                                    string
 		Missing                                 json.RawMessage
 		Review                                  *struct {
-			Need bool   `json:"need"`
-			Why  string `json:"why"`
+			Need  bool   `json:"need"`
+			Why   string `json:"why"`
+			Check string `json:"check"`
 		}
 	}
 	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
@@ -498,7 +502,7 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 	}
 	// The advice came later too: an answer without it is still an assessment.
 	if in.Review != nil {
-		a.Review = &core.ReviewAdvice{Need: in.Review.Need, Why: clipTo(strings.TrimSpace(in.Review.Why), 500)}
+		a.Review = &core.ReviewAdvice{Need: in.Review.Need, Why: clipTo(strings.TrimSpace(in.Review.Why), 500), Check: clipTo(strings.TrimSpace(in.Review.Check), 500)}
 	}
 	for _, s := range []struct {
 		in  score

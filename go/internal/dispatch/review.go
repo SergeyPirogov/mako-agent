@@ -80,9 +80,7 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	if _, ok := d.Store.Get(id); !ok {
 		return fmt.Errorf("no such task")
 	}
-	if !d.Live(id) {
-		return fmt.Errorf("the agent is not running: press \"Continue\" first")
-	}
+	// A stopped agent is started again with the request (deliver).
 	text, err := d.request(ctx, id, kind)
 	if err != nil {
 		return err
@@ -168,7 +166,7 @@ func (d *Dispatcher) spending(ctx context.Context, id, phase string) context.Con
 			return
 		}
 		d.Store.Update(id, func(r *core.Record) {
-			r.AddSpend(phase, s.USD, s.Tokens)
+			r.AddSpend(phase, s.USD, s.Usage)
 			if phase == core.PhaseWork { // Mako's notes on the work (summary, MR text): not the agent's context
 				return
 			}
@@ -253,6 +251,12 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok || r.PRURL == "" {
 		return fmt.Errorf("there is no MR")
+	}
+	switch d.ReviewStep(r) {
+	case "running":
+		return fmt.Errorf("the reviewer agent is still reviewing the branch: you can merge once it finishes")
+	case "fixing":
+		return fmt.Errorf("the agent is still fixing the reviewer's remarks: you can merge once it finishes")
 	}
 	desk, err := d.desk(ctx, id)
 	if err != nil {

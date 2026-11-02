@@ -250,6 +250,11 @@ func TestReviewRetry(t *testing.T) {
 	if err := d.ReviewNow(id); err == nil || !strings.Contains(err.Error(), "already reviewing") {
 		t.Fatalf("a second round: %v", err)
 	}
+	// The MR is not merged under the reviewer's eyes.
+	d.Store.Update(id, func(r *core.Record) { r.PRURL = "https://github.com/o/r/pull/1" })
+	if err := d.MergeReview(context.Background(), id); err == nil || !strings.Contains(err.Error(), "still reviewing") {
+		t.Fatalf("merge during a round: %v", err)
+	}
 	d.mu.Lock()
 	delete(d.reviewing, id) // for the cleanup's settle
 	d.mu.Unlock()

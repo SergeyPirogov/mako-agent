@@ -47,7 +47,16 @@ type Route struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 	Why    string `json:"why,omitempty"`
+	// Size, Mode: the task's size and the routes' mode the route came from, for the stats; "" in the table.
+	Size string `json:"size,omitempty"`
+	Mode string `json:"mode,omitempty"`
+	// BaseModel, BaseEffort: an escalated route's own, before it was lifted; "" for one not escalated.
+	BaseModel  string `json:"baseModel,omitempty"`
+	BaseEffort string `json:"baseEffort,omitempty"`
 }
+
+// Escalated: the route was lifted above its own (BaseModel, BaseEffort).
+func (r Route) Escalated() bool { return r.BaseModel != "" || r.BaseEffort != "" }
 
 // Label: "opus · high", "" for none.
 func (r Route) Label() string {

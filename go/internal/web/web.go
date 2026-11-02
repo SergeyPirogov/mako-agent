@@ -187,7 +187,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		reply.Models = core.Models
 		// project: the statistics of one project only (none: all of them).
-		reply.Stats = core.Summarize(core.OfProject(all, r.URL.Query().Get("project")), time.Now(), since)
+		reply.Stats = core.SummarizePriced(core.OfProject(all, r.URL.Query().Get("project")), time.Now(), since, s.D.Config().Prices)
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
 		for _, rec := range all {
@@ -242,6 +242,8 @@ func (s *Server) Handler() http.Handler {
 			snap = c.Snapshot()
 		} else if q, ok := s.D.QuestionChat(id); ok {
 			snap = q // a question asked before Mako restarted: its transcript
+		} else if f, ok := s.D.FreeChatSnapshot(id); ok {
+			snap = f // a chat without a task whose agent is not running
 		} else if t, ok := s.D.TaskChat(id); ok {
 			snap = t // a task whose agent is not running: its conversation so far
 		} else {
@@ -251,6 +253,9 @@ func (s *Server) Handler() http.Handler {
 		if strconv.Itoa(snap.Version) == r.URL.Query().Get("v") {
 			writeJSON(w, map[string]any{"version": snap.Version, "same": true})
 			return
+		}
+		if snap.Plan != nil {
+			snap.WorkMode = dispatch.WorkMode(s.D.Config().Terminal)
 		}
 		writeJSON(w, snap)
 	})
@@ -359,6 +364,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.createRoutes(mux)
 	s.codeRoutes(mux)
+	s.chatRoutes(mux)
 	// Mako's own errors: «На аналіз» opens an issue with them in Mako's repository, «Очистити» forgets them.
 	mux.HandleFunc("POST /api/faults/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
@@ -417,6 +423,10 @@ func (s *Server) Handler() http.Handler {
 			writeJSON(w, map[string]bool{"ok": true})
 			return
 		}
+		if dispatch.IsFreeChat(id) {
+			s.freeChatAction(w, r, action, id)
+			return
+		}
 		if _, ok := s.D.Store.Get(id); !ok {
 			http.Error(w, "no such task", http.StatusNotFound)
 			return
@@ -466,6 +476,12 @@ func (s *Server) Handler() http.Handler {
 			}
 		case "stop":
 			s.D.StopTerminal(id)
+		case "fresh":
+			// «New conversation»: the agent starts over in the same worktree, its full context dropped.
+			if err := s.D.NewConversation(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "say", "permit", "answer", "choose", "interrupt", "view", "mode", "plan":
 			var err error
 			c := s.D.Chats.Get(id)
@@ -477,31 +493,20 @@ func (s *Server) Handler() http.Handler {
 				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
 				err = s.D.Say(id, strings.TrimSpace(string(body)))
 			case action == "plan":
-				// The agent's plan: do=approve, or do=revise with your notes as the body.
-				if r.URL.Query().Get("do") == "approve" {
-					err = s.D.ApprovePlan(id, r.URL.Query().Get("req"))
-				} else {
-					body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
-					err = s.D.RevisePlan(id, r.URL.Query().Get("req"), string(body))
+				do, o := readPlan(r)
+				req := r.URL.Query().Get("req")
+				switch do {
+				case "approve":
+					err = s.D.ApprovePlan(id, req, o)
+				case "revise":
+					err = s.D.RevisePlan(id, req, o.Notes.Text())
+				case "reject":
+					err = s.D.RejectPlan(id, req)
+				default:
+					err = fmt.Errorf("unknown plan action %q", do)
 				}
-			case c == nil:
-				err = fmt.Errorf("the agent is not running")
-			case action == "answer":
-				var answers map[string]string
-				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
-				err = c.Answer(r.URL.Query().Get("req"), answers)
-			case action == "choose":
-				// An option of the agent's question, from a notification's button.
-				option, convErr := strconv.Atoi(r.URL.Query().Get("option"))
-				if err = convErr; err == nil {
-					err = c.Choose(r.URL.Query().Get("req"), option)
-				}
-			case action == "mode":
-				err = c.SetMode(r.URL.Query().Get("to"))
-			case action == "permit":
-				err = c.Permit(r.URL.Query().Get("req"), r.URL.Query().Get("decision"))
 			default:
-				err = c.Interrupt()
+				err = controlChat(c, action, r)
 			}
 			if err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
