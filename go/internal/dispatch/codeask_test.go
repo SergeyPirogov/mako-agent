@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -394,5 +395,39 @@ func TestRemoveQuestion(t *testing.T) {
 	}
 	if err := d.RemoveQuestion("chat-x"); err == nil {
 		t.Fatal("deleted what is not a question")
+	}
+}
+
+// A task made from a question: the chat is marked done with its id, the order of the history stays.
+func TestMarkQuestionDone(t *testing.T) {
+	d, _, _ := setup(t)
+	cfg := *d.Config()
+	cfg.StateDir = t.TempDir()
+	d.Cfg = &cfg
+	key := "grp/app"
+	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
+		return append(all,
+			CodeThread{ID: "ask-one", Project: key, Title: "one", At: 1},
+			CodeThread{ID: "ask-two", Project: key, Title: "two", At: 2})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.MarkQuestionDone("ask-one", " APP-7 "); err != nil {
+		t.Fatal(err)
+	}
+	ts := d.CodeThreads(key)
+	if len(ts) != 2 || ts[0].ID != "ask-two" || ts[0].Ticket != "" || ts[1].ID != "ask-one" || ts[1].Ticket != "APP-7" || ts[1].At != 1 {
+		t.Fatalf("history %+v", ts)
+	}
+	if b, _ := json.Marshal(ts[0]); strings.Contains(string(b), "ticket") {
+		t.Fatalf("an empty ticket is written: %s", b)
+	}
+	if b, _ := json.Marshal(ts[1]); !strings.Contains(string(b), `"ticket":"APP-7"`) {
+		t.Fatalf("the ticket is not written: %s", b)
+	}
+	for _, c := range [][2]string{{"ask-none", "APP-1"}, {"chat-x", "APP-1"}, {"ask-two", "  "}} {
+		if err := d.MarkQuestionDone(c[0], c[1]); err == nil {
+			t.Fatalf("marked %v", c)
+		}
 	}
 }

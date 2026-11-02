@@ -77,6 +77,8 @@
     </div>
   </form>
 </dialog>
+<!-- "Create ticket" / "Make a task" in "Ask about code": the new task form over the chat, which stays open. -->
+<dialog id="ca-ticket-dlg" aria-label="New task"></dialog>
 <script src="/theme.js"></script>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
@@ -1818,14 +1820,13 @@ $("new-pop").onclick = () => newPop(false);
 document.addEventListener("click", (e) => { if (!$("new-pop").hidden && !e.target.closest("#new-pop, #new-menu")) newPop(false); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("new-pop").hidden) { newPop(false); $("new-menu").focus(); } });
 
-function showNewTask() {
-  const targets = newTaskTargets(), several = new Set(targets.map((x) => x.tracker)).size > 1;
+// The new task form, the page's and the dialog's over a chat about code: its markup, and what it does.
+function taskFormHTML(targets, draft) {
+  const several = new Set(targets.map((x) => x.tracker)).size > 1;
   // The project the list is filtered by comes first.
-  const draft = taskDraft; taskDraft = null;
   const first = Math.max(0, draft ? targets.findIndex((x) => x.tracker === draft.tracker && x.project === draft.project) : targets.findIndex((x) => x.project === project));
   const options = targets.map((x, i) => `<option value="${i}" ${i === first ? "selected" : ""}>${esc(x.project)}${several ? ` · ${esc(x.name)} (${esc(x.tracker)})` : ""}</option>`).join("");
-  $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button>
-    <form class="new-form nt-form" id="new-form">
+  return `<form class="new-form nt-form" id="new-form">
       <div class="nt-head">
         <h1>New task</h1>
         <p>It will appear in the tracker, assigned to you, and on the board right away.</p>
@@ -1848,8 +1849,11 @@ function showNewTask() {
         <div class="nt-actions"><button type="button" id="nt-cancel">Cancel</button><button type="submit" class="primary" id="nt-submit">Create</button></div>
       </div>
     </form>`;
-  const close = () => { newOpen = false; render(); };
-  $("back").onclick = $("nt-cancel").onclick = close;
+}
+
+// onCancel: "Cancel"; onCreated(id): the task is made, the form stays as it is for the caller to close.
+function bindTaskForm(targets, draft, { onCancel, onCreated }) {
+  $("nt-cancel").onclick = onCancel;
   if (draft) { $("nt-title").value = draft.title; $("nt-desc").value = draft.desc; }
   const target = () => targets[+$("nt-project").value];
   const fail = (msg) => { $("nt-error").textContent = msg; $("nt-error").hidden = !msg; };
@@ -1874,10 +1878,17 @@ function showNewTask() {
       return fail(res.error || "Could not create the task");
     }
     if (draft?.source) rememberTicket(draft.source, draft.draftTitle, res.id);
-    newOpen = false;
-    await load();
-    select(res.id);
+    onCreated(res.id);
   };
+}
+
+function showNewTask() {
+  const targets = newTaskTargets();
+  const draft = taskDraft; taskDraft = null;
+  $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button>${taskFormHTML(targets, draft)}`;
+  const close = () => { newOpen = false; render(); };
+  $("back").onclick = close;
+  bindTaskForm(targets, draft, { onCancel: close, onCreated: async (id) => { newOpen = false; await load(); select(id); } });
 }
 
 // "Why is there no task?": a link to an issue; Mako checks it the way its search does and says what keeps it away.
@@ -1941,7 +1952,7 @@ async function showCode() {
     <p class="muted ca-sub">The agent works in a separate worktree of the project on main: it reads, searches, and runs tests and builds without asking. Mako does not let it change files or the repository (Edit/Write, git commit/push/checkout/reset, rm…) and does not load MCP servers or permissions from Claude Code settings. The first question prepares the worktree (dependencies), as for a task. It can turn a remark or an idea into a ticket draft.</p>
     <div class="ca-body">
       <aside class="ca-history"><div class="ca-h">Question history</div><div id="ca-threads"></div></aside>
-      <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
+      <div class="chat ca-chat"><div class="ca-done" id="ca-done" hidden></div><div class="chat-list" role="log" aria-live="polite"></div>
         <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
           <textarea rows="2" aria-label="Question about the code" placeholder="E.g.: where do we handle payments? how does the update work? Paste a screenshot with ⌘V"></textarea>
           <div class="chat-row"><span class="spacer"></span>
@@ -2048,7 +2059,9 @@ async function showCode() {
     const tk = e.target.closest("[data-ticket]");
     if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
     const made = e.target.closest("[data-task]");
-    if (made) { e.preventDefault(); code = null; select(made.dataset.task); return; }
+    if (made) { e.preventDefault(); openMadeTask(made.dataset.task); return; }
+    const om = e.target.closest("[data-open-task]");
+    if (om) { openMadeTask(om.dataset.openTask); return; }
     // The agent's question: an option, or your own words.
     if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(code.thread)}`, pollCode)) return;
     const src = e.target.closest("[data-src]");
@@ -2057,21 +2070,15 @@ async function showCode() {
     const t = e.target.closest("[data-toggle]");
     if (t) { if (!code.flip.delete(t.dataset.toggle)) code.flip.add(t.dataset.toggle); renderCode(); }
   };
-  $("ca-threads").onclick = async (e) => {
+  $("ca-threads").onclick = (e) => {
     const x = e.target.closest("[data-ca-remove]");
-    if (x) {
-      e.stopPropagation();
-      const v = code, id = x.dataset.caRemove;
-      const t = v.threads?.find((t) => t.id === id);
-      if (!confirm(`Delete the question "${t?.title ?? ""}" from the history?`)) return;
-      const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
-      if (!r.ok) alert(r.error || "Failed");
-      if (v !== code) return;
-      if (id === v.thread) openThread(""); else loadThreads();
-      return;
-    }
+    if (x) { e.stopPropagation(); removeQuestion(x.dataset.caRemove); return; }
     const b = e.target.closest("[data-thread]");
     if (b) openThread(b.dataset.thread);
+  };
+  $("ca-done").onclick = (e) => {
+    if (e.target.closest("[data-open-task]")) openMadeTask(e.target.closest("[data-open-task]").dataset.openTask);
+    else if (e.target.closest("[data-ca-remove]")) removeQuestion(code.thread);
   };
   code.timer = setInterval(pollCode, 1000);
   openLatest(); loadWorkspace();
@@ -2226,13 +2233,40 @@ function ticketCard(d, i, thread) {
       ${done ? `<button type="button" disabled>Ticket created</button>` : `<button type="button" class="primary" data-ticket="${i}">Create ticket</button>`}</div></div>`;
 }
 
-// "Create ticket": the agent's draft goes to the new task form, to be edited, given a tracker and created.
+// "Create ticket": the agent's draft goes to the new task form over the chat, to be edited, given a tracker and
+// created; the chat stays open. i: the card of the draft, to show the task on it.
 function toTicket(d, i) {
   const p = code.projects.find((x) => x.key === code.project);
-  taskDraft = { source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project };
+  openTicketForm({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project }, i);
+}
+
+// The form over the chat. Once the task is made the chat is marked done with its id.
+function openTicketForm(draft, i) {
+  const v = code, thread = v.thread, dlg = $("ca-ticket-dlg"), targets = newTaskTargets();
+  dlg.innerHTML = taskFormHTML(targets, draft);
+  bindTaskForm(targets, draft, {
+    onCancel: () => dlg.close(),
+    onCreated: async (id) => {
+      dlg.close();
+      await load();
+      if (v !== code) return;
+      const r = thread ? await fetch(`/api/code/done?id=${encodeURIComponent(thread)}&ticket=${encodeURIComponent(id)}`, { method: "POST" })
+        .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message })) : { ok: true };
+      if (v !== code) return;
+      if (!r.ok) toast(`⚠ ${r.error || "Could not mark the chat done"}`, true);
+      renderCode();
+      await loadThreads();
+    },
+  });
+  dlg.showModal();
+  $("nt-title").focus();
+}
+
+// The task made from the chat: the board goes to it, on a click only.
+function openMadeTask(id) {
+  if (code) clearInterval(code.timer);
   code = null;
-  newOpen = "task";
-  render();
+  select(id);
 }
 
 // The project's latest question, to go on with; "New question" starts another.
@@ -2248,15 +2282,38 @@ function openThread(id) {
   renderCode(); loadThreads(); pollCode();
 }
 
+// Delete a question from the history; the open one is closed with it.
+async function removeQuestion(id) {
+  const v = code;
+  const t = v.threads?.find((t) => t.id === id);
+  if (!confirm(`Delete the question "${t?.title ?? ""}" from the history?`)) return;
+  const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+  if (!r.ok) alert(r.error || "Failed");
+  if (v !== code) return;
+  if (id === v.thread) openThread(""); else loadThreads();
+}
+
+// The banner of a done chat: a task was made from it.
+function drawDone() {
+  const box = $("ca-done"), t = code?.threads?.find((x) => x.id === code.thread);
+  if (!box) return;
+  box.hidden = !t?.ticket;
+  if (!t?.ticket) return;
+  box.innerHTML = `<span>✓ Chat finished, task <b>${esc(t.ticket)}</b> created</span><span class="spacer"></span>
+    <button type="button" data-open-task="${esc(t.ticket)}">Open task</button>
+    <button type="button" data-ca-remove="${esc(t.id)}">Delete question</button>`;
+}
+
 async function loadThreads() {
   const v = code;
   const r = await getJSON(`/api/code/threads?project=${encodeURIComponent(v.project)}`);
   if (v !== code || !$("ca-threads")) return;
   v.threads = r.threads ?? [];
-  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}">
-      <span>${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
+  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""} ${t.ticket ? "done" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.ticket ? `${t.title} — task ${t.ticket} created` : t.title)}">
+      <span>${t.ticket ? "✓ " : ""}${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
       <button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button></div>`).join("")
     : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
+  drawDone();
 }
 
 async function pollCode() {
@@ -2286,6 +2343,7 @@ function renderCode() {
   document.querySelector("#code-ask .chat-stop").hidden = s?.state !== "working";
   $("ca-task").hidden = !items.some((it) => it.kind === "text");
   for (const b of document.querySelectorAll("#ca-threads .ca-thread")) b.classList.toggle("on", b.dataset.thread === v.thread);
+  drawDone();
 }
 
 // file:line in the agent's answers (path:12 or path:12-20): links that open the file beside the chat.
@@ -2335,10 +2393,7 @@ function toTask() {
   // The agent's ticket draft is not part of the answer: "Create ticket" is its way to a task.
   const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
     .map((it) => it.kind === "user" ? `**Question:** ${it.text}` : ticketOf(it.text).text.trim()).filter(Boolean).join("\n\n");
-  taskDraft = { title, desc: `${desc}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project };
-  code = null;
-  newOpen = "task";
-  render();
+  openTicketForm({ title, desc: `${desc}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
 // A pasted screenshot goes to the tracker; a placeholder stands in the text until its link comes back.

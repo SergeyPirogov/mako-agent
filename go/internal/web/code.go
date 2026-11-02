@@ -124,7 +124,21 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 			c.Interrupt()
 		}
 		writeJSON(w, map[string]bool{"ok": true})
-	}) // «×» in the history: the question is deleted, its agent stopped.
+	})
+	// A task was made from the question: ?id=<question>&ticket=<task id>; the chat is marked done.
+	mux.HandleFunc("POST /api/code/done", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if !sameOrigin(r) || !dispatch.IsQuestion(id) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if err := s.D.MarkQuestionDone(id, r.URL.Query().Get("ticket")); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	// «×» in the history: the question is deleted, its agent stopped.
 	mux.HandleFunc("POST /api/code/remove", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("id")
 		if !sameOrigin(r) || !dispatch.IsQuestion(id) {

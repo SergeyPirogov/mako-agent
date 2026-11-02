@@ -1319,6 +1319,13 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .ca-ticket-body { max-height: 180px; overflow: auto; font-size: 13px; }
 .ca-ticket-foot { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .ca-ticket-foot button { height: 26px; padding: 0 12px; font-size: 12px; }
+/* A done chat: a task was made from it. */
+.ca-done { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 14px; font-size: 13px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ok) 8%, var(--card)); }
+.ca-done[hidden] { display: none; }
+.ca-done > span:first-child { color: var(--ok); }
+.ca-done button { height: 26px; padding: 0 12px; font-size: 12px; }
+.ca-thread.done > span:first-child { color: var(--mute); }
 .ca-file { min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
 .ca-file[hidden] { display: none; }
 .ca-file-h { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); }
@@ -1391,6 +1398,10 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 }
 
 /* «Повторити інакше» */
+/* The new task form over a chat about code. */
+#ca-ticket-dlg { width: 720px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--fg); }
+#ca-ticket-dlg::backdrop { background: rgb(0 0 0 / .35); }
+#ca-ticket-dlg .nt-form { margin: 0; padding: 20px; }
 #redo { width: 520px; max-width: calc(100vw - 32px); padding: 18px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); }
 #redo::backdrop { background: rgb(0 0 0 / .35); }
 #redo h2 { margin: 0 0 6px; font-size: 16px; }
