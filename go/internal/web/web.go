@@ -250,6 +250,9 @@ func (s *Server) Handler() http.Handler {
 			writeJSON(w, map[string]any{"version": snap.Version, "same": true})
 			return
 		}
+		if snap.Plan != nil {
+			snap.WorkMode = dispatch.WorkMode(s.D.Config().Terminal)
+		}
 		writeJSON(w, snap)
 	})
 	mux.HandleFunc("GET /api/commits", func(w http.ResponseWriter, r *http.Request) {
@@ -480,12 +483,26 @@ func (s *Server) Handler() http.Handler {
 				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
 				err = s.D.Say(id, strings.TrimSpace(string(body)))
 			case action == "plan":
-				// The agent's plan: do=approve, or do=revise with your notes as the body.
-				if r.URL.Query().Get("do") == "approve" {
-					err = s.D.ApprovePlan(id, r.URL.Query().Get("req"))
-				} else {
-					body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
-					err = s.D.RevisePlan(id, r.URL.Query().Get("req"), string(body))
+				// The agent's plan: {do: approve | revise | reject, mode, model, notes: {steps: [{n, title, note}], whole}}; do
+				// may come in the query instead.
+				var in struct {
+					Do, Mode, Model string
+					Notes           chat.PlanNotes
+				}
+				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in)
+				if in.Do == "" {
+					in.Do = r.URL.Query().Get("do") // a notification's button: ?do=approve, no body
+				}
+				req := r.URL.Query().Get("req")
+				switch in.Do {
+				case "approve":
+					err = s.D.ApprovePlan(id, req, dispatch.PlanApproval{Mode: in.Mode, Model: in.Model, Notes: in.Notes})
+				case "revise":
+					err = s.D.RevisePlan(id, req, in.Notes.Text())
+				case "reject":
+					err = s.D.RejectPlan(id, req)
+				default:
+					err = fmt.Errorf("unknown plan action %q", in.Do)
 				}
 			default:
 				err = controlChat(c, action, r)
