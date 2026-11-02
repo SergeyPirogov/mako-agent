@@ -1644,8 +1644,11 @@ function toast(text, bad = false) {
 // The card's buttons: a request to the agent, or the merge.
 async function mrAction(id, action, kind = "") {
   const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
-  const note = res.ok === false || res.error ? `⚠ ${res.error}` : { merge: "MR merged", close: "MR closed without merging" }[action] ?? "Passed to the agent";
-  if (action === "ask") toast(res.ok === false || res.error ? note : "✨ Passed to the agent", res.ok === false || !!res.error);
+  const failed = res.ok === false || !!res.error;
+  const note = failed ? `⚠ ${res.error}` : "";
+  // Success is a toast only: the card header already shows the merged/closed state, so no note under the card.
+  if (failed) { if (action === "ask") toast(note, true); }
+  else toast({ merge: "MR merged", close: "MR closed without merging" }[action] ?? "✨ Passed to the agent");
   // The answer may come once another task is open (a merged task leaves the list): the note is this task's only.
   if (workOf !== id) return;
   mrNote = note;
