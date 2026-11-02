@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
@@ -152,5 +153,18 @@ func TestModelArgs(t *testing.T) {
 		if got := strings.Join(askArgs(c.route), " "); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.route, got, c.want)
 		}
+	}
+}
+
+func TestClipToKeepsCharacters(t *testing.T) {
+	s := strings.Repeat("помилка ", 20)
+	for n := 10; n < 40; n++ {
+		got := clipTo(s, n)
+		if !utf8.ValidString(got) || len(got) > n || !strings.HasSuffix(got, "…") {
+			t.Fatalf("clipTo(%d) = %q", n, got)
+		}
+	}
+	if got := clipTo("коротко", 100); got != "коротко" {
+		t.Fatalf("short text changed: %q", got)
 	}
 }
