@@ -1161,8 +1161,10 @@ function mrCard(r, term) {
     `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
   const open = live && !r.prUrl ? icon(`data-ask="open"`, "Open MR: the agent commits, pushes and opens it", "pr") : "";
   const update = live && r.prUrl && state === "open" ? icon(`data-ask="push"`, "Update MR: the agent commits and pushes what it has done", "push") : "";
-  const merge = c?.state === "open" && !waitCI ? icon("data-merge", c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
-    "merge", c.mergeable ? "ready" : "", !c.mergeable) : "";
+  const fixing = r.reviewStep === "fixing";
+  const merge = c?.state === "open" && !waitCI ? icon("data-merge", fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
+    : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
+    "merge", c.mergeable && !fixing ? "ready" : "", !c.mergeable || fixing) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "open"}</a>` : ""}
