@@ -1370,7 +1370,7 @@ button.link:hover { background: none; text-decoration: underline; }
 .stage-strip .c { width: 20px; height: 20px; border-radius: 50%; flex: none; display: inline-flex; align-items: center; justify-content: center;
   border: 1.5px solid var(--faint); color: var(--card); background: var(--card); box-sizing: border-box; }
 .stage-strip .st b { font-size: 13px; font-weight: 600; white-space: nowrap; }
-.stage-strip .st small { font-size: 12px; color: var(--mute); padding-left: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage-strip .st small { font-size: 12px; color: var(--mute); padding-left: 28px; overflow-wrap: anywhere; }
 .stage-strip .st.done .c { background: var(--ok); border-color: var(--ok); }
 .stage-strip .st.now { background: var(--sel); }
 .stage-strip .st.now .c { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
