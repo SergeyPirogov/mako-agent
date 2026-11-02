@@ -1696,7 +1696,7 @@ function showNewTask() {
   };
 }
 
-// "Report a bug": a form that opens an issue about Mako itself in its GitHub repository.
+// "Report a bug": a form; the report goes to the config's bugReportWebhook, or is copied when none is set.
 $("report-bug").onclick = () => {
   selected = null; statsOpen = false; newOpen = "bug"; digest = null;
   history.replaceState(null, "", location.pathname);
@@ -1706,38 +1706,46 @@ $("report-bug").onclick = () => {
 };
 
 function showBug() {
+  const send = !!data?.bugWebhook;
   $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button>
     <form class="new-form nt-form" id="bug-form">
       <div class="nt-head">
         <h1>Report a bug in Mako</h1>
-        <p>It becomes an issue in the Mako repository on GitHub, under your GitHub account.</p>
+        <p>${send ? "The report goes to the Mako team. No account or token is needed." : "Sending is not set up on this Mac. Write the report, copy it, and pass it on to the Mako team."}</p>
       </div>
       <div class="nt-card">
         <label>Title<input id="bug-title" required maxlength="250" autocomplete="off" placeholder="Briefly: what is broken"></label>
-        <label>Description<textarea id="bug-desc" rows="10" required placeholder="What you did, what you expected, and what happened instead."></textarea>
-          <span class="nt-hint">Markdown</span></label>
+        <label>Description<textarea id="bug-desc" rows="10" required placeholder="What you did, what you expected, and what happened instead."></textarea></label>
         <div class="nt-error" id="bug-error" hidden></div>
-        <div class="notice" id="bug-done" hidden></div>
       </div>
       <div class="nt-foot">
         <span></span>
-        <div class="nt-actions"><button type="button" id="bug-cancel">Cancel</button><button type="submit" class="primary" id="bug-submit">Report</button></div>
+        <div class="nt-actions"><button type="button" id="bug-cancel">Cancel</button><button type="submit" class="primary" id="bug-submit">${send ? "Send" : "Copy report"}</button></div>
       </div>
     </form>`;
   $("back").onclick = $("bug-cancel").onclick = () => { newOpen = false; render(); };
   const fail = (msg) => { $("bug-error").textContent = msg; $("bug-error").hidden = !msg; };
+  const done = (msg) => {
+    $("bug-form").querySelector(".nt-card").innerHTML = `<div class="notice">${esc(msg)}</div>`;
+    $("bug-submit").hidden = true; $("bug-cancel").textContent = "Close";
+  };
   $("bug-form").onsubmit = async (e) => {
     e.preventDefault();
     fail("");
-    $("bug-submit").disabled = true; $("bug-submit").textContent = "Reporting…";
-    const res = await fetch("/api/report-bug", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: $("bug-title").value, description: $("bug-desc").value }) })
+    const title = $("bug-title").value, description = $("bug-desc").value;
+    if (!send) {
+      const text = `Bug in Mako: ${title.trim()}\n\n${description.trim()}\n\nMako ${data?.version || ""}`.trim();
+      try { await navigator.clipboard.writeText(text); } catch { return fail("Could not copy to the clipboard"); }
+      return done("The report is copied. Send it to the Mako team.");
+    }
+    $("bug-submit").disabled = true; $("bug-submit").textContent = "Sending…";
+    const res = await fetch("/api/report-bug", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, description }) })
       .then((r) => r.json()).catch((err) => ({ error: err.message }));
     if (!res.ok) {
-      $("bug-submit").disabled = false; $("bug-submit").textContent = "Report";
-      return fail(res.error || "Could not report the bug");
+      $("bug-submit").disabled = false; $("bug-submit").textContent = "Send";
+      return fail(res.error || "Could not send the report");
     }
-    $("bug-form").querySelector(".nt-card").innerHTML = `<div class="notice">Thank you! The bug is reported: <a href="${esc(res.url)}" target="_blank" rel="noopener noreferrer">${esc(res.url)}</a></div>`;
-    $("bug-submit").hidden = true; $("bug-cancel").textContent = "Close";
+    done("Thank you! The report is sent to the Mako team.");
   };
 }
 

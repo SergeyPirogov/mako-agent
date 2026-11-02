@@ -68,6 +68,7 @@ type stateReply struct {
 	Searches       map[string]dispatch.Search `json:"searches"`
 	Trackers       []trackerView              `json:"trackers"`
 	Problems       []string                   `json:"problems"`
+	BugWebhook     bool                       `json:"bugWebhook"` // "Report a bug" can send the report itself
 	Paused         bool                       `json:"paused"`
 	Agents         map[string]dispatch.Agent  `json:"agents"`
 	Executor       string                     `json:"executor"`            // who gets new tasks: "orca" or "terminal"
@@ -159,6 +160,7 @@ func (s *Server) Handler() http.Handler {
 		now := time.Now().UnixMilli()
 		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
+		reply.BugWebhook = s.D.Config().BugReportWebhook != ""
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		reply.Hold, reply.LimitPct = s.D.LimitHold(), s.D.Config().LimitPausePct
