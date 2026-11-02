@@ -72,6 +72,12 @@
     }
   },
   "defaultExecutor": "terminal",
+  "routes": {
+    "mode": "balanced",
+    "prices": {
+      "opus": { "input": 4, "output": 20, "cacheRead": 0.2, "cacheCreate": 8 }
+    }
+  },
   "trackers": [
     {
       "type": "jira",

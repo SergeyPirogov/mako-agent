@@ -12,11 +12,13 @@ type Price struct {
 // Prices: by model family (ModelFamily).
 type Prices map[string]Price
 
-// DefaultPrices: the list prices of the current model of each family; the config can change them.
+// DefaultPrices: the list prices of the current model of each family (Opus 5.5, Sonnet 5.5, Haiku 5.5 up to 100K
+// tokens of prompt, Fable 5.1), from https://platform.claude.com/docs/en/about-claude/pricing as of 2026-11-02;
+// the config can change them (routes.prices).
 func DefaultPrices() Prices {
 	return Prices{
 		"opus":   {Input: 4, Output: 20, CacheRead: 0.2, CacheCreate: 8},
-		"sonnet": {Input: 2, Output: 10, CacheRead: 0.2, CacheCreate: 4},
+		"sonnet": {Input: 2, Output: 10, CacheRead: 0.1, CacheCreate: 4},
 		"haiku":  {Input: 0.1, Output: 0.5, CacheRead: 0.01, CacheCreate: 0.2},
 		"fable":  {Input: 10, Output: 50, CacheRead: 0.25, CacheCreate: 20},
 	}

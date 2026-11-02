@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -791,17 +793,26 @@ type rawPrice struct {
 	CacheCreate *float64 `json:"cacheCreate"`
 }
 
-// prices: the default prices with the config's changes; a negative price is ignored.
+// prices: the default prices with the config's changes; a negative price, or a model of a family Mako has no
+// price for (nothing would use it), is ignored, with a line in the log.
 func prices(own map[string]rawPrice) core.Prices {
 	p := core.DefaultPrices()
 	for model, r := range own {
 		family := core.ModelFamily(model)
-		pr := p[family]
+		pr, ok := p[family]
+		if !ok {
+			log.Printf("config: routes.prices: %q is no model family Mako prices (%s): ignored", model, strings.Join(slices.Sorted(maps.Keys(p)), ", "))
+			continue
+		}
 		for _, f := range []struct {
 			v   *float64
 			dst *float64
 		}{{r.Input, &pr.Input}, {r.Output, &pr.Output}, {r.CacheRead, &pr.CacheRead}, {r.CacheCreate, &pr.CacheCreate}} {
-			if f.v != nil && *f.v >= 0 {
+			switch {
+			case f.v == nil:
+			case *f.v < 0:
+				log.Printf("config: routes.prices: %q: a negative price is ignored", model)
+			default:
 				*f.dst = *f.v
 			}
 		}

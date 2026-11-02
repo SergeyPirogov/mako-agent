@@ -295,7 +295,10 @@ func TestParsePrices(t *testing.T) {
 	if c.Prices["opus"] != core.DefaultPrices()["opus"] {
 		t.Fatalf("defaults %+v", c.Prices)
 	}
-	c, _ = Parse([]byte(`{"routes":{"prices":{"claude-opus-4-7":{"input":5,"output":25,"cacheRead":-1}}}}`), nil)
+	c, _ = Parse([]byte(`{"routes":{"prices":{"claude-opus-4-7":{"input":5,"output":25,"cacheRead":-1},"gpt-5":{"input":1}}}}`), nil)
+	if _, ok := c.Prices["gpt-5"]; ok || len(c.Prices) != len(core.DefaultPrices()) {
+		t.Fatalf("a family with no price is ignored: %+v", c.Prices)
+	}
 	want := core.DefaultPrices()["opus"]
 	want.Input, want.Output = 5, 25
 	if c.Prices["opus"] != want || c.Prices["sonnet"] != core.DefaultPrices()["sonnet"] {

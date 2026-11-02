@@ -3725,7 +3725,7 @@ else if (location.hash === "#code") newOpen = "code";
 // #stats: straight to "Stats".
 else if (location.hash === "#stats") statsOpen = true;
 // #stats:cost: straight to a tab of "Stats".
-else if (/^#stats:\w+$/.test(location.hash)) { statsOpen = true; statsTab = location.hash.slice(7); }
+else if (STATS_TABS.some(([k]) => location.hash === `#stats:${k}`)) { statsOpen = true; statsTab = location.hash.slice(7); }
 // On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
 else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
 // A link to a task (from a notification or the menu) opens it even when the board is already open.

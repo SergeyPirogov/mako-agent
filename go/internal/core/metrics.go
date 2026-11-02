@@ -50,6 +50,8 @@ type Metrics struct {
 	Routes map[string]Route `json:"routes,omitempty"`
 	// Usage: the tokens by phase by kind, for the price of the same work on another model (Prices).
 	Usage map[string]Usage `json:"usage,omitempty"`
+	// UsageCost: by phase, USD of the calls whose Usage is kept: the part of Cost the what-if compares with.
+	UsageCost map[string]float64 `json:"usageCost,omitempty"`
 }
 
 // Usage: the tokens of model calls by kind, as Claude Code reports them.
@@ -76,6 +78,7 @@ func (m *Metrics) clone() *Metrics {
 	c := *m
 	c.Seconds, c.Cost, c.Tokens = maps.Clone(m.Seconds), maps.Clone(m.Cost), maps.Clone(m.Tokens)
 	c.Context, c.Routes, c.Usage = slices.Clone(m.Context), maps.Clone(m.Routes), maps.Clone(m.Usage)
+	c.UsageCost = maps.Clone(m.UsageCost)
 	return &c
 }
 
@@ -153,6 +156,12 @@ func (r *Record) AddSpend(phase string, usd float64, u Usage) {
 			m.Usage = map[string]Usage{}
 		}
 		m.Usage[phase] = m.Usage[phase].Add(u)
+		if usd > 0 {
+			if m.UsageCost == nil {
+				m.UsageCost = map[string]float64{}
+			}
+			m.UsageCost[phase] += usd
+		}
 	}
 }
 

@@ -104,6 +104,19 @@ func routeKind(route Route) (size, mode string) {
 	return size, mode
 }
 
+// ownRoute: the model and the effort the task's phase is counted under: an escalated one's own, from before it
+// was lifted, so a task that failed on a route counts against that route and not the one it was lifted to. A
+// route escalated before its own was kept (only Why says so) cannot be told: not counted (ok false).
+func ownRoute(route Route) (model, effort string, ok bool) {
+	switch {
+	case route.Escalated():
+		return route.BaseModel, route.BaseEffort, true
+	case strings.Contains(route.Why, "escalated:"):
+		return "", "", false
+	}
+	return route.Model, route.Effort, true
+}
+
 func (s *routeStats) add(r Record) {
 	failed := r.Status == Failed || r.Status == Cancelled || r.ReviewState == "closed"
 	merged := r.Status == Done && r.ReviewState == "merged"
@@ -142,8 +155,12 @@ func (s *routeStats) add(r Record) {
 		return
 	}
 	for phase, route := range m.Routes {
+		model, effort, ok := ownRoute(route)
+		if !ok {
+			continue
+		}
 		size, _ := routeKind(route)
-		key := RouteGroup{Phase: phase, Size: size, Model: ModelFamily(route.Model), Effort: route.Effort}
+		key := RouteGroup{Phase: phase, Size: size, Model: ModelFamily(model), Effort: effort}
 		if key.Size == "" {
 			key.Size = "—"
 		}
@@ -192,14 +209,15 @@ func (s *routeStats) add(r Record) {
 			g.Clean++
 		}
 	}
-	// What-if: only the phases whose tokens are known by kind, against what the same phases cost.
+	// What-if: only the calls whose tokens are known by kind, against what the same calls cost (UsageCost: a
+	// phase's Cost also has the calls from before the tokens were kept by kind).
 	counted := false
 	for phase, u := range m.Usage {
 		if u.Total() == 0 {
 			continue
 		}
 		counted = true
-		s.actual += m.Cost[phase]
+		s.actual += m.UsageCost[phase]
 		for _, model := range WhatIfModels {
 			s.whatIf[model] += s.prices.Cost(model, u)
 		}

@@ -20,14 +20,20 @@ func TestSummarizeRoutes(t *testing.T) {
 	}
 	u := Usage{Input: 1_000_000, Output: 100_000, CacheRead: 2_000_000, CacheCreate: 200_000}
 	a := merged(10, &Metrics{Routes: map[string]Route{PhaseWork: work("small", "sonnet", "medium", ModeBalanced), PhaseEstimate: work("small", "haiku", "medium", ModeBalanced)},
-		Cost: map[string]float64{PhaseWork: 2, PhaseEstimate: 0.1}, Usage: map[string]Usage{PhaseWork: u}})
-	b := merged(30, &Metrics{Routes: map[string]Route{PhaseWork: work("small", "claude-sonnet-5-5", "medium", ModeBalanced)}, Cost: map[string]float64{PhaseWork: 4}})
+		Cost: map[string]float64{PhaseWork: 2.5, PhaseEstimate: 0.1}, Usage: map[string]Usage{PhaseWork: u}, UsageCost: map[string]float64{PhaseWork: 2}})
+	b := merged(30, &Metrics{Routes: map[string]Route{PhaseWork: work("small", "claude-sonnet-5-5", "medium", ModeBalanced)}, Cost: map[string]float64{PhaseWork: 3.5}})
 	b.ReviewFixes = 1 // not a first pass
+	// c and d were lifted from opus · high: they count there, not under the route they were lifted to.
+	lifted := work("big", "opus", "max", ModeQuality)
+	lifted.BaseModel, lifted.BaseEffort = "opus", "high"
 	c := Record{Status: Failed, StartedAt: "2026-10-01T10:00:00Z", Escalation: 2, EscalatedFor: []string{"CI red ×2", "retry"},
-		Metrics: &Metrics{Routes: map[string]Route{PhaseWork: work("big", "opus", "high", ModeQuality)}}}
+		Metrics: &Metrics{Routes: map[string]Route{PhaseWork: lifted}}}
 	d := merged(20, &Metrics{Routes: map[string]Route{PhaseWork: work("big", "opus", "high", ModeQuality)}})
 	d.Escalation, d.EscalatedFor = 2, []string{"CI red ×2", "CI red ×2"}
-	st := Summarize([]Record{a, b, c, d, {Status: Done, StartedAt: "2026-10-01T10:00:00Z"}}, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), time.Time{})
+	d.Metrics.Routes[PhaseWork] = lifted
+	// Escalated before the route kept its own: which route it failed on is unknown, so it is not in the table.
+	old := Record{Status: Failed, StartedAt: "2026-10-01T10:00:00Z", Metrics: &Metrics{Routes: map[string]Route{PhaseWork: {Model: "opus", Effort: "xhigh", Why: "big, escalated: retry"}}}}
+	st := Summarize([]Record{a, b, c, d, old, {Status: Done, StartedAt: "2026-10-01T10:00:00Z"}}, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), time.Time{})
 
 	if len(st.Routes) != 3 {
 		t.Fatalf("routes %+v", st.Routes)
@@ -39,7 +45,7 @@ func TestSummarizeRoutes(t *testing.T) {
 	if small != (RouteGroup{Phase: PhaseWork, Size: "small", Model: "sonnet", Effort: "medium", Taken: 2, Succeeded: 2, Ended: 2, Clean: 1, Cost: 3, Priced: 2, MedianSeconds: 1200}) {
 		t.Fatalf("small work %+v", small)
 	}
-	if big.Size != "big" || big.Model != "opus" || big.Taken != 2 || big.Ended != 2 || big.Clean != 1 || big.Priced != 0 || big.MedianSeconds != 1200 {
+	if big.Size != "big" || big.Model != "opus" || big.Effort != "high" || big.Taken != 2 || big.Ended != 2 || big.Clean != 1 || big.Priced != 0 || big.MedianSeconds != 1200 {
 		t.Fatalf("big work %+v", big)
 	}
 
@@ -51,12 +57,13 @@ func TestSummarizeRoutes(t *testing.T) {
 		t.Fatalf("reasons %+v", e.Reasons)
 	}
 
-	// Only a's work has tokens by kind: opus 1M×4 + 0.1M×20 + 2M×0.2 + 0.2M×8 = 8; sonnet 2 + 1 + 0.4 + 0.8 = 4.2.
-	if st.WhatIfTasks != 1 || st.WhatIfActual != 2 || !near(st.WhatIf["opus"], 8) || !near(st.WhatIf["sonnet"], 4.2) {
+	// Only a's work has tokens by kind: opus 1M×4 + 0.1M×20 + 2M×0.2 + 0.2M×8 = 8; sonnet 2 + 1 + 0.2 + 0.8 = 4.
+	// Its actual is the $2 of those calls, not the phase's $2.5 with the calls from before.
+	if st.WhatIfTasks != 1 || st.WhatIfActual != 2 || !near(st.WhatIf["opus"], 8) || !near(st.WhatIf["sonnet"], 4) {
 		t.Fatalf("what-if %v of %v over %d", st.WhatIf, st.WhatIfActual, st.WhatIfTasks)
 	}
 
-	if len(st.Modes) != 2 || st.Modes[0].Mode != ModeBalanced || st.Modes[0].Taken != 2 || st.Modes[1].Mode != ModeQuality || st.Modes[1].Clean != 1 {
+	if len(st.Modes) != 2 || st.Modes[0].Mode != ModeBalanced || st.Modes[0].Taken != 3 || st.Modes[1].Mode != ModeQuality || st.Modes[1].Taken != 2 {
 		t.Fatalf("modes %+v", st.Modes)
 	}
 }
@@ -89,7 +96,8 @@ func TestAddSpendUsage(t *testing.T) {
 	var r Record
 	r.AddSpend(PhaseWork, 1, Usage{Input: 10, Output: 5})
 	r.AddSpend(PhaseWork, 1, Usage{CacheRead: 100, CacheCreate: 1})
-	if r.Metrics.Usage[PhaseWork] != (Usage{Input: 10, Output: 5, CacheRead: 100, CacheCreate: 1}) || r.Metrics.Tokens[PhaseWork] != 116 {
+	r.AddSpend(PhaseWork, 0.5, Usage{}) // no tokens by kind: not in UsageCost
+	if r.Metrics.Usage[PhaseWork] != (Usage{Input: 10, Output: 5, CacheRead: 100, CacheCreate: 1}) || r.Metrics.Tokens[PhaseWork] != 116 || r.Metrics.UsageCost[PhaseWork] != 2 {
 		t.Fatalf("%+v %v", r.Metrics.Usage, r.Metrics.Tokens)
 	}
 }
@@ -107,5 +115,19 @@ func TestRouteKind(t *testing.T) {
 	}
 	if size, mode := routeKind(Route{Size: "small", Mode: ModeQuality, Why: "big"}); size != "small" || mode != ModeQuality {
 		t.Errorf("own fields: %q %q", size, mode)
+	}
+}
+
+// The what-if is at the prices given (the config's), not the defaults.
+func TestSummarizePricedPrices(t *testing.T) {
+	r := Record{Status: Done, StartedAt: "2026-10-01T10:00:00Z", Metrics: &Metrics{Usage: map[string]Usage{PhaseWork: {Input: 1_000_000, Output: 1_000_000}}, UsageCost: map[string]float64{PhaseWork: 1}}}
+	now := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	p := DefaultPrices()
+	p["opus"] = Price{Input: 5, Output: 25}
+	if st := SummarizePriced([]Record{r}, now, time.Time{}, p); !near(st.WhatIf["opus"], 30) || !near(st.WhatIf["sonnet"], 12) {
+		t.Fatalf("config prices %v", st.WhatIf)
+	}
+	if st := Summarize([]Record{r}, now, time.Time{}); !near(st.WhatIf["opus"], 24) {
+		t.Fatalf("default prices %v", st.WhatIf)
 	}
 }
