@@ -1,0 +1,66 @@
+/* Sidebar prototype: on top of style.css, nothing else changes. */
+.side { display: flex; flex-direction: column; }
+/* 1. Top: filter + "+" in one row; the select only when there are projects or an archive */
+.p-top { order: 1; flex: none; display: flex; gap: 6px; padding: 8px 8px 6px; }
+.p-find { flex: 1; min-width: 0; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--faint); }
+.p-find:focus-within { border-color: var(--accent); }
+.p-find input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 13px; color: var(--fg); padding: 0; height: 28px; }
+.p-plus { flex: none; width: 30px; height: 30px; padding: 0; border-radius: 8px; font-size: 18px; line-height: 1; font-weight: 500; }
+#new-task-bar { display: none; }
+.filter { order: 2; padding: 0 8px 8px; border-bottom: 0; }
+.filter input#q { display: none; }
+.p-scope { position: relative; align-self: stretch; display: flex; align-items: center; height: 30px; padding: 0 26px 0 10px; border: 1px solid var(--line); border-radius: 8px; background-color: var(--card);
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%236f7277' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  font-size: 13px; font-weight: 500; color: var(--fg); }
+.p-scope[hidden] { display: none; }
+.p-scope:hover { background-color: var(--hover); }
+.p-scope:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.p-scope select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 12.5px; }
+.p-top + .filter[hidden] ~ #list, .p-top { border-bottom: 0; }
+#list { order: 3; flex: 1; padding-top: 4px; border-top: 1px solid var(--line); }
+/* 2. Footer: when the trackers were checked, check now, pause, "?" */
+.side-bar { order: 4; height: 34px; border-bottom: 0; border-top: 1px solid var(--line); }
+.p-why { width: 26px; height: 26px; padding: 0; font-weight: 600; color: var(--mute); }
+/* 3. Groups: what is moving first, the quiet ones last; headings in sentence case */
+#list { display: flex; flex-direction: column; }
+.group-box:has(> [data-col="doing"]) { order: 1; }
+.group-box:has(> [data-col="blocked"]) { order: 2; }
+.group-box:has(> [data-col="review"]) { order: 3; }
+.group-box:has(> [data-col="forme"]) { order: 4; }
+.group-box:has(> [data-col="new"]) { order: 5; }
+.group-box:has(> [data-col="failed"]) { order: 6; }
+.group-box:has(> [data-col="later"]) { order: 7; }
+.group-box:has(> [data-col="done"]) { order: 8; }
+.group { text-transform: none; letter-spacing: 0; font-size: 12px; height: 32px; padding: 0 12px 0 8px; align-items: center; }
+.group .chev { margin-top: 0; }
+.group .n { margin-left: auto; font-weight: 500; }
+/* 4. Rows: the title in two lines at most, one quiet meta line, the time on the right */
+.item { min-height: 0; padding: 7px 12px 8px; gap: 4px; }
+.item .t { font-size: 13px; line-height: 17px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.item .tracker-mark { display: none; }
+.item .m { gap: 6px; }
+.item .m > .say { flex: 0 1 auto; }
+.item .ago { margin-left: auto; color: var(--faint); }
+/* 5. Group by project */
+.p-grp { flex: none; width: 30px; height: 30px; border-radius: 8px; color: var(--mute); }
+.p-grp.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+.p-proj { display: block; padding-bottom: 6px; }
+.p-proj + .p-proj { border-top: 1px solid var(--line); }
+.p-ph { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; width: 100%; height: 34px; padding: 0 12px 0 8px; border: 0; border-radius: 0; background: var(--bg); color: var(--fg); font-size: 12.5px; min-width: 0; text-align: left; }
+.p-ph:hover { background: var(--hover); }
+.p-ph .chev { flex: none; color: var(--faint); transition: transform .15s; }
+.p-proj.folded .p-ph .chev { transform: rotate(-90deg); }
+.p-proj.folded { padding-bottom: 0; }
+.p-ph .p-sum { color: var(--mute); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.p-ph b { font-weight: 600; white-space: nowrap; }
+.p-ph .p-path { color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.p-ph .n { margin-left: auto; color: var(--faint); font-weight: 500; flex: none; }
+.p-dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.p-none { padding: 2px 12px 6px; font-size: 12px; color: var(--faint); }
+.p-quiet { display: flex; align-items: center; gap: 4px; width: 100%; height: 28px; padding: 0 12px 0 8px; border: 0; border-radius: 0; background: none; font-size: 12px; color: var(--mute); text-align: left; }
+.p-quiet .chev { transform: rotate(-90deg); transition: transform .15s; }
+.p-quiet.open .chev { transform: none; }
+.p-quiet:hover { color: var(--fg); background: none; }
+.p-sub { display: flex; align-items: center; gap: 6px; height: 24px; padding: 4px 12px 0 26px; font-size: 11.5px; color: var(--mute); }
+.p-sub i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.p-quiet .n { margin-left: auto; color: var(--faint); font-weight: 500; }
