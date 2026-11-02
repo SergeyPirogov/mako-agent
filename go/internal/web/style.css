@@ -1454,8 +1454,8 @@ details.more > summary.icon { padding: 0; width: 34px; height: 32px; justify-con
 button.link { border: 0; background: none; padding: 0; color: var(--accent); font-size: 13px; }
 button.link:hover { background: none; text-decoration: underline; }
 
-.stage-strip { display: flex; align-items: flex-start; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 4px; margin: 14px 0; }
-.stage-strip .st { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 0; border-radius: 10px; background: none; text-align: left; color: var(--fg); }
+.stage-strip { display: flex; align-items: flex-start; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 6px; margin: 14px 0; }
+.stage-strip .st { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 0 10px 12px; border: 0; border-radius: 10px; background: none; text-align: left; color: var(--fg); }
 .stage-strip .st:hover { background: var(--hover); }
 .stage-strip .st:active { transform: none; }
 .stage-strip .st.open { box-shadow: inset 0 0 0 1px var(--line); }
@@ -1467,7 +1467,13 @@ button.link:hover { background: none; text-decoration: underline; }
 /* a line each: what (the model, the state), then the time and the cost, quieter */
 .stage-strip .st small .ln.m { font-size: 11.5px; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--mute) 75%, transparent); }
 .stage-strip .st.done .c { background: var(--ok); border-color: var(--ok); }
-.stage-strip .st.now { background: var(--sel); }
+.stage-strip .st:last-child { padding-right: 12px; }
+/* the track: a line from each step to the next, green as far as the work got */
+.stage-strip .tr { flex: 1; min-width: 10px; height: 2px; border-radius: 1px; background: var(--line); margin-left: 4px; }
+.stage-strip .st:last-child .tr { display: none; }
+.stage-strip .st.done .tr, .stage-strip .st.skip:has(~ .st.done, ~ .st.now, ~ .st.fail) .tr { background: var(--ok); }
+.stage-strip .st.now .tr { background: linear-gradient(90deg, var(--accent), var(--line)); }
+.stage-strip .st.now b { color: var(--accent); }
 .stage-strip .st.now .c { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 .stage-strip .st.now .c i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .stage-strip .st.todo b { color: var(--mute); }
@@ -1475,7 +1481,6 @@ button.link:hover { background: none; text-decoration: underline; }
 .stage-strip .st.fail small { color: var(--err); }
 .stage-strip .st.skip .c { border-style: dashed; }
 .stage-strip .st.skip b, .stage-strip .st.skip small { color: var(--faint); }
-.stage-strip .sep { flex: none; width: 14px; height: 1.5px; background: var(--line); margin-top: 21px; }
 .stage-more { margin: -6px 0 14px; }
 .stage-more > .mr-card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); margin-bottom: 12px; }
 
