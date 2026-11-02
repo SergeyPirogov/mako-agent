@@ -55,7 +55,7 @@ func TestWantsPlan(t *testing.T) {
 	if !wantsPlan(config.Terminal{PlanFirst: "never"}, small, nil, true) {
 		t.Error("a plan picked on the card")
 	}
-	if workMode(config.Terminal{PermissionMode: "acceptEdits"}) != "acceptEdits" || workMode(config.Terminal{PermissionMode: "plan"}) != "auto" {
+	if WorkMode(config.Terminal{PermissionMode: "acceptEdits"}) != "acceptEdits" || WorkMode(config.Terminal{PermissionMode: "plan"}) != "auto" {
 		t.Error("work mode")
 	}
 }

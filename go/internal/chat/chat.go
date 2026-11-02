@@ -72,6 +72,10 @@ type Snapshot struct {
 	Turns    []Turn    `json:"turns"`
 	Progress *Progress `json:"progress,omitempty"`
 	Turn     TurnStat  `json:"turn"`
+	// Plan: the plan the agent waits to have approved, in steps.
+	Plan *PlanDoc `json:"plan,omitempty"`
+	// WorkMode: the mode the plan's work goes on in unless you pick another (set by Mako, not the session).
+	WorkMode string `json:"workMode,omitempty"`
 }
 
 type Options struct {
@@ -647,20 +651,48 @@ func (s *Session) Answer(requestID string, answers map[string]string) error {
 const PlanTool = "ExitPlanMode"
 
 // ApprovePlan accepts the agent's plan (ExitPlanMode) and lets it work in mode, as approving a plan in
-// Claude Code's terminal does.
-func (s *Session) ApprovePlan(requestID, mode string) error {
+// Claude Code's terminal does. model: the model to work with ("" keeps the one it has); notes: what you add to the
+// plan, which the agent reads as your message once it goes on.
+func (s *Session) ApprovePlan(requestID, mode, model, notes string) error {
+	notes = strings.TrimSpace(notes)
 	s.mu.Lock()
 	input, ok := s.pending[requestID]
+	same := model == "" || model == s.model
 	s.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("this plan was already answered")
 	}
 	resp := map[string]any{"behavior": "allow", "updatedInput": input,
 		"updatedPermissions": []map[string]any{{"type": "setMode", "mode": mode, "destination": "session"}}}
-	if err := s.reply(requestID, resp, func(it *Item) { it.Status = "approved" }); err != nil {
+	if err := s.reply(requestID, resp, func(it *Item) { it.Status, it.Text = "approved", notes }); err != nil {
 		return err
 	}
-	return s.SetMode(mode)
+	if err := s.SetMode(mode); err != nil {
+		return err
+	}
+	if !same {
+		if err := s.SetModel(model); err != nil {
+			return err
+		}
+	}
+	if notes != "" {
+		return s.Send(planNotes + "\n\n" + notes)
+	}
+	return nil
+}
+
+const planNotes = "The plan is approved. Notes from the developer to take into account while carrying it out:"
+
+// RejectPlan turns the agent's plan down: it does not carry it out and waits for what you say next.
+func (s *Session) RejectPlan(requestID string) error {
+	s.mu.Lock()
+	_, ok := s.pending[requestID]
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("this plan was already answered")
+	}
+	resp := map[string]any{"behavior": "deny", "message": "The developer rejected the plan: do not carry it out, change nothing; stop and wait for instructions."}
+	return s.reply(requestID, resp, func(it *Item) { it.Status = "denied" })
 }
 
 // RevisePlan sends the plan back with your notes: the agent stays in plan mode and offers a new one.
@@ -807,6 +839,23 @@ func (s *Session) SetMode(mode string) error {
 	return nil
 }
 
+// SetModel changes the model the agent works with from its next request, as /model does in its terminal.
+func (s *Session) SetModel(model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return fmt.Errorf("no model")
+	}
+	if err := s.write(map[string]any{"type": "control_request", "request_id": randomID(), "request": map[string]any{"subtype": "set_model", "model": model}}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.model = model
+	s.version++
+	s.mu.Unlock()
+	s.changed()
+	return nil
+}
+
 // Interrupt stops the agent's current step, as Esc does in its terminal; the conversation goes on.
 func (s *Session) Interrupt() error {
 	return s.write(map[string]any{"type": "control_request", "request_id": randomID(), "request": map[string]any{"subtype": "interrupt"}})
@@ -862,6 +911,14 @@ func (s *Session) Snapshot() Snapshot {
 // worktree: where the conversation is held, for relative paths ("" when not known).
 func Drawn(snap Snapshot, worktree string) Snapshot {
 	snap.Turns, snap.Progress, snap.Turn = Group(snap.Items, worktree), ProgressOf(snap.Items), statOf(snap.Items)
+	for _, it := range snap.Items {
+		if it.Kind == "permission" && it.Tool == PlanTool && it.Status == "asked" {
+			var in struct{ Plan string }
+			json.Unmarshal(it.Input, &in)
+			doc := ParsePlan(in.Plan)
+			snap.Plan = &doc
+		}
+	}
 	return snap
 }
 

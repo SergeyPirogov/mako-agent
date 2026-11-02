@@ -237,6 +237,13 @@ read answer
 echo "$answer" > approve.json
 read mode
 echo "$mode" > mode.json
+read model
+echo "$model" > model.json
+read notes
+echo "$notes" > notes.json
+echo '{"type":"control_request","request_id":"p3","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Інший план"}}}'
+read answer
+echo "$answer" > reject.json
 echo '{"type":"result","subtype":"success","duration_ms":10,"total_cost_usd":0.01}'
 read more
 `
@@ -271,7 +278,7 @@ func TestPlan(t *testing.T) {
 		t.Fatalf("revise %s", b)
 	}
 	asked("p2")
-	if err := s.ApprovePlan("p2", "acceptEdits"); err != nil {
+	if err := s.ApprovePlan("p2", "acceptEdits", "opus", "Step 1: і про README"); err != nil {
 		t.Fatal(err)
 	}
 	if b := read("approve.json"); !strings.Contains(b, `"behavior":"allow"`) || !strings.Contains(b, `"setMode"`) || !strings.Contains(b, `"plan":"1. Зробити й протестувати"`) {
@@ -280,8 +287,21 @@ func TestPlan(t *testing.T) {
 	if b := read("mode.json"); !strings.Contains(b, `"set_permission_mode"`) || !strings.Contains(b, `"acceptEdits"`) {
 		t.Fatalf("mode %s", b)
 	}
-	if s.ApprovePlan("p2", "acceptEdits") == nil {
+	if b := read("model.json"); !strings.Contains(b, `"set_model"`) || !strings.Contains(b, `"opus"`) {
+		t.Fatalf("model %s", b)
+	}
+	if b := read("notes.json"); !strings.Contains(b, `"type":"user"`) || !strings.Contains(b, "Step 1: і про README") {
+		t.Fatalf("notes %s", b)
+	}
+	if s.ApprovePlan("p2", "acceptEdits", "", "") == nil {
 		t.Fatal("approved twice")
+	}
+	asked("p3")
+	if err := s.RejectPlan("p3"); err != nil {
+		t.Fatal(err)
+	}
+	if b := read("reject.json"); !strings.Contains(b, `"behavior":"deny"`) || !strings.Contains(b, "rejected the plan") {
+		t.Fatalf("reject %s", b)
 	}
 	snap := s.Snapshot()
 	var got []string
@@ -290,7 +310,7 @@ func TestPlan(t *testing.T) {
 			got = append(got, it.ID+":"+it.Status+":"+it.Text)
 		}
 	}
-	if strings.Join(got, " ") != "p1:revised:Додай тести p2:approved:" || snap.Mode != "acceptEdits" {
+	if strings.Join(got, " ") != "p1:revised:Додай тести p2:approved:Step 1: і про README p3:denied:" || snap.Mode != "acceptEdits" || snap.Model != "opus" {
 		t.Fatalf("items %v mode %q", got, snap.Mode)
 	}
 }
