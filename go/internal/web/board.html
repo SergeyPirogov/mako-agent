@@ -1253,9 +1253,11 @@ function mrCard(r, term) {
   else if (!c) rows = `<div class="muted mr-none">Checking the MR…</div>`;
   else if (c.state === "open") {
     if (c.ci) {
-      // The state on the right of the head ("running", a link to the pipeline), the jobs under it; no line repeating "CI".
+      // The state on the right of the head (the jobs passed, in the state's colour, a link to the pipeline), the jobs under it; no line repeating "CI".
       const [icon, text] = CI[c.ci] ?? ["run", `CI: ${c.ci}`], word = text.replace(/^CI:? /, "");
-      const head = `<a class="ci-st ${icon}" href="${esc(c.ciUrl || "#")}" target="_blank" rel="noopener" title="Open the pipeline">${esc(word)}</a>`;
+      // "1/2": the jobs passed of all of them (an allowed failure counts as passed); the word when there are none.
+      const jobs = c.jobs || [], passed = jobs.filter((j) => j.status === "success" || j.status === "failed" && j.allowFailure).length;
+      const head = `<a class="ci-st ${icon}" href="${esc(c.ciUrl || "#")}" target="_blank" rel="noopener" title="${esc(text)}: ${jobs.length ? `${passed} of ${jobs.length} jobs passed · ` : ""}open the pipeline">${jobs.length ? `${passed}/${jobs.length}` : esc(word)}</a>`;
       const body = (jobsHTML(c.jobs) || row(icon, text, c.ciUrl)) + (c.ci === "failed" && c.failed.length ? `<div class="mr-actions">${fix("ci", "The agent will fix CI in the terminal")}</div>` : "");
       rows += `<div class="mr-sec"><div class="mr-sec-h"><span class="files-h-t">CI</span>${head}</div>${body}</div>`;
     } else rows += sec("CI", row("idle", "No CI"));
