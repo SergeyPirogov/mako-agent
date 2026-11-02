@@ -2578,7 +2578,7 @@ function faultsHTML(fs) {
   const fresh = fs.filter((f) => !f.reported).length;
   const at = (t) => new Date(t).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const link = (u) => /^https?:/.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : esc(u);
-  const row = (f) => `<div class="fault${f.reported ? " reported" : ""}"><b class="fault-n" title="${f.count} ${plural(f.count, "time", "times", "times")}">${f.count}×</b>`
+  const row = (f) => `<div class="fault-row${f.reported ? " reported" : ""}"><b class="fault-n" title="${f.count} ${plural(f.count, "time", "times", "times")}">${f.count}×</b>`
     + `<div class="fault-main"><div class="fault-top"><b>${esc(f.what)}</b><span class="muted">${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span>`
     + (f.reported ? `<span class="badge ok" title="Under analysis">under analysis</span>` : "") + `</div>`
     + `<div class="fault-text" title="${esc(f.error)}">${esc(f.error)}</div>`

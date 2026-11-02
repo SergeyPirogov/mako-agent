@@ -354,9 +354,9 @@ a.link-row:hover { background: var(--hover); }
 .faults .actions { display: flex; gap: 6px; margin: 0 0 0 8px; }
 .faults .actions button { height: 28px; padding: 0 12px; font-size: 13px; }
 .fault-list { display: flex; flex-direction: column; }
-.fault { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px solid var(--hover); }
+.fault-row { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-top: 1px solid var(--hover); }
 .fault-n { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--err); padding-top: 1px; }
-.fault.reported .fault-n { color: var(--mute); }
+.fault-row.reported .fault-n { color: var(--mute); }
 .fault-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .fault-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-size: 13.5px; }
 .fault-top .muted { font-size: 12.5px; }
@@ -364,7 +364,7 @@ a.link-row:hover { background: var(--hover); }
 .fault-text { font: 12px/1.5 var(--mono); color: var(--mute); padding: 8px 10px; border-radius: 8px; background: var(--hover); max-height: 96px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
 .fault-issue { font-size: 12.5px; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
-  .fault { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .fault-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .faults .actions { margin: 0; width: 100%; }
 }
 .icon-btn.fault { position: relative; }
