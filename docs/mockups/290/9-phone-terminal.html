@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent terminal on a phone</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.tab{font-size:14px;padding:14px 4px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.t{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.55;color:#e6e6e6;white-space:pre-wrap;word-break:break-word}
+.dk{font:inherit;font-size:13px;height:40px;min-width:44px;padding:0 10px;border-radius:8px;border:1px solid #33363d;background:#22252b;color:#e6e6e6;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.g{color:#4cc27f}.c{color:#6b9bff}.d{color:#8b8f97}.w{color:#fff}.y{color:#e5a23b}
+</style>
+
+<div class="b" style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden">
+  <div style="display:flex;align-items:center;gap:10px;height:52px;border-bottom:1px solid #e7e7e4;padding:0 16px;flex:none">
+    <a href="#" style="font-size:15px">← Tasks</a>
+    <span style="flex:1"></span>
+    <span class="tab">Task</span>
+    <span class="tab on">Agent</span>
+  </div>
+
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:#14161b">
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#1b1d22;border-bottom:1px solid #26282c;font-size:12.5px;color:#c9cbd0">
+      <span style="width:8px;height:8px;border-radius:50%;background:#6b9bff"></span><b style="font-weight:600;color:#fff">Working</b><span>· 6 min · $0.84 · 3/6</span>
+      <span style="flex:1"></span>
+      <span style="display:inline-flex;padding:2px;border-radius:7px;background:#22252b;font-size:12px"><span style="padding:2px 8px;color:#9b9ea4">Chat</span><span style="padding:2px 8px;border-radius:5px;background:#33363d;color:#fff">Term</span></span>
+    </div>
+
+    <div style="flex:1;min-height:0;padding:10px 12px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end">
+<div class="t"><span class="g">⏺</span> <span class="w">Bash</span>(go test ./internal/core)
+  <span class="d">⎿ ok mako/internal/core 0.418s</span>
+
+<span class="g">⏺</span> <span class="w">Update</span>(web/board.html)
+  <span class="d">⎿ 184 additions, 96 removals</span>
+
+<span class="w">⏺</span> Now the Overview block and the Needs attention list.
+
+<span class="c">✻ Editing board.html… (14s · esc to interrupt)</span>
+
+<span class="y">⏵⏵ auto mode on</span></div>
+    </div>
+
+    <div style="display:flex;gap:6px;padding:8px 10px;background:#1b1d22;border-top:1px solid #26282c;overflow:hidden">
+      <button class="dk">Esc</button>
+      <button class="dk">⇧Tab</button>
+      <button class="dk">^C</button>
+      <button class="dk" aria-label="Arrow up">↑</button>
+      <button class="dk" aria-label="Arrow down">↓</button>
+      <button class="dk">Tab</button>
+      <button class="dk">/</button>
+    </div>
+    <div style="display:flex;gap:8px;padding:8px 10px 14px;background:#1b1d22">
+      <label style="flex:1;display:flex;align-items:center;height:44px;padding:0 12px;border-radius:10px;background:#22252b;border:1px solid #33363d"><span style="position:absolute;left:-9999px">Type to the agent</span><input type="text" placeholder="Type to the agent…" style="flex:1;border:0;outline:none;background:transparent;color:#e6e6e6;font:inherit;font-size:15px"></label>
+      <button style="width:44px;height:44px;border-radius:10px;border:0;background:#e9e9ea;display:inline-flex;align-items:center;justify-content:center" aria-label="Send and press Enter"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111214" stroke-width="2.6" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

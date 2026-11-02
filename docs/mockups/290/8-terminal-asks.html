@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent terminal: the agent asks</title>
+
+</head>
+<body>
+
+
+<style>
+body{margin:0}
+a{color:#2f6fde;text-decoration:none}a:hover{color:#1f55b5}
+.b{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1c1d1f;background:#fbfbfa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+.muted{color:#6f7277}
+.btn{font:inherit;font-size:13px;height:32px;padding:0 12px;border-radius:8px;border:1px solid #e7e7e4;background:#fff;color:#1c1d1f;display:inline-flex;align-items:center;gap:6px}
+.btn.pri{background:#1c1d1f;color:#fff;border-color:#1c1d1f;font-weight:600}
+.btn.icon{width:32px;padding:0;justify-content:center}
+.card{background:#fff;border:1px solid #e7e7e4;border-radius:12px}
+.tab{font-size:14px;padding:8px 2px;color:#6f7277}
+.tab.on{color:#1c1d1f;font-weight:600;box-shadow:inset 0 -2px 0 #2f6fde}
+.seg{display:inline-flex;padding:3px;border-radius:9px;background:#f0f0ee;gap:2px;font-size:12.5px}
+.seg span{padding:3px 10px;border-radius:7px;color:#6f7277}
+.seg span.on{background:#fff;color:#1c1d1f;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.t{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.6;color:#e6e6e6;white-space:pre}
+.dk{font:inherit;font-size:12px;height:28px;padding:0 10px;border-radius:6px;border:1px solid #33363d;background:#22252b;color:#e6e6e6;display:inline-flex;align-items:center;gap:6px}
+.g{color:#4cc27f}.y{color:#e5a23b}.c{color:#6b9bff}.d{color:#8b8f97}.w{color:#fff}
+.k{font-size:11px;border:1px solid #e7e7e4;border-radius:4px;padding:0 5px;color:#6f7277}
+.f{display:flex;align-items:center;gap:8px;font-size:13px;padding:5px 0}
+.f .m{width:14px;font-size:11px;font-weight:700;color:#2f6fde}
+.f .n{margin-left:auto;font-size:12px}
+.add{color:#2f9e5b}.del{color:#d14343}
+</style>
+
+<div class="b" style="width:1040px;height:900px;box-sizing:border-box;padding:0 28px 20px;display:flex;flex-direction:column;gap:12px;overflow:hidden">
+  <div style="display:flex;gap:24px;align-items:center;border-bottom:1px solid #e7e7e4;padding-top:10px">
+    <span class="tab">Task</span><span class="tab on">Agent <span style="color:#8a5a08;font-weight:600">· waiting for you</span></span>
+    <span style="flex:1"></span>
+    <span class="seg"><span>Chat</span><span class="on">Terminal</span></span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:10px;font-size:13px">
+    <a href="#" class="mono">mako-agent#280</a>
+    <span style="font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Redesign the Stats page: tabs, key metrics, Needs attention</span>
+    <span class="muted"><b style="color:#8a5a08;font-weight:600">Waiting for you</b> · 2 min</span>
+    <button class="btn icon" aria-label="More actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1c1d1f" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+  </div>
+
+  <div style="display:flex;gap:16px;flex:1;min-height:0">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-radius:12px;overflow:hidden;background:#14161b;border:1px solid #14161b">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#1b1d22;border-bottom:1px solid #26282c;font-size:12.5px;color:#c9cbd0">
+        <span style="width:8px;height:8px;border-radius:50%;background:#e5a23b"></span>
+        <b style="font-weight:600;color:#fff">Waiting for you</b><span>· 2 min · this turn $0.31</span>
+        <span style="flex:1"></span>
+        <button class="dk">Open in Terminal.app</button>
+        <button class="dk">Stop</button>
+      </div>
+
+      <div style="flex:1;min-height:0;padding:12px 14px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end">
+<div class="t"><span class="g">⏺</span> <span class="w">Update</span>(go/internal/web/style.css)
+  <span class="d">⎿  Updated go/internal/web/style.css with 62 additions and 8 removals</span>
+
+<span class="w">⏺</span> Building the front to check the bundle size.
+
+<span class="y">⏺</span> <span class="w">Bash</span>(npm run build)
+
+<span class="d">╭──────────────────────────────────────────────────────────────────╮</span>
+<span class="d">│</span> <span class="w">Bash command</span>                                                     <span class="d">│</span>
+<span class="d">│</span>                                                                  <span class="d">│</span>
+<span class="d">│</span>   npm run build                                                  <span class="d">│</span>
+<span class="d">│</span>   <span class="d">Build the web bundle</span>                                           <span class="d">│</span>
+<span class="d">│</span>                                                                  <span class="d">│</span>
+<span class="d">│</span> Do you want to proceed?                                          <span class="d">│</span>
+<span class="d">│</span> <span class="c">❯ 1. Yes</span>                                                         <span class="d">│</span>
+<span class="d">│</span>   2. Yes, and don't ask again for npm run build commands         <span class="d">│</span>
+<span class="d">│</span>   3. No, and tell Claude what to do differently (esc)            <span class="d">│</span>
+<span class="d">╰──────────────────────────────────────────────────────────────────╯</span></div>
+      </div>
+
+      <div style="border-top:2px solid #e5a23b;background:#fffaf0;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <span style="width:20px;height:20px;border-radius:6px;background:#f6e3bd;color:#8a5a08;font-weight:700;font-size:12px;display:inline-flex;align-items:center;justify-content:center">!</span>
+          <b style="font-weight:600">Allow this command?</b><code class="mono" style="background:#fff;border:1px solid #f0d9a8;border-radius:6px;padding:1px 6px">npm run build</code>
+          <span class="muted" style="margin-left:auto;font-size:12.5px">same as pressing the number in the terminal</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn pri"><span class="k" style="color:#c9cbd0;border-color:#4a4d55">1</span>Yes</button>
+          <button class="btn"><span class="k">2</span>Always for npm run build</button>
+          <button class="btn"><span class="k">3</span>No</button>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;padding:0 10px;height:34px;border:1px solid #e7e7e4;border-radius:8px;background:#fff"><span class="muted" style="font-size:13px;flex:none">Instead:</span><input type="text" placeholder="tell the agent what to do differently…" style="flex:1;border:0;outline:none;font:inherit;font-size:13px;background:transparent"></label>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#1b1d22;border-top:1px solid #26282c;font-size:12px;color:#c9cbd0">
+        <button class="dk">Esc</button>
+        <button class="dk">⇧Tab · auto</button>
+        <button class="dk">Ctrl+C</button>
+        <span style="flex:1"></span>
+        <span style="display:inline-flex;align-items:center;gap:6px">Context<span style="display:inline-flex;width:60px;height:6px;border-radius:3px;background:#33363d"><i style="width:72%;background:#9b9ea4;border-radius:3px"></i></span>144k / 200k</span>
+      </div>
+    </div>
+
+    <div style="width:270px;flex:none;display:flex;flex-direction:column;gap:12px">
+      <div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px">
+        <span class="mono" style="font-size:12px">feature/280-redesign-the-stats-page</span>
+        <span style="font-size:12.5px;color:#2f9e5b">✓ up to date with main</span>
+        <span style="font-size:12.5px" class="muted">1 commit not pushed</span>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden;flex:1">
+        <div style="display:flex;gap:16px;padding:0 14px;border-bottom:1px solid #e7e7e4"><span class="tab on">Changes 6</span><span class="tab">Commits 1</span><span class="tab">MR —</span></div>
+        <div style="padding:8px 14px">
+          <div class="f"><span class="m">M</span><span>core/stats.go</span><span class="n"><span class="add">+23</span> <span class="del">−4</span></span></div>
+          <div class="f"><span class="m">M</span><span>web/board.html</span><span class="n"><span class="add">+184</span> <span class="del">−96</span></span></div>
+          <div class="f"><span class="m">M</span><span>web/style.css</span><span class="n"><span class="add">+62</span> <span class="del">−8</span></span></div>
+          <div class="f muted"><span class="m"></span>3 more files</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
