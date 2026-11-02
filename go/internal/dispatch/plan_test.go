@@ -60,54 +60,6 @@ func TestWantsPlan(t *testing.T) {
 	}
 }
 
-// The model: picked for the task first, then the estimate's when the settings take it, else the configured one.
-func TestModelFor(t *testing.T) {
-	task := core.Task{ID: "g/a#1", Title: "x", Description: "y"}
-	e := &core.Estimate{State: "done", Size: "small", Model: "sonnet", For: EstimateKey(task)}
-	r := core.Record{Task: task, Estimate: e}
-	if m := modelFor(&config.Config{}, r); m != "" {
-		t.Errorf("settings off: %q", m)
-	}
-	if m := modelFor(&config.Config{EstimateModel: true}, r); m != "sonnet" {
-		t.Errorf("settings on: %q", m)
-	}
-	r.Model = "opus"
-	if m := modelFor(&config.Config{EstimateModel: true}, r); m != "opus" {
-		t.Errorf("picked: %q", m)
-	}
-	r.Model, r.Task.Description = "", "changed"
-	if m := modelFor(&config.Config{EstimateModel: true}, r); m != "" {
-		t.Errorf("stale estimate: %q", m)
-	}
-}
-
-// The start model: as modelFor, then for Mako's own agent the configured one, then Sonnet; Orca's agent its own.
-func TestStartModel(t *testing.T) {
-	task := core.Task{ID: "g/a#1", Title: "x", Description: "y"}
-	r := core.Record{Task: task}
-	if m := StartModel(&config.Config{Executor: "terminal", EstimateModel: true}, r); m != "sonnet" {
-		t.Errorf("nothing names one: %q", m)
-	}
-	if m := StartModel(&config.Config{EstimateModel: true}, r); m != "" {
-		t.Errorf("Orca's own default: %q", m)
-	}
-	cfg := &config.Config{Executor: "terminal", EstimateModel: true, Terminal: config.Terminal{Model: "haiku"}}
-	if m := StartModel(cfg, r); m != "haiku" {
-		t.Errorf("configured: %q", m)
-	}
-	r.Estimate = &core.Estimate{State: "done", Size: "big", Model: "opus", For: EstimateKey(task)}
-	if m := StartModel(cfg, r); m != "opus" {
-		t.Errorf("estimate: %q", m)
-	}
-	if m := StartModel(&config.Config{EstimateModel: true}, r); m != "opus" {
-		t.Errorf("estimate for Orca: %q", m)
-	}
-	r.Model = "sonnet"
-	if m := StartModel(cfg, r); m != "sonnet" {
-		t.Errorf("picked: %q", m)
-	}
-}
-
 func TestPick(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	d := New(&config.Config{StateDir: t.TempDir()}, store, nil)

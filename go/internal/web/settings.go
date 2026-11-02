@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
@@ -31,6 +32,17 @@ type settingsReply struct {
 	Home     string          `json:"home"`
 	Problems []string        `json:"problems"`
 	AutoWip  int             `json:"autoWip"` // the WIP limit “automatically” gives on this Mac
+	Routes   routeChoices    `json:"routes"`
+}
+
+// routeChoices: what the routes' table offers, and its defaults.
+type routeChoices struct {
+	Defaults core.RouteTable `json:"defaults"`
+	Phases   []string        `json:"phases"`
+	Sizes    []string        `json:"sizes"`
+	Models   []string        `json:"models"`
+	Efforts  []string        `json:"efforts"`
+	Modes    []string        `json:"modes"`
 }
 
 type settingsSave struct {
@@ -50,7 +62,8 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		if err != nil || !json.Valid(raw) {
 			raw = []byte("{}")
 		}
-		reply := settingsReply{Config: config.MigrateRaw(raw), Env: map[string]bool{}, JiraBase: cfg.Env["JIRA_BASE_URL"], Home: s.Home, AutoWip: config.AutoWip()}
+		reply := settingsReply{Config: config.MigrateRaw(raw), Env: map[string]bool{}, JiraBase: cfg.Env["JIRA_BASE_URL"], Home: s.Home, AutoWip: config.AutoWip(),
+			Routes: routeChoices{Defaults: core.DefaultRoutes(), Phases: core.RoutePhases, Sizes: core.Sizes, Models: []string{"haiku", "sonnet", "opus"}, Efforts: core.Efforts, Modes: core.Modes}}
 		for _, k := range secretKeys {
 			reply.Env[k] = cfg.Get(k) != ""
 		}

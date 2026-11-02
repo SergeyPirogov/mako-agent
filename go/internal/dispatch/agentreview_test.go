@@ -111,7 +111,7 @@ func TestAgentReview(t *testing.T) {
 	t.Cleanup(func() { ReviewBranch = old })
 	var calls atomic.Int32
 	answer := "- `pay.go`: немає тесту на порожній кошик"
-	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string, prior []core.Remark) (string, error) {
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, route core.Route, prior []core.Remark) (string, error) {
 		if calls.Add(1) > 1 {
 			return "", nil // the fixes pass
 		}
@@ -212,7 +212,7 @@ func TestReviewRetry(t *testing.T) {
 	var mu sync.Mutex
 	var fail error
 	says := func(err error) { mu.Lock(); fail = err; mu.Unlock() }
-	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string, prior []core.Remark) (string, error) {
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, route core.Route, prior []core.Remark) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		return "", fail
@@ -260,7 +260,7 @@ func TestReviewSkip(t *testing.T) {
 	d, _, id, wt, _, _ := reviewSetup(t)
 	old := ReviewBranch
 	t.Cleanup(func() { ReviewBranch = old })
-	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string, prior []core.Remark) (string, error) {
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, route core.Route, prior []core.Remark) (string, error) {
 		return "", nil
 	}
 	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Pay")
@@ -317,7 +317,7 @@ func numberedReview(t *testing.T, comments string, next func(prior []core.Remark
 	t.Cleanup(func() { ReviewBranch = old })
 	var mu sync.Mutex
 	first := true
-	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, model string, prior []core.Remark) (string, error) {
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, route core.Route, prior []core.Remark) (string, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if first {
@@ -470,6 +470,10 @@ func TestReviewEscalates(t *testing.T) {
 	a := r.AgentReviews[1]
 	if !a.Escalated || len(a.Remarks) != 1 || a.Remarks[0].ID != "R1" || !a.Remarks[0].Again || a.Remarks[0].Reply != "" {
 		t.Fatalf("second round %+v", a)
+	}
+	// The review that did not converge lifts the agent's next run.
+	if r.Escalation != 1 || len(r.EscalatedFor) != 1 || r.EscalatedFor[0] != "review ×2" {
+		t.Fatalf("review escalation %d %v", r.Escalation, r.EscalatedFor)
 	}
 	if notesWith(f, "Рішення за людиною") != 1 || notesWith(f, "Рев'ю агентом, раунд 2") != 1 {
 		t.Fatalf("no comment for a person: %q", f.notes)

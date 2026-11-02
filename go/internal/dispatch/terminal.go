@@ -73,9 +73,6 @@ func (d *Dispatcher) handTerminal(ctx context.Context, j orca.Job, log func(stri
 	view := viewOf(cfg.Terminal)
 	rec, _ := d.Store.Get(j.Task.ID)
 	planning := wantsPlan(cfg.Terminal, j.Task, rec.Estimate, rec.PlanFirst)
-	if m := modelFor(cfg, rec); m != "" && rec.Model == "" {
-		log("model " + m + ": as the estimate advises")
-	}
 	d.Store.Update(j.Task.ID, func(r *core.Record) { r.View, r.Planning = view, planning })
 	if planning {
 		log("the agent starts with a plan: it changes nothing until you approve it")
@@ -102,10 +99,17 @@ func viewOf(t config.Terminal) string {
 func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setup *chat.SetupResult) error {
 	t := d.Config().Terminal
 	r, _ := d.Store.Get(id)
-	t.Model = terminalModel(d.Config(), r) // picked for the task, the estimate's advice, the configured one or Sonnet
-	if !cont {
-		d.Store.Update(id, func(r *core.Record) { r.AgentModel = t.Model }) // the chat names it exactly once it starts
-	}
+	phase := runPhase(r)
+	route := d.routeOf(r, phase)
+	t.Model, t.Effort = route.Model, route.Effort
+	d.Store.Update(id, func(r *core.Record) {
+		r.SetRoute(phase, route)
+		r.RunPhase, r.AgentRoute = "", &route
+		if !cont {
+			r.AgentModel = t.Model // the chat names it exactly once it starts
+		}
+	})
+	d.Log(id, "the agent runs with "+route.Label()+" ("+phase+": "+route.Why+")")
 	again := []string{"--continue"}
 	if orca.HasSession(worktree, r.SessionID) {
 		again = []string{"--resume", r.SessionID}
@@ -146,6 +150,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 	if t.Model != "" {
 		args = append(args, "--model", t.Model)
 	}
+	args = append(args, effortArgs(t.Effort)...)
 	if len(t.AllowedTools) > 0 {
 		args = append(append(args, "--allowedTools"), t.AllowedTools...)
 	}
@@ -424,6 +429,7 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 		if t.Model != "" {
 			all = append(all, "--model", t.Model)
 		}
+		all = append(all, effortArgs(t.Effort)...)
 		if len(t.AllowedTools) > 0 {
 			all = append(append(all, "--allowedTools"), t.AllowedTools...)
 		}

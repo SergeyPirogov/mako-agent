@@ -1533,15 +1533,13 @@ function laterAt(kind) {
   return d;
 }
 // "Start work" and, in its arrow, the same with a model of your choice for the task's agent. The button
-// names the model the agent will start with: picked for the task, else the estimate's when the settings take it.
+// names the model the agent will start with: picked for the task, else its work's route (by the estimate's size).
 function takeButton(r) {
   const model = r.model || "", def = r.defaultModel || "", start = model || def;
-  // Opus's estimate advises a model by how complex the task is; without it the default is the configured one or Sonnet.
-  const advised = estimated(r)?.model || "", fromEstimate = def && def === advised;
   // A model from the menu is only picked: the button shows it, the task starts on the button's click.
-  const item = (m, label) => `<button type="button" data-a="pick" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}${m && m === advised ? ` <span class="muted">advises Opus</span>` : ""}</button>`;
-  const title = model ? `The agent will start with model ${model}` : fromEstimate ? `The agent will start with model ${def}, advised by the estimate` : def ? `The agent will start with model ${def}` : "The agent will start with the model from settings";
-  const byDefault = fromEstimate ? `Default: <code>${esc(def)}</code> from the estimate` : def ? `Default: <code>${esc(def)}</code>` : "As in settings";
+  const item = (m, label) => `<button type="button" data-a="pick" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}</button>`;
+  const title = model ? `The agent will start with model ${model}, the effort by the routes` : def ? `The agent will start with model ${def}, by the routes` : "The agent will start with the model of the routes";
+  const byDefault = def ? `Default: <code>${esc(def)}</code> by the routes` : "By the routes";
   return `<span class="takesplit"><button class="primary" data-a="take" data-x="" title="${esc(title)}">Start work${start ? ` · <code>${esc(start)}</code>` : ""}</button>
     <details class="menu"><summary class="primary" title="Choose the model for the agent" aria-label="Choose model">${ICON.chevron}</summary>
     <div class="menu-pop"><div class="menu-h">Model for the work</div>${(data?.models ?? []).map((m) => item(m, `<code>${esc(m)}</code>`)).join("")}${item("", byDefault)}</div></details></span>`;
@@ -2527,7 +2525,10 @@ function metaLine(r) {
   const branch = r.branch || r.branchName;
   if (r.repo) parts.push(`<span title="Repository">${esc(r.repo)}</span>`);
   if (branch && r.column !== "done") parts.push(`<span title="Branch"><code>${esc(branch)}</code><button type="button" class="icon" data-copy="${esc(branch)}" title="Copy branch name" aria-label="Copy branch name">${ICON.copy}</button></span>`);
-  if (r.agentModel && r.column !== "new") parts.push(`<span title="The model the agent worked with"><code>${esc(r.agentModel)}</code></span>`);
+  if (r.agentRoute?.model && r.column !== "new") {
+    const route = [r.agentRoute.model, r.agentRoute.effort].filter(Boolean).join(" · ");
+    parts.push(`<span title="The model and effort of the agent's run, and why${r.agentModel && r.agentModel !== r.agentRoute.model ? ` (${esc(r.agentModel)})` : ""}"><code>${esc(route)}</code>${r.agentRoute.why ? ` — ${esc(r.agentRoute.why)}` : ""}</span>`);
+  } else if (r.agentModel && r.column !== "new") parts.push(`<span title="The model the agent worked with"><code>${esc(r.agentModel)}</code></span>`);
   if (t.assignees?.length) parts.push(`<span title="Assignees">${esc(t.assignees.join(", "))}</span>`);
   if (t.priority) parts.push(`<span title="Priority in the tracker" class="prio ${prioTone(t.priority)}">${esc(t.priority)}</span>`);
   // Jira's meta carries the priority too, GitHub's and GitLab's the labels: both are shown on their own.
@@ -2601,8 +2602,8 @@ function stripHTML(r, card) {
   if (!ss?.length) return "";
   const open = stageOpen[r.id];
   const cells = ss.map((s) => {
-    const sub = [s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
-    return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}">
+    const sub = [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
+    return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${s.route ? esc(` · ${s.route}${s.why ? ` — ${s.why}` : ""}`) : ""}">
       <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b></span><small>${esc(sub)}</small></button>`;
   }).join(`<span class="sep"></span>`);
   return `<div class="stage-strip" role="group" aria-label="Stages">${cells}</div>${open ? `<div class="stage-more">${stageMore(r, open, card) || `<div class="muted">Nothing here yet.</div>`}</div>` : ""}`;

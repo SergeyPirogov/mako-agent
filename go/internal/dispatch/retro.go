@@ -50,7 +50,7 @@ func (d *Dispatcher) retro(ctx context.Context, id string) {
 	if dir == "" || !exists(dir) {
 		dir = os.TempDir()
 	}
-	x, err := writer.Retro(d.spending(ctx, id, core.PhaseAssess), dir, r.Task, d.story(r))
+	x, err := writer.Retro(d.spending(ctx, id, core.PhaseAssess), dir, d.runRoute(r, core.PhaseAssess), r.Task, d.story(r))
 	x.At = now()
 	if err != nil {
 		d.Fault(id, "the retro was not written", err)

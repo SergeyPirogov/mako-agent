@@ -11,10 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
@@ -58,10 +60,14 @@ type Config struct {
 	Reviewer Reviewer
 	// Estimate: a new task gets the agent's estimate (clarity, size, risk, advice) as it appears.
 	Estimate bool
-	// EstimateModel: the agent gets the model the estimate advises, unless one is picked for the task.
+	// EstimateModel: the estimate's size picks the task's routes (else every task is medium).
 	EstimateModel bool
 	// CodeModel: the model of «Запитати про код», one for every repository.
 	CodeModel string
+	// Routes: the model and the effort of each phase by the task's size, the defaults with the config's changes;
+	// RouteMode: "cost", "balanced" or "quality", a level down, as it is or a level up (a repo's own wins).
+	Routes    core.RouteTable
+	RouteMode string
 }
 
 // DefaultCodeModel: the model of «Запитати про код» when none is picked.
@@ -154,7 +160,8 @@ type Orca struct {
 // Terminal is Mako's own terminal: the agent runs in a pseudo-terminal the board shows.
 type Terminal struct {
 	Command string // "claude" when empty
-	Model   string // Mako's agent's model when neither the task nor the estimate names one; "" — Sonnet
+	// Model, Effort: what the agent's run starts with; the routes fill them for each run, the config does not.
+	Model, Effort string
 	// PermissionMode: how much Claude may do without asking: "auto" (default), "acceptEdits", "default",
 	// "bypassPermissions".
 	PermissionMode string
@@ -224,6 +231,8 @@ type Repo struct {
 	// Checks: the commands that must pass in the agent's worktree before Mako opens its MR ("go vet ./...",
 	// "go test ./..."); none: the agent opens the MR itself, as before.
 	Checks []string
+	// RouteMode: the routes' mode for this repo's tasks; "" the global one.
+	RouteMode string
 }
 
 // ErrMissing: there is no mako.config.json yet (first start).
@@ -336,6 +345,8 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
+		Routes:        routes(raw.Routes.Table),
+		RouteMode:     routeMode(raw.Routes.Mode),
 		Comments: Comments{
 			OnStart:  orStr(raw.Comments.OnStart.In(lang), DefaultCommentOnStart.In(lang)),
 			OnReview: orStr(raw.Comments.OnReview.In(lang), DefaultCommentOnReview.In(lang)),
@@ -355,7 +366,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, Model: e.Model, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst,
+			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst,
 				CheckTimeoutSec: e.CheckTimeoutSec, CheckAttempts: e.CheckAttempts}
 			break
 		}
@@ -464,6 +475,9 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 			project.Repos[name] = c.NewRepo(name, r.RepoPath, orStr(r.CloneURL, clone), r.BaseBranch, r.BranchPattern)
 			project.Repos[name].Setup = r.Setup
 			project.Repos[name].Checks = cleanChecks(r.Checks)
+			if m := strings.TrimSpace(r.RouteMode); slices.Contains(core.Modes, m) {
+				project.Repos[name].RouteMode = m // an unknown one: the global mode
+			}
 		}
 		t.Projects[key] = project
 	}
@@ -617,6 +631,10 @@ type rawConfig struct {
 	CodeAsk struct {
 		Model string `json:"model"`
 	} `json:"codeAsk"`
+	Routes struct {
+		Mode  string                                               `json:"mode"`
+		Table map[string]map[string]struct{ Model, Effort string } `json:"table"`
+	} `json:"routes"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
 }
@@ -694,7 +712,6 @@ type rawExecutor struct {
 	AllowedTools    []string  `json:"allowedTools"`
 	SetupCommand    string    `json:"setupCommand"`
 	View            string    `json:"view"`
-	Model           string    `json:"model"`
 	AutoFix         bool      `json:"autoFix"`
 	AutoRebase      string    `json:"autoRebase"`
 	RebaseEveryMin  int       `json:"rebaseEveryMin"`
@@ -732,6 +749,40 @@ type rawRepo struct {
 	Setup         string   `json:"setup"`
 	BranchPattern string   `json:"branchPattern"`
 	Checks        []string `json:"checks"`
+	RouteMode     string   `json:"routeMode"`
+}
+
+// routes: the default routes with the config's changes; a model or an effort Mako does not know keeps the
+// default.
+func routes(table map[string]map[string]struct{ Model, Effort string }) core.RouteTable {
+	t := core.DefaultRoutes()
+	for phase, bySize := range table {
+		if _, ok := t[phase]; !ok {
+			continue
+		}
+		for size, r := range bySize {
+			def, ok := t[phase][size]
+			if !ok {
+				continue
+			}
+			if m := strings.ToLower(strings.TrimSpace(r.Model)); slices.Contains(core.Models, m) {
+				def.Model = m
+			}
+			if e := strings.ToLower(strings.TrimSpace(r.Effort)); slices.Contains(core.Efforts, e) {
+				def.Effort = e
+			}
+			t[phase][size] = def
+		}
+	}
+	return t
+}
+
+// routeMode: a known mode, else "balanced".
+func routeMode(s string) string {
+	if s = strings.TrimSpace(s); slices.Contains(core.Modes, s) {
+		return s
+	}
+	return core.ModeBalanced
 }
 
 // CheckTimeout: how long one check may run.
