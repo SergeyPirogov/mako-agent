@@ -38,6 +38,9 @@ type Item struct {
 	// The end of a turn.
 	Seconds float64 `json:"seconds,omitempty"`
 	Cost    float64 `json:"cost,omitempty"`
+	// When it came (unix ms) and, for a tool, when it finished.
+	At  int64 `json:"at,omitempty"`
+	End int64 `json:"end,omitempty"`
 }
 
 // Window is one usage limit of the account: how much of it is used (0..1) and when it resets (unix seconds).
@@ -65,6 +68,10 @@ type Snapshot struct {
 	Context int    `json:"context,omitempty"`
 	Window  int    `json:"window,omitempty"`
 	Items   []Item `json:"items"`
+	// The items as the board draws them: turns of steps, the agent's plan, the turn going on.
+	Turns    []Turn    `json:"turns"`
+	Progress *Progress `json:"progress,omitempty"`
+	Turn     TurnStat  `json:"turn"`
 }
 
 type Options struct {
@@ -117,6 +124,10 @@ type Session struct {
 	context   int
 	window    int
 	spent     float64                    // claude reports the cost so far of its process: what of it is already counted
+	spentTok  int                        // the tokens of the process's model calls by its last result: spent / spentTok is what a token costs
+	procTok   int                        // the tokens of the process's model calls so far
+	lastTurn  float64                    // what the last finished turn cost (USD)
+	rate      float64                    // what a token cost in the turns so far (USD), kept when a new process continues
 	tokens    int                        // the tokens of this turn's model calls, told with its cost
 	calls     map[string]bool            // the model calls already counted, by message id: one comes in several events
 	pending   map[string]json.RawMessage // permission request → the tool's input
@@ -169,7 +180,7 @@ func (s *Session) run() {
 	cmd.Stderr = &limitWriter{w: &stderr, n: 4000}
 	s.mu.Lock()
 	stopped := s.stopping
-	s.cmd, s.stdin, s.spent = cmd, stdin, 0
+	s.cmd, s.stdin, s.spent, s.spentTok, s.procTok = cmd, stdin, 0, 0, 0
 	s.mu.Unlock()
 	if stopped {
 		s.end()
@@ -249,8 +260,11 @@ func (s *Session) replay(path string) {
 
 // Replay: a finished conversation from its Claude Code transcript, without an agent: what the board shows of it
 // until a message resumes it.
-func Replay(id, path string) Snapshot {
-	s := &Session{ID: id, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}}
+func Replay(id, path string) Snapshot { return ReplayIn(id, "", path) }
+
+// ReplayIn is Replay for a conversation held in worktree: its steps name the files relative to it.
+func ReplayIn(id, worktree, path string) Snapshot {
+	s := &Session{ID: id, Worktree: worktree, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}}
 	s.replay(path)
 	snap := s.Snapshot()
 	snap.Version = len(snap.Items) // the same file, the same version: the board redraws only what changed
@@ -277,9 +291,14 @@ func (s *Session) handle(line []byte) {
 		IsError    bool            `json:"is_error"`
 		Result     string          `json:"result"`
 		IsMeta     bool            `json:"isMeta"`
+		Timestamp  string          `json:"timestamp"` // a transcript's: when it was written
 	}
 	if json.Unmarshal(line, &e) != nil {
 		return
+	}
+	var at int64 // a live event: now (add sets it)
+	if t, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
+		at = t.UnixMilli()
 	}
 	switch e.Type {
 	case "system":
@@ -321,10 +340,10 @@ func (s *Session) handle(line []byte) {
 			switch c.Type {
 			case "text":
 				if strings.TrimSpace(c.Text) != "" {
-					s.add(Item{Kind: "text", Text: c.Text})
+					s.add(Item{Kind: "text", Text: c.Text, At: at})
 				}
 			case "tool_use":
-				s.add(Item{Kind: "tool", ID: c.ID, Tool: c.Name, Input: c.Input, Status: "running"})
+				s.add(Item{Kind: "tool", ID: c.ID, Tool: c.Name, Input: c.Input, Status: "running", At: at})
 				s.setState("working")
 			}
 		}
@@ -340,7 +359,7 @@ func (s *Session) handle(line []byte) {
 		var text string
 		if json.Unmarshal(m.Content, &text) == nil {
 			if t := strings.TrimSpace(text); t != "" && !strings.HasPrefix(t, "<") {
-				s.add(Item{Kind: "user", Text: t})
+				s.add(Item{Kind: "user", Text: t, At: at})
 			}
 			return
 		}
@@ -355,7 +374,7 @@ func (s *Session) handle(line []byte) {
 		}
 		for _, b := range blocks {
 			if b.Type == "tool_result" {
-				s.finishTool(b.ToolUseID, tail(textOf(b.Content), maxOutput), b.IsError)
+				s.finishToolAt(b.ToolUseID, tail(textOf(b.Content), maxOutput), b.IsError, at)
 			}
 		}
 	case "control_request":
@@ -403,7 +422,7 @@ func (s *Session) handle(line []byte) {
 		}
 	case "result":
 		if e.IsError && e.Result != "" {
-			s.add(Item{Kind: "error", Text: e.Result})
+			s.add(Item{Kind: "error", Text: e.Result, At: at})
 		}
 		s.mu.Lock()
 		for _, u := range e.ModelUsage {
@@ -415,13 +434,17 @@ func (s *Session) handle(line []byte) {
 		turn, tokens := 0.0, s.tokens
 		if s.cmd != nil && e.Cost > s.spent {
 			turn, s.spent = e.Cost-s.spent, e.Cost
+			s.spentTok = s.procTok
+			if s.spentTok > 0 {
+				s.rate = s.spent / float64(s.spentTok)
+			}
 		}
-		s.tokens = 0
+		s.tokens, s.lastTurn = 0, turn
 		s.mu.Unlock()
 		if (turn > 0 || tokens > 0) && s.o.OnCost != nil {
 			s.o.OnCost(turn, tokens)
 		}
-		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: e.Cost})
+		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: e.Cost, At: at})
 		s.setState("done")
 		s.mu.Lock()
 		if s.idle != nil {
@@ -452,6 +475,9 @@ func textOf(raw json.RawMessage) string {
 }
 
 func (s *Session) add(it Item) int {
+	if it.At == 0 {
+		it.At = time.Now().UnixMilli()
+	}
 	s.mu.Lock()
 	s.items = append(s.items, it)
 	at := len(s.items) - 1
@@ -464,11 +490,17 @@ func (s *Session) add(it Item) int {
 // Show puts what Mako has to show into the conversation, as a screenshot the agent took.
 func (s *Session) Show(it Item) { s.add(it) }
 
-func (s *Session) finishTool(id, output string, failed bool) {
+func (s *Session) finishTool(id, output string, failed bool) { s.finishToolAt(id, output, failed, 0) }
+
+// finishToolAt: at is when it finished (unix ms), 0 for now.
+func (s *Session) finishToolAt(id, output string, failed bool, at int64) {
+	if at == 0 {
+		at = time.Now().UnixMilli()
+	}
 	s.mu.Lock()
 	for i := len(s.items) - 1; i >= 0; i-- {
 		if it := &s.items[i]; it.Kind == "tool" && it.ID == id {
-			it.Output, it.Status = output, "ok"
+			it.Output, it.Status, it.End = output, "ok", at
 			if failed {
 				it.Status = "error"
 				if strings.Contains(output, "haven't granted") || strings.Contains(output, "requires approval") || strings.Contains(output, "The developer did not allow") || strings.Contains(output, "Розробник не дозволив") /* cyrillic-ok */ || strings.Contains(output, planRevision) || strings.Contains(output, Refused) {
@@ -812,8 +844,25 @@ func (s *Session) Running() bool {
 func (s *Session) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Snapshot{Version: s.version, State: s.state, Since: s.since.UnixMilli(), Live: !s.exited, Asleep: s.exited && s.asleep, Mode: s.mode, Model: s.model,
-		Context: s.context, Window: s.window, Items: append([]Item{}, s.items...)}
+	snap := Drawn(Snapshot{Version: s.version, State: s.state, Since: s.since.UnixMilli(), Live: !s.exited, Asleep: s.exited && s.asleep, Mode: s.mode, Model: s.model,
+		Context: s.context, Window: s.window, Items: append([]Item{}, s.items...)}, s.Worktree)
+	// What the turn costs so far: its tokens at the price of the earlier turns (of this process or one before it);
+	// once it ends, its result says it exactly.
+	if s.state == "working" || s.state == "waiting" {
+		if s.rate > 0 && s.tokens > 0 {
+			snap.Turn.Cost, snap.Turn.Estimate = float64(s.tokens)*s.rate, true
+		}
+	} else if n := len(snap.Items); n > 0 && snap.Items[n-1].Kind == "result" {
+		snap.Turn.Cost = s.lastTurn
+	}
+	return snap
+}
+
+// Drawn fills in what the board draws from a snapshot's items: the turns, the agent's plan, the turn going on.
+// worktree: where the conversation is held, for relative paths ("" when not known).
+func Drawn(snap Snapshot, worktree string) Snapshot {
+	snap.Turns, snap.Progress, snap.Turn = Group(snap.Items, worktree), ProgressOf(snap.Items), statOf(snap.Items)
+	return snap
 }
 
 // State: what the agent does now and the tool it runs.
@@ -1011,4 +1060,5 @@ func (s *Session) countTokens(message json.RawMessage) {
 	}
 	s.calls[m.ID] = true
 	s.tokens += n
+	s.procTok += n
 }

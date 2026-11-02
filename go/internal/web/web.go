@@ -240,6 +240,8 @@ func (s *Server) Handler() http.Handler {
 			snap = c.Snapshot()
 		} else if q, ok := s.D.QuestionChat(id); ok {
 			snap = q // a question asked before Mako restarted: its transcript
+		} else if t, ok := s.D.TaskChat(id); ok {
+			snap = t // a task whose agent is not running: its conversation so far
 		} else {
 			writeJSON(w, chat.Snapshot{State: "exited", Items: []chat.Item{}})
 			return

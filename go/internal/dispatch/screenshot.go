@@ -34,15 +34,10 @@ func (d *Dispatcher) Screenshot(ctx context.Context, id, name string, data []byt
 	if name = safeFile(name); name == "" {
 		name = "screenshot.png"
 	}
-	file := time.Now().Format("20060102-150405") + "-" + name
-	dir := d.ScreenshotDir(id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	_, local, err = d.keepImage(id, time.Now().Format("20060102-150405")+"-"+name, data)
+	if err != nil {
 		return "", "", nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, file), data, 0o600); err != nil {
-		return "", "", nil, err
-	}
-	local = "/api/screenshots/" + safeFile(id) + "/" + file
 	if s := d.Chats.Get(id); s != nil {
 		s.Show(chat.Item{Kind: "image", Text: local, Output: name})
 	}
@@ -53,4 +48,29 @@ func (d *Dispatcher) Screenshot(ctx context.Context, id, name string, data []byt
 	}
 	markdown, uploadErr = c.Upload(ctx, r.Task.Project, name, data)
 	return local, markdown, uploadErr, nil
+}
+
+// keepImage saves a picture of the task's under file: its path on disk and the board's link to it.
+func (d *Dispatcher) keepImage(id, file string, data []byte) (path, local string, err error) {
+	dir := d.ScreenshotDir(id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", err
+	}
+	path = filepath.Join(dir, file)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", "", err
+	}
+	return path, "/api/screenshots/" + safeFile(id) + "/" + file, nil
+}
+
+// Attach keeps a picture you attach to a message for the task's agent: the message names its path (chat.ImageLine)
+// and the agent reads it from there.
+func (d *Dispatcher) Attach(id, name string, data []byte) (path, local string, err error) {
+	if _, ok := d.Store.Get(id); !ok {
+		return "", "", fmt.Errorf("no task %q", id)
+	}
+	if name = safeFile(name); name == "" {
+		name = "image.png"
+	}
+	return d.keepImage(id, time.Now().Format("20060102-150405.000")+"-"+name, data)
 }

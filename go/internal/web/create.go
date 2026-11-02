@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
@@ -81,6 +82,32 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "markdown": md})
+	})
+	// A picture you attach to a message for the task's agent: kept beside its screenshots, the message names its path.
+	mux.HandleFunc("POST /api/attach", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "image/") {
+			writeJSON(w, map[string]any{"ok": false, "error": "only a picture can be attached"})
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(r.Body, maxImage+1))
+		if err == nil && len(data) > maxImage {
+			writeJSON(w, map[string]any{"ok": false, "error": "the image is larger than 10 MB"})
+			return
+		}
+		path, local := "", ""
+		if err == nil {
+			q := r.URL.Query()
+			path, local, err = s.D.Attach(q.Get("id"), q.Get("name"), data)
+		}
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "path": path, "url": local, "line": chat.ImageLine(path)})
 	})
 	// `mako screenshot`: the task's agent hands over a screenshot of its UI, for the chat and the MR.
 	mux.HandleFunc("POST /api/screenshot", func(w http.ResponseWriter, r *http.Request) {
