@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
 
 // eventually waits for ok to hold. The fake agents are shell scripts, slow to start when go test ./...
@@ -49,7 +51,7 @@ func TestChat(t *testing.T) {
 	var cost float64
 	var tokens int
 	s := Start(Options{ID: "a#1", Worktree: dir, Command: bin, SetupDone: &SetupResult{Command: "echo prepared", Output: "prepared\n"}, Prompt: "Зроби задачу",
-		OnLimits: func(l Limits) { limits = l }, OnSession: func(id, _ string) { session = id }, OnCost: func(usd float64, n int) { cost += usd; tokens += n }})
+		OnLimits: func(l Limits) { limits = l }, OnSession: func(id, _ string) { session = id }, OnCost: func(usd float64, u core.Usage) { cost += usd; tokens += u.Total() }})
 	defer s.Stop()
 	wait := func(state string) {
 		t.Helper()

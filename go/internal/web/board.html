@@ -2248,7 +2248,54 @@ function costTab(s) {
       ${metric("Around the work", around ? money(around) : "—", "estimate, agent review, retro", "Spent outside the plan and the work, for every task: the estimate before the start, the agent's review and the assessment with the retro.")}
     </div>
     <div class="srow">${phasesCard(s)}${costDaysCard(s.days)}</div>
-    ${modelsCard(s)}`;
+    ${modelsCard(s)}
+    ${routingCard(s)}`;
+}
+
+// A route's first pass this low, over this many finished tasks: the route is worth a level up.
+const LOW_FIRST_PASS = 0.5, LOW_FIRST_PASS_MIN = 3;
+const ESCALATION_NAMES = { ci: "CI red twice", retry: "Retry differently", review: "Review rounds ran out" };
+
+// Routing: does picking the model by phase and size pay off: what the period cost against the same work on one
+// model, how each route went, the escalations and the modes. Hidden with no routes recorded.
+function routingCard(s) {
+  const routes = s.routes || [];
+  if (!routes.length) return "";
+  const pct = (n, of) => of ? Math.round((n / of) * 100) : 0;
+  const actual = s.whatIfActual || 0, wi = s.whatIf || {};
+  const vs = (model) => {
+    const v = wi[model] || 0, d = v - actual;
+    const diff = !actual ? "" : d > 0 ? `<span class="ok">routing saves ${money(d)} · ${pct(d, v)}%</span>` : d < 0 ? `<span class="low">routing costs ${money(-d)} more</span>` : "the same";
+    return metric(`All on ${cap(model)}`, v ? money(v) : "—", diff);
+  };
+  const whatIf = s.whatIfTasks
+    ? `<div class="metrics three">${metric("Routed", money(actual), `${s.whatIfTasks} ${plural(s.whatIfTasks, "task", "tasks")} with tokens by kind`, "What these tasks' phases actually cost, by Claude Code's report.")}${vs("opus")}${vs("sonnet")}</div>`
+      + `<div class="snote">Estimate at list prices, not a bill: the tokens of each phase (input, output, cache read and write) at the price of one model.</div>`
+    : `<div class="snote">No tasks with tokens by kind yet: the comparison with one model appears with the next tasks.</div>`;
+
+  const low = (g) => g.ended >= LOW_FIRST_PASS_MIN && g.clean / g.ended < LOW_FIRST_PASS;
+  const label = (g) => `${cap(PHASE_NAMES[g.phase] || g.phase)} · ${SIZE_NAMES[g.size] || esc(g.size)} → ${esc(g.model === "—" ? "default" : g.model)}${g.effort ? ` · ${esc(g.effort)}` : ""}`;
+  const row = (g) => `<tr class="${low(g) ? "raise" : ""}"${low(g) ? ` title="Low first pass: worth raising this route"` : ""}><td>${label(g)}</td><td class="n">${g.taken}</td><td class="n">${pct(g.succeeded, g.taken)}%</td>`
+    + `<td class="n${low(g) ? " low" : ""}">${g.ended ? `${pct(g.clean, g.ended)}% <span class="muted">${g.clean}/${g.ended}</span>` : "—"}</td>`
+    + `<td class="n">${g.priced ? money(g.cost) : "—"}</td><td class="n">${g.medianSeconds ? durText(g.medianSeconds) : "—"}</td></tr>`;
+  const byRoute = `<div class="table-wrap"><table class="stable"><thead><tr><th>Phase · size → model · effort</th><th class="n">Tasks</th><th class="n" title="An MR open or merged, of the taken">Success</th>`
+    + `<th class="n" title="Merged without rework, of those merged or failed">First pass</th><th class="n" title="The phase's spend, average per task">Per task</th><th class="n" title="From the hand-off to the MR">Median time</th></tr></thead><tbody>${routes.map(row).join("")}</tbody></table></div>`
+    + (routes.some(low) ? `<div class="snote">Highlighted: first pass under ${LOW_FIRST_PASS * 100}% over ${LOW_FIRST_PASS_MIN}+ finished tasks — worth raising that route in Settings → Routes.</div>` : "");
+
+  const e = s.escalations || {};
+  const esc_ = e.tasks
+    ? `<div class="pad"><b>${e.tasks}</b> ${plural(e.tasks, "task", "tasks")} lifted a level · merged after it: <b>${e.merged}</b> of ${e.ended} finished${e.tasks > e.ended ? ` · ${e.tasks - e.ended} still going` : ""}</div>`
+      + `<div class="table-wrap"><table class="stable"><thead><tr><th>Why</th><th class="n">Tasks</th><th class="n">Merged</th></tr></thead><tbody>${(e.reasons || []).map((r) =>
+        `<tr><td>${esc(ESCALATION_NAMES[r.reason] || r.reason)}</td><td class="n">${r.tasks}</td><td class="n">${r.merged}</td></tr>`).join("")}</tbody></table></div>`
+    : `<div class="snote">No task was escalated in this period.</div>`;
+
+  const modes = (s.modes || []).length > 1
+    ? `<h3 class="sub">By mode</h3><div class="table-wrap"><table class="stable"><thead><tr><th>Mode</th><th class="n">Tasks</th><th class="n">Success</th><th class="n">First pass</th><th class="n">Per task</th></tr></thead><tbody>${s.modes.map((m) =>
+        `<tr><td>${cap(esc(m.mode))}</td><td class="n">${m.taken}</td><td class="n">${pct(m.succeeded, m.taken)}%</td><td class="n">${m.ended ? `${pct(m.clean, m.ended)}%` : "—"}</td><td class="n">${m.taken && m.cost ? money(m.cost / m.taken) : "—"}</td></tr>`).join("")}</tbody></table></div>`
+    : "";
+
+  return scard("Routing", `<div class="pad">${whatIf}</div><h3 class="sub">By route</h3>${byRoute}<h3 class="sub">Escalations</h3>${esc_}${modes}`,
+    "routing vs one model", "flush routing");
 }
 
 // What each phase of the work cost over the period: $ as bars, and the tokens.
@@ -3677,6 +3724,8 @@ if (location.hash === "#new") newOpen = "task";
 else if (location.hash === "#code") newOpen = "code";
 // #stats: straight to "Stats".
 else if (location.hash === "#stats") statsOpen = true;
+// #stats:cost: straight to a tab of "Stats".
+else if (/^#stats:\w+$/.test(location.hash)) { statsOpen = true; statsTab = location.hash.slice(7); }
 // On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
 else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
 // A link to a task (from a notification or the menu) opens it even when the board is already open.

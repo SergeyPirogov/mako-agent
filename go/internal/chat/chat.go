@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
 
@@ -89,7 +90,7 @@ type Options struct {
 	OnSession func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
 	// OnCost: what a turn cost (USD) and the tokens its model calls read and wrote, so the task can add up its
 	// budget.
-	OnCost func(usd float64, tokens int)
+	OnCost func(usd float64, u core.Usage)
 	// Gate: when set, decides each tool the agent asks for at once, nobody is asked: "" allows it, anything else
 	// is why it is denied («Запитати про код»: everything but changing files). AskUserQuestion still goes to the
 	// developer.
@@ -129,6 +130,7 @@ type Session struct {
 	lastTurn  float64                    // what the last finished turn cost (USD)
 	rate      float64                    // what a token cost in the turns so far (USD), kept when a new process continues
 	tokens    int                        // the tokens of this turn's model calls, told with its cost
+	usage     core.Usage                 // the same tokens by kind
 	calls     map[string]bool            // the model calls already counted, by message id: one comes in several events
 	pending   map[string]json.RawMessage // permission request → the tool's input
 	o         Options
@@ -431,7 +433,7 @@ func (s *Session) handle(line []byte) {
 			}
 		}
 		// total_cost_usd grows over the turns of one process; a replayed transcript (no process yet) is not new.
-		turn, tokens := 0.0, s.tokens
+		turn, tokens, usage := 0.0, s.tokens, s.usage
 		if s.cmd != nil && e.Cost > s.spent {
 			turn, s.spent = e.Cost-s.spent, e.Cost
 			s.spentTok = s.procTok
@@ -439,10 +441,10 @@ func (s *Session) handle(line []byte) {
 				s.rate = s.spent / float64(s.spentTok)
 			}
 		}
-		s.tokens, s.lastTurn = 0, turn
+		s.tokens, s.usage, s.lastTurn = 0, core.Usage{}, turn
 		s.mu.Unlock()
 		if (turn > 0 || tokens > 0) && s.o.OnCost != nil {
-			s.o.OnCost(turn, tokens)
+			s.o.OnCost(turn, usage)
 		}
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: e.Cost, At: at})
 		s.setState("done")
@@ -1048,8 +1050,8 @@ func (s *Session) countTokens(message json.RawMessage) {
 	if json.Unmarshal(message, &m) != nil || m.ID == "" {
 		return
 	}
-	u := m.Usage
-	n := u.Input + u.Output + u.CacheRead + u.CacheCreate
+	u := core.Usage{Input: m.Usage.Input, Output: m.Usage.Output, CacheRead: m.Usage.CacheRead, CacheCreate: m.Usage.CacheCreate}
+	n := u.Total()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cmd == nil || n == 0 || s.calls[m.ID] { // a replayed transcript is not new
@@ -1060,5 +1062,6 @@ func (s *Session) countTokens(message json.RawMessage) {
 	}
 	s.calls[m.ID] = true
 	s.tokens += n
+	s.usage = s.usage.Add(u)
 	s.procTok += n
 }

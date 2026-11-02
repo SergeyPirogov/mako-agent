@@ -49,7 +49,7 @@ func TestEnterStageDoesNotChangeACopy(t *testing.T) {
 	r.EnterStage(StageYou, at.Add(time.Minute))
 	copied := r // as the store hands records out
 	r.EnterStage(StageAgent, at.Add(2*time.Minute))
-	r.AddSpend(PhaseWork, 1, 10)
+	r.AddSpend(PhaseWork, 1, Usage{Input: 10})
 	if copied.Metrics.Seconds[StageYou] != 0 || copied.Metrics.Cost != nil || copied.Metrics.Stage != StageYou {
 		t.Fatalf("the copy changed: %+v", copied.Metrics)
 	}
@@ -57,10 +57,10 @@ func TestEnterStageDoesNotChangeACopy(t *testing.T) {
 
 func TestAddSpendByPhase(t *testing.T) {
 	r := Record{Cost: 0.5} // spent before the phases were kept
-	r.AddSpend(PhaseEstimate, 0.1, 1000)
-	r.AddSpend(PhaseWork, 1, 50_000)
-	r.AddSpend(PhaseWork, 0.5, 20_000)
-	r.AddSpend(PhaseReview, 0, 0) // nothing: no change
+	r.AddSpend(PhaseEstimate, 0.1, Usage{Input: 1000})
+	r.AddSpend(PhaseWork, 1, Usage{Input: 50_000})
+	r.AddSpend(PhaseWork, 0.5, Usage{Output: 20_000})
+	r.AddSpend(PhaseReview, 0, Usage{}) // nothing: no change
 	m := r.Metrics
 	if m.Cost[PhaseEstimate] != 0.1 || m.Cost[PhaseWork] != 1.5 || len(m.Cost) != 2 {
 		t.Fatalf("cost %v", m.Cost)
@@ -72,8 +72,8 @@ func TestAddSpendByPhase(t *testing.T) {
 		t.Fatalf("cost %v, spent %v", r.Cost, r.Spent())
 	}
 	orca := Record{}
-	orca.AddSpend(PhaseEstimate, 0.05, 100)
-	orca.AddSpend(PhaseReview, 0.2, 100)
+	orca.AddSpend(PhaseEstimate, 0.05, Usage{Input: 100})
+	orca.AddSpend(PhaseReview, 0.2, Usage{Input: 100})
 	if orca.Cost != 0 || orca.Spent() != 0.25 {
 		t.Fatalf("orca cost %v, spent %v", orca.Cost, orca.Spent())
 	}

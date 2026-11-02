@@ -288,3 +288,17 @@ func TestParseRoutes(t *testing.T) {
 		t.Fatalf("repo modes: %+v %+v", c.Trackers[0].Projects["grp/app"].Repos["app"], c.Trackers[0].Projects["grp/web"].Repos["web"])
 	}
 }
+
+// The prices: the defaults, with a kind changed by the config; a negative one is ignored.
+func TestParsePrices(t *testing.T) {
+	c, _ := Parse([]byte(`{}`), nil)
+	if c.Prices["opus"] != core.DefaultPrices()["opus"] {
+		t.Fatalf("defaults %+v", c.Prices)
+	}
+	c, _ = Parse([]byte(`{"routes":{"prices":{"claude-opus-4-7":{"input":5,"output":25,"cacheRead":-1}}}}`), nil)
+	want := core.DefaultPrices()["opus"]
+	want.Input, want.Output = 5, 25
+	if c.Prices["opus"] != want || c.Prices["sonnet"] != core.DefaultPrices()["sonnet"] {
+		t.Fatalf("changed %+v", c.Prices)
+	}
+}

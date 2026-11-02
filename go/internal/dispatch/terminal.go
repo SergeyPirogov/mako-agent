@@ -178,7 +178,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 				}
 			})
 		},
-		OnCost: func(usd float64, tokens int) {
+		OnCost: func(usd float64, tokens core.Usage) {
 			d.Store.Update(id, func(r *core.Record) {
 				phase := core.PhaseWork
 				if r.Planning {

@@ -74,6 +74,7 @@ var (
 type Spend struct {
 	USD     float64
 	Tokens  int
+	Usage   core.Usage // Tokens by kind
 	Context []core.ContextRun
 }
 
@@ -179,8 +180,8 @@ func (o *output) parse() (text string, spend Spend, ok bool) {
 	if o.result == nil || json.Unmarshal(o.result, &r) != nil {
 		return "", Spend{}, false
 	}
-	u := r.Usage
-	spend = Spend{USD: r.Cost, Tokens: u.Input + u.Output + u.CacheRead + u.CacheCreate}
+	u := core.Usage{Input: r.Usage.Input, Output: r.Usage.Output, CacheRead: r.Usage.CacheRead, CacheCreate: r.Usage.CacheCreate}
+	spend = Spend{USD: r.Cost, Tokens: u.Total(), Usage: u}
 	for _, run := range o.ctx.Runs {
 		run.Window = o.ctx.Window // 0 when the stream did not tell it: answer knows the model
 		spend.Context = append(spend.Context, run)

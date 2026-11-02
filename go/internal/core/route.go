@@ -47,6 +47,9 @@ type Route struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 	Why    string `json:"why,omitempty"`
+	// Size, Mode: the task's size and the routes' mode the route came from, for the stats; "" in the table.
+	Size string `json:"size,omitempty"`
+	Mode string `json:"mode,omitempty"`
 }
 
 // Label: "opus · high", "" for none.

@@ -68,6 +68,9 @@ type Config struct {
 	// RouteMode: "cost", "balanced" or "quality", a level down, as it is or a level up (a repo's own wins).
 	Routes    core.RouteTable
 	RouteMode string
+	// Prices: USD per million tokens by model family, for the stats' «the same on one model»; the defaults
+	// with the config's changes (routes.prices).
+	Prices core.Prices
 }
 
 // DefaultCodeModel: the model of «Запитати про код» when none is picked.
@@ -347,6 +350,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
 		Routes:        routes(raw.Routes.Table),
 		RouteMode:     routeMode(raw.Routes.Mode),
+		Prices:        prices(raw.Routes.Prices),
 		Comments: Comments{
 			OnStart:  orStr(raw.Comments.OnStart.In(lang), DefaultCommentOnStart.In(lang)),
 			OnReview: orStr(raw.Comments.OnReview.In(lang), DefaultCommentOnReview.In(lang)),
@@ -634,6 +638,8 @@ type rawConfig struct {
 	Routes struct {
 		Mode  string                                               `json:"mode"`
 		Table map[string]map[string]struct{ Model, Effort string } `json:"table"`
+		// Prices: by model family, each kind optional: {"opus": {"input": 5, "output": 25}}.
+		Prices map[string]rawPrice `json:"prices"`
 	} `json:"routes"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
@@ -775,6 +781,33 @@ func routes(table map[string]map[string]struct{ Model, Effort string }) core.Rou
 		}
 	}
 	return t
+}
+
+// rawPrice: a model's price in the config; a kind left out keeps the default.
+type rawPrice struct {
+	Input       *float64 `json:"input"`
+	Output      *float64 `json:"output"`
+	CacheRead   *float64 `json:"cacheRead"`
+	CacheCreate *float64 `json:"cacheCreate"`
+}
+
+// prices: the default prices with the config's changes; a negative price is ignored.
+func prices(own map[string]rawPrice) core.Prices {
+	p := core.DefaultPrices()
+	for model, r := range own {
+		family := core.ModelFamily(model)
+		pr := p[family]
+		for _, f := range []struct {
+			v   *float64
+			dst *float64
+		}{{r.Input, &pr.Input}, {r.Output, &pr.Output}, {r.CacheRead, &pr.CacheRead}, {r.CacheCreate, &pr.CacheCreate}} {
+			if f.v != nil && *f.v >= 0 {
+				*f.dst = *f.v
+			}
+		}
+		p[family] = pr
+	}
+	return p
 }
 
 // routeMode: a known mode, else "balanced".

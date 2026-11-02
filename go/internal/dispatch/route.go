@@ -38,6 +38,10 @@ func routeFor(cfg *config.Config, r core.Record, phase, mode string) core.Route 
 		mode = cfg.RouteMode
 	}
 	route = core.Step(route, core.ModeShift(mode))
+	route.Size, route.Mode = size, mode
+	if route.Mode == "" {
+		route.Mode = core.ModeBalanced
+	}
 	why := []string{size}
 	if !estimated {
 		why[0] = "medium (no estimate)"
@@ -115,7 +119,7 @@ func effortArgs(effort string) []string {
 // orcaModel: the model Orca's agent is asked for: its work's route (Orca takes no effort).
 func (d *Dispatcher) orcaModel(r core.Record) string {
 	route := d.routeOf(r, core.PhaseWork)
-	d.noteRoute(r.ID, core.PhaseWork, core.Route{Model: route.Model, Why: route.Why})
+	d.noteRoute(r.ID, core.PhaseWork, core.Route{Model: route.Model, Why: route.Why, Size: route.Size, Mode: route.Mode})
 	return route.Model
 }
 

@@ -69,6 +69,17 @@ type Stats struct {
 	Context ContextStats `json:"context"`
 	// Review: how the reviewer agent's rounds went: remarks, the agent's answers, the rounds to a clean one.
 	Review ReviewStats `json:"review"`
+	// Routes: how the tasks went by the route of each phase (phase · size → model · effort).
+	Routes []RouteGroup `json:"routes"`
+	// Escalations: the tasks whose agent was lifted a level, and why.
+	Escalations Escalations `json:"escalations"`
+	// WhatIf: what the phases with tokens known by kind would cost all on one model (WhatIfModels), at list
+	// prices; WhatIfActual: what they did cost; WhatIfTasks: the tasks they are of.
+	WhatIf       map[string]float64 `json:"whatIf"`
+	WhatIfActual float64            `json:"whatIfActual"`
+	WhatIfTasks  int                `json:"whatIfTasks"`
+	// Modes: by the routes' mode of the task's work.
+	Modes []ModeGroup `json:"modes"`
 }
 
 // Day is how the tasks taken on one day went.
@@ -152,8 +163,13 @@ type Reason struct {
 }
 
 // Summarize counts the records of the tasks that were taken since (zero: all of them); ones never handed off
-// are not in it.
+// are not in it. The what-if is at the default prices.
 func Summarize(records []Record, now, since time.Time) Stats {
+	return SummarizePriced(records, now, since, DefaultPrices())
+}
+
+// SummarizePriced is Summarize with the what-if at prices.
+func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stats {
 	st := Stats{Reasons: []Reason{}, Stages: map[string]float64{}, Phases: map[string]float64{}, PhaseTokens: map[string]int{}, Forecast: Forecast{Matrix: make([][]int, len(Sizes))}, BySize: make([]SizeGroup, len(Sizes))}
 	for i, size := range Sizes {
 		st.Forecast.Matrix[i] = make([]int, len(Sizes))
@@ -168,6 +184,10 @@ func Summarize(records []Record, now, since time.Time) Stats {
 	days := trend(now, since)
 	ctxs := newContextStats()
 	revs := &reviewStats{}
+	if prices == nil {
+		prices = DefaultPrices()
+	}
+	routes := newRouteStats(prices)
 	for _, r := range records {
 		if r.StartedAt == "" && r.Status != Failed {
 			continue
@@ -213,6 +233,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 		}
 		ctxs.add(r)
 		revs.add(r)
+		routes.add(r)
 		if a := r.Assessment; a != nil && a.State == "done" {
 			st.Assessed++
 			st.Clarity += float64(a.Clarity.Value)
@@ -299,6 +320,7 @@ func Summarize(records []Record, now, since time.Time) Stats {
 	st.LeadSeconds = median(lead)
 	st.Context = ctxs.done()
 	st.Review = revs.done()
+	routes.done(&st)
 	if st.Merged > 0 {
 		st.CIFixes /= float64(st.Merged)
 		st.ReviewFixes /= float64(st.Merged)
