@@ -2797,11 +2797,15 @@ function stripHTML(r, card) {
   const cells = ss.map((s) => {
     // Checks: its two lines (CI, the review) alone, the time and cost in the panel; a merge not reached yet: how long
     // the MR has waited.
-    const sub = s.key === "checks" ? s.note || "—"
-      : s.key === "merge" && s.state === "todo" && s.seconds >= 60 ? `waiting ${durText(s.seconds)}`
-      : [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
+    // A line each: what (the model, the state), then the time and the cost, quieter.
+    const lines = s.key === "checks" ? (s.note || "").split("\n").map((t) => [t])
+      : s.key === "merge" && s.state === "todo" && s.seconds >= 60 ? [[`waiting ${durText(s.seconds)}`]]
+      : [[[s.route, s.note].filter(Boolean).join(" · ")],
+         [[s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · "), "m"]];
+    const kept = lines.filter(([t]) => t);
+    const sub = kept.length ? kept.map(([t, cls]) => `<span class="ln${cls ? ` ${cls}` : ""}">${esc(t)}</span>`).join("") : "—";
     return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${s.route ? esc(` · ${s.route}${s.why ? ` — ${s.why}` : ""}`) : ""}">
-      <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b></span><small>${esc(sub)}</small></button>`;
+      <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b></span><small>${sub}</small></button>`;
   }).join(`<span class="sep"></span>`);
   return `<div class="stage-strip" role="group" aria-label="Stages">${cells}</div>${open ? `<div class="stage-more">${stageMore(r, open, card) || `<div class="muted">Nothing here yet.</div>`}</div>` : ""}`;
 }
