@@ -3144,7 +3144,8 @@ function renderDetail() {
   // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
     workOf = r.id;
-    itab = "changes"; itabPicked = false; tabPicked = false;
+    // A task with an MR opens on the MR tab, whatever the MR's state; the MR card shows "Checking the MR…" until /api/review answers.
+    itab = r.prUrl ? "mr" : "changes"; itabPicked = !!r.prUrl; tabPicked = false;
     changes = changesOf.get(r.id) ?? null; openFiles = []; fileTab = ""; diffs = {}; review = null; mrNote = ""; commitLog = null; commitOpen = {};
     pick = null; pickText = ""; reviewNote = "";
     tab = term && r.column === "doing" ? "orca" : "task";
