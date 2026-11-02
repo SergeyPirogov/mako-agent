@@ -341,6 +341,8 @@ var webStrings = map[string]string{
 	"b.stats":            "Statistics",
 	"b.bell":             "Notifications on this phone",
 	"b.newTask":          "+ Task",
+	"b.newChat":          "+ Chat",
+	"b.newChatHint":      "A chat with the agent in a project, without a task: its own worktree and branch",
 	"b.why":              "Why is a task missing?",
 	"b.whyHint":          "Paste a link to a task, and Mako tells why it is not on the board",
 	"b.filter":           "Filter: title, number, project",

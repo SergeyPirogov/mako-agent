@@ -69,11 +69,9 @@ func (d *Dispatcher) ApprovePlan(id, requestID string, o PlanApproval) error {
 	if c == nil {
 		return fmt.Errorf("the agent is not running")
 	}
-	mode := o.Mode
-	if mode == "" || mode == "plan" {
-		mode = WorkMode(d.Config().Terminal)
-	} else if !slices.Contains(chat.Modes, mode) {
-		return fmt.Errorf("unknown mode %q", mode)
+	mode, err := d.approvalMode(o.Mode)
+	if err != nil {
+		return err
 	}
 	model := strings.TrimSpace(o.Model)
 	notes := o.Notes.Text()
@@ -115,6 +113,17 @@ func (d *Dispatcher) ApprovePlan(id, requestID string, o PlanApproval) error {
 		d.Log(id, partly.Error())
 	}
 	return nil
+}
+
+// approvalMode: the mode the approved plan is carried out in: the one picked, else the configured work mode.
+func (d *Dispatcher) approvalMode(mode string) (string, error) {
+	if mode == "" || mode == "plan" {
+		return WorkMode(d.Config().Terminal), nil
+	}
+	if !slices.Contains(chat.Modes, mode) {
+		return "", fmt.Errorf("unknown mode %q", mode)
+	}
+	return mode, nil
 }
 
 // RejectPlan turns the plan of the task's agent down: it carries nothing out and waits for you.

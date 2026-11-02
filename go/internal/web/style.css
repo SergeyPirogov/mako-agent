@@ -1112,6 +1112,17 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .ca-thread.on { background: var(--hover); font-weight: 600; }
 .ca-thread:active { transform: none; }
 .ca-none { font-size: 12.5px; padding: 4px 8px; }
+/* A chat without a task: the chat of a task in the middle, its chats on the left with «×». */
+.fc-slot { min-height: 0; display: flex; flex-direction: column; }
+.fc-item { position: relative; padding-right: 26px; cursor: pointer; }
+.fc-remove { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--faint); font-size: 15px; line-height: 1; opacity: 0; }
+.fc-item:hover .fc-remove, .fc-item.on .fc-remove, .fc-remove:focus-visible { opacity: 1; }
+.fc-remove:hover { color: var(--fg); }
+#fc-sub { overflow-wrap: anywhere; }
+/* «+ Task», «+ Chat» and «Why is a task missing?» share the bar: the last one gives way. */
+.new-task #new-chat { flex: none; }
+.new-task #new-task:not([hidden]) { flex: none; }
+.new-task button.ghost { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ca-chat .chat-hint #ca-task { height: 24px; font-size: 12px; }
 .ca-chat .chat-hint #ca-task[hidden] { display: none; }
 .src-link { font-family: var(--mono); }

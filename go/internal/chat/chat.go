@@ -1089,6 +1089,17 @@ func (m *Manager) Put(s *Session) {
 	}
 }
 
+// Delete forgets the conversation: its agent stops, and the board no longer gets it.
+func (m *Manager) Delete(id string) {
+	m.mu.Lock()
+	s := m.all[id]
+	delete(m.all, id)
+	m.mu.Unlock()
+	if s != nil {
+		s.Stop()
+	}
+}
+
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
