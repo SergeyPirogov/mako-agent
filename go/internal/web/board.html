@@ -165,6 +165,7 @@ const ICON = {
   chevron: `<svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`,
   doc: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>`,
   push: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>`,
+  external: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>`,
   merge: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>`,
   closeMR: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><circle cx="18" cy="18" r="3"/><path d="M18 11.5V15M21 3l-6 6M15 3l6 6"/></svg>`,
   pr: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13 3l-3 3 3 3"/></svg>`,
@@ -2985,7 +2986,7 @@ function metaLine(r) {
   return parts.length ? `<div class="d-meta">${parts.join(`<i>·</i>`)}</div>` : "";
 }
 
-const openMR = (r, cls = "") => r.prUrl ? `<a class="btn ${cls}" href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))} ↗</a>` : "";
+const openMR = (r, cls = "") => r.prUrl ? `<a class="btn ${cls}" href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))}${ICON.external}</a>` : "";
 // The main action, as a button the card's handlers already know (data-a, data-ask, data-merge), and the one next
 // to it when the state has a pair (Start + Snooze, Merge + Open MR).
 function primaryHTML(r) {

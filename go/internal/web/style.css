@@ -21,12 +21,15 @@ body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-ser
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code { font: 12.5px var(--mono); }
-button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 6px 12px;
+/* One look for every button-like control: <button>, a.btn (a link) and the summary of a menu. */
+button, a.btn, details.menu > summary { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 6px 12px;
   transition: transform 160ms var(--ease-out), background-color 160ms var(--ease-out); }
-button:hover { background: var(--hover); }
-button:active { transform: scale(0.97); }
-button.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
-button.primary:hover { opacity: .9; }
+a.btn, details.menu > summary { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; user-select: none; }
+button:hover, a.btn:hover, details.menu > summary:hover { background: var(--hover); }
+a.btn:hover { text-decoration: none; }
+button:active, a.btn:active, details.menu > summary:active { transform: scale(0.97); }
+button.primary, a.btn.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
+button.primary:hover, a.btn.primary:hover { opacity: .9; background: var(--primary); }
 button.danger { color: var(--err); }
 /* Icon buttons in the workspace: bare like the rest, the colour only on hover. */
 button.icon { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0;
@@ -1135,13 +1138,13 @@ details.journal .log { margin-top: 8px; }
   .back { display: inline-block; margin-bottom: 8px; }
   section { padding: 16px; }
 }
-@media (prefers-reduced-motion: reduce) { button { transition: none; } .s.ag-working::before { animation: none; }
+@media (prefers-reduced-motion: reduce) { button, a.btn, details.menu > summary { transition: none; } .s.ag-working::before { animation: none; }
   .fix-btn.busy, .fix-btn.busy svg, .mr-h .icon[data-ask].busy, .mr-h .icon[data-ask].busy svg { animation: none; } #toast { transition: none; } }
 
 /* The board on a phone (iPhone 15 Pro Max is 430 px wide, SE 375): nothing wider than the screen, one scroll
    per screen, touch targets of 44 px, clear of the notch and the home indicator. */
 @media (max-width: 760px) {
-  .actions button { padding: 10px 14px; }
+  .actions :is(button, a.btn, details.menu > summary) { padding: 10px 14px; }
   /* The header: 🦈, «2/5», the limits as numbers, the icons. */
   header { gap: 4px; height: calc(48px + env(safe-area-inset-top)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(4px, env(safe-area-inset-right)); }
   .logo-t, .wip .w, #restart-note { display: none; }
@@ -1256,10 +1259,9 @@ details.convo > summary { padding: 10px 12px; cursor: pointer; font-size: 13px; 
 
 /* «Відкласти»: one button, the times in its menu */
 details.menu { position: relative; }
-details.menu > summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; padding: 6px 12px; border: 1px solid var(--line);
-  border-radius: 8px; background: var(--card); color: var(--fg); user-select: none; }
+details.menu > summary { list-style: none; }
 details.menu > summary::-webkit-details-marker { display: none; }
-details.menu > summary:hover, details.menu[open] > summary { background: var(--hover); }
+details.menu[open] > summary { background: var(--hover); }
 .menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 220px; display: flex; flex-direction: column; padding: 4px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
 .menu-pop button { border: 0; border-radius: 6px; text-align: left; padding: 7px 10px; background: none; }
@@ -1534,10 +1536,10 @@ section.ws .task-pane h1 { font-size: 19px; white-space: normal; margin: 6px 0 4
 .d-meta code { font: 12px var(--mono); overflow-wrap: anywhere; }
 .d-meta .icon { width: 22px; height: 22px; border: 0; background: none; color: var(--faint); }
 .d-meta .bad { color: var(--err); }
-a.btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); white-space: nowrap; }
-a.btn:hover { background: var(--hover); text-decoration: none; }
-.d-head .actions > button svg, .d-head .actions > a svg { vertical-align: -3px; margin-right: 4px; }
-details.more > summary.icon { padding: 0; width: 34px; height: 32px; justify-content: center; font-size: 17px; line-height: 1; }
+.d-head .actions > button svg { vertical-align: -3px; margin-right: 4px; }
+/* The head's buttons are one height, whatever they are made of (the menus' own buttons are not in the list). */
+.d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary) { height: 32px; padding-block: 0; }
+details.more > summary.icon { padding: 0; width: 34px; justify-content: center; font-size: 17px; line-height: 1; }
 .menu-pop a { display: block; padding: 7px 10px; border-radius: 6px; color: var(--fg); }
 .menu-pop a:hover { background: var(--hover); text-decoration: none; }
 .menu-pop button.danger { color: var(--err); }
@@ -1630,12 +1632,12 @@ details.desc .r { flex: none; color: var(--accent) !important; }
 @media (max-width: 760px) {
   .d-head { flex-direction: column; }
   .d-head .actions { flex-wrap: wrap; }
+  .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary) { height: 44px; padding-block: 0; }
+  details.more > summary.icon { width: 44px; }
   .stage-strip { overflow-x: auto; scrollbar-width: none; }
   .stage-strip .st { flex: none; min-width: 108px; }
   .rec-line { flex-wrap: wrap; }
   .rec-line .rec-why { flex-basis: 100%; white-space: normal; }
 }
-.ws-bar .actions > button svg, .ws-bar .actions > a svg { vertical-align: -3px; margin-right: 4px; }
+.ws-bar .actions > button svg { vertical-align: -3px; margin-right: 4px; }
 .ws-bar .actions { align-items: center; }
-a.btn.primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
-a.btn.primary:hover { opacity: .9; background: var(--primary); }
