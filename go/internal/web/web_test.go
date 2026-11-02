@@ -452,6 +452,35 @@ func TestDigest(t *testing.T) {
 	}
 }
 
+// ?project= narrows the stats to one project's tasks; without it they count all of them.
+func TestStateStatsByProject(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	at := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	for id, project := range map[string]string{"grp/one#1": "grp/one", "grp/one#2": "grp/one", "grp/two#1": "grp/two"} {
+		store.Update(id, func(r *core.Record) {
+			r.Status, r.Task, r.StartedAt, r.FinishedAt = core.Done, core.Task{ID: id, Title: id, Project: project}, at, at
+		})
+	}
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	stats := func(q string) core.Stats {
+		res, _ := http.Get(srv.URL + "/api/state" + q)
+		var st stateReply
+		json.NewDecoder(res.Body).Decode(&st)
+		return st.Stats
+	}
+	if s := stats(""); s.Taken != 3 || len(s.Projects) != 2 {
+		t.Fatalf("all: %+v", s)
+	}
+	if s := stats("?project=grp%2Fone"); s.Taken != 2 || len(s.Projects) != 1 || s.Projects[0].Name != "grp/one" {
+		t.Fatalf("grp/one: %+v", s)
+	}
+	if s := stats("?project=grp%2Fnone&days=7"); s.Taken != 0 {
+		t.Fatalf("none: %+v", s)
+	}
+}
+
 // «Пауза» of one tracker from the board writes "paused" to its entry only and reloads Mako.
 func TestTrackerPause(t *testing.T) {
 	home := t.TempDir()
