@@ -194,7 +194,7 @@ const cardStatus = (r) => {
   // Left in "New" by auto-take: why, in the row ("large", "description has questions").
   if (r.column === "new" && r.autoSkip) return [r.autoSkip, "", `Not taken automatically:  ${r.autoSkip}`];
   if (st === "review" && r.ciWait) return ["MR · CI running", "warn", "MR is open, CI is still running: it goes to review when CI passes"];
-  if (st === "review") return !r.agentReviews?.length && adviseReview(r) ? ["MR in review · review advised", "warn", ADVISE + (r.assessment.review?.why ? `: ${r.assessment.review.why}` : "")] : ["MR in review", ""];
+  if (st === "review") return !r.agentReviews?.length && adviseReview(r) ? ["MR in review · AI review advised", "warn", ADVISE + (r.assessment.review?.why ? `: ${r.assessment.review.why}` : "")] : ["MR in review", ""];
   if (st === "starting") return [LABEL[st], "", `Starting: ${startStep(r)?.label ?? "preparing the start"}`];
   if (st === "queued") return [LABEL[st], "", r.queueWhy ? `Queued:  ${r.queueWhy}` : ""];
   return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
@@ -1072,6 +1072,7 @@ const MR_ICON = {
   ok: `<svg class="mi ok" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>`,
   run: `<svg class="mi run" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
   idle: `<svg class="mi idle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>`,
+  eye: `<svg class="mi eye" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`,
   talk: `<svg class="mi talk" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>`,
 };
 const CI = { failed: ["bad", "CI failed"], running: ["run", "CI running"], pending: ["run", "CI pending"], created: ["run", "CI pending"],
@@ -1207,8 +1208,8 @@ function checksHTML(r, card) {
 // The reviewer agent's rounds over the branch: the last one as a line of the MR card, all of them in the task. It
 // starts only from "Review"; its remarks wait in the task for your "Fix".
 const REVIEW_STATE = { running: ["run", "The reviewer agent is reviewing the branch…"], notes: ["talk", "The reviewer left remarks"],
-  clean: ["ok", "Agent review passed"], failed: ["bad", "Agent review failed"], skipped: ["idle", "Agent review skipped"] };
-const skippedText = (a) => `Agent review skipped${a.reason ? `: ${a.reason}` : ""}`;
+  clean: ["ok", "AI review passed"], failed: ["bad", "AI review failed"], skipped: ["idle", "AI review skipped"] };
+const skippedText = (a) => `AI review skipped${a.reason ? `: ${a.reason}` : ""}`;
 const reviewBtn = (label, cls = "ghost", title = "The reviewer agent will read the task and the branch diff and leave remarks in the task; you pass them to the agent with the Fix button") =>
   `<button type="button" class="${cls}" data-a="agentreview" title="${esc(title)}">${label}</button>`;
 const skipBtn = () => `<button type="button" class="ghost" data-a="reviewskip" title="No review needed: the reviewer will not run until you change your mind">Skip</button>`;
@@ -1220,29 +1221,43 @@ function adviseReview(r) {
   if (a?.state !== "done") return null;
   return a.review ? a.review.need : (a.risk?.value ?? 0) >= 4;
 }
-const ADVISE = "The agent advises a review";
-// The agent's advice: a short title and, under it, its reason in smaller muted text. Once the reviewer has run, the
-// advice is only background: it goes under the result, quieter.
-const adviceRow = (need, why, past) => `<div class="mr-row mr-advice${past ? " past" : ""}">${MR_ICON[need ? "talk" : "ok"]}
-  <div class="mr-adv"><b>${esc(need ? ADVISE : "The agent thinks no review is needed")}</b>${why ? `<span class="mr-why" title="${esc(why)}">${esc(why)}</span>` : ""}</div></div>`;
-// "Review" in the MR card: what the reviewer did, what the agent advised, and your choice: "Run review" or "Skip".
+const ADVISE = "AI review advised";
+// "Check it yourself": once the reviewer agent has had its say, the agent's advice is what is left for you to look
+// at. You tick it off here; it is remembered in this browser, per task.
+const selfKey = (r) => `mako-checked:${r.id}`;
+const selfChecked = (r) => { try { return !!localStorage.getItem(selfKey(r)); } catch { return false; } };
+const adviceText = (r, need) => r.assessment?.review?.why || (need ? r.assessment?.risk?.why : "") || "";
+// A line of advice: its title, the reason under it, and its button under the reason (the side panel is narrow).
+const adviceBlock = (icon, title, why, btn = "", cls = "") => `<div class="mr-row mr-advice ${cls}">${MR_ICON[icon]}
+  <div class="mr-adv"><b>${esc(title)}</b>${why ? `<span class="mr-why" title="${esc(why)}">${esc(why)}</span>` : ""}${btn ? `<div class="mr-adv-a">${btn}</div>` : ""}</div></div>`;
+// "Review" in the MR card, two things kept apart: the reviewer agent (the advice to run it, "Run AI review" / "Skip",
+// its result), then you: what the agent advises you to look at yourself, with "Checked". An assessment from before
+// the advice had a "check" of its own: once the reviewer ran, its reason is what is left for you.
 function reviewSection(r) {
   const a = r.assessment, need = adviseReview(r), ran = !!r.agentReviews?.length;
-  let advice = "";
-  if (a?.state === "running") advice = row("run", "The agent is judging whether a review is needed…");
-  else if (need !== null) advice = adviceRow(need, a.review?.why || (need ? a.risk?.why : "") || "", ran);
-  const reviewer = reviewerRow(r, need);
-  const body = ran ? reviewer + advice : advice + reviewer;
-  return body ? sec("Review", body, need === true && !ran ? "advised" : "") : "";
+  const why = need !== null ? adviceText(r, need) : "";
+  const check = a?.review ? (a.review.check ?? (ran && need ? why : "")) : "";
+  let ai = "", you = "", note = "";
+  if (a?.state === "running") ai = row("run", "The agent is judging whether a review is needed…");
+  else if (need === true && !ran) { ai = adviceBlock("talk", "AI review advised", why); note = "advised"; }
+  else if (need === false && !ran) ai = adviceBlock("ok", "No AI review needed", why, "", "past");
+  if (check && selfChecked(r)) you = adviceBlock("ok", "You checked it", check, `<button type="button" class="ghost" data-self="0" title="Not checked after all">Undo</button>`, "past");
+  else if (check) {
+    you = adviceBlock("eye", "Check it yourself before the merge", check, `<button type="button" class="ghost" data-self="1" title="Mark it as looked at">Checked</button>`, "self");
+    note ||= "check yourself";
+  }
+  // Before the reviewer: its advice, then "Run AI review" / "Skip"; after it: its result. Then what is left for you.
+  const body = (ran ? reviewerRow(r, need) : ai + reviewerRow(r, need)) + you;
+  return body ? sec("Review", body, note) : "";
 }
 function reviewerRow(r, need) {
   const last = r.agentReviews?.at(-1), step = r.reviewStep, ready = step === "ready";
-  const choice = (label = "Run review") => ready ? `<div class="mr-actions">${reviewBtn(label, "primary")}${skipBtn()}</div>` : "";
+  const choice = (label = "Run AI review") => ready ? `<div class="mr-actions">${reviewBtn(label, "primary")}${skipBtn()}</div>` : "";
   if (step === "running") return row("run", REVIEW_STATE.running[1], "");
   if (!last) return ready ? (need === null ? row("idle", "No review by the reviewer yet") : "") + choice() : "";
   switch (last.state) {
     // Left by a restart of Mako in the middle of a round.
-    case "running": return row("bad", "Agent review interrupted", "", ready ? reviewBtn("Try again") : "");
+    case "running": return row("bad", "AI review interrupted", "", ready ? reviewBtn("Try again") : "");
     case "skipped": return row("idle", last.reason === "skipped by you" ? "Review skipped by you" : skippedText(last), "", ready ? reviewBtn("Do it anyway") : "");
     case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Try again") : "");
     case "notes": {
@@ -1251,14 +1266,15 @@ function reviewerRow(r, need) {
       if (!last.sent) return row("talk", `The reviewer left ${what}: you pass them to the agent when it finishes`, "");
       if (step === "fixing") return row("run", "The agent is fixing the reviewer's remarks", "");
       const tally = replyTally(last);
-      if (r.agentReviews.some((a) => a.escalated)) return row("bad", "Agent review rounds did not converge: the decision is yours" + (last.replyAt ? ` · the agent replied${tally}` : ""), "",
+      if (r.agentReviews.some((a) => a.escalated)) return row("bad", "AI review rounds did not converge: the decision is yours" + (last.replyAt ? ` · the agent replied${tally}` : ""), "",
         ready ? reviewBtn("Another round", "ghost", "Round limit reached: another round is your decision") : "");
       return row(last.unverified ? "bad" : "talk", (last.replyAt ? "The agent replied to the remarks" + tally : "The agent worked on the remarks")
         + (last.unverified ? " · ⚠ says \"fixed\", but there are no new commits" : "") + (ready ? "" : ": no new pushed changes in the branch yet"), "", ready ? reviewBtn("Review again") : "");
     }
   }
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
-  return row(icon, text, "", ready ? reviewBtn("Review again") : "");
+  const n = r.agentReviews.length;
+  return row(icon, text + (last.state === "clean" && n > 1 ? ` · ${n} rounds` : ""), "", ready ? reviewBtn("Review again") : "");
 }
 // «: ✅ 2 · ❌ 1»: how the agent answered on the round's remarks, "" with no answers.
 function replyTally(a) {
@@ -1284,9 +1300,9 @@ const initials = (name) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).ma
 function reviewBadge(r) {
   const last = r.agentReviews?.at(-1);
   if (!last) return "";
-  if (last.state === "clean") return `<span class="reviewed" title="Agent review passed">✓ review</span>`;
+  if (last.state === "clean") return `<span class="reviewed" title="AI review passed">✓ review</span>`;
   if (last.state !== "notes") return "";
-  if (last.escalated && last.sent) return `<span class="remarks human" title="Agent review rounds did not converge: the decision is yours">👤 review</span>`;
+  if (last.escalated && last.sent) return `<span class="remarks human" title="AI review rounds did not converge: the decision is yours">👤 review</span>`;
   if (last.sent) return "";
   const n = last.remarks?.length;
   return `<span class="remarks" title="The reviewer's remarks are waiting for Fix">⏳ ${n ? `${n} ${plural(n, "remark", "remarks")}` : "remarks"}</span>`;
@@ -1316,7 +1332,7 @@ function reviewerHTML(r) {
     for (const b of r.agentReviews.slice(i + 1)) for (const c of b.checks || []) v[c.id] ??= c;
     return v;
   };
-  return `<h3>Agent review</h3>` + r.agentReviews.map((a, i) => {
+  return `<h3>AI review</h3>` + r.agentReviews.map((a, i) => {
     const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1] + (a.sent ? ", passed to the agent" : "");
     const links = [extLink(a.commentUrl, "comment in the task"), extLink(a.mrCommentUrl, "comment in the MR"), extLink(a.replyUrl, "agent's reply"), extLink(a.mrReplyUrl, "agent's reply in the MR")].filter(Boolean).join(" · ");
     const structured = a.remarks?.length || a.checks?.length;
@@ -2469,7 +2485,7 @@ function reviewCard(v) {
       ${step("Converged", `${v.converged} <span class="muted">of ${v.tasks} ${plural(v.tasks, "task", "tasks")}</span>`, v.tasks ? v.converged / v.tasks : 0, `escalated to you ${v.escalated}${v.unverified ? ` · "fixed" without commits ${v.unverified}` : ""}`)}
     </div>`;
   const waiting = v.waiting ? `<div class="swarn"><span><b>${v.waiting} ${plural(v.waiting, "round waits", "rounds wait")} for «Fix»</b> — their remarks never reached the agent, so the numbers above miss them.</span><a href="#" data-need="fix">Show the tasks</a></div>` : "";
-  return scard("Agent review", body + waiting, `${v.rounds} ${plural(v.rounds, "round", "rounds")} on ${v.tasks} ${plural(v.tasks, "task", "tasks")}${v.converged ? ` · ${v.toClean.toFixed(1)} rounds to a clean one` : ""}`);
+  return scard("AI review", body + waiting, `${v.rounds} ${plural(v.rounds, "round", "rounds")} on ${v.tasks} ${plural(v.tasks, "task", "tasks")}${v.converged ? ` · ${v.toClean.toFixed(1)} rounds to a clean one` : ""}`);
 }
 
 // The size the estimate expected before the work against the one the assessment found after it.
@@ -2855,7 +2871,7 @@ function doneHTML(r, card) {
   if (ch) kv.push(["Changed", `${ch.files} ${plural(ch.files, "file", "files")}`, `+${ch.added} −${ch.removed}${ch.commits ? ` · ${ch.commits} ${plural(ch.commits, "commit", "commits")}` : ""}`]);
   const rework = (r.ciFixes || 0) + (r.reviewFixes || 0);
   kv.push(["Rework", rework ? `${rework}` : "none", [r.ciFixes ? `CI ${r.ciFixes}` : "", r.reviewFixes ? `comments ${r.reviewFixes}` : ""].filter(Boolean).join(" · ")]);
-  if (r.agentReviews?.length) kv.push(["Agent review", `${r.agentReviews.length} ${plural(r.agentReviews.length, "round", "rounds")}`]);
+  if (r.agentReviews?.length) kv.push(["AI review", `${r.agentReviews.length} ${plural(r.agentReviews.length, "round", "rounds")}`]);
   const seconds = { ...(m?.seconds || {}) };
   const bar = stageBar(seconds, durText);
   const grid = `<div class="sum-grid">${kv.map(([k, v, s]) => `<div class="kv"><span>${k}</span><b>${esc(v)}</b>${s ? `<span>${esc(s)}</span>` : ""}</div>`).join("")}</div>`;
@@ -3158,6 +3174,10 @@ function renderDetail() {
   for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => {
     if (btn.dataset.a === "cancel" && r.starting && !confirm("Cancel the launch? Preparation will be stopped and the created worktree removed.")) return;
     post(btn.dataset.a, r.id, btn.dataset.x);
+  };
+  for (const btn of $("detail").querySelectorAll("[data-self]")) btn.onclick = () => {
+    try { btn.dataset.self === "1" ? localStorage.setItem(selfKey(r), "1") : localStorage.removeItem(selfKey(r)); } catch {}
+    renderDetail();
   };
   for (const btn of $("detail").querySelectorAll("[data-redo]")) btn.onclick = () => openRedo(r);
   $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
