@@ -1871,6 +1871,7 @@ function showNewTask() {
       $("nt-submit").disabled = false; $("nt-submit").textContent = "Create";
       return fail(res.error || "Could not create the task");
     }
+    if (draft?.source) rememberTicket(draft.source, draft.draftTitle, res.id);
     newOpen = false;
     await load();
     select(res.id);
@@ -2043,7 +2044,9 @@ async function showCode() {
   $("ca-task").onclick = toTask;
   code.list.onclick = (e) => {
     const tk = e.target.closest("[data-ticket]");
-    if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d); return; }
+    if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
+    const made = e.target.closest("[data-task]");
+    if (made) { e.preventDefault(); code = null; select(made.dataset.task); return; }
     // The agent's question: an option, or your own words.
     if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(code.thread)}`, pollCode)) return;
     const src = e.target.closest("[data-src]");
@@ -2202,17 +2205,29 @@ function ticketOf(text) {
   try { const j = JSON.parse(m[1]); if (j && typeof j.title === "string" && j.title.trim()) d = { title: j.title.trim(), description: String(j.description ?? "") }; } catch {}
   return d ? { text: text.replace(m[0], ""), draft: d } : { text, draft: null };
 }
-function ticketCard(d, i) {
+// Which drafts already became tasks: "thread#message index" → {id, title}, kept in the browser. The title guards
+// against another draft taking the same place after the agent rewrites its answer.
+const TICKETS_KEY = "mako-tickets";
+const ticketsMade = () => { try { return JSON.parse(localStorage.getItem(TICKETS_KEY)) || {}; } catch { return {}; } };
+const ticketSource = (thread, i) => `${thread}#${i}`;
+function rememberTicket(source, title, id) {
+  try { localStorage.setItem(TICKETS_KEY, JSON.stringify({ ...ticketsMade(), [source]: { id, title } })); } catch {}
+}
+function ticketCard(d, i, thread) {
+  const made = ticketsMade()[ticketSource(thread, i)];
+  const done = made && made.title === d.title ? made.id : null;
+  const rec = done && data?.records?.find((r) => r.id === done);
+  const link = done ? (rec?.task?.url ? `<a href="${esc(rec.task.url)}" target="_blank" rel="noopener">${esc(done)}</a>` : `<a href="#${encodeURIComponent(done)}" data-task="${esc(done)}">${esc(done)}</a>`) : "";
   return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Ticket draft</span></div>
     <b>${esc(d.title)}</b><div class="md ca-ticket-body">${md(d.description)}</div>
-    <div class="ca-ticket-foot"><span class="muted">You can edit it and pick a tracker before creating</span><span class="spacer"></span>
-      <button type="button" class="primary" data-ticket="${i}">Create ticket</button></div></div>`;
+    <div class="ca-ticket-foot">${done ? `<span class="muted">Task ${link}</span>` : `<span class="muted">You can edit it and pick a tracker before creating</span>`}<span class="spacer"></span>
+      ${done ? `<button type="button" disabled>Ticket created</button>` : `<button type="button" class="primary" data-ticket="${i}">Create ticket</button>`}</div></div>`;
 }
 
 // "Create ticket": the agent's draft goes to the new task form, to be edited, given a tracker and created.
-function toTicket(d) {
+function toTicket(d, i) {
   const p = code.projects.find((x) => x.key === code.project);
-  taskDraft = { title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project };
+  taskDraft = { source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project };
   code = null;
   newOpen = "task";
   render();
@@ -3935,7 +3950,7 @@ function chatItem(it, i, v) {
       if (!v.drafts) return `<div class="msg"><div class="md">${md(it.text)}</div></div>`;
       const t = ticketOf(it.text);
       if (t.draft) v.drafts[i] = t.draft;
-      return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i) : ""}</div>`;
+      return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i, v.id) : ""}</div>`;
     }
     case "tool": {
       const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
