@@ -155,6 +155,11 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .item .m > .say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .item .m > .say.warn { color: var(--warn); font-weight: 600; }
 .item .m > .say.err { color: var(--err); }
+.item .m > .num { font-variant-numeric: tabular-nums; color: var(--mute); }
+/* The status on a line of its own: warn/err in their colour, two lines at most. */
+.item .st2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 11.5px; line-height: 15px; color: var(--mute); }
+.item .st2.warn { color: var(--warn); font-weight: 600; }
+.item .st2.err { color: var(--err); }
 .item .ago { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nums; }
 .item .tracker-mark { display: inline-flex; color: var(--fg); opacity: .8; }
 .item .tracker-mark svg { width: 13px; height: 13px; }
