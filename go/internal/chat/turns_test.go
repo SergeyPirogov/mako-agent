@@ -1,0 +1,167 @@
+package chat
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestTestCounts(t *testing.T) {
+	for _, c := range []struct {
+		name, cmd, out string
+		passed, failed int
+		ok             bool
+	}{
+		{"go -v", "go test -v ./internal/core", "=== RUN   TestA\n--- PASS: TestA (0.00s)\n--- PASS: TestB (0.00s)\n    --- PASS: TestB/sub (0.00s)\n--- FAIL: TestC (0.00s)\nFAIL\nFAIL\tmako/internal/core\t0.418s\n", 3, 1, true},
+		{"go packages", "go test ./...", "ok  \tmako/internal/chat\t6.7s\nok  \tmako/internal/web\t1.2s\n?   \tmako/cmd\t[no test files]\n", 2, 0, true},
+		{"go package failed", "cd /w && go test ./...", "ok  \tmako/a\t0.1s\n--- FAIL: TestX (0.00s)\n    x_test.go:12: bad\nFAIL\nFAIL\tmako/b\t0.2s\nFAIL\n", 0, 1, true},
+		{"gotestsum", "gotestsum ./...", "DONE 48 tests, 1 failure in 3.2s\n", 47, 1, true},
+		{"jest", "npm test", "Tests:       1 failed, 2 skipped, 47 passed, 50 total\nSnapshots:   0 total\n", 47, 1, true},
+		{"jest ok", "npx jest src", "Tests:       12 passed, 12 total\n", 12, 0, true},
+		{"vitest", "pnpm vitest run", " Test Files  1 failed | 4 passed (5)\n      Tests  1 failed | 47 passed (48)\n", 47, 1, true},
+		{"vitest ansi", "npm run test:unit", "\x1b[2m      Tests \x1b[22m \x1b[1m\x1b[32m48 passed\x1b[39m\x1b[22m\x1b[90m (48)\x1b[39m\n", 48, 0, true},
+		{"pytest", "pytest -q", "....F\n=========== 1 failed, 47 passed in 1.23s ===========\n", 47, 1, true},
+		{"pytest errors", "python -m pytest", "=== 2 passed, 1 error in 0.5s ===\n", 2, 1, true},
+		{"not tests", "ls -la", "--- PASS: x\n", 0, 0, false},
+		{"silent", "go test ./...", "", 0, 0, false},
+	} {
+		p, f, ok := TestCounts(c.cmd, c.out)
+		if p != c.passed || f != c.failed || ok != c.ok {
+			t.Errorf("%s: got %d passed %d failed %v, want %d %d %v", c.name, p, f, ok, c.passed, c.failed, c.ok)
+		}
+	}
+}
+
+func TestCommitHash(t *testing.T) {
+	for cmd, want := range map[string]string{
+		`git commit -m "Stats: filter by project"`: "a91c0e2",
+		`git add -A && git commit -m x`:            "a91c0e2",
+		`git -C /w commit -m x`:                    "a91c0e2",
+		`git log -1`:                               "",
+	} {
+		if got := CommitHash(cmd, "[feature/280 a91c0e2] Stats: filter by project\n 2 files changed\n"); got != want {
+			t.Errorf("%s: %q, want %q", cmd, got, want)
+		}
+	}
+	if got := CommitHash("git commit -m x", "[main (root-commit) 1234abc] x\n"); got != "1234abc" {
+		t.Errorf("root commit: %q", got)
+	}
+	if got := CommitHash("git commit -m x", "nothing to commit, working tree clean\n"); got != "" {
+		t.Errorf("nothing committed: %q", got)
+	}
+}
+
+func TestStripCd(t *testing.T) {
+	wt := "/Users/me/.worktrees/mako/mako-290"
+	for in, want := range map[string]string{
+		"cd " + wt + " && go test ./...":        "go test ./...",
+		`cd "` + wt + `/go" && go vet ./...`:    "go vet ./...",
+		"cd " + wt + "/go && cd internal && ls": "ls",
+		"cd /tmp && ls":                         "cd /tmp && ls",
+		"go test ./...":                         "go test ./...",
+		"cd go && go build":                     "go build",
+	} {
+		if got := StripCd(in, wt); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+	if got := StripCd("cd /anywhere && make", ""); got != "make" {
+		t.Errorf("unknown worktree: %q", got)
+	}
+}
+
+func tool(name, status string, input any, output string) Item {
+	b, _ := json.Marshal(input)
+	return Item{Kind: "tool", ID: name + output, Tool: name, Input: b, Status: status, Output: output}
+}
+
+func kinds(t Turn) string {
+	var k []string
+	for _, b := range t.Blocks {
+		k = append(k, b.Kind)
+	}
+	return strings.Join(k, " ")
+}
+
+func TestGroup(t *testing.T) {
+	wt := "/w"
+	items := []Item{
+		{Kind: "user", Text: "Continue", At: 1000},
+		{Kind: "text", Text: "Backend is done.", At: 2000},
+		tool("Bash", "ok", map[string]string{"command": "cd /w && go test ./internal/core"}, "ok  \tmako/core\t0.4s\n"),
+		tool("Bash", "ok", map[string]string{"command": `git commit -m "x"`}, "[f a91c0e2] x\n"),
+		tool("TodoWrite", "ok", map[string]any{"todos": []map[string]string{{"content": "Backend", "status": "completed"}, {"content": "Front", "activeForm": "Writing the front", "status": "in_progress"}, {"content": "Tests", "status": "pending"}}}, ""),
+		tool("Read", "ok", map[string]string{"file_path": "/w/a.go"}, ""),
+		tool("Read", "ok", map[string]string{"file_path": "/w/b.go"}, ""),
+		{Kind: "text", Text: "Writing the front."},
+		tool("Edit", "ok", map[string]string{"file_path": "/w/web/board.html", "old_string": "a\nb", "new_string": "a\nb\nc"}, ""),
+		tool("Bash", "error", map[string]string{"command": "go test ./..."}, "--- FAIL: TestX (0.00s)\nFAIL\n"),
+		tool("Edit", "running", map[string]string{"file_path": "/w/web/style.css"}, ""),
+	}
+	turns := Group(items, wt)
+	if len(turns) != 2 || turns[0].Who != "user" || turns[0].Text != "Continue" || turns[1].Who != "agent" || turns[1].At != 2000 {
+		t.Fatalf("turns: %+v", turns)
+	}
+	a := turns[1]
+	if got := kinds(a); got != "item commands reads item edits commands current" {
+		t.Fatalf("blocks: %s", got)
+	}
+	cmds := a.Blocks[1]
+	want := []Row{{I: 2, Label: "go test ./internal/core", Test: true, Passed: 1}, {I: 3, Label: `git commit -m "x"`, Commit: "a91c0e2"}}
+	if !reflect.DeepEqual(cmds.Rows, want) {
+		t.Errorf("commands: %+v", cmds.Rows)
+	}
+	if r := a.Blocks[2].Rows; len(r) != 2 || r[0].Label != "a.go" || r[1].Label != "b.go" {
+		t.Errorf("reads: %+v", r)
+	}
+	if r := a.Blocks[3+1].Rows[0]; r.Label != "web/board.html" || r.Add != 3 || r.Del != 2 {
+		t.Errorf("edit: %+v", r)
+	}
+	if b := a.Blocks[5]; b.Failed != 1 || !b.Rows[0].Test || b.Rows[0].Failed != 1 {
+		t.Errorf("failed: %+v", b)
+	}
+	if b := a.Blocks[6]; !b.Running || b.Item != 10 || b.Rows[0].Label != "web/style.css" {
+		t.Errorf("current: %+v", b)
+	}
+	p := ProgressOf(items)
+	if p == nil || p.Done != 1 || p.Total != 3 || p.Current != "Writing the front" {
+		t.Errorf("progress: %+v", p)
+	}
+	if st := statOf(items); st.Since != 1000 || st.Steps != 8 {
+		t.Errorf("turn: %+v", st)
+	}
+}
+
+func TestGroupMixedSteps(t *testing.T) {
+	items := []Item{
+		tool("Read", "ok", map[string]string{"file_path": "/w/a"}, ""),
+		tool("Grep", "ok", map[string]string{"pattern": "x"}, ""),
+		tool("Bash", "ok", map[string]string{"command": "ls"}, ""),
+		tool("Read", "ok", map[string]string{"file_path": "/w/b"}, ""),
+	}
+	turns := Group(items, "/w")
+	if len(turns) != 1 || kinds(turns[0]) != "steps" || len(turns[0].Blocks[0].Rows) != 4 {
+		t.Fatalf("mixed: %+v", turns)
+	}
+	// An edit among them is never folded away.
+	items = append(items, tool("Write", "ok", map[string]string{"file_path": "/w/c", "content": "x"}, ""))
+	if got := kinds(Group(items, "/w")[0]); got != "reads search commands reads edits" {
+		t.Errorf("with an edit: %s", got)
+	}
+}
+
+func TestGroupPromptAndImages(t *testing.T) {
+	items := []Item{
+		{Kind: "user", Text: strings.Repeat("task ", 100)},
+		{Kind: "text", Text: "ok"},
+		{Kind: "user", Text: "Look at this\n" + ImageLine("/state/screenshots/a/1.png")},
+	}
+	turns := Group(items, "")
+	if !turns[0].Prompt || turns[2].Prompt {
+		t.Errorf("prompt: %+v", turns)
+	}
+	if turns[2].Text != "Look at this" || !reflect.DeepEqual(turns[2].Images, []string{"/state/screenshots/a/1.png"}) {
+		t.Errorf("images: %+v", turns[2])
+	}
+}
