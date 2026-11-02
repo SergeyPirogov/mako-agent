@@ -484,7 +484,8 @@ func (s *Server) Handler() http.Handler {
 			c := s.D.Chats.Get(id)
 			switch {
 			case action == "view":
-				err = s.D.SwitchView(id, r.URL.Query().Get("to"))
+				// In the middle of a turn the switch waits for it to end, unless now=1 («Switch now»).
+				err = s.D.SwitchView(id, r.URL.Query().Get("to"), r.URL.Query().Get("now") == "1")
 			case action == "say":
 				// To a closed agent too: the message resumes its conversation.
 				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
@@ -506,6 +507,16 @@ func (s *Server) Handler() http.Handler {
 				err = controlChat(c, action, r)
 			}
 			if err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "terminalapp":
+			// The Mac's own Terminal.app: from the Mac only.
+			if remote(r) {
+				writeJSON(w, map[string]any{"ok": false, "error": "Terminal.app opens on the Mac, not from the phone"})
+				return
+			}
+			if err := s.D.OpenInTerminal(id); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}

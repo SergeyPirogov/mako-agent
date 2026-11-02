@@ -54,7 +54,7 @@ func TestHooks(t *testing.T) {
 	s := &Session{state: "working", subs: map[chan Event]struct{}{}}
 	steps := []struct{ body, state, reason, tool string }{
 		{`{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm test\nmore"}}`, "working", "", "Bash: npm test"},
-		{`{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}`, "waiting", "permission for Bash", ""},
+		{`{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}`, "waiting", "permission for Bash", "Bash: npm test"},
 		{`{"hook_event_name":"PostToolUse","tool_name":"Bash"}`, "working", "", ""},
 		{`{"hook_event_name":"Stop"}`, "done", "", ""},
 	}
@@ -65,6 +65,25 @@ func TestHooks(t *testing.T) {
 		if got := s.State(); got.State != st.state || got.Reason != st.reason || got.Tool != st.tool {
 			t.Fatalf("%s: %+v", st.body, got)
 		}
+	}
+}
+
+// The hooks name Claude Code's session: told once, and again when it is a new one.
+func TestHookSession(t *testing.T) {
+	var named []string
+	s := &Session{state: "working", subs: map[chan Event]struct{}{}, onSess: func(id string) { named = append(named, id) }}
+	for _, b := range []string{
+		`{"hook_event_name":"UserPromptSubmit","session_id":"a1"}`,
+		`{"hook_event_name":"PreToolUse","session_id":"a1","tool_name":"Read","tool_input":{}}`,
+		`{"hook_event_name":"Stop"}`,
+		`{"hook_event_name":"UserPromptSubmit","session_id":"b2"}`,
+	} {
+		if err := s.Hook([]byte(b)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Join(named, ",") != "a1,b2" || s.SessionID() != "b2" {
+		t.Fatalf("named %v, now %q", named, s.SessionID())
 	}
 }
 

@@ -465,3 +465,19 @@ func TestCancelledRequest(t *testing.T) {
 		t.Fatal("answered a cancelled question")
 	}
 }
+
+// A replayed transcript tells what its last turn spent: from your last message, each model call once though it
+// comes in several lines.
+func TestReplayTurnUsage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(path, []byte(`{"type":"user","message":{"content":"First"}}
+{"type":"assistant","message":{"id":"m1","model":"claude-sonnet-4-5","usage":{"input_tokens":100,"output_tokens":10},"content":[{"type":"text","text":"ok"}]}}
+{"type":"user","message":{"content":"Second"}}
+{"type":"assistant","message":{"id":"m2","model":"claude-opus-4-1","usage":{"input_tokens":5,"cache_read_input_tokens":1000,"output_tokens":20},"content":[{"type":"text","text":"a"}]}}
+{"type":"assistant","message":{"id":"m2","model":"claude-opus-4-1","usage":{"input_tokens":5,"cache_read_input_tokens":1000,"output_tokens":20},"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.go"}}]}}
+`), 0o600)
+	snap := ReplayIn("x", "", path)
+	if snap.TurnUsage != (core.Usage{Input: 5, CacheRead: 1000, Output: 20}) || snap.TurnModel != "claude-opus-4-1" || snap.Context != 1005 {
+		t.Fatalf("turn %+v, model %q, context %d", snap.TurnUsage, snap.TurnModel, snap.Context)
+	}
+}

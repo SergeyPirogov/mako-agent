@@ -45,7 +45,9 @@ type Session struct {
 	tool    string
 	since   time.Time
 	exited  bool
+	session string // Claude Code's session id, from its hooks
 	onState func()
+	onSess  func(string)
 	done    chan struct{} // closed once the process ended and onState ran
 }
 
@@ -65,6 +67,8 @@ type Options struct {
 	Env          []string
 	Token        string
 	OnState      func() // the agent's state changed
+	// OnSession: Claude Code named its session (the first hook, or a new conversation after /clear).
+	OnSession func(sessionID string)
 	// Idle: the agent starts without a request (it continues a conversation) and waits at its prompt.
 	Idle bool
 }
@@ -83,7 +87,7 @@ func Start(o Options) (*Session, error) {
 		state = "done"
 	}
 	s := &Session{ID: o.ID, Worktree: o.Worktree, Token: o.Token, cmd: cmd, pty: f, subs: map[chan Event]struct{}{},
-		state: state, since: time.Now(), onState: o.OnState, done: make(chan struct{})}
+		state: state, since: time.Now(), onState: o.OnState, onSess: o.OnSession, done: make(chan struct{})}
 	go s.read()
 	return s, nil
 }
@@ -306,23 +310,50 @@ func (s *Session) Hook(body []byte) error {
 		Message   string          `json:"message"`
 		ToolName  string          `json:"tool_name"`
 		ToolInput json.RawMessage `json:"tool_input"`
+		SessionID string          `json:"session_id"`
 	}
 	if err := json.Unmarshal(body, &e); err != nil {
 		return err
 	}
+	s.noteSession(e.SessionID)
 	switch e.Event {
 	case "UserPromptSubmit", "PostToolUse":
 		s.set("working", "", "")
 	case "PreToolUse":
 		s.set("working", "", toolLine(e.ToolName, e.ToolInput))
 	case "Notification":
-		s.set("waiting", Humanize(e.Message), "")
+		// What it waits on: the tool it asked for last («Bash: npm run build»), for the panel that answers it.
+		s.mu.Lock()
+		tool := s.tool
+		s.mu.Unlock()
+		s.set("waiting", Humanize(e.Message), tool)
 	case "Stop":
 		s.set("done", "", "")
 	default:
 		return fmt.Errorf("unknown hook %q", e.Event)
 	}
 	return nil
+}
+
+// noteSession keeps the session id the hooks name and tells OnSession when it is a new one.
+func (s *Session) noteSession(id string) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	changed := id != s.session
+	s.session = id
+	s.mu.Unlock()
+	if changed && s.onSess != nil {
+		s.onSess(id)
+	}
+}
+
+// SessionID: Claude Code's session the agent runs, "" until its first hook.
+func (s *Session) SessionID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.session
 }
 
 // toolLine: "Bash: npm test", "Edit: src/app.ts".

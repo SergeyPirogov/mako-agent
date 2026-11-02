@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -218,8 +219,9 @@ func (d *Dispatcher) sayTo(id, text string) error {
 }
 
 // SwitchView shows the task's agent the other way: it stops where it runs and continues the same conversation
-// in the chat or the terminal.
-func (d *Dispatcher) SwitchView(id, to string) error {
+// in the chat or the terminal. In the middle of a turn the switch waits for the turn to end (ViewNext) unless now;
+// to the view it is in already, it cancels such a wait.
+func (d *Dispatcher) SwitchView(id, to string, now bool) error {
 	if to != "chat" && to != "terminal" {
 		return fmt.Errorf("unknown view %q", to)
 	}
@@ -228,6 +230,17 @@ func (d *Dispatcher) SwitchView(id, to string) error {
 		return fmt.Errorf("the task is not in Mako")
 	}
 	if r.View == to || (r.View == "" && to == "terminal") {
+		if r.ViewNext != "" {
+			d.Store.Update(id, func(r *core.Record) { r.ViewNext = "" })
+			d.Log(id, "the switch of the agent's view was cancelled")
+		}
+		return nil
+	}
+	if !now && d.Live(id) && !d.agentIdle(id) {
+		if r.ViewNext != to {
+			d.Store.Update(id, func(r *core.Record) { r.ViewNext = to })
+			d.Log(id, map[string]string{"chat": "the agent moves to the chat when its turn ends", "terminal": "the agent moves to the terminal when its turn ends"}[to])
+		}
 		return nil
 	}
 	live := d.Live(id)
@@ -235,12 +248,27 @@ func (d *Dispatcher) SwitchView(id, to string) error {
 	for i := 0; i < 50 && d.Live(id); i++ {
 		time.Sleep(100 * time.Millisecond) // one claude at a time on a conversation
 	}
-	d.Store.Update(id, func(r *core.Record) { r.View = to })
+	d.Store.Update(id, func(r *core.Record) { r.View, r.ViewNext = to, "" })
 	d.Log(id, map[string]string{"chat": "the agent is now in the chat", "terminal": "the agent is now in the terminal"}[to])
 	if !live {
 		return nil
 	}
 	return d.ResumeTerminal(id)
+}
+
+// switchWhenIdle makes the switch asked for during a turn once the turn has ended; only one caller takes it.
+func (d *Dispatcher) switchWhenIdle(id string) {
+	if !d.agentIdle(id) {
+		return
+	}
+	to := ""
+	d.Store.Update(id, func(r *core.Record) { to, r.ViewNext = r.ViewNext, "" })
+	if to == "" {
+		return
+	}
+	if err := d.SwitchView(id, to, true); err != nil {
+		d.Log(id, "the agent's view was not switched: "+err.Error())
+	}
 }
 
 // ResumeTerminal starts Claude again in the task's worktree, continuing its last conversation: after Mako
@@ -491,6 +519,12 @@ func (d *Dispatcher) runClaude(id, worktree string, t config.Terminal, args []st
 		ID: id, Worktree: worktree, Command: command, Args: all, Token: token, Idle: idle,
 		Env:     env,
 		OnState: func() { d.watchTerminals(time.Now()) },
+		// The task keeps its session, as in the chat: a resume, Terminal.app and the status go on with exactly it.
+		OnSession: func(sid string) {
+			if _, ok := d.Store.Get(id); ok {
+				d.Store.Update(id, func(r *core.Record) { r.SessionID = sid })
+			}
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("the agent failed to start: %w", err)
@@ -621,6 +655,10 @@ func (d *Dispatcher) watchTerminals(now time.Time) {
 		if r.Status == core.HandedOff && onTerminal(r) {
 			d.setAgent(r, d.lookTerminal(r, now), now)
 		}
+		// The view switch asked for during the turn: now that it has ended.
+		if r.ViewNext != "" && onTerminal(r) && d.agentIdle(r.ID) {
+			go d.switchWhenIdle(r.ID)
+		}
 		// A turn that ended with the work committed is for the checks before the MR.
 		if d.checksFor(r) != nil && d.agentIdle(r.ID) {
 			go d.maybeCheck(r.ID)
@@ -670,6 +708,56 @@ func (d *Dispatcher) OpenWorktree(id, where, file string) error {
 		return fmt.Errorf("no editor found (Cursor, VS Code, Zed)")
 	}
 	return exec.Command("open", wt).Start()
+}
+
+// OpenInTerminal continues the task's conversation in macOS Terminal.app: Mako's own agent stops first, since two
+// Claudes on one conversation would each go their own way.
+func (d *Dispatcher) OpenInTerminal(id string) error {
+	if runtime.GOOS != "darwin" {
+		return errors.New("Terminal.app is only on a Mac")
+	}
+	wt, _, err := d.workOf(id)
+	if err != nil {
+		return err
+	}
+	command, err := term.Resolve(d.Config().Terminal.Command)
+	if err != nil {
+		return err
+	}
+	d.StopTerminal(id)
+	for i := 0; i < 50 && d.Live(id); i++ {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if d.Live(id) {
+		return errors.New("the agent is still closing: try again in a moment")
+	}
+	r, _ := d.Store.Get(id)
+	sid := ""
+	if orca.HasSession(wt, r.SessionID) {
+		sid = r.SessionID
+	}
+	script := terminalScript(wt, command, sid)
+	if err := exec.Command("osascript", "-e", `tell application "Terminal"`, "-e", "activate", "-e", "do script "+appleString(script), "-e", "end tell").Run(); err != nil {
+		return fmt.Errorf("Terminal.app did not open: %w", err)
+	}
+	d.Log(id, "the agent continues in Terminal.app")
+	return nil
+}
+
+// terminalScript: the shell line that continues the conversation in worktree: its session, else the newest there.
+func terminalScript(worktree, claude, sessionID string) string {
+	again := "--continue"
+	if sessionID != "" {
+		again = "--resume " + shellQuote(sessionID)
+	}
+	return "cd " + shellQuote(worktree) + " && " + shellQuote(claude) + " " + again
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// appleString: s as an AppleScript string literal.
+func appleString(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 // FileDiff: one changed file of the task.
