@@ -252,7 +252,10 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	if !ok || r.PRURL == "" {
 		return fmt.Errorf("there is no MR")
 	}
-	if d.ReviewStep(r) == "fixing" {
+	switch d.ReviewStep(r) {
+	case "running":
+		return fmt.Errorf("the reviewer agent is still reviewing the branch: you can merge once it finishes")
+	case "fixing":
 		return fmt.Errorf("the agent is still fixing the reviewer's remarks: you can merge once it finishes")
 	}
 	desk, err := d.desk(ctx, id)

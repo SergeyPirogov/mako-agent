@@ -1049,11 +1049,13 @@ const IBADGE_SPIN = `<svg class="spin" width="11" height="11" viewBox="0 0 24 24
 // The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
 // tabPicked: you chose the open task's tab yourself; Mako does not switch it for you then.
 let itab = "changes", itabPicked = false, tabPicked = false;
+// The reviewer agent is reading the branch or the agent is fixing its remarks: the MR is not ready to merge yet.
+const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing";
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
     : !c ? ["", ""] : c.ci === "failed" || c.conflicts ? ["!", "bad"] : c.threads.length ? [String(c.threads.length), "warn"]
-    : ["running", "pending", "created"].includes(c.ci) ? ["⟳", "run"] : c.mergeable ? ["✓", "ok"] : ["", ""];
+    : ["running", "pending", "created"].includes(c.ci) || mergeHeld(r) ? ["⟳", "run"] : c.mergeable ? ["✓", "ok"] : ["", ""];
   const nCommits = commitLog ? `${commitLog.commits.length}${commitLog.more ? "+" : ""}` : String(cs.length);
   const tabs = [["changes", "Changes", [String(nFiles), ""]], ["commits", "Commits", [nCommits, ""]], ["mr", "MR", mrBadge]];
   const panel = itab === "commits" ? (commitLog ? commitGraph(commitLog.commits) : `<div class="files-empty">Loading history…</div>`)
@@ -1169,10 +1171,11 @@ function mrCard(r, term) {
     `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
   const open = live && !r.prUrl ? icon(`data-ask="open"`, "Open MR: the agent commits, pushes and opens it", "pr") : "";
   const update = live && r.prUrl && state === "open" ? icon(`data-ask="push"`, "Update MR: the agent commits and pushes what it has done", "push") : "";
-  const fixing = r.reviewStep === "fixing";
-  const merge = c?.state === "open" && !waitCI ? icon("data-merge", fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
+  const reviewing = r.reviewStep === "running", fixing = r.reviewStep === "fixing", held = mergeHeld(r);
+  const merge = c?.state === "open" && !waitCI ? icon("data-merge", reviewing ? "The reviewer agent is reviewing the branch: merge once it finishes"
+    : fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
     : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
-    "merge", c.mergeable && !fixing ? "ready" : "", !c.mergeable || fixing) : "";
+    "merge", c.mergeable && !held ? "ready" : "", !c.mergeable || held) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "open"}</a>` : ""}
@@ -2593,15 +2596,18 @@ function faultsHTML(fs) {
   if (!fs?.length) return "";
   const fresh = fs.filter((f) => !f.reported).length;
   const at = (t) => new Date(t).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  const row = (f) => `<li class="${f.reported ? "reported" : ""}"><div><b>${esc(f.what)}</b> <span class="muted">${f.count}× · ${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span></div>`
-    + `<div class="fault-text">${esc(f.error)}</div>`
-    + (f.reported ? `<div class="muted">under analysis: ${/^https?:/.test(f.reported) ? `<a href="${esc(f.reported)}" target="_blank" rel="noopener">${esc(f.reported)}</a>` : esc(f.reported)}</div>` : "") + `</li>`;
-  return `<div class="stats faults">
-    <div class="digest-head"><h3>Mako errors <span class="muted">${fs.length}</span></h3>
+  const link = (u) => /^https?:/.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : esc(u);
+  const row = (f) => `<div class="fault-row${f.reported ? " reported" : ""}"><b class="fault-n" title="${f.count} ${plural(f.count, "time", "times", "times")}">${f.count}×</b>`
+    + `<div class="fault-main"><div class="fault-top"><b>${esc(f.what)}</b><span class="muted">${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span>`
+    + (f.reported ? `<span class="badge ok" title="Under analysis">under analysis</span>` : "") + `</div>`
+    + `<div class="fault-text" title="${esc(f.error)}">${esc(f.error)}</div>`
+    + (f.reported ? `<div class="fault-issue">${link(f.reported)}</div>` : "") + `</div></div>`;
+  const aside = `${fresh ? `${fresh} new · ` : ""}${fs.length} ${plural(fs.length, "kind", "kinds", "kinds")}`;
+  return `<div class="scard faults"><div class="scard-h"><h2>Mako errors</h2><span class="aside">${aside}</span>
       <span class="actions">${fresh && !data.remote ? `<button id="faults-report"${faultsBusy ? " disabled" : ""} title="Create a task with these errors in the Mako repository, so the agent can sort them out">${faultsBusy ? "Creating the task…" : `Send for analysis: ${fresh}`}</button>` : ""}
       ${data.remote ? "" : `<button class="ghost" id="faults-clear">Clear</button>`}</span></div>
-    <ul class="digest-list">${fs.map(row).join("")}</ul>
-    <p class="stats-note">What failed on the Mako side: search, comments, statuses, MR checks, worktree. Identical errors are merged into one.</p>
+    <div class="fault-list">${fs.map(row).join("")}</div>
+    <div class="snote">What failed on the Mako side: search, comments, statuses, MR checks, worktree. Identical errors are merged into one.</div>
   </div>`;
 }
 // The board re-renders every few seconds: the report under way is remembered here, not in the button.
@@ -2772,9 +2778,9 @@ function moreMenu(r) {
   return `<details class="menu more"><summary class="btn icon" title="More actions" aria-label="More actions">⋯</summary><div class="menu-pop">${items.join("")}</div></details>`;
 }
 
-// The stage strip: Estimate → Plan → Work → CI → AI review → Merge, each with its time and cost (r.card.stages, from
+// The stage strip: Estimate → Plan → Work → Checks (CI and the AI review) → Merge, each with its time and cost (r.card.stages, from
 // the record's metrics). A click on a stage opens what it holds under the strip.
-const STAGE_LABEL = { estimate: "Estimate", plan: "Plan", work: "Work", ci: "CI", review: "AI review", merge: "Merge" };
+const STAGE_LABEL = { estimate: "Estimate", plan: "Plan", work: "Work", checks: "Checks", merge: "Merge" };
 const STAGE_MARK = {
   done: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>`,
   fail: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
@@ -2787,7 +2793,11 @@ function stripHTML(r, card) {
   if (!ss?.length) return "";
   const open = stageOpen[r.id];
   const cells = ss.map((s) => {
-    const sub = [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
+    // Checks: its two lines (CI, the review) alone, the time and cost in the panel; a merge not reached yet: how long
+    // the MR has waited.
+    const sub = s.key === "checks" ? s.note || "—"
+      : s.key === "merge" && s.state === "todo" && s.seconds >= 60 ? `waiting ${durText(s.seconds)}`
+      : [s.route, s.note, s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ") || "—";
     return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${s.route ? esc(` · ${s.route}${s.why ? ` — ${s.why}` : ""}`) : ""}">
       <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b></span><small>${esc(sub)}</small></button>`;
   }).join(`<span class="sep"></span>`);
@@ -2797,8 +2807,8 @@ function stripHTML(r, card) {
 function stageMore(r, key, card) {
   const term = r.executor === "terminal" && r.worktree;
   if (key === "estimate") return estimateHTML(r, card);
-  if (key === "review") return `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
-  if (key === "ci") return checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`;
+  if (key === "checks") return (checksHTML(r, card) + (r.prUrl ? mrCard(r, term) : "") || `<div class="muted">No checks yet.</div>`)
+    + `<div class="mr-card">${reviewSection(r) || `<div class="muted">The reviewer has not run.</div>`}</div>${reviewerHTML(r)}`;
   return cycleHTML(r, card);
 }
 

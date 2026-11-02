@@ -27,41 +27,47 @@ func TestCardByState(t *testing.T) {
 		name    string
 		v       recordView
 		primary string
-		stages  string // the states of estimate, plan, work, ci, review, merge
+		stages  string // the states of estimate, plan, work, checks (CI and the review), merge
 	}{
-		{"new", view(core.Record{Status: core.Asking, Estimate: est}, nil), "take", "done todo todo todo todo todo"},
-		{"new, not estimated", view(core.Record{Status: core.Asking}, nil), "take", "todo todo todo todo todo todo"},
-		{"postponed", view(core.Record{Status: core.Snoozed, PostponedByYou: true, SnoozedUntil: now.Add(time.Hour).UnixMilli()}, nil), "restore", "todo todo todo todo todo todo"},
-		{"queued", view(core.Record{Status: core.Queued, Estimate: est}, nil), "push", "done todo now todo todo todo"},
-		{"starting", view(core.Record{Status: core.Queued}, func(v *recordView) { v.Starting = &dispatch.StartProgress{} }), "cancel", "skip todo now todo todo todo"},
-		{"working, live", view(term, func(v *recordView) { v.Live = true }), "stop", "skip skip now todo todo todo"},
-		{"working, stopped", view(term, nil), "resume", "skip skip now todo todo todo"},
-		{"planning", view(func() core.Record { r := term; r.Planning = true; return r }(), func(v *recordView) { v.Live = true }), "stop", "skip now todo todo todo todo"},
-		{"in Orca", view(core.Record{Status: core.HandedOff, Worktree: "/wt"}, nil), "focus", "skip skip now todo todo todo"},
-		{"in Orca, no worktree", view(core.Record{Status: core.HandedOff}, nil), "", "skip skip now todo todo todo"},
-		{"checks failed", view(func() core.Record { r := term; r.Checks = &core.Checks{State: "failed"}; return r }(), nil), "resume", "skip skip now fail todo todo"},
-		{"MR ready", view(mr, nil), "merge", "skip skip done done todo now"},
-		{"MR, CI running", view(mr, func(v *recordView) { v.CIWait = "CI is running" }), "open-mr", "skip skip done now todo todo"},
-		{"MR conflicts", view(mr, func(v *recordView) { v.Blocked, v.Live = "the MR has conflicts", true }), "fix-conflicts", "skip skip done fail todo todo"},
-		{"MR CI failed", view(mr, func(v *recordView) { v.Blocked, v.Live = "CI failed", true }), "fix-ci", "skip skip done fail todo todo"},
-		{"MR conflicts, agent not running", view(mr, func(v *recordView) { v.Blocked = "the MR has conflicts" }), "resume", "skip skip done fail todo todo"},
-		{"MR conflicts in Orca", view(func() core.Record { r := mr; r.Executor = ""; return r }(), func(v *recordView) { v.Blocked = "the MR has conflicts" }), "open-mr", "skip skip done fail todo todo"},
-		{"MR CI failed in Orca", view(func() core.Record { r := mr; r.Executor = ""; return r }(), func(v *recordView) { v.Blocked = "CI failed" }), "open-mr", "skip skip done fail todo todo"},
-		{"MR blocked, agent stopped", view(mr, func(v *recordView) { v.Blocked = "agent stopped: CI failed, continue it in the chat" }), "resume", "skip skip done fail todo todo"},
+		{"new", view(core.Record{Status: core.Asking, Estimate: est}, nil), "take", "done todo todo todo todo"},
+		{"new, not estimated", view(core.Record{Status: core.Asking}, nil), "take", "todo todo todo todo todo"},
+		{"postponed", view(core.Record{Status: core.Snoozed, PostponedByYou: true, SnoozedUntil: now.Add(time.Hour).UnixMilli()}, nil), "restore", "todo todo todo todo todo"},
+		{"queued", view(core.Record{Status: core.Queued, Estimate: est}, nil), "push", "done todo now todo todo"},
+		{"starting", view(core.Record{Status: core.Queued}, func(v *recordView) { v.Starting = &dispatch.StartProgress{} }), "cancel", "skip todo now todo todo"},
+		{"working, live", view(term, func(v *recordView) { v.Live = true }), "stop", "skip skip now todo todo"},
+		{"working, stopped", view(term, nil), "resume", "skip skip now todo todo"},
+		{"planning", view(func() core.Record { r := term; r.Planning = true; return r }(), func(v *recordView) { v.Live = true }), "stop", "skip now todo todo todo"},
+		{"in Orca", view(core.Record{Status: core.HandedOff, Worktree: "/wt"}, nil), "focus", "skip skip now todo todo"},
+		{"in Orca, no worktree", view(core.Record{Status: core.HandedOff}, nil), "", "skip skip now todo todo"},
+		{"checks failed", view(func() core.Record { r := term; r.Checks = &core.Checks{State: "failed"}; return r }(), nil), "resume", "skip skip now fail todo"},
+		{"MR ready", view(mr, nil), "merge", "skip skip done done now"},
+		{"MR, CI running", view(mr, func(v *recordView) { v.CIWait = "CI is running" }), "open-mr", "skip skip done now todo"},
+		{"MR conflicts", view(mr, func(v *recordView) { v.Blocked, v.Live = "the MR has conflicts", true }), "fix-conflicts", "skip skip done fail todo"},
+		{"MR CI failed", view(mr, func(v *recordView) { v.Blocked, v.Live = "CI failed", true }), "fix-ci", "skip skip done fail todo"},
+		{"MR conflicts, agent not running", view(mr, func(v *recordView) { v.Blocked = "the MR has conflicts" }), "resume", "skip skip done fail todo"},
+		{"MR conflicts in Orca", view(func() core.Record { r := mr; r.Executor = ""; return r }(), func(v *recordView) { v.Blocked = "the MR has conflicts" }), "open-mr", "skip skip done fail todo"},
+		{"MR CI failed in Orca", view(func() core.Record { r := mr; r.Executor = ""; return r }(), func(v *recordView) { v.Blocked = "CI failed" }), "open-mr", "skip skip done fail todo"},
+		{"MR blocked, agent stopped", view(mr, func(v *recordView) { v.Blocked = "agent stopped: CI failed, continue it in the chat" }), "resume", "skip skip done fail todo"},
 		{"MR reviewed", view(func() core.Record {
 			r := mr
 			r.PlanFirst, r.AgentReviews = true, []core.AgentReview{{State: "notes", Sent: true}, {State: "clean"}}
 			return r
-		}(), nil), "merge", "skip done done done done now"},
+		}(), nil), "merge", "skip done done done now"},
 		{"MR, remarks being fixed", view(func() core.Record {
 			r := mr
 			r.AgentReviews = []core.AgentReview{{State: "notes", Sent: true}}
 			return r
-		}(), nil), "merge", "skip skip done done now todo"},
-		{"merged", view(func() core.Record { r := mr; r.ReviewState = "merged"; return r }(), nil), "archive", "skip skip done done skip done"},
-		{"MR closed", view(func() core.Record { r := mr; r.ReviewState = "closed"; return r }(), nil), "retry", "skip skip done todo skip fail"},
-		{"failed", view(core.Record{Status: core.Failed, Estimate: est}, nil), "retry", "done skip fail todo skip todo"},
-		{"archived", view(core.Record{Status: core.Done, ArchivedAt: 1}, nil), "unarchive", "skip skip done todo skip skip"},
+		}(), nil), "merge", "skip skip done now todo"},
+		{"MR, reviewer running", view(mr, func(v *recordView) { v.ReviewStep = "running" }), "open-mr", "skip skip done now todo"},
+		{"MR, agent fixing the remarks", view(func() core.Record {
+			r := mr
+			r.AgentReviews = []core.AgentReview{{State: "notes", Sent: true}}
+			return r
+		}(), func(v *recordView) { v.ReviewStep = "fixing" }), "open-mr", "skip skip done now todo"},
+		{"merged", view(func() core.Record { r := mr; r.ReviewState = "merged"; return r }(), nil), "archive", "skip skip done done done"},
+		{"MR closed", view(func() core.Record { r := mr; r.ReviewState = "closed"; return r }(), nil), "retry", "skip skip done todo fail"},
+		{"failed", view(core.Record{Status: core.Failed, Estimate: est}, nil), "retry", "done skip fail todo todo"},
+		{"archived", view(core.Record{Status: core.Done, ArchivedAt: 1}, nil), "unarchive", "skip skip done todo skip"},
 	}
 	for _, c := range cases {
 		got := cardOf(c.v, now)
@@ -91,8 +97,8 @@ func TestCardStageMetrics(t *testing.T) {
 	for _, s := range stagesOf(v, now) {
 		got[s.Key] = s
 	}
-	if got["work"].Seconds != 660 || got["work"].Cost != 3 || got["estimate"].Cost != 0.2 || got["review"].Cost != 1 ||
-		got["ci"].Seconds != 120 || got["merge"].Seconds != 300 {
+	if got["work"].Seconds != 660 || got["work"].Cost != 3 || got["estimate"].Cost != 0.2 || got["checks"].Cost != 1 ||
+		got["checks"].Seconds != 120 || got["merge"].Seconds != 300 {
 		t.Errorf("stage metrics: %+v", got)
 	}
 	// Each stage shows the route its phase ran with; the CI the route of the agent's fixes.
@@ -101,7 +107,7 @@ func TestCardStageMetrics(t *testing.T) {
 	for _, s := range stagesOf(recordView{Record: r, Column: r.Column(now.UnixMilli())}, now) {
 		got[s.Key] = s
 	}
-	if got["work"].Route != "opus · high" || got["work"].Why != "big, escalated: CI red ×2" || got["ci"].Route != "sonnet · medium" || got["plan"].Route != "" {
+	if got["work"].Route != "opus · high" || got["work"].Why != "big, escalated: CI red ×2" || got["checks"].Route != "CI fix: sonnet · medium" || got["plan"].Route != "" {
 		t.Errorf("stage routes: %+v", got)
 	}
 	n := recordView{Record: core.Record{Status: core.Asking, Estimate: &core.Estimate{State: "done", Questions: "1. a?\n2. b?\n   more of b\n3) c?"}}, Column: "new"}

@@ -30,13 +30,13 @@ type stageView struct {
 	Why   string `json:"why,omitempty"`
 }
 
-// The stages of the strip, in its order.
+// The stages of the strip, in its order. CI and the reviewer agent run side by side (a fix after a review round
+// runs CI again), so they are one stage, "checks", that says how each of them stands.
 const (
 	stEstimate = "estimate"
 	stPlan     = "plan"
 	stWork     = "work"
-	stCI       = "ci"
-	stReview   = "review"
+	stChecks   = "checks"
 	stMerge    = "merge"
 )
 
@@ -89,6 +89,9 @@ func primaryAction(v recordView) string {
 			return "resume"
 		// Orca's agent is asked in Orca; CI still running: nothing to merge yet.
 		case b != "" || v.CIWait != "":
+			return "open-mr"
+		// The reviewer is reading the branch, or the agent is fixing its remarks: the merge waits for them.
+		case v.ReviewStep == "running" || v.ReviewStep == "fixing":
 			return "open-mr"
 		}
 		return "merge"
@@ -167,7 +170,7 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	}
 
 	// The reviewer agent.
-	rev := stageView{Key: stReview, State: "todo", Cost: cost(core.PhaseReview)}
+	rev := stageView{State: "todo", Cost: cost(core.PhaseReview)}
 	if n := len(r.AgentReviews); n > 0 {
 		last := r.AgentReviews[n-1]
 		if n > 1 {
@@ -198,7 +201,7 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	}
 
 	// CI: the checks before the MR, then the MR's own CI.
-	ci := stageView{Key: stCI, State: "todo", Seconds: sec[core.StageCI]}
+	ci := stageView{State: "todo", Seconds: sec[core.StageCI]}
 	switch {
 	case finished && hasMR:
 		ci.State = "done"
@@ -244,7 +247,69 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	routed(&work, r, core.PhaseWork)
 	routed(&rev, r, core.PhaseReview)
 	routed(&ci, r, core.PhaseCIFix)
-	return []stageView{est, plan, work, ci, rev, merge}
+	return []stageView{est, plan, work, checksOf(ci, rev), merge}
+}
+
+// checksOf: CI and the reviewer agent as one stage. It failed when either did, is on while either runs, and is done
+// once CI is; its note says how each stands, a line each ("CI running" / "review ✓ 2 rounds").
+func checksOf(ci, rev stageView) stageView {
+	s := stageView{Key: stChecks, State: "todo", Seconds: ci.Seconds, Cost: ci.Cost + rev.Cost}
+	// the models, for the stage's tooltip: the CI fixes' and the reviewer's
+	var routes []string
+	if ci.Route != "" {
+		routes = append(routes, "CI fix: "+ci.Route)
+	}
+	if rev.Route != "" {
+		routes = append(routes, "review: "+rev.Route)
+	}
+	s.Route = strings.Join(routes, ", ")
+	switch {
+	case ci.State == "fail" || rev.State == "fail":
+		s.State = "fail"
+	case ci.State == "now" || rev.State == "now":
+		s.State = "now"
+	case ci.State == "done":
+		s.State = "done"
+	case ci.State == "skip" && rev.State == "skip":
+		s.State = "skip"
+	}
+	if ci.State == "todo" && rev.State == "todo" {
+		return s
+	}
+	var c string
+	switch ci.State {
+	case "done":
+		c = "CI green"
+	case "now":
+		c = "CI running"
+	case "fail":
+		c = "CI failed"
+		if ci.Note == "conflicts" {
+			c = "MR conflicts"
+		}
+	case "skip":
+		c = "CI skipped"
+	default:
+		c = "CI waiting"
+	}
+	var rv string
+	switch rev.State {
+	case "done":
+		rv = "review ✓"
+	case "now":
+		rv = "review running"
+	case "fail":
+		rv = "review failed"
+	case "skip":
+		rv = "review skipped"
+	default:
+		rv = "review not run"
+	}
+	if rev.Note != "" && rev.State != "skip" {
+		rv += " " + rev.Note
+	}
+	s.Note = c + "\n" + rv
+	return s
 }
 
 // questionsNote: «3 questions» for the estimate's Markdown points.
@@ -271,6 +336,9 @@ func plural(n int, one, many string) string {
 
 // routed: the stage shows the route its phase last ran with.
 func routed(s *stageView, r core.Record, phase string) {
+	if s.State == "skip" {
+		return // a stage that did not run shows no model
+	}
 	if route := r.RouteOf(phase); route.Model != "" {
 		s.Route, s.Why = route.Label(), route.Why
 	}
