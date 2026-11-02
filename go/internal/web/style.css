@@ -466,7 +466,7 @@ section.ws .d-head { margin-bottom: 0; }
 /* The terminal workspace fills the window: nothing scrolls but the terminal, the diff and the file list. */
 section.ws { display: flex; flex-direction: column; overflow: hidden; padding: 6px 12px 10px; }
 section.ws > * { flex: none; }
-section.ws h1 { font-size: 17px; margin: 4px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+section.ws h1 { font-size: 17px; margin: 4px 0 0; white-space: normal; overflow-wrap: anywhere; }
 .ws-bar { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .ws-bar .tabs { flex: 1; min-width: 0; margin: 0; border-bottom: 0; }
 .ws-bar .actions { margin: 0; flex: none; gap: 6px; }
