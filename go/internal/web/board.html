@@ -159,6 +159,9 @@ const ICON = {
   fix: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.9 15.5a2 2 0 0 0-1.4-1.4l-6.1-1.6a.5.5 0 0 1 0-1l6.1-1.6a2 2 0 0 0 1.4-1.4l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z"/><path d="M20 3v4M22 5h-4"/></svg>`,
   redo: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>`,
   stop: `<svg viewBox="0 0 24 24" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>`,
+  clip: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11l-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></svg>`,
+  up: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>`,
+  shield: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></svg>`,
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
 const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "Bug" : "Task"}</span>`;
@@ -1846,6 +1849,7 @@ async function showCode() {
     if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(code.thread)}`, pollCode)) return;
     const src = e.target.closest("[data-src]");
     if (src) { e.preventDefault(); openSource(src.dataset.src, +src.dataset.line, +(src.dataset.end || src.dataset.line)); return; }
+    if (stepClick(e, code, renderCode)) return;
     const t = e.target.closest("[data-toggle]");
     if (t) { if (!code.flip.delete(t.dataset.toggle)) code.flip.add(t.dataset.toggle); renderCode(); }
   };
@@ -1936,7 +1940,7 @@ function renderCode() {
   const atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
   const items = s?.items ?? [];
   v.drafts = {};
-  v.list.innerHTML = `<div class="chat-col">${chatBlocks(items, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts }) ||
+  v.list.innerHTML = `<div class="chat-col">${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, snap: s }) ||
       `<div class="files-empty">${v.thread ? "Loading the conversation…" : "Ask a question about the project's code: the agent will find the answer and show the places in the code."}</div>`}
     ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}</div>`;
   linkSources(v.list);
@@ -3084,22 +3088,28 @@ function chatFor(id) {
   closeChat();
   const el = document.createElement("div");
   el.className = "chat";
-  el.innerHTML = `<div class="chat-list" role="log" aria-live="polite"></div>
+  el.innerHTML = `<div class="chat-progress" hidden></div>
+    <div class="chat-list" role="log" aria-live="polite"></div>
     <div class="chat-resume" hidden><button type="button" class="resume-btn on-light" data-chat-resume title="The agent has stopped. The conversation is saved in Claude Code.">${ICON.play}Continue conversation</button></div>
+    <div class="chat-status" hidden><span class="dot"></span><b class="st"></b><span class="muted st-more"></span>
+      <button type="button" class="chat-stop-btn" title="Interrupt the current step, like Esc in the terminal">${ICON.stop}Stop</button></div>
     <div class="chat-foot">
       <div class="chat-quick">${["Continue", "Run the tests", "Open the MR"].map((q) => `<button type="button" class="chip" data-quick="${q}">${q}</button>`).join("")}</div>
-      <div class="chat-box"><textarea rows="2" aria-label="Message to the agent"></textarea>
-        <button type="button" class="icon chat-stop" title="Interrupt the current step" aria-label="Interrupt the current step" hidden>${ICON.stop}</button>
-        <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.push}</button></div>
-      <div class="chat-hint">
-        <label class="chat-mode" title="What Claude does without asking; takes effect immediately, like Shift+Tab in the terminal">
-          <select aria-label="What Claude does without asking">
-            <option value="auto">auto</option><option value="default">ask for everything</option><option value="acceptEdits">edits without asking</option>
-            <option value="plan">plan</option><option value="bypassPermissions">no questions</option></select></label>
-        <span class="chat-model"></span><span class="chat-ctx"></span>
-        <span class="chat-keys">Enter — send · Shift+Enter — new line</span></div>
+      <div class="chat-box composer">
+        <div class="chat-att" hidden></div>
+        <textarea rows="2" aria-label="Message to the agent"></textarea>
+        <div class="chat-row">
+          <span class="chat-mode"><button type="button" class="chat-mode-btn" aria-haspopup="menu" aria-expanded="false" title="What Claude does without asking; takes effect immediately, like Shift+Tab in the terminal"></button>
+            <span class="chat-mode-menu" role="menu" hidden>${MODES.map(([m, label, hint]) => `<button type="button" role="menuitemradio" data-mode="${m}"><b>${label}</b><span class="muted">${hint}</span></button>`).join("")}</span></span>
+          <span class="chat-model"></span><span class="chat-ctx"></span>
+          <span class="spacer"></span>
+          <input type="file" accept="image/*" multiple hidden>
+          <button type="button" class="icon chat-attach" title="Attach a picture (or paste it with ⌘V)" aria-label="Attach a picture">${ICON.clip}</button>
+          <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.up}</button></div></div>
+      <div class="chat-keys" hidden></div>
     </div>`;
-  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null, top: 0, atEnd: true, auto: -1 });
+  const v = (cv = { id, el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea"), version: -1, flip: new Set(), snap: null, top: 0, atEnd: true, auto: -1,
+    att: [], seen: 0, total: 0 });
   // What grows after it is drawn (pictures, opened blocks) keeps the end in view.
   v.grow = new ResizeObserver(() => { if (v.atEnd && v.list.isConnected) restoreChatScroll(v); });
   // Where the reader is: the board re-attaches the chat when it redraws the page, and that drops the list's scroll.
@@ -3109,27 +3119,73 @@ function chatFor(id) {
     if (!v.list.isConnected || Math.abs(v.list.scrollTop - v.auto) < 2) return;
     v.top = v.list.scrollTop;
     v.atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
+    if (v.atEnd) { v.seen = v.total; const n = v.list.querySelector(".chat-new"); if (n) n.hidden = true; }
   };
+  const keys = el.querySelector(".chat-keys");
+  const warn = (msg) => { keys.hidden = !msg; keys.textContent = msg ? `⚠ ${msg}` : ""; };
   // To a closed agent too: the message resumes the conversation, in a new session the board reads from 0.
   const say = async (text) => {
     if (!text) return;
     const r = await (await fetch(`/api/say?id=${encodeURIComponent(id)}`, { method: "POST", body: text })).json().catch(() => ({}));
-    const keys = el.querySelector(".chat-keys");
-    keys.classList.toggle("err", r.ok === false);
-    keys.textContent = r.ok === false ? `⚠ ${r.error}` : "Enter — send · Shift+Enter — new line";
+    warn(r.ok === false ? r.error : "");
     if (r.ok === false) v.input.value ||= text;
     if (!v.snap?.live) v.version = -1;
+    v.atEnd = true;
     pollChat();
   };
-  const send = () => { const text = v.input.value.trim(); v.input.value = ""; say(text); };
+  // The pictures attached go with the message as lines naming their files: the agent reads them from there.
+  const send = () => {
+    const text = [v.input.value.trim(), ...v.att.map((a) => a.line)].filter(Boolean).join("\n");
+    v.input.value = ""; v.att = []; drawAttached(v);
+    say(text);
+  };
+  const attach = async (files) => {
+    for (const f of files) {
+      if (!f.type.startsWith("image/")) continue;
+      const r = await (await fetch(`/api/attach?id=${encodeURIComponent(id)}&name=${encodeURIComponent(f.name || "image.png")}`,
+        { method: "POST", headers: { "Content-Type": f.type }, body: f })).json().catch(() => ({ ok: false, error: "the picture did not upload" }));
+      if (r.ok === false) { warn(r.error); continue; }
+      warn("");
+      v.att.push({ line: r.line, url: r.url, name: f.name || "image" });
+      drawAttached(v);
+    }
+  };
+  const file = el.querySelector('input[type="file"]');
+  el.querySelector(".chat-attach").onclick = () => file.click();
+  file.onchange = () => { attach([...file.files]); file.value = ""; };
+  v.input.onpaste = (e) => {
+    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+    if (files.length) { e.preventDefault(); attach(files); }
+  };
+  el.querySelector(".chat-att").onclick = (e) => {
+    const x = e.target.closest("[data-unattach]");
+    if (x) { v.att.splice(+x.dataset.unattach, 1); drawAttached(v); }
+  };
   for (const q of el.querySelectorAll("[data-quick]")) q.onclick = () => say(q.dataset.quick);
   v.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   el.querySelector(".chat-send").onclick = send;
-  el.querySelector(".chat-mode select").onchange = (e) =>
-    fetch(`/api/mode?id=${encodeURIComponent(id)}&to=${e.target.value}`, { method: "POST" }).then(() => pollChat());
-  el.querySelector(".chat-stop").onclick = () => fetch(`/api/interrupt?id=${encodeURIComponent(id)}`, { method: "POST" });
+  // The mode: a button and its menu, like the model's.
+  const modeBtn = el.querySelector(".chat-mode-btn"), modeMenu = el.querySelector(".chat-mode-menu");
+  const showModes = (on) => { modeMenu.hidden = !on; modeBtn.setAttribute("aria-expanded", on ? "true" : "false"); };
+  modeBtn.onclick = (e) => { e.stopPropagation(); showModes(modeMenu.hidden); };
+  modeMenu.onclick = (e) => {
+    const b = e.target.closest("[data-mode]");
+    if (!b) return;
+    showModes(false);
+    fetch(`/api/mode?id=${encodeURIComponent(id)}&to=${b.dataset.mode}`, { method: "POST" }).then(() => pollChat());
+  };
+  el.addEventListener("click", (e) => { if (!modeMenu.hidden && !e.target.closest(".chat-mode")) showModes(false); });
+  el.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modeMenu.hidden) { showModes(false); modeBtn.focus(); } });
+  el.querySelector(".chat-stop-btn").onclick = () => fetch(`/api/interrupt?id=${encodeURIComponent(id)}`, { method: "POST" });
   el.querySelector("[data-chat-resume]").onclick = () => post("resume", id).then(() => { v.version = -1; pollChat(); });
+  el.querySelector(".chat-progress").onclick = (e) => {
+    if (!e.target.closest("[data-all-steps]")) return;
+    v.allSteps = !v.allSteps;
+    renderChat(v);
+  };
   v.list.onclick = (e) => {
+    if (e.target.closest("[data-new]")) { v.atEnd = true; v.seen = v.total; restoreChatScroll(v); e.target.closest("[data-new]").hidden = true; return; }
+    if (stepClick(e, v, () => renderChat(v))) return;
     const t = e.target.closest("[data-toggle]");
     if (t) { if (!v.flip.delete(t.dataset.toggle)) v.flip.add(t.dataset.toggle); renderChat(v); return; }
     // The agent's questions: an option, or your own words.
@@ -3171,7 +3227,9 @@ async function pollChat() {
   const v = cv;
   if (!v) return;
   const s = await getJSON(`/api/chat?id=${encodeURIComponent(v.id)}&v=${v.version}`);
-  if (v !== cv || !v.el.isConnected || s.same || s.error) return;
+  if (v !== cv || !v.el.isConnected) return;
+  tickChat(v.el);
+  if (s.same || s.error) return;
   v.snap = s;
   v.version = s.version;
   renderChat(v);
@@ -3180,29 +3238,74 @@ function restoreChatScroll(v) {
   v.list.scrollTop = v.atEnd ? v.list.scrollHeight : v.top;
   v.auto = v.list.scrollTop;
 }
+// How long, said shortly: «38 s», «6 min», «1 h 5 min».
+const dur = (sec) => {
+  sec = Math.max(0, Math.round(sec));
+  return sec >= 3600 ? `${Math.floor(sec / 3600)} h ${Math.floor((sec % 3600) / 60)} min` : sec >= 60 ? `${Math.floor(sec / 60)} min` : `${sec} s`;
+};
+const hhmm = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+// What runs on: the seconds of the step going on and of the turn, counted between the board's redraws.
+function tickChat(root) {
+  for (const e of root.querySelectorAll("[data-since]")) if (+e.dataset.since) e.textContent = (e.dataset.pre ?? "") + dur((Date.now() - +e.dataset.since) / 1000);
+}
+const MODES = [["auto", "Auto", "Claude decides what is safe"], ["default", "Ask", "asks before every change"], ["acceptEdits", "Edits", "changes files without asking"],
+  ["plan", "Plan", "only reads and plans"], ["bypassPermissions", "No questions", "does everything without asking"]];
+const kTok = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`;
+function drawAttached(v) {
+  const box = v.el.querySelector(".chat-att");
+  box.hidden = !v.att.length;
+  box.innerHTML = v.att.map((a, i) => `<span class="att"><img src="${esc(a.url)}" alt=""><span>${esc(a.name)}</span>
+    <button type="button" class="icon" data-unattach="${i}" title="Remove" aria-label="Remove ${esc(a.name)}">×</button></span>`).join("");
+}
 function renderChat(v) {
   const s = v.snap, list = v.list;
-  const running = [...s.items].reverse().find((it) => it.kind === "tool" && it.status === "running");
-  list.innerHTML = `<div class="chat-col">${chatBlocks(s.items, v) || `<div class="files-empty">${s.live ? "The agent is waiting: tell it what to do." : "The conversation will appear here once the agent starts."}</div>`}
-    ${s.state === "working" ? `<div class="chat-working"><span class="pulse"></span>${esc(running ? `${running.tool}${toolArg(running.input)}` : "Thinking…")}</div>` : ""}</div>`;
+  const live = s.state === "working" || s.state === "waiting";
+  // «↓ N new»: what came while the reader was up the conversation.
+  v.total = (s.turns ?? []).reduce((n, t) => n + (t.who === "user" ? 1 : (t.blocks ?? []).length), 0);
+  if (v.atEnd || v.version <= 1) v.seen = v.total;
+  const fresh = v.total - v.seen;
+  list.innerHTML = `<div class="chat-col">${chatTurns(s, v) || `<div class="files-empty">${s.live ? "The agent is waiting: tell it what to do." : "The conversation will appear here once the agent starts."}</div>`}
+    <button type="button" class="chat-new" data-new ${fresh > 0 && !v.atEnd ? "" : "hidden"}>↓ ${fresh} new · to the latest</button></div>`;
   // Stays at the end while the agent writes, unless the reader scrolled up: then right where they were.
   if (v.version <= 1) v.atEnd = true;
   restoreChatScroll(v);
   v.grow.disconnect();
   v.grow.observe(list.firstElementChild);
-  v.el.querySelector(".chat-stop").hidden = s.state !== "working";
+  // The agent's plan, pinned above the conversation.
+  const p = s.progress, pe = v.el.querySelector(".chat-progress");
+  pe.hidden = !p;
+  if (p) {
+    const at = p.steps.findIndex((x) => x.status === "in_progress");
+    pe.innerHTML = `<div class="pg-h"><b>Progress ${p.done} of ${p.total}</b>
+      <span class="pg-bar" aria-hidden="true">${p.steps.map((x) => `<i class="${x.status === "completed" ? "done" : x.status === "in_progress" ? "now" : ""}"></i>`).join("")}</span>
+      <span class="muted pg-now">${p.current ? `now: ${esc(p.current)}` : p.done === p.total ? "all done" : ""}</span>
+      <button type="button" class="pg-all" data-all-steps aria-expanded="${v.allSteps ? "true" : "false"}">All steps ${v.allSteps ? "▴" : "▾"}</button></div>
+      ${v.allSteps ? `<ol class="pg-list">${p.steps.map((x, i) => `<li class="${x.status === "completed" ? "done" : i === at ? "now" : ""}">${esc(x.text)}</li>`).join("")}</ol>` : ""}`;
+  }
+  // The line above the input: what the agent does, this turn's time, cost and steps, and Stop.
+  const st = v.el.querySelector(".chat-status"), t = s.turn ?? {};
+  st.hidden = !s.live && !s.asleep && !s.items.length;
+  st.className = `chat-status ${s.state}`;
+  st.querySelector(".st").textContent = { working: "Working", waiting: "Waiting for you", done: "Your turn" }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
+  const more = [];
+  if (t.since && (live || s.state === "done")) more.push(live ? `<span data-since="${t.since}" data-pre="this turn ">this turn ${dur((Date.now() - t.since) / 1000)}</span>` : "");
+  if (t.cost) more.push(`${t.estimate ? "≈" : ""}$${t.cost.toFixed(2)}`);
+  if (t.steps && (live || s.state === "done")) more.push(`${t.steps} ${plural(t.steps, "step", "steps")}`);
+  st.querySelector(".st-more").innerHTML = more.filter(Boolean).map((x) => ` · ${x}`).join("");
+  st.querySelector(".chat-stop-btn").hidden = !live;
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
-  v.el.querySelector(".chat-quick").hidden = s.state === "working" || s.state === "waiting";
-  const mode = v.el.querySelector(".chat-mode select");
-  if (document.activeElement !== mode) mode.value = s.mode || "default";
-  mode.disabled = !s.live;
+  v.el.querySelector(".chat-quick").hidden = live;
+  const mode = MODES.find(([m]) => m === (s.mode || "default")) ?? MODES[1], modeBtn = v.el.querySelector(".chat-mode-btn");
+  modeBtn.innerHTML = `${ICON.shield}${mode[1]} ▾`;
+  modeBtn.disabled = !s.live;
+  for (const b of v.el.querySelectorAll("[data-mode]")) b.setAttribute("aria-checked", b.dataset.mode === mode[0] ? "true" : "false");
   v.el.querySelector(".chat-model").textContent = s.model ? s.model.replace(/^claude-/, "").replace(/-(\d+)-(\d+)$/, " $1.$2") : "";
-  const k = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`;
-  const ctx = v.el.querySelector(".chat-ctx");
-  ctx.textContent = s.context ? `context ${s.window ? Math.round((100 * s.context) / s.window) + "% · " : ""}${k(s.context)}${s.window ? " of " + k(s.window) : ""}` : "";
-  ctx.className = "chat-ctx" + (s.window && s.context / s.window > 0.8 ? " full" : "");
-  v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent will read it after the current step…" : "What next? Write to the agent…";
+  const ctx = v.el.querySelector(".chat-ctx"), share = s.window ? s.context / s.window : 0;
+  ctx.className = "chat-ctx" + (share > 0.8 ? " full" : "");
+  ctx.title = s.context ? `Context: ${kTok(s.context)}${s.window ? ` of ${kTok(s.window)} (${Math.round(share * 100)}%)` : ""}` : "";
+  ctx.innerHTML = !s.context ? "" : `<span>Context</span>${s.window ? `<span class="meter" aria-hidden="true"><i style="width:${Math.min(100, Math.round(share * 100))}%"></i></span>` : ""}<span>${kTok(s.context)}${s.window ? ` / ${kTok(s.window)}` : ""}</span>`;
+  v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent reads it after the current step…" : "What next? Write to the agent…";
 }
 const toolArg = (input) => {
   for (const k of ["command", "file_path", "pattern", "url", "description", "prompt"]) {
@@ -3211,31 +3314,113 @@ const toolArg = (input) => {
   }
   return "";
 };
-// What matters in a conversation is what the agent says, what it changed and what it asks: the commands and
-// reads between are folded into one line, open on a click.
 const EDITS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
-const quiet = (it) => (it.kind === "tool" && !EDITS.includes(it.tool)) || (it.kind === "permission" && it.status !== "asked" && it.tool !== "ExitPlanMode");
-const STEP = { Bash: "commands", Read: "reading", Grep: "search", Glob: "search", LS: "search", WebFetch: "web", WebSearch: "web",
-  Task: "subagents", Agent: "subagents", TodoWrite: "plan" };
-function chatBlocks(items, v) {
+// The conversation in turns (chat.Group): your messages on the right, each turn of the agent under one name with
+// what it said and its steps, gathered by what they did.
+function chatTurns(s, v) {
+  const items = s?.items ?? [], turns = s?.turns ?? [];
+  return turns.map((t, k) => t.who === "user" ? userTurn(t, items[t.item], v)
+    : agentTurn(t, items, v, k === turns.length - 1 && s.state === "working")).join("");
+}
+function userTurn(t, it, v) {
+  if (!it) return "";
+  if (t.prompt && !v.code) return chatItem(it, 0, v);
+  const pics = (t.images ?? []).map((p) => {
+    const m = p.match(/\/screenshots\/([^/]+)\/([^/]+)$/);
+    return m ? `<a href="/api/screenshots/${esc(m[1])}/${esc(m[2])}" target="_blank" rel="noopener"><img src="/api/screenshots/${esc(m[1])}/${esc(m[2])}" alt="Attached picture"></a>`
+      : `<code>${esc(p)}</code>`;
+  }).join("");
+  return `<div class="msg me">${t.text ? `<div class="bubble">${linkify(t.text)}</div>` : ""}${pics ? `<div class="me-pics">${pics}</div>` : ""}
+    ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
+}
+const SPARK = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg>`;
+function agentTurn(t, items, v, live) {
+  const blocks = (t.blocks ?? []).map((b) => chatBlock(b, items, v)).join("");
+  if (!blocks) return "";
+  return `<div class="turn"><span class="av" aria-hidden="true">${SPARK}</span><div class="turn-b">
+    <div class="turn-h"><b>Claude</b><span class="time">${hhmm(t.at)}${live && t.at ? ` · <span data-since="${t.at}" data-pre="working ">working ${dur((Date.now() - t.at) / 1000)}</span>` : ""}</span></div>
+    ${blocks}</div></div>`;
+}
+const STEP_ICON = {
+  commands: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8"/></svg>`,
+  reads: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  edits: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`,
+  search: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>`,
+  web: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>`,
+};
+STEP_ICON.steps = STEP_ICON.commands;
+const VERB = { Edit: "Editing", MultiEdit: "Editing", NotebookEdit: "Editing", Write: "Writing", Read: "Reading", Bash: "Running", Setup: "Preparing", Grep: "Searching",
+  Glob: "Searching", LS: "Listing", WebFetch: "Fetching", WebSearch: "Searching the web", Task: "Subagent", Agent: "Subagent" };
+// A test run says how it went, a commit its hash, an edit how much it changed.
+function rowBadges(r) {
   let out = "";
-  for (let i = 0; i < items.length;) {
-    if (!quiet(items[i])) { out += chatItem(items[i], i, v); i++; continue; }
-    let j = i; while (j < items.length && quiet(items[j])) j++;
-    const group = items.slice(i, j).filter((it) => it.kind === "tool");
-    if (group.length <= 1) { out += items.slice(i, j).map((it, k) => chatItem(it, i + k, v)).join(""); i = j; continue; }
-    const key = `g:${group[0].id}`, open = v.flip.has(key);
-    const counts = {};
-    for (const it of group) { const k = STEP[it.tool] ?? it.tool; counts[k] = (counts[k] ?? 0) + 1; }
-    const failed = group.filter((it) => it.status === "error").length, running = group.some((it) => it.status === "running");
-    out += `<div class="steps${open ? " open" : ""}"><button type="button" class="steps-h" data-toggle="${esc(key)}">${MR_ICON[running ? "run" : "ok"]}
-        <span>${group.length} ${plural(group.length, "step", "steps")}</span>
-        <span class="muted">${Object.entries(counts).map(([k, n]) => `${esc(k)} ${n}`).join(" · ")}</span>
-        ${failed ? `<span class="steps-bad">${failed} failed</span>` : ""}<span class="muted tw">${open ? "▾" : "▸"}</span></button>
-      ${open ? `<div class="steps-body">${items.slice(i, j).map((it, k) => chatItem(it, i + k, v)).join("")}</div>` : ""}</div>`;
-    i = j;
-  }
+  if (r.test) out += `${r.failed ? `<span class="badge bad">${r.failed} failed</span>` : ""}${r.passed || !r.failed ? `<span class="badge ok">${r.passed} passed</span>` : ""}`;
+  if (r.commit) out += `<code class="hash">${esc(r.commit)}</code>`;
+  if (r.add || r.del) out += `<span class="num">${r.add ? `<span class="add">+${r.add}</span>` : ""}${r.del ? ` <span class="del">−${r.del}</span>` : ""}</span>`;
   return out;
+}
+function chatBlock(b, items, v) {
+  if (b.kind === "item") return chatItem(items[b.item], b.item, v);
+  const it0 = items[b.item];
+  if (b.kind === "current") {
+    const r = b.rows?.[0] ?? { label: "" }, name = EDITS.includes(it0.tool) || it0.tool === "Read" ? r.label.split("/").pop() : r.label;
+    return `<div class="step-box current"><div class="step-h"><span class="spin" aria-hidden="true"></span><b>${esc(VERB[it0.tool] ?? it0.tool)}</b>
+      <code title="${esc(r.label)}">${esc(name)}</code><span class="step-r" data-since="${it0.at || 0}">${it0.at ? dur((Date.now() - it0.at) / 1000) : ""}</span></div></div>`;
+  }
+  const rows = b.rows ?? [], n = rows.length, key = `b:${it0.id}`;
+  const rowsHTML = () => rows.map((r) => stepRow(r, items[r.i], v, b.kind)).join("");
+  // Edits are the work itself: each shows as its own line.
+  if (b.kind === "edits") return `<div class="step-box">${rowsHTML()}</div>`;
+  // One command needs no heading: its line says it.
+  if (b.kind === "commands" && n === 1) return `<div class="step-box${b.failed ? " bad" : ""}">${stepRow(rows[0], items[rows[0].i], v, "single")}</div>`;
+  // Commands show as they are while few, a failed one opened; a long run, reads and searches fold to one line.
+  const byDefault = b.kind === "commands" && (n <= 4 || b.failed > 0);
+  const open = byDefault !== v.flip.has(key);
+  const title = { commands: `Ran ${n} ${plural(n, "command", "commands")}`, reads: `Read ${n} ${plural(n, "file", "files")}`, search: `Searched ${n} ${plural(n, "time", "times")}`,
+    web: `Fetched ${n} ${plural(n, "page", "pages")}`, steps: `${n} steps` }[b.kind] ?? `${n} steps`;
+  const names = b.kind === "reads" ? rows.map((r) => r.label.split("/").pop()) : rows.map((r) => r.label);
+  const tests = rows.filter((r) => r.test), badge = !open && tests.length ? rowBadges(tests.at(-1)) : "";
+  return `<div class="step-box${b.failed ? " bad" : ""}"><button type="button" class="step-h boxh" data-toggle="${esc(key)}" aria-expanded="${open}">
+      ${b.failed ? MR_ICON.bad : b.running ? MR_ICON.run : MR_ICON.ok}<b>${title}</b>
+      ${!open || b.kind !== "commands" ? `<code class="muted">${esc(names.slice(0, 4).join(b.kind === "reads" ? ", " : " · "))}${names.length > 4 ? ", …" : ""}</code>` : ""}
+      <span class="step-r">${b.failed ? `<span class="badge bad">${b.failed} failed</span>` : badge}${b.seconds ? `<span>${dur(b.seconds)}</span>` : ""}<span class="tw">${open ? "▾" : "▸"}</span></span></button>
+    ${open ? rowsHTML() : ""}</div>`;
+}
+// One step: its line, opened on a click (a failed one opened by itself): a diff for an edit, the output's last
+// lines for a command, all of it on «Whole output».
+function stepRow(r, it, v, kind) {
+  if (!it) return "";
+  const edit = EDITS.includes(it.tool), detail = edit || it.output;
+  const open = detail && (it.status === "error") !== v.flip.has(it.id);
+  const icon = edit ? STEP_ICON.edits : it.status === "error" ? MR_ICON.bad : kind === "steps" || kind === "single" ? (STEP_ICON[stepKind(it.tool)] ?? "") : "";
+  const label = edit ? `<b>${it.tool === "Write" ? "Created" : "Changed"}</b><code title="${esc(r.label)}">${esc(r.label)}</code>`
+    : `<code title="${esc(r.label)}">${esc(r.label)}</code>`;
+  return `<div class="step ${esc(it.status)}"><button type="button" class="step-h" ${detail ? `data-toggle="${esc(it.id)}" aria-expanded="${!!open}"` : "disabled"}>${icon}${label}
+      <span class="step-r">${rowBadges(r)}${detail ? `<span class="tw">${open ? "▾" : "▸"}</span>` : ""}</span></button>
+    ${open ? stepDetail(r, it, v) : ""}</div>`;
+}
+const stepKind = (tool) => ({ Bash: "commands", Read: "reads", Grep: "search", Glob: "search", LS: "search", WebFetch: "web", WebSearch: "web" })[tool];
+function stepDetail(r, it, v) {
+  if (EDITS.includes(it.tool)) {
+    return `${toolDetail(it)}${v.code ? "" : `<div class="step-foot"><button type="button" class="link" data-open-diff="${esc(r.label)}">Open the whole diff →</button></div>`}`;
+  }
+  const lines = String(it.output ?? "").replace(/\s+$/, "").split("\n"), whole = v.flip.has(`w:${it.id}`), cut = !whole && lines.length > 12;
+  return `<pre class="tool-out">${esc((cut ? lines.slice(-12) : lines).join("\n"))}</pre>
+    <div class="step-foot">${cut ? `<span class="muted">last 12 of ${lines.length} lines</span><button type="button" class="link" data-toggle="w:${esc(it.id)}">Whole output</button>`
+      : lines.length > 12 ? `<button type="button" class="link" data-toggle="w:${esc(it.id)}">Last lines</button>` : ""}
+      <button type="button" class="link" data-copy="${r.i}">Copy</button></div>`;
+}
+// A click on a step's own buttons: copy its output, open the whole diff of its file beside the chat.
+function stepClick(e, v, redraw) {
+  const c = e.target.closest("[data-copy]");
+  if (c) {
+    const it = v.snap?.items?.[+c.dataset.copy];
+    navigator.clipboard?.writeText(it?.output ?? "").then(() => { c.textContent = "Copied"; setTimeout(() => (c.textContent = "Copy"), 1500); });
+    return true;
+  }
+  const d = e.target.closest("[data-open-diff]");
+  if (d) { openFile(d.dataset.openDiff); return true; }
+  return false;
 }
 function chatItem(it, i, v) {
   const open = (key, byDefault) => byDefault !== v.flip.has(key);
@@ -3247,10 +3432,11 @@ function chatItem(it, i, v) {
       }
       return `<div class="msg me"><div class="who">You</div><div class="bubble">${linkify(it.text)}</div></div>`;
     case "text": {
-      if (!v.drafts) return `<div class="msg"><div class="who">Claude</div><div class="md">${md(it.text)}</div></div>`;
+      // The turn says who speaks: the text goes on under its name.
+      if (!v.drafts) return `<div class="msg"><div class="md">${md(it.text)}</div></div>`;
       const t = ticketOf(it.text);
       if (t.draft) v.drafts[i] = t.draft;
-      return `<div class="msg"><div class="who">Claude</div>${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i) : ""}</div>`;
+      return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i) : ""}</div>`;
     }
     case "tool": {
       const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
