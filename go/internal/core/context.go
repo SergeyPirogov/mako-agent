@@ -181,9 +181,28 @@ func (c *contextStats) add(r Record) {
 		for k, v := range x.Tools {
 			p.Tools[k] += v
 		}
-		addHeavy(c.files, x.Files)
-		addHeavy(c.commands, x.Commands)
+		addHeavy(c.files, relHeavy(x.Files, r.Worktree, false))
+		addHeavy(c.commands, relHeavy(x.Commands, r.Worktree, true))
 	}
+}
+
+// relHeavy: the files and commands with the task's worktree taken out of their names, so the same file of two
+// tasks counts as one: a file's path relative to it; in a command the worktree's path becomes ".".
+func relHeavy(hs []Heavy, worktree string, command bool) []Heavy {
+	worktree = strings.TrimRight(worktree, "/")
+	if worktree == "" || len(hs) == 0 {
+		return hs
+	}
+	out := make([]Heavy, len(hs))
+	for i, h := range hs {
+		if command {
+			h.Name = strings.ReplaceAll(strings.ReplaceAll(h.Name, worktree+"/", ""), worktree, ".")
+		} else if rel, ok := strings.CutPrefix(h.Name, worktree+"/"); ok {
+			h.Name = rel
+		}
+		out[i] = h
+	}
+	return out
 }
 
 func addHeavy(m map[string]*Heavy, hs []Heavy) {
