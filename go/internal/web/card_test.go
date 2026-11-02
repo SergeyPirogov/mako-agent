@@ -33,6 +33,7 @@ func TestCardByState(t *testing.T) {
 		{"new, not estimated", view(core.Record{Status: core.Asking}, nil), "take", "todo todo todo todo todo todo"},
 		{"postponed", view(core.Record{Status: core.Snoozed, PostponedByYou: true, SnoozedUntil: now.Add(time.Hour).UnixMilli()}, nil), "restore", "todo todo todo todo todo todo"},
 		{"queued", view(core.Record{Status: core.Queued, Estimate: est}, nil), "push", "done todo now todo todo todo"},
+		{"queued, plans first", view(core.Record{Status: core.Queued, Estimate: est}, func(v *recordView) { v.WillPlan = true }), "push", "done now todo todo todo todo"},
 		{"starting", view(core.Record{Status: core.Queued}, func(v *recordView) { v.Starting = &dispatch.StartProgress{} }), "cancel", "skip todo now todo todo todo"},
 		{"working, live", view(term, func(v *recordView) { v.Live = true }), "stop", "skip skip now todo todo todo"},
 		{"working, stopped", view(term, nil), "resume", "skip skip now todo todo todo"},

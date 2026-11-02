@@ -104,6 +104,13 @@ func (d *Dispatcher) DefaultModel(r core.Record) string {
 	return StartModel(d.Config(), r)
 }
 
+// WillPlan: the task's agent will start with a plan once it leaves the queue: only Mako's own agent plans, as
+// wantsPlan decides at its start.
+func (d *Dispatcher) WillPlan(r core.Record) bool {
+	cfg := d.Config()
+	return cfg.Executor == terminalExecutor && wantsPlan(cfg.Terminal, r.Task, r.Estimate, r.PlanFirst)
+}
+
 // FallbackModel: the model of Mako's agent when nothing else names one.
 const FallbackModel = "sonnet"
 

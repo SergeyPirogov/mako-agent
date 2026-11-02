@@ -136,6 +136,9 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	switch {
 	case r.Planning && col == "doing":
 		plan.State = "now"
+	case r.Status == core.Queued && v.WillPlan:
+		// The agent plans first once it starts: the plan is the next stage, not the work.
+		plan.State, plan.Note = "now", "queued"
 	case r.Planning || r.PlanFirst || plan.Cost > 0:
 		if taken && r.Status != core.Queued {
 			plan.State = "done"
@@ -151,6 +154,8 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	// Work: the agent working and waiting for you, up to its MR.
 	work := stageView{Key: stWork, State: "todo", Seconds: sec[core.StageAgent] + sec[core.StageYou], Cost: cost(core.PhaseWork)}
 	switch {
+	case r.Status == core.Queued && v.WillPlan:
+		work.State = "todo"
 	case r.Status == core.Queued:
 		work.State, work.Note = "now", "queued"
 	case col == "doing" && r.Planning:
