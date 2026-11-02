@@ -179,7 +179,7 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .legend.stage-legend { margin-top: 8px; }
 .legend.stage-legend b { color: var(--fg); font-weight: 600; }
 /* "Stats" (#280): the header with the period and the project, the tabs, cards of key numbers and charts. */
-.stats { max-width: 1040px; display: flex; flex-direction: column; gap: 14px; }
+.stats { display: flex; flex-direction: column; gap: 14px; }
 .stats-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .stats-head h1 { margin: 0; font-size: 22px; flex: 1; }
 .stats-project { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mute); }
