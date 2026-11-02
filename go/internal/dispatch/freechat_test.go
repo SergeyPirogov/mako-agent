@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 )
 
@@ -49,7 +50,7 @@ read more
 	out := t.TempDir()
 	t.Setenv("MAKO_TEST_OUT", out)
 	setConfig(d, func(c *config.Config) {
-		c.Terminal.Command, c.Terminal.Model, c.StateDir = filepath.Join(bin, "claude"), "sonnet", t.TempDir()
+		c.Terminal.Command, c.StateDir = filepath.Join(bin, "claude"), t.TempDir()
 		c.Terminal.AllowedTools = []string{"Bash(go test:*)"}
 	})
 
@@ -88,7 +89,9 @@ read more
 		return all
 	}
 	first := runs()[0]
-	if first[slices.Index(first, "--model")+1] != "sonnet" || !slices.Contains(first, "Bash(go test:*)") || slices.Contains(first, "--resume") ||
+	// The routes' work of a task with no estimate.
+	route := routeFor(d.Config(), core.Record{}, core.PhaseWork, "")
+	if first[slices.Index(first, "--model")+1] != route.Model || route.Effort != "" && first[slices.Index(first, "--effort")+1] != route.Effort || !slices.Contains(first, "Bash(go test:*)") || slices.Contains(first, "--resume") ||
 		slices.Contains(first, "--disallowedTools") {
 		t.Fatalf("args %q", first)
 	}

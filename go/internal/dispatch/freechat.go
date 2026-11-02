@@ -15,6 +15,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
@@ -160,17 +161,18 @@ func (d *Dispatcher) startFree(c FreeChat, text string, setup *chat.SetupResult)
 	if err != nil {
 		return err
 	}
-	model := t.Model
-	if model == "" {
-		model = FallbackModel
-	}
+	// The route of a task's work with no estimate (medium), in the project's routes mode.
+	route := d.chatRoute(c)
 	var args []string
 	history := ""
 	if c.Session != "" && orca.HasSession(c.Dir, c.Session) {
 		args = append(args, "--resume", c.Session)
 		history = orca.Transcript(c.Dir, c.Session)
 	}
-	args = append(args, "--model", model)
+	if route.Model != "" {
+		args = append(args, "--model", route.Model)
+	}
+	args = append(args, effortArgs(route.Effort)...)
 	if len(t.AllowedTools) > 0 {
 		args = append(append(args, "--allowedTools"), slices.Clone(t.AllowedTools)...)
 	}
@@ -188,6 +190,16 @@ func (d *Dispatcher) startFree(c FreeChat, text string, setup *chat.SetupResult)
 		OnSession: func(sid, _ string) { d.touchChat(c.ID, sid) },
 	}))
 	return nil
+}
+
+// chatRoute: the model and effort of the chat's agent: the routes' work of a task with no estimate, in the mode of
+// the chat's repo.
+func (d *Dispatcher) chatRoute(c FreeChat) core.Route {
+	mode := ""
+	if p, err := d.codeProject(c.Project); err == nil && p.repo != nil {
+		mode = p.repo.RouteMode
+	}
+	return routeFor(d.Config(), core.Record{}, core.PhaseWork, mode)
 }
 
 // SayFree gives the chat's agent your message: into its conversation, or, when it is not running (closed while
