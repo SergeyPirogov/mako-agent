@@ -1410,16 +1410,23 @@ const VERDICT = { closed: ["✅", "closed"], accepted: ["✅", "explanation acce
 const mark = ([icon, text] = ["⏳", ""], note = "") => `<span class="rm-${icon === "✅" ? "ok" : icon === "❌" ? "bad" : "wait"}">${icon}</span> ${esc(text)}${note ? ` <span class="muted">— ${esc(note)}</span>` : ""}`;
 const extLink = (url, label) => /^https?:\/\//.test(url || "") ? `<a href="${esc(url)}" target="_blank" rel="noopener">${label}</a>` : "";
 // A round's numbered remarks: the remark, the agent's answer, the next round's verdict.
+// A remark's text: escaped, its `code` as code, its lines kept.
+const inlineCode = (t) => esc(t).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\n/g, "<br>");
+// A status chip: ✅ green, ❌ red, ◐ amber, ⏳ grey; its note in the tooltip.
+const chip = (label, [icon, text] = ["⏳", ""], note = "") => `<span class="rm-chip ${icon === "✅" ? "ok" : icon === "❌" ? "bad" : icon === "◐" ? "part" : "wait"}"${note ? ` title="${esc(note)}"` : ""}>${label ? `<i>${label}</i> ` : ""}${esc(text)}</span>`;
 function remarksTable(a, verdicts, answered) {
-  const rows = a.remarks.map((m) => {
-    const where = m.file ? `<code>${esc(m.file)}${m.line ? `:${m.line}` : ""}</code> ` : "";
-    const reply = REPLY[m.reply] ? mark(REPLY[m.reply], m.replyNote) + (a.unverified && m.reply !== "not" ? ` <span class="rm-warn" title="The branch has no new commits after Fix">⚠ no commits</span>` : "")
-      : a.sent ? mark(["⏳", answered ? "no reply" : "awaiting report"]) : `<span class="muted">not passed on</span>`;
+  const items = a.remarks.map((m) => {
+    const where = m.file ? `<code class="rm-at">${esc(m.file)}${m.line ? `:${m.line}` : ""}</code>` : "";
+    const reply = REPLY[m.reply] ? chip("Agent:", REPLY[m.reply], m.replyNote) + (a.unverified && m.reply !== "not" ? `<span class="rm-chip bad" title="The branch has no new commits after Fix">⚠ no commits</span>` : "")
+      : a.sent ? chip("Agent:", ["⏳", answered ? "no reply" : "awaiting report"]) : chip("", ["", "not passed on"]);
     const v = verdicts[m.id];
-    return `<tr><td><b>${esc(m.id)}</b>${m.again ? ` <span class="muted" title="Not closed in the previous round">↻</span>` : ""}</td><td class="rm-${esc(m.weight)}">${WEIGHT[m.weight] ?? esc(m.weight)}</td>`
-      + `<td>${where}${esc(m.text).replace(/\n/g, "<br>")}</td><td>${reply}</td><td>${v ? mark(VERDICT[v.verdict], v.note) : mark()}</td></tr>`;
+    const next = v ? chip("Re-check:", VERDICT[v.verdict], v.note) : "";
+    const notes = [m.replyNote && REPLY[m.reply] ? `<div class="rm-note"><i>Agent:</i> ${inlineCode(m.replyNote)}</div>` : "", v?.note ? `<div class="rm-note"><i>Re-check:</i> ${inlineCode(v.note)}</div>` : ""].join("");
+    return `<li class="rm ${esc(m.weight)}"><div class="rm-h"><b class="rm-id">${esc(m.id)}</b><span class="rm-w">${WEIGHT[m.weight] ?? esc(m.weight)}</span>`
+      + `${m.again ? `<span class="rm-again" title="Not closed in the previous round">↻ again</span>` : ""}${where}<span class="rm-st">${reply}${next}</span></div>`
+      + `<div class="rm-t">${inlineCode(m.text)}</div>${notes}</li>`;
   }).join("");
-  return `<div class="table remarks-table"><table><thead><tr><th>#</th><th>Weight</th><th>Remark</th><th>Agent's reply</th><th>Next round</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<ol class="rm-list">${items}</ol>`;
 }
 function reviewerHTML(r) {
   if (!r.agentReviews?.length) return "";
@@ -1433,12 +1440,14 @@ function reviewerHTML(r) {
     const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1] + (a.sent ? ", passed to the agent" : "");
     const links = [extLink(a.commentUrl, "comment in the task"), extLink(a.mrCommentUrl, "comment in the MR"), extLink(a.replyUrl, "agent's reply"), extLink(a.mrReplyUrl, "agent's reply in the MR")].filter(Boolean).join(" · ");
     const structured = a.remarks?.length || a.checks?.length;
-    const checks = a.checks?.length ? `<div class="muted">Previous: ${a.checks.map((c) => `<b>${esc(c.id)}</b> ${mark(VERDICT[c.verdict], c.note)}`).join(" · ")}</div>` : "";
+    const checks = a.checks?.length ? `<div class="rm-prev"><span class="muted">Re-checked:</span>${a.checks.map((c) => chip(esc(c.id), VERDICT[c.verdict], c.note)).join("")}</div>` : "";
     const body = structured ? checks + (a.remarks?.length ? remarksTable(a, verdictsAfter(i), !!a.replyAt) : "")
       + (a.replyAt && !a.remarks?.some((m) => m.reply) && a.reply ? `<details><summary class="muted">The agent gave no point-by-point report — what it wrote</summary><div class="summary">${md(a.reply)}</div></details>` : "")
       : a.notes ? `<div class="summary">${md(a.notes)}</div>` : "";
     const human = a.escalated ? `<div class="mr-err">👤 The agent review rounds are over, but the "must" remarks are still open: the decision is yours.</div>` : "";
-    return `<div class="agent-review ${esc(a.state)}"><div class="muted">Round ${i + 1} · ${new Date(a.at).toLocaleString(LANG)} · <code>${esc(a.commit.slice(0, 8))}</code> · ${esc(text)}${links ? ` · ${links}` : ""}</div>
+    const at = new Date(a.at).toLocaleString(LANG, { dateStyle: "medium", timeStyle: "short" });
+    return `<div class="agent-review ${esc(a.state)}"><div class="ar-h"><b>Round ${i + 1}</b><span class="ar-s">${esc(text)}</span>`
+      + `<span class="ar-m">${at} · <code>${esc(a.commit.slice(0, 8))}</code>${links ? ` · ${links}` : ""}</span></div>
       ${body}${human}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
   }).join("");
 }
