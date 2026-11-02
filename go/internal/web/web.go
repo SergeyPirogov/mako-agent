@@ -111,6 +111,8 @@ type recordView struct {
 	Blocked string `json:"blocked,omitempty"`
 	// CIWait: the MR in review is open and its CI still runs.
 	CIWait string `json:"ciWait,omitempty"`
+	// MergeReady: the MR in review was checked and can be merged now (CI green, no conflicts, no open threads).
+	MergeReady bool `json:"mergeReady,omitempty"`
 	// Starting: the steps of its start while Mako prepares it («запускаю»); QueueWhy: why a queued task that is
 	// not being started waits.
 	Starting *dispatch.StartProgress `json:"starting,omitempty"`
@@ -200,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
 				v.CIWait = s.D.CIWait(rec)
+				v.MergeReady = s.D.MergeReady(rec)
 			}
 			if rec.Status == core.Queued {
 				v.WillPlan = s.D.WillPlan(rec)

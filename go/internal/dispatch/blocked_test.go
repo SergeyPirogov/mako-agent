@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -48,6 +49,52 @@ func TestBlocked(t *testing.T) {
 	d.reviews[merged.ID] = look(trackers.ReviewCheck{State: "open", Conflicts: true})
 	if got := d.Blocked(merged); got != "" {
 		t.Fatalf("merged task is done, not blocked: %q", got)
+	}
+}
+
+// MergeReady needs a look at the MR: no look, a failed look, or anything holding the MR back is not ready.
+func TestMergeReady(t *testing.T) {
+	d := &Dispatcher{agents: map[string]*Agent{}, reviews: map[string]reviewLook{}}
+	mr := core.Record{ID: "a#2", Status: core.Done, PRURL: "https://x/mr/2"}
+	doing := core.Record{ID: "a#1", Status: core.HandedOff}
+	look := func(c trackers.ReviewCheck) reviewLook { return reviewLook{at: time.Now(), check: &c} }
+	green := trackers.ReviewCheck{State: "open", CI: "success", Mergeable: true}
+
+	if d.MergeReady(mr) {
+		t.Fatal("MR not looked at yet is not ready")
+	}
+	d.reviews[mr.ID] = reviewLook{at: time.Now(), err: errors.New("host down")}
+	if d.MergeReady(mr) {
+		t.Fatal("a failed look is not ready")
+	}
+	d.reviews[mr.ID] = look(green)
+	if !d.MergeReady(mr) {
+		t.Fatal("green, mergeable MR is ready")
+	}
+	noCI := green
+	noCI.CI = ""
+	d.reviews[mr.ID] = look(noCI)
+	if !d.MergeReady(mr) {
+		t.Fatal("an MR without CI that the host calls mergeable is ready")
+	}
+	for name, mod := range map[string]func(*trackers.ReviewCheck){
+		"CI running":    func(c *trackers.ReviewCheck) { c.CI = "running" },
+		"CI failed":     func(c *trackers.ReviewCheck) { c.CI = "failed" },
+		"conflicts":     func(c *trackers.ReviewCheck) { c.Conflicts = true },
+		"open thread":   func(c *trackers.ReviewCheck) { c.Threads = []trackers.Thread{{Body: "fix this"}} },
+		"not mergeable": func(c *trackers.ReviewCheck) { c.Mergeable = false },
+		"merged":        func(c *trackers.ReviewCheck) { c.State = "merged" },
+	} {
+		c := green
+		mod(&c)
+		d.reviews[mr.ID] = look(c)
+		if d.MergeReady(mr) {
+			t.Errorf("%s: must not be ready", name)
+		}
+	}
+	d.reviews[doing.ID] = look(green)
+	if d.MergeReady(doing) {
+		t.Error("a task still in work is not ready")
 	}
 }
 
