@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
@@ -35,7 +37,12 @@ type FreeChat struct {
 	Dir     string `json:"dir"`
 	Session string `json:"session,omitempty"`
 	At      int64  `json:"at"` // the last message, unix ms
+	// Error: why its worktree could not be made; the chat stays to read, it cannot go on.
+	Error string `json:"error,omitempty"`
 }
+
+// freeMu: a chat's agent starts and a chat is removed one at a time, so no agent starts in a removed chat.
+var freeMu sync.Mutex
 
 // IsFreeChat: the chat id is a chat without a task.
 func IsFreeChat(id string) bool { return strings.HasPrefix(id, "chat-") }
@@ -119,8 +126,9 @@ func chatRepo(p CodeProject) *config.Repo {
 	return &repo
 }
 
-// NewChat opens a chat without a task in the project with its first message: its worktree on a new branch from
-// the base branch, prepared as a task's is, then the agent. It returns the chat's id.
+// NewChat opens a chat without a task in the project with its first message and returns its id at once: its
+// worktree on a new branch from the base branch, prepared as a task's is, and then the agent come in the background
+// (prepareFree), the conversation shows the steps meanwhile.
 func (d *Dispatcher) NewChat(project, text string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -133,24 +141,89 @@ func (d *Dispatcher) NewChat(project, text string) (string, error) {
 	b := make([]byte, 6)
 	rand.Read(b)
 	id := "chat-" + hex.EncodeToString(b)
-	repo, ctx := chatRepo(p), context.Background()
-	fctx, cancel := context.WithTimeout(ctx, time.Minute)
-	fetchBase(fctx, repo, func(string) {}) // offline the chat starts from what is there
-	cancel()
 	c := FreeChat{ID: id, Project: project, Title: clipText(firstLine(text), 200), Branch: "mako/" + id, At: time.Now().UnixMilli()}
-	dir, _, err := addWorktree(ctx, repo, id, c.Branch, func(string) {})
-	if err != nil {
-		if dir != "" {
-			os.RemoveAll(dir)
-		}
-		return "", errors.New("could not create the worktree for the chat: " + err.Error())
-	}
-	c.Dir = dir
 	if err := d.updateChats(func(all []FreeChat) []FreeChat { return append(all, c) }); err != nil {
 		return "", err
 	}
-	setup := setupOf(repo, d.Config().Terminal, dir)
-	return id, d.launchAfterSetup(id, dir, text, setup, func(res *chat.SetupResult) error { return d.startFree(c, text, res) })
+	askSetups.Store(id, pendingSetup{command: "git worktree add -b " + c.Branch, prompt: text})
+	go d.prepareFree(c, chatRepo(p), text)
+	return id, nil
+}
+
+// fetchTimeout: how long a new chat waits for the base branch to come; offline it starts from what is there.
+var fetchTimeout = 30 * time.Second
+
+// prepareFree makes the new chat's worktree, prepares it and starts the agent with the first message. A chat
+// removed meanwhile is not started, and the worktree made for it goes.
+func (d *Dispatcher) prepareFree(c FreeChat, repo *config.Repo, text string) {
+	defer askSetups.Delete(c.ID)
+	ctx := context.Background()
+	fctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	fetchBase(fctx, repo, func(string) {})
+	cancel()
+	dir, _, err := addWorktree(ctx, repo, c.ID, c.Branch, func(string) {})
+	freeMu.Lock()
+	_, kept := d.freeChat(c.ID)
+	switch {
+	case err != nil:
+		if dir != "" {
+			os.RemoveAll(dir)
+		}
+		if kept {
+			msg := "could not create the worktree for the chat: " + err.Error()
+			d.setChat(c.ID, func(x *FreeChat) { x.Error = msg })
+		}
+	case !kept:
+		dropWorktree(repo.Path, dir)
+	default:
+		d.setChat(c.ID, func(x *FreeChat) { x.Dir = dir })
+	}
+	freeMu.Unlock()
+	if err != nil || !kept {
+		return
+	}
+	var res *chat.SetupResult
+	if setup := setupOf(repo, d.Config().Terminal, dir); setup != "" {
+		askSetups.Store(c.ID, pendingSetup{command: setup, prompt: text})
+		res = d.runSetup(ctx, c.ID, dir, setup)
+	}
+	if err := d.startKept(c.ID, text, res); err != nil {
+		log.Printf("[%s] agent did not start: %v", c.ID, err)
+	}
+}
+
+// setChat changes the kept chat.
+func (d *Dispatcher) setChat(id string, change func(*FreeChat)) {
+	d.updateChats(func(all []FreeChat) []FreeChat {
+		for i := range all {
+			if all[i].ID == id {
+				change(&all[i])
+			}
+		}
+		return all
+	})
+}
+
+// startKept starts the chat's agent unless the chat was removed.
+func (d *Dispatcher) startKept(id, text string, setup *chat.SetupResult) error {
+	freeMu.Lock()
+	defer freeMu.Unlock()
+	c, ok := d.freeChat(id)
+	if !ok {
+		return errors.New("no such chat")
+	}
+	return d.startFree(c, text, setup)
+}
+
+// dropWorktree takes a chat's worktree away, uncommitted changes and all.
+func dropWorktree(repo, dir string) error {
+	if err := gitx.DropWorktree(context.Background(), repo, dir, ""); err != nil {
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			return err
+		}
+		gitx.Run(context.Background(), repo, "worktree", "prune")
+	}
+	return nil
 }
 
 // startFree runs the chat's agent in its worktree, with the message (none: it waits); a chat that has a session
@@ -180,12 +253,8 @@ func (d *Dispatcher) startFree(c FreeChat, text string, setup *chat.SetupResult)
 	if old := d.Chats.Get(c.ID); old != nil {
 		mode = old.Snapshot().Mode // a continued conversation keeps the mode you chose
 	}
-	var env []string
-	if d.BoardURL != "" {
-		env = append(env, "MAKO_URL="+d.BoardURL)
-	}
 	d.Chats.Put(chat.Start(chat.Options{
-		ID: c.ID, Worktree: c.Dir, Command: command, Args: args, Env: env, SetupDone: setup, Prompt: text, Mode: mode, History: history,
+		ID: c.ID, Worktree: c.Dir, Command: command, Args: args, Env: d.agentEnv(c.ID), SetupDone: setup, Prompt: text, Mode: mode, History: history,
 		OnLimits:  d.limitsReported,
 		OnSession: func(sid, _ string) { d.touchChat(c.ID, sid) },
 	}))
@@ -237,10 +306,13 @@ func (d *Dispatcher) resumeFree(id, text string) error {
 	if _, pending := askSetups.Load(id); pending {
 		return errors.New("the worktree is still being prepared: try again in a moment")
 	}
-	if !exists(c.Dir) {
+	if c.Error != "" {
+		return errors.New(c.Error)
+	}
+	if c.Dir == "" || !exists(c.Dir) {
 		return errors.New("the chat's worktree " + c.Dir + " was deleted")
 	}
-	return d.startFree(c, text, nil)
+	return d.startKept(id, text, nil)
 }
 
 // FreeChatSnapshot: the conversation of a chat whose agent is not running, from its transcript (while its worktree
@@ -253,6 +325,9 @@ func (d *Dispatcher) FreeChatSnapshot(id string) (chat.Snapshot, bool) {
 		return s, true
 	}
 	c, ok := d.freeChat(id)
+	if ok && c.Error != "" {
+		return chat.Drawn(chat.Snapshot{State: "exited", Items: []chat.Item{{Kind: "user", Text: c.Title}, {Kind: "error", Text: c.Error}}}, ""), true
+	}
 	if !ok || c.Session == "" || !orca.HasSession(c.Dir, c.Session) {
 		return chat.Snapshot{}, false
 	}
@@ -260,30 +335,43 @@ func (d *Dispatcher) FreeChatSnapshot(id string) (chat.Snapshot, bool) {
 }
 
 // RemoveFreeChat: «×» — the chat's agent stops and its worktree goes, uncommitted changes and all; its branch
-// stays, with what was committed on it.
+// stays, with what was committed on it. A chat whose worktree is still being made is removed too: what was made
+// for it goes once it is (prepareFree).
 func (d *Dispatcher) RemoveFreeChat(id string) error {
+	freeMu.Lock()
+	defer freeMu.Unlock()
 	c, ok := d.freeChat(id)
 	if !ok {
 		return errors.New("no such chat")
 	}
-	if s := d.Chats.Get(id); s != nil && s.Running() {
-		stopChat(s)
-	}
-	if exists(c.Dir) {
-		repo := c.Dir
-		if p, err := d.codeProject(c.Project); err == nil {
-			repo = p.Path
-		}
-		if err := gitx.DropWorktree(context.Background(), repo, c.Dir, ""); err != nil {
-			if rmErr := os.RemoveAll(c.Dir); rmErr != nil {
-				return err
-			}
-			if repo != c.Dir {
-				gitx.Run(context.Background(), repo, "worktree", "prune")
-			}
-		}
-	}
-	return d.updateChats(func(all []FreeChat) []FreeChat {
+	if err := d.updateChats(func(all []FreeChat) []FreeChat {
 		return slices.DeleteFunc(all, func(x FreeChat) bool { return x.ID == id })
-	})
+	}); err != nil {
+		return err
+	}
+	if s := d.Chats.Get(id); s != nil {
+		stopChat(s)
+		d.Chats.Delete(id)
+	}
+	if c.Dir == "" || !exists(c.Dir) {
+		return nil
+	}
+	repo := c.Dir
+	if p, err := d.codeProject(c.Project); err == nil {
+		repo = p.Path
+	}
+	return dropWorktree(repo, c.Dir)
+}
+
+// FreePlan: the plan the chat's agent offers, approved (it goes on in the work mode) or sent back with your notes;
+// unlike a task's, nothing is noted in the task store.
+func (d *Dispatcher) FreePlan(id, requestID string, approve bool, notes string) error {
+	c := d.Chats.Get(id)
+	if c == nil {
+		return errors.New("the agent is not running")
+	}
+	if approve {
+		return c.ApprovePlan(requestID, workMode(d.Config().Terminal))
+	}
+	return c.RevisePlan(requestID, notes)
 }

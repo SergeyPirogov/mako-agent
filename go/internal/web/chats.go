@@ -65,12 +65,9 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 			c.Stop()
 		}
 	case "plan":
-		if r.URL.Query().Get("do") == "approve" {
-			err = s.D.ApprovePlan(id, r.URL.Query().Get("req"))
-		} else {
-			body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
-			err = s.D.RevisePlan(id, r.URL.Query().Get("req"), string(body))
-		}
+		// Not the task's ApprovePlan: it would note the plan in the task store, making a task of the chat.
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
+		err = s.D.FreePlan(id, r.URL.Query().Get("req"), r.URL.Query().Get("do") == "approve", string(body))
 	case "permit", "answer", "choose", "interrupt", "mode":
 		err = controlChat(c, action, r)
 	default:

@@ -18,42 +18,7 @@ import (
 // the first message; a message after the agent stopped resumes its session; «×» takes the worktree away, the branch
 // stays.
 func TestFreeChat(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	conf := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", conf)
-	d, _, _ := setup(t)
-	var repo string
-	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
-		repo = r.Path
-	}
-	remote := filepath.Join(t.TempDir(), "app.git")
-	git(t, repo, "init", "-q", "--bare", "-b", "main", remote)
-	git(t, repo, "remote", "set-url", "origin", remote)
-	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a"), 0o644)
-	git(t, repo, "add", "a.txt")
-	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "a")
-	git(t, repo, "push", "-q", "origin", "main")
-
-	// A stand-in for claude -p: each run notes its arguments, folder and message, answers, and waits for more.
-	bin := t.TempDir()
-	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
-{ printf '%s\n' "$@"; echo ---; } >> "$MAKO_TEST_OUT/args.txt"
-pwd -P > "$MAKO_TEST_OUT/pwd.txt"
-read init
-read msg
-echo "$msg" >> "$MAKO_TEST_OUT/msgs.txt"
-echo '{"type":"system","subtype":"init","session_id":"sess-c","model":"claude-sonnet-5-5"}'
-echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]},"parent_tool_use_id":null}'
-echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.001}'
-read more
-`), 0o755)
-	out := t.TempDir()
-	t.Setenv("MAKO_TEST_OUT", out)
-	setConfig(d, func(c *config.Config) {
-		c.Terminal.Command, c.StateDir = filepath.Join(bin, "claude"), t.TempDir()
-		c.Terminal.AllowedTools = []string{"Bash(go test:*)"}
-	})
-
+	d, repo, conf, out := freeChatSetup(t)
 	p := d.CodeProjects()[0]
 	if _, err := d.NewChat(p.Key, "  "); err == nil {
 		t.Fatal("a chat without a message")
@@ -79,6 +44,10 @@ read more
 	real, _ := filepath.EvalSymlinks(c.Dir)
 	if b, _ := os.ReadFile(filepath.Join(out, "pwd.txt")); strings.TrimSpace(string(b)) != real {
 		t.Fatalf("agent ran in %q, not %q", b, real)
+	}
+	// Its agent knows its chat, as a task's agent knows its task.
+	if b, _ := os.ReadFile(filepath.Join(out, "task.txt")); strings.TrimSpace(string(b)) != id {
+		t.Fatalf("MAKO_TASK %q", b)
 	}
 	runs := func() [][]string {
 		b, _ := os.ReadFile(filepath.Join(out, "args.txt"))
@@ -122,7 +91,8 @@ read more
 	if err := d.RemoveFreeChat(id); err != nil {
 		t.Fatal(err)
 	}
-	if exists(c.Dir) || len(d.FreeChats()) != 0 {
+	// The board no longer gets its conversation.
+	if exists(c.Dir) || len(d.FreeChats()) != 0 || d.Chats.Get(id) != nil {
 		t.Fatalf("not removed: %v %+v", exists(c.Dir), d.FreeChats())
 	}
 	if !gitx.HasBranch(context.Background(), repo, c.Branch) {
@@ -130,5 +100,96 @@ read more
 	}
 	if err := d.SayFree(id, "ще"); err == nil {
 		t.Fatal("wrote to a removed chat")
+	}
+}
+
+// freeChatSetup: a project with its clone and remote on main, and a stand-in for claude in the terminal settings.
+func freeChatSetup(t *testing.T) (d *Dispatcher, repo, conf, out string) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	conf = t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", conf)
+	d, _, _ = setup(t)
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		repo = r.Path
+	}
+	remote := filepath.Join(t.TempDir(), "app.git")
+	git(t, repo, "init", "-q", "--bare", "-b", "main", remote)
+	git(t, repo, "remote", "set-url", "origin", remote)
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a"), 0o644)
+	git(t, repo, "add", "a.txt")
+	git(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "a")
+	git(t, repo, "push", "-q", "origin", "main")
+
+	// A stand-in for claude -p: each run notes its arguments, folder and message, answers, and waits for more.
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "claude"), []byte(`#!/bin/sh
+{ printf '%s\n' "$@"; echo ---; } >> "$MAKO_TEST_OUT/args.txt"
+pwd -P > "$MAKO_TEST_OUT/pwd.txt"
+echo "$MAKO_TASK" > "$MAKO_TEST_OUT/task.txt"
+read init
+read msg
+echo "$msg" >> "$MAKO_TEST_OUT/msgs.txt"
+echo '{"type":"system","subtype":"init","session_id":"sess-c","model":"claude-sonnet-5-5"}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]},"parent_tool_use_id":null}'
+echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.001}'
+read more
+`), 0o755)
+	out = t.TempDir()
+	t.Setenv("MAKO_TEST_OUT", out)
+	setConfig(d, func(c *config.Config) {
+		c.Terminal.Command, c.StateDir = filepath.Join(bin, "claude"), t.TempDir()
+		c.Terminal.AllowedTools = []string{"Bash(go test:*)"}
+	})
+
+	return d, repo, conf, out
+}
+
+// A chat removed while its worktree is prepared: its agent does not start, its worktree goes.
+func TestFreeChatRemovedWhileSetup(t *testing.T) {
+	d, _, _, out := freeChatSetup(t)
+	gate := filepath.Join(t.TempDir(), "go")
+	setConfig(d, func(c *config.Config) {
+		c.Terminal.SetupCommand = `while [ ! -e "` + gate + `" ]; do sleep 0.05; done`
+	})
+	id, err := d.NewChat(d.CodeProjects()[0].Key, "Привіт")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := d.FreeChatSnapshot(id); !ok || len(s.Items) != 2 || s.Items[1].Tool != "Setup" {
+		t.Fatalf("no step while it is made: %+v", s.Items)
+	}
+	waitFor(t, func() bool { c, _ := d.freeChat(id); return c.Dir != "" }, "the worktree was not made")
+	c, _ := d.freeChat(id)
+	if err := d.RemoveFreeChat(id); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(gate, nil, 0o644)
+	waitFor(t, func() bool { _, pending := askSetups.Load(id); return !pending }, "the setup did not end")
+	if d.Chats.Get(id) != nil || exists(c.Dir) || exists(filepath.Join(out, "args.txt")) {
+		t.Fatalf("started in a removed chat: %v %v", d.Chats.Get(id) != nil, exists(c.Dir))
+	}
+	if _, _, err := d.Attach(id, "a.png", []byte("x")); err == nil {
+		t.Fatal("attached to a removed chat")
+	}
+}
+
+// A picture attached in a chat without a task is kept for its agent; a chat Mako does not have takes none.
+func TestFreeChatAttach(t *testing.T) {
+	d, _, _ := setup(t)
+	setConfig(d, func(c *config.Config) { c.StateDir = t.TempDir() })
+	d.updateChats(func(all []FreeChat) []FreeChat { return append(all, FreeChat{ID: "chat-1", Error: "no worktree"}) })
+	if path, _, err := d.Attach("chat-1", "shot.png", []byte("png")); err != nil || !exists(path) {
+		t.Fatalf("attach %q %v", path, err)
+	}
+	if _, _, err := d.Attach("chat-2", "shot.png", []byte("png")); err == nil {
+		t.Fatal("attached to a chat Mako does not have")
+	}
+	// A chat whose worktree could not be made shows why and does not go on.
+	if s, ok := d.FreeChatSnapshot("chat-1"); !ok || len(s.Items) != 2 || s.Items[1].Kind != "error" {
+		t.Fatalf("snapshot %+v", s.Items)
+	}
+	if err := d.SayFree("chat-1", "ще"); err == nil || err.Error() != "no worktree" {
+		t.Fatalf("say %v", err)
 	}
 }
