@@ -124,18 +124,39 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 			c.Interrupt()
 		}
 		writeJSON(w, map[string]bool{"ok": true})
-	}) // «×» in the history: the question is deleted, its agent stopped.
+	}) // «×» in the history and «Delete selected»: the questions are deleted, their agents stopped.
 	mux.HandleFunc("POST /api/code/remove", func(w http.ResponseWriter, r *http.Request) {
-		id := r.URL.Query().Get("id")
-		if !sameOrigin(r) || !dispatch.IsQuestion(id) {
+		if !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if err := s.D.RemoveQuestion(id); err != nil {
-			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		ids := []string{r.URL.Query().Get("id")}
+		if ids[0] == "" {
+			var in struct {
+				IDs []string `json:"ids"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			ids = in.IDs
+		}
+		valid := ids[:0:0]
+		for _, id := range ids {
+			if dispatch.IsQuestion(id) {
+				valid = append(valid, id)
+			}
+		}
+		if len(valid) == 0 {
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		writeJSON(w, map[string]bool{"ok": true})
+		n, err := s.D.RemoveQuestions(valid)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "removed": n, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "removed": n})
 	})
 	// The task is made from the question: it stays in the history, marked done.
 	mux.HandleFunc("POST /api/code/done", func(w http.ResponseWriter, r *http.Request) {

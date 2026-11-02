@@ -398,6 +398,69 @@ func TestRemoveQuestion(t *testing.T) {
 	}
 }
 
+// Deleting several questions at once: the chosen ones go with their agents and pictures, the others stay.
+func TestRemoveQuestions(t *testing.T) {
+	d, _, _ := setup(t)
+	cfg := *d.Config()
+	cfg.StateDir = t.TempDir()
+	d.Cfg = &cfg
+	key := "grp/app"
+	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
+		return append(all,
+			CodeThread{ID: "ask-one", Project: key, Title: "one", At: 1},
+			CodeThread{ID: "ask-two", Project: key, Title: "two", At: 2},
+			CodeThread{ID: "ask-three", Project: key, Title: "three", At: 3})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"ask-one", "ask-two", "ask-three"} {
+		if _, _, err := d.Attach(id, "pic.png", []byte("png")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := filepath.Join(t.TempDir(), "claude")
+	up := filepath.Join(t.TempDir(), "up")
+	os.WriteFile(bin, []byte("#!/bin/sh\nread init\ntouch "+up+"\nread msg\n"), 0o755)
+	s := chat.Start(chat.Options{ID: "ask-one", Worktree: t.TempDir(), Command: bin, Prompt: "q", Gate: codeGate})
+	d.Chats.Put(s)
+	// Stopping needs the process to be there: wait for the stand-in to be up.
+	for i := 0; i < 200; i++ {
+		if _, err := os.Stat(up); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// A missing id and a repeated one do not count.
+	n, err := d.RemoveQuestions([]string{"ask-one", "ask-three", "ask-one", "ask-nope", "chat-x"})
+	if err != nil || n != 2 {
+		t.Fatalf("removed %d, %v", n, err)
+	}
+	select {
+	case <-s.Done():
+	default:
+		t.Fatal("the agent of a deleted question is still running")
+	}
+	if d.Chats.Get("ask-one") != nil {
+		t.Fatal("the chat is still kept")
+	}
+	ts := d.CodeThreads(key)
+	if len(ts) != 1 || ts[0].ID != "ask-two" {
+		t.Fatalf("history %+v", ts)
+	}
+	for _, id := range []string{"ask-one", "ask-three"} {
+		if _, err := os.Stat(d.ScreenshotDir(id)); !os.IsNotExist(err) {
+			t.Fatalf("the pictures of %s stay: %v", id, err)
+		}
+	}
+	if _, err := os.Stat(d.ScreenshotDir("ask-two")); err != nil {
+		t.Fatalf("the pictures of the kept question went: %v", err)
+	}
+	if n, err := d.RemoveQuestions([]string{"chat-x", "ask-one"}); err == nil || n != 0 {
+		t.Fatalf("deleted what is not in the history: %d, %v", n, err)
+	}
+}
+
 func TestDoneQuestion(t *testing.T) {
 	d, _, _ := setup(t)
 	cfg := *d.Config()

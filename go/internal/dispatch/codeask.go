@@ -232,27 +232,51 @@ func (d *Dispatcher) AskCode(project, thread, text string) (string, error) {
 	return t.ID, d.launchQuestion(p, t, text, setup)
 }
 
-// RemoveQuestion deletes a question from the history: its agent stops when it is still answering, the question is
-// forgotten and the pictures attached to it are removed. The shared worktree stays: other questions use it, and
-// the conversation's transcript is Claude Code's own file in it.
+// RemoveQuestion deletes one question from the history, see RemoveQuestions.
 func (d *Dispatcher) RemoveQuestion(id string) error {
-	if !IsQuestion(id) {
-		return errors.New("no such question")
+	_, err := d.RemoveQuestions([]string{id})
+	return err
+}
+
+// RemoveQuestions deletes questions from the history: their agents stop when they are still answering, the
+// questions are forgotten in one write and the pictures attached to them are removed. Ids that are not questions
+// of the history are skipped; when none is, it is an error. It returns how many were deleted. The shared worktree
+// stays: other questions use it, and the conversation's transcript is Claude Code's own file in it.
+func (d *Dispatcher) RemoveQuestions(ids []string) (int, error) {
+	gone := map[string]bool{}
+	var order []string
+	for _, id := range ids {
+		if gone[id] || !IsQuestion(id) {
+			continue
+		}
+		if _, ok := d.thread(id); !ok {
+			continue
+		}
+		gone[id] = true
+		order = append(order, id)
 	}
-	if _, ok := d.thread(id); !ok {
-		return errors.New("no such question")
+	if len(order) == 0 {
+		return 0, errors.New("no such question")
 	}
-	// Stop the agent first: a turn that ends later would write the question's session back into the list.
-	if s := d.Chats.Get(id); s != nil {
-		stopChat(s)
-		d.Chats.Delete(id)
+	// Stop the agents first: a turn that ends later would write the question's session back into the list.
+	for _, id := range order {
+		if s := d.Chats.Get(id); s != nil {
+			stopChat(s)
+			d.Chats.Delete(id)
+		}
 	}
 	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
-		return slices.DeleteFunc(all, func(t CodeThread) bool { return t.ID == id })
+		return slices.DeleteFunc(all, func(t CodeThread) bool { return gone[t.ID] })
 	}); err != nil {
-		return err
+		return 0, err
 	}
-	return os.RemoveAll(d.ScreenshotDir(id))
+	var first error
+	for _, id := range order {
+		if err := os.RemoveAll(d.ScreenshotDir(id)); err != nil && first == nil {
+			first = err
+		}
+	}
+	return len(order), first
 }
 
 // DoneQuestion: the chat is done, the task is made from it; the chat stays, marked with the task's id.

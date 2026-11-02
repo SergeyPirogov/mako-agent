@@ -1960,7 +1960,7 @@ async function showCode() {
       <button type="button" id="ca-new">New question</button></div>
     <p class="muted ca-sub">The agent works in a separate worktree of the project on main: it reads, searches, and runs tests and builds without asking. Mako does not let it change files or the repository (Edit/Write, git commit/push/checkout/reset, rm…) and does not load MCP servers or permissions from Claude Code settings. The first question prepares the worktree (dependencies), as for a task. It can turn a remark or an idea into a ticket draft.</p>
     <div class="ca-body">
-      <aside class="ca-history"><div class="ca-h">Question history</div><div id="ca-threads"></div></aside>
+      <aside class="ca-history"><div class="ca-h"><span>Question history</span><button type="button" class="ghost ca-sel-btn" id="ca-select">Select</button></div><div class="ca-selbar" id="ca-selbar" hidden></div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
         <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
           <textarea rows="2" aria-label="Question about the code" placeholder="E.g.: where do we handle payments? how does the update work? Paste a screenshot with ⌘V"></textarea>
@@ -1987,7 +1987,7 @@ async function showCode() {
   };
   let saved = ""; try { saved = localStorage.getItem("mako-code-project") || ""; } catch {}
   const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
-  code = { project: start?.key ?? "", projects, thread: "", version: -1, snap: null, flip: new Set(), code: true, att: [], el: $("code-ask"), list: document.querySelector("#code-ask .chat-list"), input: document.querySelector("#code-ask textarea") };
+  code = { project: start?.key ?? "", projects, thread: "", selecting: false, sel: new Set(), selLast: null, version: -1, snap: null, flip: new Set(), code: true, att: [], el: $("code-ask"), list: document.querySelector("#code-ask .chat-list"), input: document.querySelector("#code-ask textarea") };
   $("ca-project").innerHTML = projects.map((p) => `<option value="${esc(p.key)}" ${p.key === code.project ? "selected" : ""}>${esc(p.name)}</option>`).join("");
   $("back").onclick = () => { newOpen = false; code = null; render(); };
   if (!projects.length) {
@@ -1996,7 +1996,7 @@ async function showCode() {
     return;
   }
   $("ca-project").onchange = (e) => {
-    code.project = e.target.value;
+    code.project = e.target.value; code.selecting = false; code.sel = new Set();
     try { localStorage.setItem("mako-code-project", code.project); } catch {}
     openLatest(); loadWorkspace();
   };
@@ -2080,10 +2080,27 @@ async function showCode() {
     if (t) { if (!code.flip.delete(t.dataset.toggle)) code.flip.add(t.dataset.toggle); renderCode(); }
   };
   $("ca-threads").onclick = async (e) => {
+    const b = e.target.closest("[data-thread]");
+    if (code.selecting) {
+      if (b) pickThread(b.dataset.thread, e.shiftKey);
+      return;
+    }
     const x = e.target.closest("[data-ca-remove]");
     if (x) { e.stopPropagation(); removeQuestion(x.dataset.caRemove); return; }
-    const b = e.target.closest("[data-thread]");
     if (b) openThread(b.dataset.thread);
+  };
+  // Several questions at once: "Select" gives the rows checkboxes, one confirm deletes the chosen.
+  $("ca-select").onclick = () => selectMode(true);
+  $("ca-selbar").onclick = (e) => {
+    const b = e.target.closest("[data-sel]");
+    if (!b) return;
+    const v = code;
+    if (b.dataset.sel === "cancel") selectMode(false);
+    else if (b.dataset.sel === "all") {
+      const all = v.threads ?? [];
+      v.sel = v.sel.size === all.length ? new Set() : new Set(all.map((t) => t.id));
+      drawThreads();
+    } else if (b.dataset.sel === "delete") removeQuestions([...v.sel]);
   };
   code.timer = setInterval(pollCode, 1000);
   openLatest(); loadWorkspace();
@@ -2285,6 +2302,43 @@ async function removeQuestion(id) {
   if (id === v.thread) openThread(""); else loadThreads();
 }
 
+// «Delete selected»: one confirm for all, the agents still answering stop. The open question gone: a new one.
+async function removeQuestions(ids) {
+  const v = code;
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} ${ids.length === 1 ? "question" : "questions"} from the history? Agents that are still answering will be stopped.`)) return;
+  const r = await fetch("/api/code/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) })
+    .then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+  if (!r.ok) alert(r.error || "Failed");
+  if (v !== code) return;
+  v.selecting = false; v.sel = new Set(); v.selLast = null;
+  if (ids.includes(v.thread)) openThread(""); else loadThreads();
+}
+
+function selectMode(on) {
+  const v = code;
+  v.selecting = on; v.sel = new Set(); v.selLast = null;
+  drawThreads();
+}
+
+// A click on a row in the selection mode; with Shift, the rows between it and the last chosen one.
+function pickThread(id, range) {
+  const v = code, list = v.threads ?? [];
+  if (range && v.selLast && v.selLast !== id) {
+    const a = list.findIndex((t) => t.id === v.selLast), b = list.findIndex((t) => t.id === id);
+    if (a >= 0 && b >= 0) {
+      const on = v.sel.has(v.selLast);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) on ? v.sel.add(list[i].id) : v.sel.delete(list[i].id);
+      v.selLast = id;
+      drawThreads();
+      return;
+    }
+  }
+  if (!v.sel.delete(id)) v.sel.add(id);
+  v.selLast = id;
+  drawThreads();
+}
+
 // The project's latest question, to go on with; "New question" starts another.
 async function openLatest() {
   const v = code;
@@ -2303,12 +2357,29 @@ async function loadThreads() {
   const r = await getJSON(`/api/code/threads?project=${encodeURIComponent(v.project)}`);
   if (v !== code || !$("ca-threads")) return;
   v.threads = r.threads ?? [];
-  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}${t.ticket ? " done" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}${t.ticket ? ` — done, task ${esc(t.ticket)}` : ""}">
-      <span>${t.ticket ? "✓ " : ""}${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
-      <button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button></div>`).join("")
-    : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
+  drawThreads();
   // The thread's mark came (or went) with the list: the banner and the draft cards follow.
   if ((v.threads.find((t) => t.id === v.thread)?.ticket ?? "") !== (v.ticket ?? "")) renderCode();
+}
+
+function drawThreads() {
+  const v = code;
+  if (!$("ca-threads")) return;
+  if (v.selecting) { // the questions that are gone from the list are not chosen
+    const ids = new Set(v.threads.map((t) => t.id));
+    for (const id of v.sel) if (!ids.has(id)) v.sel.delete(id);
+  }
+  $("ca-select").hidden = v.selecting || !v.threads.length;
+  $("ca-selbar").hidden = !v.selecting;
+  if (v.selecting) {
+    $("ca-selbar").innerHTML = `<button type="button" class="ghost" data-sel="all">${v.sel.size === v.threads.length ? "Clear" : "Select all"}</button>
+      <button type="button" class="danger" data-sel="delete" ${v.sel.size ? "" : "disabled"}>Delete selected (${v.sel.size})</button>
+      <button type="button" class="ghost" data-sel="cancel">Cancel</button>`;
+  }
+  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}${t.ticket ? " done" : ""}${v.selecting && v.sel.has(t.id) ? " sel" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}${t.ticket ? ` — done, task ${esc(t.ticket)}` : ""}">
+      ${v.selecting ? `<input type="checkbox" class="ca-check" tabindex="-1" aria-label="Select the question" ${v.sel.has(t.id) ? "checked" : ""}>` : ""}<span>${t.ticket ? "✓ " : ""}${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
+      ${v.selecting ? "" : `<button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button>`}</div>`).join("")
+    : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
 }
 
 async function pollCode() {
