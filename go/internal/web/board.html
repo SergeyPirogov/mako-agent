@@ -1260,9 +1260,10 @@ function mrCard(r, term) {
       const jobs = c.jobs || [], passed = jobs.filter((j) => j.status === "success" || j.status === "failed" && j.allowFailure).length;
       const head = `<a class="ci-st ${icon}" href="${esc(c.ciUrl || "#")}" target="_blank" rel="noopener" title="${esc(text)}: ${jobs.length ? `${passed} of ${jobs.length} jobs passed · ` : ""}open the pipeline">${jobs.length ? `${passed}/${jobs.length}` : esc(word)}</a>`;
       const body = (jobsHTML(c.jobs) || row(icon, text, c.ciUrl)) ;
-      // CI failed: the agent's fix, the blue sparkle, next to the count.
+      // CI failed: the agent's fix, the blue sparkle, left of the count: the count keeps its place at the right edge
+      // when the sparkle comes and goes.
       const fx = c.ci === "failed" && c.failed.length ? fix("ci", "The agent will fix CI in the terminal") : "";
-      rows += `<div class="mr-sec"><div class="mr-sec-h ci-h"><span class="files-h-t">CI</span>${head}${fx}</div>${body}</div>`;
+      rows += `<div class="mr-sec"><div class="mr-sec-h ci-h"><span class="files-h-t">CI</span>${fx}${head}</div>${body}</div>`;
     } else rows += sec("CI", row("idle", "No CI"));
     let merging = "";
     if (c.threads.length) {
