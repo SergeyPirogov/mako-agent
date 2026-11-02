@@ -378,7 +378,7 @@ func notesWith(f *fakeGitLab, s string) int {
 // issue as comments, the report after the reviewer's, with the link to it.
 func TestReviewReport(t *testing.T) {
 	d, id, wt, idle, f := numberedReview(t, "issue", func([]core.Remark) string { return "" })
-	if notesWith(f, "Рев'ю агентом, раунд 1") != 1 || notesWith(f, "R1 [треба] `pay.go:1`") != 1 {
+	if notesWith(f, "Рев'ю агентом, раунд 1") != 1 || notesWith(f, "R1 [блокер] `pay.go:1`") != 1 {
 		t.Fatalf("no review comment: %q", f.notes)
 	}
 	r, _ := d.Store.Get(id)
@@ -398,7 +398,7 @@ func TestReviewReport(t *testing.T) {
 		t.Fatalf("«fixed» with no commit: unverified %v asked %v", last.Unverified, last.Asked)
 	}
 	b, _ := os.ReadFile(filepath.Join(wt, "said.json"))
-	if !strings.Contains(string(b), "R1 [треба]") || !strings.Contains(string(b), "R1 — виправлено (коротко як") {
+	if !strings.Contains(string(b), "R1 [блокер]") || !strings.Contains(string(b), "R1 — виправлено (коротко як") {
 		t.Fatalf("the agent got %s", b)
 	}
 	if notesWith(f, "Відповідь агента на зауваження") != 1 || notesWith(f, "назва з задачі") != 1 || notesWith(f, last.CommentURL) != 1 || notesWith(f, "немає нових комітів") != 1 {

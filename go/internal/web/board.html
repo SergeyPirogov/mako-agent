@@ -1386,9 +1386,14 @@ function reviewerRow(r, need) {
     }
   }
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
-  const n = r.agentReviews.length;
-  return row(icon, text + (last.state === "clean" && n > 1 ? ` · ${n} rounds` : ""), "", ready ? reviewBtn("Review again") : "");
+  const n = r.agentReviews.length, rounds = last.state === "clean" && n > 1 ? ` · ${n} rounds` : "";
+  // Passed with suggestions only: say why it passed, so the suggestions beside it do not look like a contradiction.
+  if (last.state === "clean" && last.remarks?.length) return adviceBlock(icon, cleanText(last) + rounds, SUGGESTIONS_HINT, ready ? reviewBtn("Review again") : "", "past");
+  return row(icon, text + rounds, "", ready ? reviewBtn("Review again") : "");
 }
+// «AI review passed · no blockers, 2 suggestions»: why a clean round with remarks passed. Its remarks are all suggestions.
+const SUGGESTIONS_HINT = "Suggestions don't block the merge: fix them if you want";
+const cleanText = (a) => a.remarks?.length ? `${REVIEW_STATE.clean[1]} · no blockers, ${a.remarks.length} ${plural(a.remarks.length, "suggestion", "suggestions")}` : REVIEW_STATE.clean[1];
 // «: ✅ 2 · ❌ 1»: how the agent answered on the round's remarks, "" with no answers.
 function replyTally(a) {
   const n = (k) => (a.remarks || []).filter((m) => m.reply === k).length;
@@ -1420,7 +1425,8 @@ function reviewBadge(r) {
   const n = last.remarks?.length;
   return `<span class="remarks" title="The reviewer's remarks are waiting for Fix">⏳ ${n ? `${n} ${plural(n, "remark", "remarks")}` : "remarks"}</span>`;
 }
-const WEIGHT = { must: "must", should: "should" };
+// The remark's weight as people read it; the data and the reviewer's markers keep «must» / «should».
+const WEIGHT = { must: "blocker", should: "suggestion" };
 const REPLY = { fixed: ["✅", "fixed"], not: ["❌", "not fixed"], partial: ["◐", "partly"] };
 const VERDICT = { closed: ["✅", "closed"], accepted: ["✅", "explanation accepted"], open: ["❌", "not closed"] };
 const mark = ([icon, text] = ["⏳", ""], note = "") => `<span class="rm-${icon === "✅" ? "ok" : icon === "❌" ? "bad" : "wait"}">${icon}</span> ${esc(text)}${note ? ` <span class="muted">— ${esc(note)}</span>` : ""}`;
@@ -1434,7 +1440,7 @@ function remarksTable(a, verdicts, answered) {
   const items = a.remarks.map((m) => {
     const where = m.file ? `<code class="rm-at">${esc(m.file)}${m.line ? `:${m.line}` : ""}</code>` : "";
     const reply = REPLY[m.reply] ? chip("Agent:", REPLY[m.reply], m.replyNote) + (a.unverified && m.reply !== "not" ? `<span class="rm-chip bad" title="The branch has no new commits after Fix">⚠ no commits</span>` : "")
-      : a.sent ? chip("Agent:", ["⏳", answered ? "no reply" : "awaiting report"]) : chip("", ["", "not passed on"]);
+      : a.sent ? chip("Agent:", ["⏳", answered ? "no reply" : "awaiting report"]) : chip("", ["", a.state === "clean" && m.weight === "should" ? "optional" : "not passed on"]);
     const v = verdicts[m.id];
     const next = v ? chip("Re-check:", VERDICT[v.verdict], v.note) : "";
     const notes = [m.replyNote && REPLY[m.reply] ? `<div class="rm-note"><i>Agent:</i> ${inlineCode(m.replyNote)}</div>` : "", v?.note ? `<div class="rm-note"><i>Re-check:</i> ${inlineCode(v.note)}</div>` : ""].join("");
@@ -1453,14 +1459,14 @@ function reviewerHTML(r) {
     return v;
   };
   return `<h3>AI review</h3>` + r.agentReviews.map((a, i) => {
-    const text = a.state === "skipped" ? skippedText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1] + (a.sent ? ", passed to the agent" : "");
+    const text = a.state === "skipped" ? skippedText(a) : (a.state === "clean" ? cleanText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1]) + (a.sent ? ", passed to the agent" : "");
     const links = [extLink(a.commentUrl, "comment in the task"), extLink(a.mrCommentUrl, "comment in the MR"), extLink(a.replyUrl, "agent's reply"), extLink(a.mrReplyUrl, "agent's reply in the MR")].filter(Boolean).join(" · ");
     const structured = a.remarks?.length || a.checks?.length;
     const checks = a.checks?.length ? `<div class="rm-prev"><span class="muted">Re-checked:</span>${a.checks.map((c) => chip(esc(c.id), VERDICT[c.verdict], c.note)).join("")}</div>` : "";
     const body = structured ? checks + (a.remarks?.length ? remarksTable(a, verdictsAfter(i), !!a.replyAt) : "")
       + (a.replyAt && !a.remarks?.some((m) => m.reply) && a.reply ? `<details><summary class="muted">The agent gave no point-by-point report — what it wrote</summary><div class="summary">${md(a.reply)}</div></details>` : "")
       : a.notes ? `<div class="summary">${md(a.notes)}</div>` : "";
-    const human = a.escalated ? `<div class="mr-err">👤 The agent review rounds are over, but the "must" remarks are still open: the decision is yours.</div>` : "";
+    const human = a.escalated ? `<div class="mr-err">👤 The agent review rounds are over, but the "blocker" remarks are still open: the decision is yours.</div>` : "";
     const at = new Date(a.at).toLocaleString(LANG, { dateStyle: "medium", timeStyle: "short" });
     return `<div class="agent-review ${esc(a.state)}"><div class="ar-h"><b>Round ${i + 1}</b><span class="ar-s">${esc(text)}</span>`
       + `<span class="ar-m">${at} · <code>${esc(a.commit.slice(0, 8))}</code>${links ? ` · ${links}` : ""}</span></div>
@@ -2683,7 +2689,7 @@ function reviewCard(v) {
   const of = v.remarks || 1;
   const step = (what, n, share, note) => `<div class="fstep"><span>${what}</span><b>${n}</b>${meter(share, "acc")}<small>${note}</small></div>`;
   const body = `<div class="funnel">
-      ${step("Remarks", v.remarks, v.remarks ? 1 : 0, `${v.remarks ? v.perRound.toFixed(1) : 0} per round · ${v.must} «must»`)}
+      ${step("Remarks", v.remarks, v.remarks ? 1 : 0, `${v.remarks ? v.perRound.toFixed(1) : 0} per round · ${v.must} «blockers»`)}
       ${step("Answered by the agent", answered, answered / of, `fixed ${v.fixed} · partly ${v.partly} · declined ${v.notFixed}${v.noReply ? ` · no reply ${v.noReply}` : ""}`)}
       ${step("Closed next round", v.closed, v.closed / of, `accepted explanations ${v.accepted} · open ${v.open}`)}
       ${step("Converged", `${v.converged} <span class="muted">of ${v.tasks} ${plural(v.tasks, "task", "tasks")}</span>`, v.tasks ? v.converged / v.tasks : 0, `escalated to you ${v.escalated}${v.unverified ? ` · "fixed" without commits ${v.unverified}` : ""}`)}
