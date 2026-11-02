@@ -560,6 +560,8 @@ section.ws #term-slot:has(.term-wrap) { padding: 0; }
 .mr-card { flex: none; border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 10px 12px; }
 .mr-h { display: flex; align-items: center; gap: 8px; }
 .mr-h a { font-weight: 600; }
+.mr-h .mr-st { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-h .mr-st .spin { display: inline-block; vertical-align: -2px; margin-right: 6px; }
 .branch-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .mr-h button.icon { width: 26px; height: 26px; }
 .mr-h button.icon.ready { color: var(--ok); }

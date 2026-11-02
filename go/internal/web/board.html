@@ -1143,6 +1143,8 @@ const IBADGE_SPIN = `<svg class="spin" width="11" height="11" viewBox="0 0 24 24
 // The right panel's tabs: the changes, the commits, the MR with its CI; the card keeps its size, the tab scrolls.
 // tabPicked: you chose the open task's tab yourself; Mako does not switch it for you then.
 let itab = "changes", itabPicked = false, tabPicked = false;
+// The JS twin of trackers.CIRunning: the pipeline has not finished yet.
+const ciRunning = (ci) => ["running", "pending", "created", "preparing", "waiting_for_resource", "scheduled"].includes(ci);
 // The reviewer agent is reading the branch or the agent is fixing its remarks: the MR is not ready to merge yet.
 const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing";
 function inspectorTabs(r, term, nFiles, list) {
@@ -1246,7 +1248,7 @@ function mrCard(r, term) {
   const live = term && r.live, c = review?.review;
   const num = r.prUrl?.match(/\/(?:merge_requests|pull)\/(\d+)/)?.[1];
   const state = c?.state ?? (r.reviewState || (r.prUrl ? "open" : ""));
-  const waitCI = r.status === "handed-off" && !!r.prUrl && state === "open";
+  const waitCI = r.status === "handed-off" && !!r.prUrl && state === "open" && (!c || ciRunning(c.ci));
   const fix = (kind, label) => fixBtn(live, kind, label);
   let rows = "";
   if (!r.prUrl) rows = `<div class="muted mr-none">None yet: the agent opens the MR when it finishes</div>`;
@@ -1287,7 +1289,7 @@ function mrCard(r, term) {
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "open"}</a>` : ""}
-      <span class="muted">${waitCI ? "open · waiting for CI" : { open: "open", merged: "merged", closed: "closed" }[state] ?? ""}</span>
+      <span class="muted mr-st">${waitCI ? `<span class="spin"></span>waiting for CI` : { open: "open", merged: "merged", closed: "closed" }[state] ?? ""}</span>
       <span class="spacer"></span>${open}${update}${close}${merge}</div>
     ${rows}${mrNote ? `<div class="mr-note">${esc(mrNote)}</div>` : ""}</div>`;
 }
