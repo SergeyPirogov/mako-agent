@@ -42,6 +42,7 @@ func TestCardByState(t *testing.T) {
 		{"in Orca, no worktree", view(core.Record{Status: core.HandedOff}, nil), "", "skip skip now todo todo"},
 		{"checks failed", view(func() core.Record { r := term; r.Checks = &core.Checks{State: "failed"}; return r }(), nil), "resume", "skip skip now fail todo"},
 		{"MR ready", view(mr, nil), "merge", "skip skip done done now"},
+		{"MR, checked and ready", view(mr, func(v *recordView) { v.MergeReady = true }), "merge", "skip skip done done now"},
 		{"MR, CI running", view(mr, func(v *recordView) { v.CIWait = "CI is running" }), "open-mr", "skip skip done now todo"},
 		{"MR conflicts", view(mr, func(v *recordView) { v.Blocked, v.Live = "the MR has conflicts", true }), "fix-conflicts", "skip skip done fail todo"},
 		{"MR CI failed", view(mr, func(v *recordView) { v.Blocked, v.Live = "CI failed", true }), "fix-ci", "skip skip done fail todo"},

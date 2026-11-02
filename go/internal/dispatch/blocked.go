@@ -54,6 +54,23 @@ func (d *Dispatcher) CIWait(r core.Record) string {
 	return ""
 }
 
+// MergeReady: the task in review has an open MR that Mako has looked at and found fit to merge: the host says
+// it is mergeable, CI is not failed or running, no conflicts, no open threads. An MR not looked at yet (or whose
+// look failed) is not ready: unlike Blocked, this needs the positive evidence. It reads no network.
+func (d *Dispatcher) MergeReady(r core.Record) bool {
+	if r.Column(0) != "review" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	l, ok := d.reviews[r.ID]
+	if !ok || l.err != nil || l.check == nil {
+		return false
+	}
+	c := l.check
+	return c.State == "open" && c.Mergeable && !c.Conflicts && len(c.Threads) == 0 && c.CI != "failed" && !trackers.CIRunning(c.CI)
+}
+
 // agentStopped: the task's agent in Mako's chat or terminal is not running and no message wakes it by itself
 // (it exited, or Mako restarted without it), so a request to fix the MR reaches nobody. Agents in Orca: false.
 func (d *Dispatcher) agentStopped(r core.Record) bool {
