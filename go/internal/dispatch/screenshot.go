@@ -63,10 +63,20 @@ func (d *Dispatcher) keepImage(id, file string, data []byte) (path, local string
 	return path, "/api/screenshots/" + safeFile(id) + "/" + file, nil
 }
 
-// Attach keeps a picture you attach to a message for the task's agent: the message names its path (chat.ImageLine)
-// and the agent reads it from there.
+// NewQuestion: the id pictures are attached under for a question about code that has no id yet (its first message).
+const NewQuestion = "ask-new"
+
+// Attach keeps a picture you attach to a message for the agent of a task, a chat or a question about code: the
+// message names its path (chat.ImageLine) and the agent reads it from there (the gate of a question lets it read
+// outside the worktree).
 func (d *Dispatcher) Attach(id, name string, data []byte) (path, local string, err error) {
-	if _, ok := d.Store.Get(id); !ok && !d.isFreeChat(id) {
+	switch _, ok := d.Store.Get(id); {
+	case ok, d.isFreeChat(id), id == NewQuestion:
+	case IsQuestion(id):
+		if _, ok := d.thread(id); !ok {
+			return "", "", fmt.Errorf("no question %q", id)
+		}
+	default:
 		return "", "", fmt.Errorf("no task %q", id)
 	}
 	if name = safeFile(name); name == "" {

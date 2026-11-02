@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,6 +70,7 @@ func TestAttach(t *testing.T) {
 	dir := t.TempDir()
 	store, _ := state.Open(dir)
 	store.Update("grp/app#5", func(r *core.Record) { r.Task = core.Task{ID: "grp/app#5", Title: "Pay"} })
+	os.WriteFile(filepath.Join(dir, "questions.json"), []byte(`[{"id":"ask-abc123","project":"t/p/r","title":"Where?"}]`), 0o600)
 	d := dispatch.New(&config.Config{StateDir: dir}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
 	defer srv.Close()
@@ -112,5 +114,23 @@ func TestAttach(t *testing.T) {
 	}
 	if r := post("id=nope&name=a.png", "image/png", png); r.OK {
 		t.Fatal("unknown task accepted")
+	}
+
+	// A question about code: its own, and a new one that has no id yet.
+	for _, id := range []string{"ask-abc123", "ask-new"} {
+		r := post("id="+id+"&name=err.png", "image/png", png)
+		if !r.OK || !strings.HasPrefix(r.URL, "/api/screenshots/"+id+"/") || !strings.HasPrefix(r.Path, dir) || r.Line != "[Image: "+r.Path+"]" {
+			t.Fatalf("%s: reply %+v", id, r)
+		}
+		if got, err := os.ReadFile(r.Path); err != nil || !bytes.Equal(got, png) {
+			t.Fatalf("%s: kept %q %v", id, got, err)
+		}
+		res, _ := http.Get(srv.URL + r.URL)
+		if got, _ := io.ReadAll(res.Body); res.StatusCode != 200 || !bytes.Equal(got, png) {
+			t.Fatalf("%s: served %d %q", id, res.StatusCode, got)
+		}
+	}
+	if r := post("id=ask-gone&name=a.png", "image/png", png); r.OK {
+		t.Fatal("an unknown question accepted")
 	}
 }
