@@ -1227,6 +1227,7 @@ const JOB_SVG = {
   idle: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M7 17L17 7"/></svg>`,
 };
 const jobLook = (j) => j.status === "failed" && j.allowFailure ? ["warn", "failed, allowed"] : (([c, , w]) => [c, w])(JOB[j.status] ?? ["idle", "", j.status]);
+// A job's line: its mark and name; its state in words only when the mark does not say it (a passed one is its tick).
 function jobsHTML(jobs) {
   if (!jobs?.length) return "";
   const stages = [];
@@ -1237,7 +1238,7 @@ function jobsHTML(jobs) {
   }
 return `<div class="ci-jobs">${stages.map((st) => `${st.name && stages.length > 1 ? `<div class="ci-stage">${esc(st.name)}</div>` : ""}${st.jobs.map((j) => {
     const [cls, word] = jobLook(j);
-    return `<a class="job ${cls}" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.name)}: ${esc(word)}"><span class="jm">${JOB_SVG[cls] ?? JOB_SVG.idle}</span><span class="jn">${esc(j.name)}</span><span class="js">${esc(word)}</span></a>`;
+    return `<a class="job ${cls}" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.name)}: ${esc(word)}"><span class="jm">${JOB_SVG[cls] ?? JOB_SVG.idle}</span><span class="jn">${esc(j.name)}</span>${cls === "ok" ? "" : `<span class="js">${esc(word)}</span>`}</a>`;
   }).join("")}`).join("")}</div>`;
 }
 
@@ -1258,7 +1259,7 @@ function mrCard(r, term) {
       // "1/2": the jobs passed of all of them (an allowed failure counts as passed); the word when there are none.
       const jobs = c.jobs || [], passed = jobs.filter((j) => j.status === "success" || j.status === "failed" && j.allowFailure).length;
       const head = `<a class="ci-st ${icon}" href="${esc(c.ciUrl || "#")}" target="_blank" rel="noopener" title="${esc(text)}: ${jobs.length ? `${passed} of ${jobs.length} jobs passed · ` : ""}open the pipeline">${jobs.length ? `${passed}/${jobs.length}` : esc(word)}</a>`;
-      const body = (jobsHTML(c.jobs) || row(icon, text, c.ciUrl)) + (c.ci === "failed" && c.failed.length ? `<div class="mr-actions">${fix("ci", "The agent will fix CI in the terminal")}</div>` : "");
+      const body = (jobsHTML(c.jobs) || row(icon, text, c.ciUrl)) + ((b) => b ? `<div class="mr-actions">${b}</div>` : "")(c.ci === "failed" && c.failed.length ? fix("ci", "The agent will fix CI in the terminal") : "");
       rows += `<div class="mr-sec"><div class="mr-sec-h"><span class="files-h-t">CI</span>${head}</div>${body}</div>`;
     } else rows += sec("CI", row("idle", "No CI"));
     let merging = "";
