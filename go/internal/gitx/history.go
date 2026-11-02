@@ -18,7 +18,6 @@ type LogCommit struct {
 	Subject string   `json:"subject"`
 	Author  string   `json:"author"`
 	At      int64    `json:"at"` // unix seconds
-	Mine    bool     `json:"mine,omitempty"`
 }
 
 type History struct {
@@ -26,22 +25,23 @@ type History struct {
 	More    bool        `json:"more"` // there are older ones
 }
 
-// Log: the last n commits reachable from HEAD, newest first, in an order the graph can draw; mine marks the
-// branch's own (not on origin/<base>).
+// Log: the last n commits of the branch's own history (fork point..HEAD, nothing that is already on the base branch),
+// newest first, in an order the graph can draw. A merge of the base into the branch stays in the list, but its
+// parent on the base side is dropped, so the graph has no lane that leads nowhere.
 func Log(ctx context.Context, worktree, baseBranch string, n int) (*History, error) {
-	out, err := Run(ctx, worktree, "log", "--topo-order", "-n", strconv.Itoa(n+1), "--format=%H%x1f%P%x1f%D%x1f%s%x1f%an%x1f%ct", "HEAD")
+	// The same fork point as Changes, so the tab and its badge always count the same commits.
+	rng := forkPoint(ctx, worktree, baseBranch) + "..HEAD"
+	out, err := Run(ctx, worktree, "log", "--topo-order", "-n", strconv.Itoa(n+1), "--format=%H%x1f%P%x1f%D%x1f%s%x1f%an%x1f%ct", rng)
+	if err != nil {
+		return nil, err
+	}
+	own, err := Run(ctx, worktree, "rev-list", rng)
 	if err != nil {
 		return nil, err
 	}
 	mine := map[string]bool{}
-	base := "origin/" + baseBranch
-	if _, err := Run(ctx, worktree, "rev-parse", "--verify", "-q", base); err != nil {
-		base = baseBranch
-	}
-	if own, err := Run(ctx, worktree, "rev-list", base+"..HEAD"); err == nil {
-		for _, h := range lines(own) {
-			mine[h] = true
-		}
+	for _, h := range lines(own) {
+		mine[h] = true
 	}
 	h := &History{Commits: []LogCommit{}}
 	for _, l := range lines(out) {
@@ -54,7 +54,12 @@ func Log(ctx context.Context, worktree, baseBranch string, n int) (*History, err
 			break
 		}
 		at, _ := strconv.ParseInt(f[5], 10, 64)
-		c := LogCommit{Hash: f[0], Parents: strings.Fields(f[1]), Subject: f[3], Author: f[4], At: at, Mine: mine[f[0]]}
+		c := LogCommit{Hash: f[0], Parents: []string{}, Subject: f[3], Author: f[4], At: at}
+		for _, p := range strings.Fields(f[1]) {
+			if mine[p] {
+				c.Parents = append(c.Parents, p)
+			}
+		}
 		for _, r := range strings.Split(f[2], ", ") {
 			if r = strings.TrimSpace(r); r != "" && r != "origin/HEAD" {
 				c.Refs = append(c.Refs, r)
