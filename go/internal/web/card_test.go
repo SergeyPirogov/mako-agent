@@ -58,6 +58,12 @@ func TestCardByState(t *testing.T) {
 			r.AgentReviews = []core.AgentReview{{State: "notes", Sent: true}}
 			return r
 		}(), nil), "merge", "skip skip done done now todo"},
+		{"MR, reviewer running", view(mr, func(v *recordView) { v.ReviewStep = "running" }), "open-mr", "skip skip done done now todo"},
+		{"MR, agent fixing the remarks", view(func() core.Record {
+			r := mr
+			r.AgentReviews = []core.AgentReview{{State: "notes", Sent: true}}
+			return r
+		}(), func(v *recordView) { v.ReviewStep = "fixing" }), "open-mr", "skip skip done done now todo"},
 		{"merged", view(func() core.Record { r := mr; r.ReviewState = "merged"; return r }(), nil), "archive", "skip skip done done skip done"},
 		{"MR closed", view(func() core.Record { r := mr; r.ReviewState = "closed"; return r }(), nil), "retry", "skip skip done todo skip fail"},
 		{"failed", view(core.Record{Status: core.Failed, Estimate: est}, nil), "retry", "done skip fail todo skip todo"},
