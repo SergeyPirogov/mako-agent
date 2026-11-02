@@ -2817,7 +2817,10 @@ function renderDetail() {
   const writing = document.activeElement?.id === "note-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   if (lessonEdit) lessonEdit.at = document.activeElement?.id === "lesson-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   const answering = document.activeElement?.dataset?.qa != null && { qa: document.activeElement.dataset.qa, at: [document.activeElement.selectionStart, document.activeElement.selectionEnd] };
+  // An open menu ("⋯", Snooze, model) stays open: the board re-renders every few seconds.
+  const openMenus = [...$("detail").querySelectorAll("details.menu")].map((m) => m.open);
   $("detail").innerHTML = shown = html;
+  $("detail").querySelectorAll("details.menu").forEach((m, i) => { if (openMenus[i]) m.open = true; });
   bindAnswers(r, answering);
   const tp2 = $("detail").querySelector(".task-pane");
   if (tp2) {
