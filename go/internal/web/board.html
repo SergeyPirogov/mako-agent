@@ -2577,15 +2577,18 @@ function faultsHTML(fs) {
   if (!fs?.length) return "";
   const fresh = fs.filter((f) => !f.reported).length;
   const at = (t) => new Date(t).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  const row = (f) => `<li class="${f.reported ? "reported" : ""}"><div><b>${esc(f.what)}</b> <span class="muted">${f.count}× · ${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span></div>`
-    + `<div class="fault-text">${esc(f.error)}</div>`
-    + (f.reported ? `<div class="muted">under analysis: ${/^https?:/.test(f.reported) ? `<a href="${esc(f.reported)}" target="_blank" rel="noopener">${esc(f.reported)}</a>` : esc(f.reported)}</div>` : "") + `</li>`;
-  return `<div class="stats faults">
-    <div class="digest-head"><h3>Mako errors <span class="muted">${fs.length}</span></h3>
+  const link = (u) => /^https?:/.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : esc(u);
+  const row = (f) => `<div class="fault${f.reported ? " reported" : ""}"><b class="fault-n" title="${f.count} ${plural(f.count, "time", "times", "times")}">${f.count}×</b>`
+    + `<div class="fault-main"><div class="fault-top"><b>${esc(f.what)}</b><span class="muted">${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span>`
+    + (f.reported ? `<span class="badge ok" title="Under analysis">under analysis</span>` : "") + `</div>`
+    + `<div class="fault-text" title="${esc(f.error)}">${esc(f.error)}</div>`
+    + (f.reported ? `<div class="fault-issue">${link(f.reported)}</div>` : "") + `</div></div>`;
+  const aside = `${fresh ? `${fresh} new · ` : ""}${fs.length} ${plural(fs.length, "kind", "kinds", "kinds")}`;
+  return `<div class="scard faults"><div class="scard-h"><h2>Mako errors</h2><span class="aside">${aside}</span>
       <span class="actions">${fresh && !data.remote ? `<button id="faults-report"${faultsBusy ? " disabled" : ""} title="Create a task with these errors in the Mako repository, so the agent can sort them out">${faultsBusy ? "Creating the task…" : `Send for analysis: ${fresh}`}</button>` : ""}
       ${data.remote ? "" : `<button class="ghost" id="faults-clear">Clear</button>`}</span></div>
-    <ul class="digest-list">${fs.map(row).join("")}</ul>
-    <p class="stats-note">What failed on the Mako side: search, comments, statuses, MR checks, worktree. Identical errors are merged into one.</p>
+    <div class="fault-list">${fs.map(row).join("")}</div>
+    <div class="snote">What failed on the Mako side: search, comments, statuses, MR checks, worktree. Identical errors are merged into one.</div>
   </div>`;
 }
 // The board re-renders every few seconds: the report under way is remembered here, not in the button.
