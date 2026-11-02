@@ -7,7 +7,6 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -240,6 +239,8 @@ func (s *Server) Handler() http.Handler {
 			snap = c.Snapshot()
 		} else if q, ok := s.D.QuestionChat(id); ok {
 			snap = q // a question asked before Mako restarted: its transcript
+		} else if f, ok := s.D.FreeChatSnapshot(id); ok {
+			snap = f // a chat without a task whose agent is not running
 		} else if t, ok := s.D.TaskChat(id); ok {
 			snap = t // a task whose agent is not running: its conversation so far
 		} else {
@@ -357,6 +358,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.createRoutes(mux)
 	s.codeRoutes(mux)
+	s.chatRoutes(mux)
 	// Mako's own errors: «На аналіз» opens an issue with them in Mako's repository, «Очистити» forgets them.
 	mux.HandleFunc("POST /api/faults/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
@@ -413,6 +415,10 @@ func (s *Server) Handler() http.Handler {
 		if action == "restart" {
 			s.D.RequestRestart(r.URL.Query().Get("on") == "1")
 			writeJSON(w, map[string]bool{"ok": true})
+			return
+		}
+		if dispatch.IsFreeChat(id) {
+			s.freeChatAction(w, r, action, id)
 			return
 		}
 		if _, ok := s.D.Store.Get(id); !ok {
@@ -482,24 +488,8 @@ func (s *Server) Handler() http.Handler {
 					body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
 					err = s.D.RevisePlan(id, r.URL.Query().Get("req"), string(body))
 				}
-			case c == nil:
-				err = fmt.Errorf("the agent is not running")
-			case action == "answer":
-				var answers map[string]string
-				json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
-				err = c.Answer(r.URL.Query().Get("req"), answers)
-			case action == "choose":
-				// An option of the agent's question, from a notification's button.
-				option, convErr := strconv.Atoi(r.URL.Query().Get("option"))
-				if err = convErr; err == nil {
-					err = c.Choose(r.URL.Query().Get("req"), option)
-				}
-			case action == "mode":
-				err = c.SetMode(r.URL.Query().Get("to"))
-			case action == "permit":
-				err = c.Permit(r.URL.Query().Get("req"), r.URL.Query().Get("decision"))
 			default:
-				err = c.Interrupt()
+				err = controlChat(c, action, r)
 			}
 			if err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

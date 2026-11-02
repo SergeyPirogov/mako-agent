@@ -102,6 +102,8 @@ type Dispatcher struct {
 	contexts map[string]bool
 	// questionsMu: the questions about code kept in questions.json (see codeask.go).
 	questionsMu sync.Mutex
+	// chatsMu: the chats without a task kept in chats.json (see freechat.go).
+	chatsMu sync.Mutex
 	// reviewsAt: when each tracker was last searched for MRs to review; reviewsEvery: how often it may be.
 	reviewsAt    map[string]time.Time
 	reviewsEvery time.Duration

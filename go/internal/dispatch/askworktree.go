@@ -125,19 +125,27 @@ type pendingSetup struct{ command, prompt string }
 // launchQuestion starts the question's agent, after the worktree's setup when it was just made: in the background,
 // the conversation shows the setup running meanwhile.
 func (d *Dispatcher) launchQuestion(p CodeProject, t CodeThread, text, setup string) error {
+	return d.launchAfterSetup(t.ID, threadDir(p, t), text, setup, func(res *chat.SetupResult) error {
+		return d.startQuestion(p, t, text, res)
+	})
+}
+
+// launchAfterSetup starts a conversation's agent (start), after setup prepares the worktree dir when there is one:
+// in the background, the conversation shows the setup running meanwhile (setupChat).
+func (d *Dispatcher) launchAfterSetup(id, dir, text, setup string, start func(*chat.SetupResult) error) error {
 	if setup == "" {
-		return d.startQuestion(p, t, text, nil)
+		return start(nil)
 	}
-	askSetups.Store(t.ID, pendingSetup{command: setup, prompt: text})
+	askSetups.Store(id, pendingSetup{command: setup, prompt: text})
 	go func() {
-		res := d.runSetup(context.Background(), t.ID, threadDir(p, t), setup)
+		res := d.runSetup(context.Background(), id, dir, setup)
 		if res.Failed {
-			log.Printf("[%s] preparing the worktree for questions failed, the agent starts anyway:\n%s", t.ID, tailLines(res.Output, 10))
+			log.Printf("[%s] preparing the worktree failed, the agent starts anyway:\n%s", id, tailLines(res.Output, 10))
 		}
-		err := d.startQuestion(p, t, text, res)
-		askSetups.Delete(t.ID)
+		err := start(res)
+		askSetups.Delete(id)
 		if err != nil {
-			log.Printf("[%s] agent did not start: %v", t.ID, err)
+			log.Printf("[%s] agent did not start: %v", id, err)
 		}
 	}()
 	return nil
