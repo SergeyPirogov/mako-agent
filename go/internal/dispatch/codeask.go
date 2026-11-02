@@ -76,6 +76,8 @@ type CodeThread struct {
 	// Dir: where its conversation runs, the shared worktree; "" — the clone, before the worktree.
 	Dir string `json:"dir,omitempty"`
 	At  int64  `json:"at"` // the last question, unix ms
+	// Ticket: the task made from this chat; the chat is done. "" — it is not.
+	Ticket string `json:"ticket,omitempty"`
 }
 
 // maxThreads: the questions a project keeps.
@@ -251,6 +253,28 @@ func (d *Dispatcher) RemoveQuestion(id string) error {
 		return err
 	}
 	return os.RemoveAll(d.ScreenshotDir(id))
+}
+
+// DoneQuestion: the chat is done, the task is made from it; the chat stays, marked with the task's id.
+func (d *Dispatcher) DoneQuestion(id, ticket string) error {
+	ticket = strings.TrimSpace(ticket)
+	if !IsQuestion(id) {
+		return errors.New("no such question")
+	}
+	if ticket == "" {
+		return errors.New("no task")
+	}
+	if _, ok := d.thread(id); !ok {
+		return errors.New("no such question")
+	}
+	return d.updateThreads(func(all []CodeThread) []CodeThread {
+		for i := range all {
+			if all[i].ID == id {
+				all[i].Ticket = clipText(ticket, 200)
+			}
+		}
+		return all
+	})
 }
 
 // setThreadDir: the question's conversation runs in dir from now on, a new one.

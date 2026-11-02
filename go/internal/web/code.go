@@ -137,4 +137,17 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	// The task is made from the question: it stays in the history, marked done.
+	mux.HandleFunc("POST /api/code/done", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if !sameOrigin(r) || !dispatch.IsQuestion(id) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if err := s.D.DoneQuestion(id, r.URL.Query().Get("ticket")); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 }
