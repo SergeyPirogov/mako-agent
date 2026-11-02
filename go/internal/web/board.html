@@ -3402,7 +3402,8 @@ function stepRow(r, it, v, kind) {
 const stepKind = (tool) => ({ Bash: "commands", Read: "reads", Grep: "search", Glob: "search", LS: "search", WebFetch: "web", WebSearch: "web" })[tool];
 function stepDetail(r, it, v) {
   if (EDITS.includes(it.tool)) {
-    return `${toolDetail(it)}${v.code ? "" : `<div class="step-foot"><button type="button" class="link" data-open-diff="${esc(r.label)}">Open the whole diff →</button></div>`}`;
+    // The whole diff is of the task's changes: a file outside its worktree (an absolute path) has none.
+    return `${toolDetail(it)}${v.code || r.label.startsWith("/") ? "" : `<div class="step-foot"><button type="button" class="link" data-open-diff="${esc(r.label)}">Open the whole diff →</button></div>`}`;
   }
   const lines = String(it.output ?? "").replace(/\s+$/, "").split("\n"), whole = v.flip.has(`w:${it.id}`), cut = !whole && lines.length > 12;
   return `<pre class="tool-out">${esc((cut ? lines.slice(-12) : lines).join("\n"))}</pre>

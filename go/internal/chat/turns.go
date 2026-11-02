@@ -113,6 +113,8 @@ func Group(items []Item, worktree string) []Turn {
 		switch {
 		case it.Kind == "tool" && it.Tool == "TodoWrite":
 			// Shown as the progress above the conversation.
+		case it.Kind == "permission" && (it.Status == "allowed" || it.Status == "always") && it.Tool != PlanTool && it.Tool != "AskUserQuestion":
+			// A permission given: the step it allowed shows; the line would only split the steps around it.
 		case it.Kind == "tool" && it.Status == "running":
 			flush()
 			cur.Blocks = append(cur.Blocks, Block{Kind: "current", Item: i, Running: true, Rows: []Row{rowOf(items, i, worktree)}})

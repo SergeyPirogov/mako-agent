@@ -127,6 +127,7 @@ type Session struct {
 	spentTok  int                        // the tokens of the process's model calls by its last result: spent / spentTok is what a token costs
 	procTok   int                        // the tokens of the process's model calls so far
 	lastTurn  float64                    // what the last finished turn cost (USD)
+	rate      float64                    // what a token cost in the turns so far (USD), kept when a new process continues
 	tokens    int                        // the tokens of this turn's model calls, told with its cost
 	calls     map[string]bool            // the model calls already counted, by message id: one comes in several events
 	pending   map[string]json.RawMessage // permission request → the tool's input
@@ -434,6 +435,9 @@ func (s *Session) handle(line []byte) {
 		if s.cmd != nil && e.Cost > s.spent {
 			turn, s.spent = e.Cost-s.spent, e.Cost
 			s.spentTok = s.procTok
+			if s.spentTok > 0 {
+				s.rate = s.spent / float64(s.spentTok)
+			}
 		}
 		s.tokens, s.lastTurn = 0, turn
 		s.mu.Unlock()
@@ -840,19 +844,25 @@ func (s *Session) Running() bool {
 func (s *Session) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items := append([]Item{}, s.items...)
-	turn := statOf(items)
-	// What the turn costs so far: its tokens at the price of the process's earlier turns; once it ends, its result
-	// says it exactly.
+	snap := Drawn(Snapshot{Version: s.version, State: s.state, Since: s.since.UnixMilli(), Live: !s.exited, Asleep: s.exited && s.asleep, Mode: s.mode, Model: s.model,
+		Context: s.context, Window: s.window, Items: append([]Item{}, s.items...)}, s.Worktree)
+	// What the turn costs so far: its tokens at the price of the earlier turns (of this process or one before it);
+	// once it ends, its result says it exactly.
 	if s.state == "working" || s.state == "waiting" {
-		if s.spentTok > 0 && s.tokens > 0 {
-			turn.Cost, turn.Estimate = float64(s.tokens)*s.spent/float64(s.spentTok), true
+		if s.rate > 0 && s.tokens > 0 {
+			snap.Turn.Cost, snap.Turn.Estimate = float64(s.tokens)*s.rate, true
 		}
-	} else if n := len(items); n > 0 && items[n-1].Kind == "result" {
-		turn.Cost = s.lastTurn
+	} else if n := len(snap.Items); n > 0 && snap.Items[n-1].Kind == "result" {
+		snap.Turn.Cost = s.lastTurn
 	}
-	return Snapshot{Version: s.version, State: s.state, Since: s.since.UnixMilli(), Live: !s.exited, Asleep: s.exited && s.asleep, Mode: s.mode, Model: s.model,
-		Context: s.context, Window: s.window, Items: items, Turns: Group(items, s.Worktree), Progress: ProgressOf(items), Turn: turn}
+	return snap
+}
+
+// Drawn fills in what the board draws from a snapshot's items: the turns, the agent's plan, the turn going on.
+// worktree: where the conversation is held, for relative paths ("" when not known).
+func Drawn(snap Snapshot, worktree string) Snapshot {
+	snap.Turns, snap.Progress, snap.Turn = Group(snap.Items, worktree), ProgressOf(snap.Items), statOf(snap.Items)
+	return snap
 }
 
 // State: what the agent does now and the tool it runs.

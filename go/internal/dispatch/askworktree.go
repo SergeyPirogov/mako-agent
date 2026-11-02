@@ -152,10 +152,10 @@ func setupChat(id string) (chat.Snapshot, bool) {
 	s := v.(pendingSetup)
 	input, _ := json.Marshal(map[string]string{"command": s.command})
 	// A version no session has: the board reads the conversation anew when the agent starts.
-	return chat.Snapshot{Version: -2, State: "working", Live: true, Items: []chat.Item{
+	return chat.Drawn(chat.Snapshot{Version: -2, State: "working", Live: true, Items: []chat.Item{
 		{Kind: "user", Text: s.prompt},
 		{Kind: "tool", ID: "setup", Tool: "Setup", Input: input, Status: "running"},
-	}}, true
+	}}, ""), true
 }
 
 // askWorking: an agent of the project's questions is at work (or waits for an answer) in the shared worktree; the

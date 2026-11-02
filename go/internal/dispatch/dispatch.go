@@ -95,7 +95,10 @@ type Dispatcher struct {
 	// estimates: the estimates of new tasks running in the background.
 	estimates sync.WaitGroup
 	// contexts: the tasks whose context is being read, true when a turn ended meanwhile and it is read again.
-	ctxMu    sync.Mutex
+	ctxMu sync.Mutex
+	// replays: the conversations of tasks whose agent is not running, read from their transcripts (TaskChat).
+	replayMu sync.Mutex
+	replays  map[string]replayed
 	contexts map[string]bool
 	// questionsMu: the questions about code kept in questions.json (see codeask.go).
 	questionsMu sync.Mutex

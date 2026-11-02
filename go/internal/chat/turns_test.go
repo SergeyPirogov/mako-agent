@@ -2,7 +2,10 @@ package chat
 
 import (
 	"encoding/json"
+	"math"
+	"os/exec"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -163,5 +166,49 @@ func TestGroupPromptAndImages(t *testing.T) {
 	}
 	if turns[2].Text != "Look at this" || !reflect.DeepEqual(turns[2].Images, []string{"/state/screenshots/a/1.png"}) {
 		t.Errorf("images: %+v", turns[2])
+	}
+}
+
+// A permission given does not split the steps around it: in «Ask» mode one comes before every command.
+func TestGroupSkipsPermissionsGiven(t *testing.T) {
+	items := []Item{
+		{Kind: "permission", ID: "r1", Tool: "Bash", Status: "allowed"},
+		tool("Bash", "ok", map[string]string{"command": "go vet ./..."}, ""),
+		{Kind: "permission", ID: "r2", Tool: "Bash", Status: "always"},
+		tool("Bash", "ok", map[string]string{"command": "go test ./..."}, ""),
+		{Kind: "permission", ID: "r3", Tool: "Bash", Status: "denied"},
+	}
+	turns := Group(items, "")
+	if got := kinds(turns[0]); got != "commands item" || len(turns[0].Blocks[0].Rows) != 2 {
+		t.Fatalf("blocks: %s %+v", got, turns[0].Blocks)
+	}
+}
+
+// The cost of a turn going on: its tokens at the price of the turns before, of this process or of one before it
+// (each «Continue» starts a new one); the turn's result then says it exactly.
+func TestTurnCostEstimate(t *testing.T) {
+	s := &Session{state: "working", pending: map[string]json.RawMessage{}, cmd: &exec.Cmd{}}
+	call := func(id string, n int) {
+		s.handle([]byte(`{"type":"assistant","message":{"id":"` + id + `","usage":{"input_tokens":` + strconv.Itoa(n) + `},"content":[]},"parent_tool_use_id":null}`))
+	}
+	call("m1", 1000)
+	if c := s.Snapshot().Turn; c.Cost != 0 {
+		t.Fatalf("no price known yet, yet %+v", c)
+	}
+	s.handle([]byte(`{"type":"result","total_cost_usd":0.5}`))
+	if c := s.Snapshot().Turn; c.Cost != 0.5 || c.Estimate {
+		t.Fatalf("finished turn: %+v", c)
+	}
+	// A new process continues the conversation: its cost starts from 0, the price is still known.
+	s.mu.Lock()
+	s.cmd, s.spent, s.spentTok, s.procTok, s.state = &exec.Cmd{}, 0, 0, 0, "working"
+	s.mu.Unlock()
+	call("m2", 400)
+	if c := s.Snapshot().Turn; !c.Estimate || math.Abs(c.Cost-0.2) > 1e-9 {
+		t.Fatalf("estimate: %+v", c)
+	}
+	s.handle([]byte(`{"type":"result","total_cost_usd":0.25}`))
+	if c := s.Snapshot().Turn; c.Cost != 0.25 || c.Estimate {
+		t.Fatalf("exact after the result: %+v", c)
 	}
 }
