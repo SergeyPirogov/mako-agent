@@ -3485,12 +3485,11 @@ function chatFor(id) {
     <div class="chat-progress" hidden></div>
     <div class="chat-list" role="log" aria-live="polite"></div>
     <div class="chat-resume" hidden><button type="button" class="resume-btn on-light" data-chat-resume title="The agent has stopped. The conversation is saved in Claude Code.">${ICON.play}Continue conversation</button></div>
-    <div class="chat-status" hidden><span class="dot"></span><b class="st"></b><span class="muted st-more"></span>
-      <button type="button" class="chat-stop-btn" title="Interrupt the current step, like Esc in the terminal">${ICON.stop}Stop</button></div>
     <div class="chat-dock" hidden></div>
     <div class="chat-foot">
       <div class="chat-quick"></div>
       <div class="chat-ctxwarn" role="status" hidden></div>
+      <div class="chat-status" hidden><span class="dot"></span><b class="st"></b><span class="st-more"></span></div>
       <div class="chat-box composer">
         <div class="chat-att" hidden></div>
         <textarea rows="2" aria-label="Message to the agent"></textarea>
@@ -3535,6 +3534,9 @@ function chatFor(id) {
     v.input.value = ""; v.att = []; drawAttached(v);
     say(text);
   };
+  const interrupt = () => fetch(`/api/interrupt?id=${encodeURIComponent(id)}`, { method: "POST" });
+  // While the agent runs and nothing is typed, the send button is Stop; a typed message turns it back into Send.
+  const sendOrStop = () => { if (stopMode(v)) interrupt(); else send(); };
   const attach = async (files) => {
     for (const f of files) {
       if (!f.type.startsWith("image/")) continue;
@@ -3579,7 +3581,8 @@ function chatFor(id) {
     }
   };
   v.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
-  el.querySelector(".chat-send").onclick = send;
+  v.input.addEventListener("input", () => drawSend(v));
+  el.querySelector(".chat-send").onclick = sendOrStop;
   // The mode: a button and its menu, like the model's.
   const modeBtn = el.querySelector(".chat-mode-btn"), modeMenu = el.querySelector(".chat-mode-menu");
   const showModes = (on) => { modeMenu.hidden = !on; modeBtn.setAttribute("aria-expanded", on ? "true" : "false"); };
@@ -3591,8 +3594,12 @@ function chatFor(id) {
     fetch(`/api/mode?id=${encodeURIComponent(id)}&to=${b.dataset.mode}`, { method: "POST" }).then(() => pollChat());
   };
   el.addEventListener("click", (e) => { if (!modeMenu.hidden && !e.target.closest(".chat-mode")) showModes(false); });
-  el.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modeMenu.hidden) { showModes(false); modeBtn.focus(); } });
-  el.querySelector(".chat-stop-btn").onclick = () => fetch(`/api/interrupt?id=${encodeURIComponent(id)}`, { method: "POST" });
+  // Esc closes the open menu; otherwise it interrupts the step, like in the terminal.
+  el.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+    if (!modeMenu.hidden) { showModes(false); modeBtn.focus(); }
+    else if (v.snap?.state === "working" || v.snap?.state === "waiting") interrupt();
+  });
   el.querySelector("[data-chat-resume]").onclick = () => post("resume", id).then(() => { v.version = -1; pollChat(); });
   el.querySelector(".chat-progress").onclick = (e) => {
     if (!e.target.closest("[data-all-steps]")) return;
@@ -3681,6 +3688,20 @@ function drawAttached(v) {
   box.hidden = !v.att.length;
   box.innerHTML = v.att.map((a, i) => `<span class="att"><img src="${esc(a.url)}" alt=""><span>${esc(a.name)}</span>
     <button type="button" class="icon" data-unattach="${i}" title="Remove" aria-label="Remove ${esc(a.name)}">×</button></span>`).join("");
+  drawSend(v);
+}
+// The send button turns into Stop while the agent runs and there is nothing to send.
+function stopMode(v) {
+  const s = v.snap;
+  return !!s && (s.state === "working" || s.state === "waiting") && !v.input.value.trim() && !v.att.length;
+}
+function drawSend(v) {
+  const b = v.el.querySelector(".chat-send"), stop = stopMode(v);
+  if (b.classList.contains("stop") === stop) return;
+  b.classList.toggle("stop", stop);
+  b.innerHTML = stop ? ICON.stop : ICON.up;
+  b.title = stop ? "Stop: interrupt the current step (Esc)" : "Send (Enter)";
+  b.setAttribute("aria-label", stop ? "Stop" : "Send");
 }
 function renderChat(v) {
   const s = v.snap, list = v.list;
@@ -3711,18 +3732,21 @@ function renderChat(v) {
       <button type="button" class="pg-all" data-all-steps aria-expanded="${v.allSteps ? "true" : "false"}">All steps ${v.allSteps ? "▴" : "▾"}</button></div>
       ${v.allSteps ? `<ol class="pg-list">${p.steps.map((x, i) => `<li class="${x.status === "completed" ? "done" : i === at ? "now" : ""}">${esc(x.text)}</li>`).join("")}</ol>` : ""}`;
   }
-  // The line above the input: what the agent does, this turn's time, cost and steps, and Stop.
+  // The line above the input: what the agent does, this turn's time, cost and steps. Stop is the send button.
   const st = v.el.querySelector(".chat-status"), t = s.turn ?? {};
   // The panel waiting on you says it itself, with its own Stop.
   st.hidden = !s.live && !s.asleep && !s.items.length || !!asked;
   st.className = `chat-status ${s.state}`;
-  st.querySelector(".st").textContent = { working: "Working", waiting: "Waiting for you", done: "Your turn" }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
+  // Working says nothing: the active tool card already reads «Running».
+  const stText = { working: "", waiting: "Waiting for you", done: "Your turn" }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
+  const stEl = st.querySelector(".st");
+  stEl.textContent = stText; stEl.hidden = !stText;
   const more = [];
   if (t.since && (live || s.state === "done")) more.push(live ? `<span data-since="${t.since}" data-pre="this turn ">this turn ${dur((Date.now() - t.since) / 1000)}</span>` : "");
   if (t.cost) more.push(`${t.estimate ? "≈" : ""}$${t.cost.toFixed(2)}`);
   if (t.steps && (live || s.state === "done")) more.push(`${t.steps} ${plural(t.steps, "step", "steps")}`);
-  st.querySelector(".st-more").innerHTML = more.filter(Boolean).map((x) => ` · ${x}`).join("");
-  st.querySelector(".chat-stop-btn").hidden = !live;
+  st.querySelector(".st-more").innerHTML = more.filter(Boolean).map((x, i) => `${i || stText ? " · " : ""}${x}`).join("");
+  drawSend(v);
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
   drawNextActions(v);

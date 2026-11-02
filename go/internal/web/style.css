@@ -903,17 +903,15 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .pg-list li.done { color: var(--mute); text-decoration: line-through; }
 .pg-list li.now { font-weight: 600; }
 /* The line above the input: what the agent does now, and Stop. */
-.chat-status { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 16px; border-top: 1px solid var(--line); background: var(--bg); font-size: 13px; min-width: 0; }
+.chat-status { display: flex; align-items: center; gap: 8px; max-width: 780px; margin: 0 auto 6px; font-size: 12px; color: var(--mute); min-width: 0; }
 .chat-status[hidden] { display: none; }
 .chat-status .dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--faint); }
 .chat-status.working .dot { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); animation: pulse 1.6s ease-in-out infinite; }
 .chat-status.waiting .dot { background: var(--warn); }
 .chat-status.done .dot { background: var(--ok); }
 .chat-status b { font-weight: 600; flex: none; }
+.chat-status b[hidden] { display: none; }
 .st-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.chat-stop-btn { margin-left: auto; flex: none; height: 28px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
-.chat-stop-btn svg { width: 12px; height: 12px; }
-.chat-stop-btn[hidden] { display: none; }
 /* The input: the text above, its controls in a row under it. */
 .chat-box.composer { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; border-radius: 12px; }
 .composer textarea { min-height: 40px; }
@@ -1104,6 +1102,7 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .chat-box textarea { flex: 1; min-height: 40px; max-height: 160px; border: 0; outline: none; resize: none; font: inherit; color: var(--fg); background: none; }
 .chat-send { width: 30px; height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px;
   background: var(--primary); color: var(--primary-fg); }
+.chat-send.stop svg { width: 14px; height: 14px; }
 /* A stopped agent: the way back in the middle of the chat; the conversation under it still scrolls. */
 .chat-resume { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .chat-resume .resume-btn { pointer-events: auto; box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
@@ -1218,10 +1217,10 @@ details.journal .log { margin-top: 8px; }
   /* The same chat in a column: the controls wrap, every button 44 px. */
   .chat-col > .msg.me { max-width: 88%; }
   .chat-row { flex-wrap: wrap; }
-  .chat-mode-btn, .chat-stop-btn, .pg-all, .chat-new { min-height: 44px; }
+  .chat-mode-btn, .pg-all, .chat-new { min-height: 44px; }
   .chat-attach, .chat-row .chat-send { width: 44px; height: 44px; }
   .step-h { min-height: 44px; }
-  .chat-status { padding: 4px 12px; }
+  .chat-status { margin-bottom: 4px; padding: 0 4px; }
   .chat-progress { padding: 6px 12px; }
   .pg-bar { width: 72px; }
   input, textarea, select, .chat-box textarea, .filter input, .filter select, .find input { font-size: 16px; }
