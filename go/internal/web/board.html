@@ -1345,11 +1345,11 @@ const selfChecked = (r) => { try { return !!localStorage.getItem(selfKey(r)); } 
 const adviceText = (r, need) => r.assessment?.review?.why || (need ? r.assessment?.risk?.why : "") || "";
 // A line of advice: its title, the reason under it, and its button under the reason (the side panel is narrow).
 const adviceBlock = (icon, title, why, btn = "", cls = "") => `<div class="mr-row mr-advice ${cls}">${MR_ICON[icon]}
-  <div class="mr-adv"><b>${esc(title)}</b>${why ? `<span class="mr-why" title="${esc(why)}">${esc(why)}</span>` : ""}${btn ? `<div class="mr-adv-a">${btn}</div>` : ""}</div></div>`;
+  <div class="mr-adv"><b>${esc(title)}</b>${why ? `<span class="mr-why">${esc(why)}</span>` : ""}${btn ? `<div class="mr-adv-a">${btn}</div>` : ""}</div></div>`;
 // "Check it yourself": a box to tick, the advice beside it. Ticked, it fades to background.
 const selfBlock = (check, done) => `<div class="mr-row mr-advice self${done ? " done" : ""}">
   <button type="button" class="chk" role="checkbox" aria-checked="${done}" data-self="${done ? 0 : 1}" title="${done ? "Not checked after all" : "Mark it as looked at"}">${done ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>` : ""}</button>
-  <div class="mr-adv"><b>${done ? "You checked it" : "Check it yourself"}</b><span class="mr-why" title="${esc(check)}">${esc(check)}</span></div></div>`;
+  <div class="mr-adv"><b>${done ? "You checked it" : "Check it yourself"}</b><span class="mr-why">${esc(check)}</span></div></div>`;
 // "Review" in the MR card, two things kept apart: the reviewer agent (the advice to run it, "Run AI review" / "Skip",
 // its result), then you: what the agent advises you to look at yourself, with "Checked". An assessment from before
 // the advice had a "check" of its own: once the reviewer ran, its reason is what is left for you.
@@ -1360,13 +1360,14 @@ function reviewSection(r) {
   let ai = "", you = "", note = "";
   if (a?.state === "running") ai = row("run", "The agent is judging whether a review is needed…");
   else if (need === true && !ran) { ai = adviceBlock("talk", "AI review advised", why, ready ? reviewBtn("Run AI review", "primary") + skipBtn() : "", "ask"); note = "advised"; }
-  else if (need === false && !ran) ai = adviceBlock("ok", "No AI review needed", why, "", "past");
+  else if (need === false && !ran) ai = adviceBlock("ok", "No AI review needed", why, ready ? reviewBtn("Run anyway") : "", "past");
   if (check) {
     you = selfBlock(check, selfChecked(r));
     if (!selfChecked(r)) note ||= "check yourself";
   }
-  // Before the reviewer: its advice with "Run AI review" / "Skip" in it; after it: its result. Then what is left for you.
-  const body = (ran ? reviewerRow(r, need) : ai + (need === true && ready ? "" : reviewerRow(r, need))) + you;
+  // Before the reviewer: its advice with its buttons in it ("Run AI review" / "Skip", or just "Run anyway" when it is
+  // not needed); after it: its result. Then what is left for you.
+  const body = (ran ? reviewerRow(r, need) : ai + (need !== null && ready ? "" : reviewerRow(r, need))) + you;
   return body ? sec("Review", body, note) : "";
 }
 function reviewerRow(r, need) {
