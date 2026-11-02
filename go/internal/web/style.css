@@ -432,13 +432,84 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 #term-slot { background: #14161b; border-radius: 10px; padding: 8px 4px 8px 10px; margin: 0 0 14px; }
 .term-wrap { position: relative; display: flex; flex-direction: column; height: min(70vh, 640px); min-height: 320px; }
 .term { flex: 1; min-height: 0; }
-.ask { position: absolute; left: 4px; right: 4px; bottom: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px;
-  border-radius: 9px; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--card)); color: var(--fg);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .25); z-index: 5; }
-.ask[hidden] { display: none; }
-.ask-q { flex: 1; min-width: 220px; overflow-wrap: anywhere; }
-.ask-q b { color: var(--warn); }
-.ask button { height: 30px; padding: 0 12px; white-space: nowrap; }
+/* The agent's terminal (#294): over it a dark bar with its state and actions, under it the agent's question as a
+   panel and the keys a phone has not. The padding moves from the slot to the box around xterm. */
+#term-slot:has(.term-wrap) { padding: 0; overflow: hidden; }
+section.ws #term-slot:has(.term-wrap) { padding: 0; }
+.term-box { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 6px 2px 6px 8px; }
+.tbar, .tkeys { flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 10px; background: #1b1d22; color: #c9cbd0; font-size: 12.5px; }
+.tbar { border-bottom: 1px solid #26282c; }
+.tkeys { gap: 6px; border-top: 1px solid #26282c; font-size: 12px; }
+.tbar .dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #6f7277; }
+.tbar[data-state="working"] .dot { background: #6b9bff; box-shadow: 0 0 0 4px rgba(107, 155, 255, .2); }
+.tbar[data-state="waiting"] .dot { background: #e5a23b; }
+.tbar[data-state="done"] .dot { background: #4cc27f; }
+.tb-st { flex: none; color: #fff; font-weight: 600; white-space: nowrap; }
+.tb-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tb-pg { flex: none; display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.tb-pg[hidden], .tb-find[hidden], .tbar .dk[hidden] { display: none; }
+.tb-bar { display: flex; gap: 2px; width: 60px; }
+.tb-bar i { flex: 1; height: 5px; border-radius: 3px; background: #33363d; }
+.tb-bar i.done { background: #4cc27f; }
+.tb-bar i.now { background: #6b9bff; }
+.tb-find { display: inline-flex; align-items: center; gap: 6px; }
+.tb-find input { width: 180px; height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid #33363d; background: #14161b; color: #e6e6e6; font: inherit; font-size: 12.5px; outline: none; }
+.tb-find input:focus { border-color: #6b9bff; }
+.tb-found { min-width: 34px; color: #9b9ea4; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dk { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid #33363d; background: #22252b; color: #e6e6e6; font: inherit; font-size: 12px; white-space: nowrap; }
+.dk:hover { background: #2a2d34; border-color: #4a4d55; color: #fff; }
+.dk.dki { width: 28px; padding: 0; }
+.dk svg[viewBox="0 0 24 24"][width="16"] { width: 11px; height: 11px; }
+.tk-mode { color: #9b9ea4; }
+.tk-phone { display: none; }
+.tkeys .tk-ctx { color: #c9cbd0; }
+.tkeys .tk-ctx .meter { background: #33363d; }
+.tkeys .tk-ctx .meter i { background: #9b9ea4; }
+.tkeys .tk-ctx.full .meter i { background: #e5a23b; }
+.tk-model { white-space: nowrap; }
+.tk-model:not(:empty)::before { content: "· "; }
+.tb-views { display: none; }
+.tsay { display: none; }
+/* The switch asked for during a turn: it waits for the turn to end. */
+.view-next { flex: none; display: flex; align-items: center; gap: 10px; padding: 7px 12px; background: color-mix(in srgb, var(--accent) 10%, var(--card)); color: var(--fg); font-size: 13px; }
+.view-next[hidden] { display: none; }
+.view-next > svg { flex: none; color: var(--accent); }
+.vn-t { flex: 1; min-width: 0; }
+.vn-t b { font-weight: 600; }
+.view-next button { height: 26px; padding: 0 10px; font-size: 12.5px; }
+.seg .after { color: var(--accent); font-weight: 400; }
+/* The agent's question under the terminal, in the chat's colours: the output above stays in view. */
+.tdock { flex: none; display: flex; flex-direction: column; gap: 10px; max-height: 50%; overflow: auto; padding: 12px 14px;
+  border-top: 2px solid var(--warn); background: color-mix(in srgb, var(--warn) 7%, var(--card)); color: var(--fg); }
+.tdock[hidden] { display: none; }
+.td-cmd { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); font-size: 12.5px; }
+.td-hint { margin-left: auto; flex: none; font-size: 12.5px; }
+.td-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.td-opts button { display: inline-flex; align-items: center; gap: 8px; height: auto; min-height: 32px; max-width: 100%; padding-top: 5px; padding-bottom: 5px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.td-opts .kbd { margin: 0; }
+.td-opts .primary .kbd { color: inherit; border-color: currentColor; opacity: .7; }
+.td-instead { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.td-instead > .muted { flex: none; font-size: 13px; }
+.td-instead input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--fg); font: inherit; font-size: 13px; }
+@media (max-width: 760px) {
+  /* A phone: the switch to the chat in the bar, big keys and a line to type to the agent. */
+  section.ws:has(.term-wrap) .ws-bar .seg { display: none; }
+  .tb-desk, .tk-desk, .tkeys .spacer, .tkeys .tk-ctx, .tkeys .tk-model, .td-hint { display: none; }
+  .tk-phone { display: inline; }
+  .tkeys .dk.tk-phone { display: inline-flex; }
+  .tb-views { flex: none; display: inline-flex; padding: 2px; border-radius: 7px; background: #22252b; }
+  .tb-views button { height: 26px; padding: 0 9px; border: 0; border-radius: 5px; background: none; color: #9b9ea4; font-size: 12px; }
+  .tb-views button.on { background: #33363d; color: #fff; }
+  .tb-views button.next { color: #6b9bff; }
+  .tkeys { gap: 5px; padding: 8px 10px; }
+  .tkeys .dk { flex: 1 1 0; min-width: 0; height: 42px; padding: 0 4px; border-radius: 8px; font-size: 14px; }
+  .tsay { flex: none; display: flex; gap: 8px; padding: 0 10px max(14px, env(safe-area-inset-bottom)); background: #1b1d22; }
+  .tsay input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid #33363d; background: #22252b; color: #e6e6e6; font: inherit; font-size: 16px; outline: none; }
+  .tsay button { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: #e9e9ea; color: #111214; display: inline-flex; align-items: center; justify-content: center; }
+  .td-opts button { min-height: 44px; }
+  .view-next { flex-wrap: wrap; }
+}
 .term .xterm { height: 100%; }
 /* xterm paints the part under the last row black (#000); the terminal's own background there. */
 .term .xterm, .term .xterm-viewport { background-color: #14161b !important; }

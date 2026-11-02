@@ -48,6 +48,15 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// The bar over the terminal: what the agent does, its turn so far, its plan and context.
+	mux.HandleFunc("GET /api/termstat", func(w http.ResponseWriter, r *http.Request) {
+		st, ok := s.D.TerminalStatus(r.URL.Query().Get("id"))
+		if !ok {
+			writeJSON(w, map[string]any{"error": "the task is not in a Mako terminal"})
+			return
+		}
+		writeJSON(w, st)
+	})
 	ws := websocket.Server{
 		// Only the board's own pages: another site in the browser must not type into the agent.
 		Handshake: func(_ *websocket.Config, r *http.Request) error {
@@ -62,7 +71,8 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 }
 
 // terminal: what the agent shows goes out, what you type comes in. {"t":"init","d":…} first, then {"t":"o"}
-// for output and {"t":"x"} when the agent ends; in: {"t":"i","d":…} keys, {"t":"r","cols":…,"rows":…} size.
+// for output and {"t":"x"} when the agent ends; in: {"t":"i","d":…} keys, {"t":"s","d":…} a line typed and Enter
+// (the phone's input, /compact), {"t":"r","cols":…,"rows":…} size.
 func (s *Server) terminal(c *websocket.Conn) {
 	defer c.Close()
 	sess := s.D.Sessions.Get(c.Request().URL.Query().Get("id"))
@@ -93,6 +103,8 @@ func (s *Server) terminal(c *websocket.Conn) {
 			switch m.T {
 			case "i":
 				sess.Input(m.D)
+			case "s":
+				sess.Say(m.D)
 			case "r":
 				sess.Resize(m.Cols, m.Rows)
 			}

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"golang.org/x/net/websocket"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
@@ -82,5 +84,28 @@ func TestGuardNeedsToken(t *testing.T) {
 		if res.StatusCode != 403 {
 			t.Errorf("%s: %d", q, res.StatusCode)
 		}
+	}
+}
+
+// The bar over the terminal asks for its status; Terminal.app is not opened from a phone.
+func TestTermStatAndTerminalApp(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	store.Update("a#1", func(r *core.Record) { r.Executor, r.Worktree = "terminal", t.TempDir() })
+	srv := httptest.NewServer((&Server{D: d}).Handler())
+	defer srv.Close()
+	var st dispatch.TermStatus
+	res, err := http.Get(srv.URL + "/api/termstat?id=a%231")
+	if err != nil || json.NewDecoder(res.Body).Decode(&st) != nil || st.State != "" || st.Live {
+		t.Fatalf("termstat: %v %+v", err, st)
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/api/terminalapp?id=a%231", nil)
+	req.Header.Set("X-Forwarded-For", "100.64.0.2")
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode == 200 {
+		t.Fatal("Terminal.app opened from a phone")
+	}
+	if !macOnly("/api/terminalapp") {
+		t.Fatal("Terminal.app is not Mac-only")
 	}
 }

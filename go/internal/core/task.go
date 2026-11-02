@@ -115,6 +115,8 @@ type Record struct {
 	Cost      float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
+	// ViewNext: the view the agent moves to once its turn ends (asked for while it worked), "" when none.
+	ViewNext string `json:"viewNext,omitempty"`
 	// Planning: the agent started in plan mode and its plan is not approved yet; it starts in plan mode again
 	// until it is.
 	Planning bool `json:"planning,omitempty"`

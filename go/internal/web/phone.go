@@ -75,9 +75,9 @@ func publicPath(p string) bool {
 		p == "/manifest.webmanifest" || p == "/sw.js" || p == "/style.css" || p == "/theme.js"
 }
 
-// Settings and pairing stay on the Mac: a phone gets the board and its buttons.
+// Settings and pairing stay on the Mac, and Terminal.app opens there: a phone gets the board and its buttons.
 func macOnly(p string) bool {
-	return p == "/settings" || strings.HasPrefix(p, "/api/settings") || strings.HasPrefix(p, "/api/phone") || p == "/api/show"
+	return p == "/settings" || strings.HasPrefix(p, "/api/settings") || strings.HasPrefix(p, "/api/phone") || p == "/api/show" || p == "/api/terminalapp"
 }
 
 // guard lets this Mac in as is, and a phone only with a paired device's key.

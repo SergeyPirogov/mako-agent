@@ -77,6 +77,10 @@ type Snapshot struct {
 	Plan *PlanDoc `json:"plan,omitempty"`
 	// WorkMode: the mode the plan's work goes on in unless you pick another (set by Mako, not the session).
 	WorkMode string `json:"workMode,omitempty"`
+	// TurnUsage, TurnModel: a replayed transcript's turn going on, its tokens and the model that spent them, so
+	// Mako can price it.
+	TurnUsage core.Usage `json:"-"`
+	TurnModel string     `json:"-"`
 }
 
 type Options struct {
@@ -139,6 +143,11 @@ type Session struct {
 	pending   map[string]json.RawMessage // permission request → the tool's input
 	o         Options
 	ended     chan struct{} // closed once the agent has exited and OnState has heard of it
+
+	// A replayed transcript's turn going on (from your last message): its model calls' tokens and their model, for
+	// what the turn costs so far when nobody runs it through Mako's chat (the agent in a terminal).
+	replayUse   core.Usage
+	replayModel string
 }
 
 const maxOutput = 6000
@@ -274,6 +283,7 @@ func ReplayIn(id, worktree, path string) Snapshot {
 	s.replay(path)
 	snap := s.Snapshot()
 	snap.Version = len(snap.Items) // the same file, the same version: the board redraws only what changed
+	snap.TurnUsage, snap.TurnModel = s.replayUse, s.replayModel
 	return snap
 }
 
@@ -372,6 +382,9 @@ func (s *Session) handle(line []byte) {
 		var text string
 		if json.Unmarshal(m.Content, &text) == nil {
 			if t := strings.TrimSpace(text); t != "" && !strings.HasPrefix(t, "<") {
+				s.mu.Lock()
+				s.replayUse = core.Usage{} // a new turn
+				s.mu.Unlock()
 				s.add(Item{Kind: "user", Text: t, At: at})
 			}
 			return
@@ -1173,6 +1186,7 @@ func (m *Manager) Limits() Limits {
 func (s *Session) countTokens(message json.RawMessage) {
 	var m struct {
 		ID    string `json:"id"`
+		Model string `json:"model"`
 		Usage struct {
 			Input       int `json:"input_tokens"`
 			Output      int `json:"output_tokens"`
@@ -1187,13 +1201,20 @@ func (s *Session) countTokens(message json.RawMessage) {
 	n := u.Total()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cmd == nil || n == 0 || s.calls[m.ID] { // a replayed transcript is not new
+	if n == 0 || s.calls[m.ID] {
 		return
 	}
 	if s.calls == nil {
 		s.calls = map[string]bool{}
 	}
 	s.calls[m.ID] = true
+	if s.cmd == nil { // a replayed transcript: not new, only what its last turn spent
+		s.replayUse = s.replayUse.Add(u)
+		if m.Model != "" {
+			s.replayModel = m.Model
+		}
+		return
+	}
 	s.tokens += n
 	s.usage = s.usage.Add(u)
 	s.procTok += n
