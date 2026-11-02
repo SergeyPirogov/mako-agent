@@ -271,10 +271,13 @@ type Assessment struct {
 	Error  string        `json:"error,omitempty"`
 }
 
-// ReviewAdvice is the agent's say on whether the change needs a review before the merge.
+// ReviewAdvice is the agent's say on the review before the merge, in two parts: whether the reviewer agent is worth
+// running (Need, Why), and what the developer should look at themselves (Check: "" when nothing; older versions of
+// Mako did not ask for it).
 type ReviewAdvice struct {
-	Need bool   `json:"need"`
-	Why  string `json:"why,omitempty"`
+	Need  bool   `json:"need"`
+	Why   string `json:"why,omitempty"`
+	Check string `json:"check,omitempty"`
 }
 
 // Score is one rating from 1 to 5 (0: none) with why.

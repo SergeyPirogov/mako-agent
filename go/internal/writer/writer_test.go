@@ -28,14 +28,14 @@ func TestReviewNotes(t *testing.T) {
 }
 
 func TestParseAssessment(t *testing.T) {
-	a, err := ParseAssessment("Ось оцінка:\n```json\n" + `{"clarity":{"score":2,"why":" Не сказано де "},"complexity":{"score":3,"why":"x"},"completeness":{"score":5,"why":"y"},"risk":{"score":1,"why":"z"},"size":" Big","missing":["де кнопка","- який текст"],"review":{"need":true,"why":" Чіпає оплату "}}` + "\n```")
+	a, err := ParseAssessment("Ось оцінка:\n```json\n" + `{"clarity":{"score":2,"why":" Не сказано де "},"complexity":{"score":3,"why":"x"},"completeness":{"score":5,"why":"y"},"risk":{"score":1,"why":"z"},"size":" Big","missing":["де кнопка","- який текст"],"review":{"need":true,"why":" Чіпає оплату ","check":" Пройти оплату в пісочниці "}}` + "\n```")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.State != "done" || a.Clarity.Value != 2 || a.Clarity.Why != "Не сказано де" || a.Complexity.Value != 3 || a.Completeness.Value != 5 || a.Risk.Value != 1 || a.Size != "big" {
 		t.Fatalf("%+v", a)
 	}
-	if a.Review == nil || !a.Review.Need || a.Review.Why != "Чіпає оплату" {
+	if a.Review == nil || !a.Review.Need || a.Review.Why != "Чіпає оплату" || a.Review.Check != "Пройти оплату в пісочниці" {
 		t.Fatalf("review %+v", a.Review)
 	}
 	if a.Missing != "- де кнопка\n- який текст" {

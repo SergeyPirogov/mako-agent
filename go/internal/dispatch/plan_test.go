@@ -75,3 +75,26 @@ func TestPick(t *testing.T) {
 		t.Fatal("picked after the start")
 	}
 }
+
+// WillPlan: the board knows a queued task's agent plans first: only Mako's own agent, as wantsPlan decides.
+func TestWillPlan(t *testing.T) {
+	task := core.Task{ID: "g/a#3", Title: "x", Description: "y"}
+	r := core.Record{Task: task, Status: core.Queued, Estimate: &core.Estimate{State: "done", Size: "medium", Plan: true, For: EstimateKey(task)}}
+	store, _ := state.Open(t.TempDir())
+	big := New(&config.Config{StateDir: t.TempDir(), Executor: "terminal", Terminal: config.Terminal{PlanFirst: "big"}}, store, nil)
+	if !big.WillPlan(r) {
+		t.Error("advised with plan-first big: no plan")
+	}
+	off := New(&config.Config{StateDir: t.TempDir(), Executor: "terminal"}, store, nil)
+	if off.WillPlan(r) {
+		t.Error("advised, plan-first off: a plan")
+	}
+	r.PlanFirst = true
+	if !off.WillPlan(r) {
+		t.Error("picked on the card: no plan")
+	}
+	orca := New(&config.Config{StateDir: t.TempDir(), Terminal: config.Terminal{PlanFirst: "always"}}, store, nil)
+	if orca.WillPlan(r) {
+		t.Error("Orca's agent: a plan")
+	}
+}
