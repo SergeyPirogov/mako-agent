@@ -358,6 +358,8 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 			st, err := t.IssueState(ctx, r.Task)
 			switch {
 			case err != nil:
+			case st == "open" && recent(r.UpdatedAt):
+				// Just made or changed: the tracker's search may not have indexed it yet.
 			case st == "open":
 				d.Log(r.ID, "no longer matches the search, removing")
 				d.Store.Delete(r.ID)
@@ -379,6 +381,9 @@ func withComments(fresh, had core.Task) core.Task {
 
 func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Task) {
 	r, known := d.Store.Get(task.ID)
+	if known && r.Status == "" && r.Task.Project == "" {
+		known = false // a leftover of a stray write (an estimate of a removed task), not a task: made anew
+	}
 	switch {
 	case !known:
 		d.Store.Update(task.ID, func(r *core.Record) {

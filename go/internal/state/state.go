@@ -77,6 +77,22 @@ func (s *Store) Update(id string, change func(r *core.Record)) core.Record {
 	return *r
 }
 
+// UpdateIfExists is Update for a record that must not come back: a background job that finishes after the task
+// was deleted would otherwise leave an empty record. It reports whether the record was there.
+func (s *Store) UpdateIfExists(id string, change func(r *core.Record)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.records[id]
+	if !ok {
+		return false
+	}
+	change(r)
+	r.ID = id
+	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	_ = s.saveLocked()
+	return true
+}
+
 func (s *Store) Delete(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -96,7 +96,7 @@ func (d *Dispatcher) startEstimate(id string) error {
 		return errors.New("the task is already being assessed")
 	}
 	key := EstimateKey(r.Task)
-	d.Store.Update(id, func(r *core.Record) {
+	d.Store.UpdateIfExists(id, func(r *core.Record) {
 		// The last estimate stays readable meanwhile, for the size and the order of «Нові».
 		e := core.Estimate{}
 		if r.Estimate != nil && r.Estimate.State == "done" {
@@ -132,7 +132,8 @@ func (d *Dispatcher) estimate(ctx context.Context, id string) {
 	} else {
 		d.Log(id, "the agent estimated the task upfront: "+sizeName[e.Size])
 	}
-	d.Store.Update(id, func(r *core.Record) { r.Estimate = &e })
+	// The task may have left the board while the agent worked: its estimate must not make an empty record.
+	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Estimate = &e })
 }
 
 var sizeName = map[string]string{"small": "small", "medium": "medium", "big": "large"}

@@ -428,7 +428,8 @@ function limitHoldHTML(h) {
 }
 
 function visible() {
-  return data.records.filter((r) => (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
+  // A record without a project is not a task (a stray write made it): a group with no name would show it.
+  return data.records.filter((r) => r.task.project && (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
 }
 
 // A commit subject for the "What's new" list: the "owner/repo#N: " prefix becomes a "#N ↗" link to the issue.
