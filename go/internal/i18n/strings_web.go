@@ -361,6 +361,7 @@ var webStrings = map[string]string{
 	"b.col.doing":        "At work",
 	"b.col.blocked":      "Blocked",
 	"b.col.review":       "In review",
+	"b.col.merge":        "Ready to merge",
 	"b.col.forme":        "Reviews for me",
 	"b.col.done":         "Done",
 	"b.col.failed":       "Not done",

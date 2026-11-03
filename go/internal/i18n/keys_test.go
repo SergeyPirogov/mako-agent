@@ -13,7 +13,7 @@ import (
 func TestEveryKeyUsedExists(t *testing.T) {
 	// The keys put together from a prefix, with all their endings.
 	families := map[string][]string{
-		"b.col.":         {"later", "new", "doing", "blocked", "review", "forme", "done", "failed"},
+		"b.col.":         {"later", "new", "doing", "blocked", "review", "merge", "forme", "done", "failed"},
 		"b.label.":       {"new", "later", "queued", "starting", "doing", "review", "done", "failed", "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"},
 		"b.agent.":       {"waiting", "done", "idle", "unknown"},
 		"s.n.kind.":      {"waiting", "finished", "stopped", "review", "agentReview", "secrets", "merged", "newTask", "reviewAsked", "reminder", "gone", "limits"},
