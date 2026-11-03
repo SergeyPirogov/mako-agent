@@ -174,7 +174,9 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .item .tags { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 11.5px; min-width: 0; }
 .item .tags > * { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 /* The short status stays whole; when the line is tight, the labels beside it shrink (#515). */
-.item .m > .say { flex: none; }
+.item:not(.rq) .m > .say { flex: none; }
+/* A review request's line is «ref · author»: long, so it is the one to shrink. */
+.item.rq .m > .say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .item .m > :is(.checks, .remarks, .reviewed, .updated) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .item .m > .say.warn { color: var(--warn); font-weight: 600; }
 .item .m > .say.err { color: var(--err); }

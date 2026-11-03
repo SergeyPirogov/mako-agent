@@ -882,7 +882,7 @@ func TestBoardFixWording(t *testing.T) {
 func TestBoardEmptyStates(t *testing.T) {
 	css, page := string(style), string(board)
 	for name, c := range map[string]struct{ in, want string }{
-		"a short status keeps its width":    {css, ".item .m > .say { flex: none; }"},
+		"a short status keeps its width":    {css, ".item:not(.rq) .m > .say { flex: none; }"},
 		"the labels beside it shrink":       {css, ".item .m > :is(.checks, .remarks, .reviewed, .updated) { flex: 0 1 auto; min-width: 0;"},
 		"no second Resume in the chat":      {page, `card?.primary === "resume"`},
 		"the hints wait for a conversation": {page, `s.state === "waiting" || !s.items.length`},
@@ -892,7 +892,7 @@ func TestBoardEmptyStates(t *testing.T) {
 			t.Errorf("%s: %q is missing", name, c.want)
 		}
 	}
-	if strings.Contains(css, ".item .m > .say { flex: 1;") {
-		t.Error("the status must not grow and shrink: the labels do")
+	if strings.Contains(css, ".item .m > .say { flex:") {
+		t.Error("a status rule for every row: a review row's long text needs its own")
 	}
 }
