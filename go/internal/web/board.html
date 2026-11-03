@@ -1499,6 +1499,9 @@ function reviewerBadge(r) {
 }
 // The remark's weight as people read it; the data and the reviewer's markers keep «must» / «should».
 const WEIGHT = { must: "blocker", should: "suggestion" };
+// The table's order: blockers first, then suggestions, an unknown weight last; by the R number inside a weight.
+const RANK = { must: 0, should: 1 };
+const remarkNum = (id) => parseInt(String(id).replace(/\D/g, ""), 10) || 0;
 const REPLY = { fixed: ["✅", "fixed"], not: ["❌", "not fixed"], partial: ["◐", "partly"] };
 const VERDICT = { closed: ["✅", "closed"], accepted: ["✅", "explanation accepted"], open: ["❌", "not closed"] };
 const mark = ([icon, text] = ["⏳", ""], note = "") => `<span class="rm-${icon === "✅" ? "ok" : icon === "❌" ? "bad" : "wait"}">${icon}</span> ${esc(text)}${note ? ` <span class="muted">— ${esc(note)}</span>` : ""}`;
@@ -1517,7 +1520,8 @@ function unsentChip(r, a, last, m) {
   return chip("", ["❌", "not sent"], "The task was closed before the remarks reached the agent");
 }
 function remarksTable(r, a, last, verdicts, answered) {
-  const items = a.remarks.map((m) => {
+  const sorted = [...a.remarks].sort((x, y) => (RANK[x.weight] ?? 9) - (RANK[y.weight] ?? 9) || remarkNum(x.id) - remarkNum(y.id));
+  const items = sorted.map((m) => {
     const where = m.file ? `<code class="rm-at">${esc(m.file)}${m.line ? `:${m.line}` : ""}</code>` : "";
     const reply = REPLY[m.reply] ? chip("Agent:", REPLY[m.reply], m.replyNote) + (a.unverified && m.reply !== "not" ? `<span class="rm-chip bad" title="The branch has no new commits after Fix">⚠ no commits</span>` : "")
       : a.sent ? chip("Agent:", ["⏳", answered ? "no reply" : "awaiting report"]) : unsentChip(r, a, last, m);
