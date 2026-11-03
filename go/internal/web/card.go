@@ -14,6 +14,8 @@ import (
 type cardView struct {
 	// Primary: the main action: "take", "restore", "push", "cancel", "stop", "resume", "focus", "fix-conflicts",
 	// "fix-ci", "open-mr", "merge", "retry", "archive", "unarchive"; "" none (the card's «⋯» has the rest).
+	// "fix-*" says that the agent can be asked to fix the blocker; the button itself is in the board's «What blocks
+	// the merge» block, under its row, and the header keeps Open MR.
 	Primary string      `json:"primary"`
 	Stages  []stageView `json:"stages"`
 }

@@ -967,5 +967,44 @@ func TestBoardPictureLightbox(t *testing.T) {
 		if !strings.Contains(string(css), want) {
 			t.Errorf("style.css lacks %q", want)
 		}
+
+	}
+}
+
+// The fix buttons of the merge's blockers (#561): «Resolve conflicts», «Fix CI» and «Fix comments» stand inside the
+// «What blocks the merge» block under their rows, and only for a live terminal agent; the header keeps Open MR.
+// The board has no script tests, so these hold the page's source.
+func TestBoardBlockerFixButtons(t *testing.T) {
+	src := string(board)
+	i := strings.Index(src, "function blockersHTML(")
+	j := strings.Index(src[i:], "\n}\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no blockersHTML in board.html")
+	}
+	body := src[i : i+j]
+	for _, want := range []string{
+		`const live = r.executor === "terminal" && r.worktree && r.live;`,
+		`askBtn("conflicts", "Resolve conflicts"`,
+		`askBtn("ci", "Fix CI"`,
+		`askBtn("comments", "Fix comments"`,
+		`Passed to the agent`,
+		`isAsked(r.id, kind)`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("blockersHTML is missing %q", want)
+		}
+	}
+	// The header: only Open MR for the fix states, no button with data-ask.
+	k := strings.Index(src, "function primaryHTML(")
+	l := strings.Index(src[k:], "\n}\n")
+	if k < 0 || l < 0 {
+		t.Fatal("no primaryHTML in board.html")
+	}
+	head := src[k : k+l]
+	if strings.Contains(head, "data-ask") {
+		t.Error("primaryHTML still has a fix button: it is in the blockers' block now")
+	}
+	if !strings.Contains(head, `case "fix-conflicts": case "fix-ci": return openMR(r, "primary");`) {
+		t.Error("the header does not keep Open MR for the fix states")
 	}
 }
