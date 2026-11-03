@@ -686,9 +686,13 @@ function listByProject(entries, showAll) {
       + (isFolded ? `<span class="p-sum">${summary}</span>` : "") + `<span class="n">${all.length}</span></button>`;
     if (!isFolded) {
       // Ready to merge first, under a small green heading: the next action for a person.
-      const ready = active.filter((e) => e.g === "merge"), rest = active.filter((e) => e.g !== "merge");
+      const ready = active.filter((e) => e.g === "merge"), doing = active.filter((e) => e.g !== "merge" && e.g !== "new"), fresh = active.filter((e) => e.g === "new");
       if (ready.length) html += `<div class="sub merge">✓ ${COLUMNS.find(([c]) => c === "merge")[1]}</div>` + ready.map((e) => e.html).join("");
-      html += rest.map((e) => e.html).join("") || (ready.length ? "" : `<div class="p-none">${t("b.nothingInWork")}</div>`);
+      // The rest in two small groups: what is in progress, then the new ones.
+      for (const [title, rs] of [[t("b.inProgress"), doing], [COLUMNS.find(([c]) => c === "new")[1], fresh]]) {
+        if (rs.length) html += `<div class="sub">${title}<span class="n">${rs.length}</span></div>` + rs.map((e) => e.html).join("");
+      }
+      if (!active.length) html += `<div class="p-none">${t("b.nothingInWork")}</div>`;
       for (const g of QUIET) {
         const rs = all.filter((e) => e.g === g);
         if (!rs.length) continue;
