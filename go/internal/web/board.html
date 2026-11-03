@@ -2251,7 +2251,7 @@ async function showCode() {
 // starts the agent; the chats are listed on the left, «×» removes one with its worktree (its branch stays).
 let freeChat = null; // the open chat's id, "" a new one; null: the view is closed
 let freeChats = [], fcListed = null; // the chats on the left, and for which open chat they were last read
-const FC_SUB = "A conversation with the agent without a task. Each chat gets its own worktree on a new branch from the base branch, prepared like a task's; the agent works as in a task's chat: it changes the code, commits and can open an MR, asking as the mode says.";
+const FC_SUB = "A conversation with the agent without a task. In a project, each chat gets its own worktree on a new branch from the base branch, prepared like a task's; the agent works as in a task's chat: it changes the code, commits and can open an MR, asking as the mode says. A chat without a project works in a separate empty folder, with no repository.";
 function openFreeChat(id = "") {
   selected = null; statsOpen = false; newOpen = "chat"; digest = null; freeChat = id;
   history.replaceState(null, "", `#${id || "chat"}`);
@@ -2277,16 +2277,15 @@ async function showFreeChat() {
   if (!$("free-chat")) return;
   let saved = ""; try { saved = localStorage.getItem("mako-chat-project") || ""; } catch {}
   const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
-  $("fc-project").innerHTML = projects.map((p) => `<option value="${esc(p.key)}" ${p.key === start?.key ? "selected" : ""}>${esc(p.name)}</option>`).join("");
-  $("fc-project").disabled = !projects.length;
+  let loose = false; try { loose = localStorage.getItem("mako-chat-project") === ""; } catch {} // "" is a chosen "No project"
+  $("fc-project").innerHTML = `<option value="" ${loose ? "selected" : ""}>No project</option>` + projects.map((p) => `<option value="${esc(p.key)}" ${!loose && p.key === start?.key ? "selected" : ""}>${esc(p.name)}</option>`).join("");
   $("fc-project").onchange = (e) => { try { localStorage.setItem("mako-chat-project", e.target.value); } catch {} };
-  $("fc-project").dataset.none = projects.length ? "" : "1";
   $("fc-list").onclick = async (e) => {
     const x = e.target.closest("[data-fc-remove]");
     if (x) {
       e.stopPropagation();
       const c = freeChats.find((c) => c.id === x.dataset.fcRemove);
-      if (!(await askConfirm(`Delete the chat "${c?.title ?? ""}" and its worktree? Uncommitted changes in it will be lost; the branch ${c?.branch ?? ""} stays.`, { ok: "Delete", danger: true }))) return;
+      if (!(await askConfirm(c?.project === "" ? `Delete the chat "${c?.title ?? ""}" and its folder? Everything in the folder will be lost.` : `Delete the chat "${c?.title ?? ""}" and its worktree? Uncommitted changes in it will be lost; the branch ${c?.branch ?? ""} stays.`, { ok: "Delete", danger: true }))) return;
       const r = await fetch(`/api/chats/remove?id=${encodeURIComponent(x.dataset.fcRemove)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
       if (!r.ok) alert(r.error || "Failed");
       if (x.dataset.fcRemove === freeChat) openFreeChat(""); else loadFreeChats();
@@ -2312,20 +2311,16 @@ function mountFreeChat() {
   }
   if ($("fc-new-box")) return;
   closeChat();
-  const none = $("fc-project")?.dataset.none === "1";
-  slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty">${none
-      ? "There are no project clones on this Mac. A clone appears when Mako takes a task of the project, or set a path to it in the settings."
-      : "Write what to do or ask: the first message creates the chat's worktree and branch and starts the agent."}</div></div></div>
+  slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty">Write what to do or ask: the first message starts the agent. In a project it first creates the chat's worktree and branch; with no project the agent works in an empty folder.</div></div></div>
     <div class="chat-foot"><div class="chat-box"><textarea rows="2" aria-label="Message to the agent" placeholder="E.g.: try out a faster cache for the board; explain how the update works"></textarea>
       <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.up}</button></div>
       <div class="chat-keys" hidden></div></div></div>`;
   const input = slot.querySelector("textarea"), keys = slot.querySelector(".chat-keys"), btn = slot.querySelector(".chat-send");
-  input.disabled = btn.disabled = none;
   const send = async () => {
-    const text = input.value.trim(), project = $("fc-project")?.value;
-    if (!text || !project) return;
+    const text = input.value.trim(), project = $("fc-project")?.value ?? "";
+    if (!text) return;
     input.disabled = btn.disabled = true;
-    keys.hidden = false; keys.classList.remove("err"); keys.textContent = "Creating the worktree…";
+    keys.hidden = false; keys.classList.remove("err"); keys.textContent = project ? "Creating the worktree…" : "Starting the agent…";
     const r = await fetch("/api/chats/new", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project, text }) })
       .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
     input.disabled = btn.disabled = false;
@@ -2342,13 +2337,13 @@ async function loadFreeChats() {
   if (!$("fc-list")) return;
   freeChats = r.chats ?? [];
   const cur = freeChats.find((c) => c.id === freeChat);
-  $("fc-sub").textContent = cur ? `${cur.dir} · ${cur.branch}` : FC_SUB;
+  $("fc-sub").textContent = cur ? (cur.project === "" ? cur.dir : `${cur.dir} · ${cur.branch}`) : FC_SUB;
   $("fc-list").innerHTML = freeChats.length ? freeChats.map((c) => `<div class="ca-thread fc-item ${c.id === freeChat ? "on" : ""}" role="button" tabindex="0" data-fc="${esc(c.id)}" title="${esc(c.title)}">
       <span class="ca-line"><span class="ca-title">${esc(c.title)}</span></span><span class="muted">${esc(projectName(c.project))} · ${esc(ago(new Date(c.at).toISOString()))}</span>
-      <button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="Delete the chat and its worktree" aria-label="Delete the chat">×</button></div>`).join("")
+      <button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="${c.project === "" ? "Delete the chat and its folder" : "Delete the chat and its worktree"}" aria-label="Delete the chat">×</button></div>`).join("")
     : `<div class="muted ca-none">No chats yet.</div>`;
 }
-const projectName = (key) => [...($("fc-project")?.options ?? [])].find((o) => o.value === key)?.textContent ?? key.split("/").slice(1).join("/");
+const projectName = (key) => key === "" ? "No project" : [...($("fc-project")?.options ?? [])].find((o) => o.value === key)?.textContent ?? key.split("/").slice(1).join("/");
 
 // The shared worktree, bottom right: its branch, and a warning when something changed it, with "Reset and update".
 async function loadWorkspace() {

@@ -29,7 +29,8 @@ import (
 // does in the chat (the terminal settings' model, tools and permission mode): it may change the code, commit, push
 // and open an MR. The chats are kept in chats.json; a message to a closed one resumes its Claude Code session.
 
-// FreeChat: one chat without a task.
+// FreeChat: one chat without a task. With no Project (and no Branch) it is a loose chat: the agent works in an
+// empty folder of its own under <StateDir>/chats, with no repo, worktree or setup.
 type FreeChat struct {
 	ID      string `json:"id"` // "chat-…", its conversation on the board
 	Project string `json:"project"`
@@ -41,6 +42,12 @@ type FreeChat struct {
 	// Error: why its worktree could not be made; the chat stays to read, it cannot go on.
 	Error string `json:"error,omitempty"`
 }
+
+// Loose: the chat has no project: no clone, worktree or branch, only a folder of its own.
+func (c FreeChat) Loose() bool { return c.Project == "" }
+
+// looseRoot: the folder that holds the loose chats' folders.
+func (d *Dispatcher) looseRoot() string { return filepath.Join(d.Config().StateDir, "chats") }
 
 // freeMu: a chat's agent starts and a chat is removed one at a time, so no agent starts in a removed chat.
 var freeMu sync.Mutex
@@ -127,21 +134,30 @@ func chatRepo(p CodeProject) *config.Repo {
 	return &repo
 }
 
-// NewChat opens a chat without a task in the project with its first message and returns its id at once: its
-// worktree on a new branch from the base branch, prepared as a task's is, and then the agent come in the background
-// (prepareFree), the conversation shows the steps meanwhile.
+// NewChat opens a chat without a task with its first message and returns its id at once.
+//
+// With no project (""), the chat gets an empty folder of its own and the agent starts at once.
+//
+// In a project, the chat gets a worktree on a new branch from the base branch, prepared as a task's is. The agent
+// comes in the background (prepareFree); the conversation shows the steps meanwhile.
 func (d *Dispatcher) NewChat(project, text string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return "", errors.New("write a message")
 	}
+	b := make([]byte, 6)
+	rand.Read(b)
+	id := "chat-" + hex.EncodeToString(b)
+	if project == "" {
+		if err := d.newLooseChat(id, text); err != nil {
+			return "", err
+		}
+		return id, nil
+	}
 	p, err := d.codeProject(project)
 	if err != nil {
 		return "", err
 	}
-	b := make([]byte, 6)
-	rand.Read(b)
-	id := "chat-" + hex.EncodeToString(b)
 	c := FreeChat{ID: id, Project: project, Title: clipText(firstLine(text), 200), Branch: "mako/" + id, At: time.Now().UnixMilli()}
 	if err := d.updateChats(func(all []FreeChat) []FreeChat { return append(all, c) }); err != nil {
 		return "", err
@@ -149,6 +165,26 @@ func (d *Dispatcher) NewChat(project, text string) (string, error) {
 	askSetups.Store(id, pendingSetup{command: "git worktree add -b " + c.Branch, prompt: text})
 	go d.prepareFree(c, chatRepo(p), text)
 	return id, nil
+}
+
+// newLooseChat opens a chat with no project: an empty folder of its own, the agent started at once with no
+// worktree and no setup.
+func (d *Dispatcher) newLooseChat(id, text string) error {
+	dir := filepath.Join(d.looseRoot(), id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	c := FreeChat{ID: id, Title: clipText(firstLine(text), 200), Dir: dir, At: time.Now().UnixMilli()}
+	if err := d.updateChats(func(all []FreeChat) []FreeChat { return append(all, c) }); err != nil {
+		os.RemoveAll(dir)
+		return err
+	}
+	go func() {
+		if err := d.startKept(id, text, nil); err != nil {
+			log.Printf("[%s] agent did not start: %v", id, err)
+		}
+	}()
+	return nil
 }
 
 // fetchTimeout: how long a new chat waits for the base branch to come; offline it starts from what is there.
@@ -311,6 +347,9 @@ func (d *Dispatcher) resumeFree(id, text string) error {
 		return errors.New(c.Error)
 	}
 	if c.Dir == "" || !exists(c.Dir) {
+		if c.Loose() {
+			return errors.New("the chat's folder " + c.Dir + " was deleted")
+		}
 		return errors.New("the chat's worktree " + c.Dir + " was deleted")
 	}
 	return d.startKept(id, text, nil)
@@ -336,8 +375,9 @@ func (d *Dispatcher) FreeChatSnapshot(id string) (chat.Snapshot, bool) {
 }
 
 // RemoveFreeChat: «×» — the chat's agent stops and its worktree goes, uncommitted changes and all; its branch
-// stays, with what was committed on it. A chat whose worktree is still being made is removed too: what was made
-// for it goes once it is (prepareFree).
+// stays, with what was committed on it.
+// A chat with no project loses its whole folder.
+// A chat whose worktree is still being made is removed too: what was made for it goes once it is (prepareFree).
 func (d *Dispatcher) RemoveFreeChat(id string) error {
 	freeMu.Lock()
 	defer freeMu.Unlock()
@@ -356,6 +396,14 @@ func (d *Dispatcher) RemoveFreeChat(id string) error {
 	}
 	if c.Dir == "" || !exists(c.Dir) {
 		return nil
+	}
+	if c.Loose() {
+		// Only a folder under <StateDir>/chats goes: chats.json is not a license to delete anything else.
+		root := d.looseRoot()
+		if rel, err := filepath.Rel(root, c.Dir); err != nil || rel == "." || !filepath.IsLocal(rel) {
+			return fmt.Errorf("the chat's folder %s is not inside %s: left in place", c.Dir, root)
+		}
+		return os.RemoveAll(c.Dir)
 	}
 	repo := c.Dir
 	if p, err := d.codeProject(c.Project); err == nil {

@@ -218,3 +218,77 @@ func TestNewChatFromPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A chat with no project: an empty folder of its own under <StateDir>/chats, no branch, no worktree; the agent runs
+// in the folder and a message after it stopped resumes the session from the folder; «×» removes the folder.
+func TestLooseChat(t *testing.T) {
+	d, _, conf, out := freeChatSetup(t)
+	id, err := d.NewChat("", "Поясни кеш")
+	if err != nil || !IsFreeChat(id) {
+		t.Fatalf("new %q %v", id, err)
+	}
+	waitFor(t, func() bool {
+		cs := d.FreeChats()
+		return len(cs) == 1 && cs[0].Session == "sess-c"
+	}, "the chat did not keep its session")
+	c := d.FreeChats()[0]
+	want := filepath.Join(d.Config().StateDir, "chats", id)
+	if !c.Loose() || c.Project != "" || c.Branch != "" || c.Dir != want || c.Title != "Поясни кеш" || !exists(c.Dir) {
+		t.Fatalf("chat %+v", c)
+	}
+	if es, _ := os.ReadDir(c.Dir); len(es) != 0 {
+		t.Fatalf("the folder is not empty: %v", es)
+	}
+	b, _ := os.ReadFile(filepath.Join(d.Config().StateDir, "chats.json"))
+	if strings.Contains(string(b), `"branch": "mako/`) {
+		t.Fatalf("chats.json %s", b)
+	}
+	real, _ := filepath.EvalSymlinks(c.Dir)
+	if b, _ := os.ReadFile(filepath.Join(out, "pwd.txt")); strings.TrimSpace(string(b)) != real {
+		t.Fatalf("agent ran in %q, not %q", b, real)
+	}
+
+	// A closed chat resumes its session from the folder.
+	stopChat(d.Chats.Get(id))
+	dir := filepath.Join(conf, "projects", regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(c.Dir, "-"))
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "sess-c.jsonl"), []byte(`{"type":"user","message":{"content":"Поясни кеш"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]}}
+`), 0o600)
+	if s, ok := d.FreeChatSnapshot(id); !ok || len(s.Turns) != 2 {
+		t.Fatalf("replayed %v %+v", ok, s.Turns)
+	}
+	if err := d.SayFree(id, "Ще"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		b, _ := os.ReadFile(filepath.Join(out, "args.txt"))
+		return strings.Count(string(b), "---") == 2 && strings.Contains(string(b), "--resume\nsess-c")
+	}, "the message did not resume the chat")
+
+	if err := d.RemoveFreeChat(id); err != nil {
+		t.Fatal(err)
+	}
+	if exists(c.Dir) || len(d.FreeChats()) != 0 || d.Chats.Get(id) != nil {
+		t.Fatalf("not removed: %v %+v", exists(c.Dir), d.FreeChats())
+	}
+}
+
+// A loose chat whose folder lies outside <StateDir>/chats is not deleted.
+func TestLooseChatRemoveOutside(t *testing.T) {
+	d, _, _ := setup(t)
+	state, other := t.TempDir(), t.TempDir()
+	setConfig(d, func(c *config.Config) { c.StateDir = state })
+	d.updateChats(func(all []FreeChat) []FreeChat {
+		return append(all, FreeChat{ID: "chat-out", Dir: other}, FreeChat{ID: "chat-root", Dir: filepath.Join(state, "chats")})
+	})
+	os.MkdirAll(filepath.Join(state, "chats"), 0o700)
+	for _, id := range []string{"chat-out", "chat-root"} {
+		if err := d.RemoveFreeChat(id); err == nil {
+			t.Fatalf("%s: removed a folder outside the chats", id)
+		}
+	}
+	if !exists(other) || !exists(filepath.Join(state, "chats")) {
+		t.Fatal("a folder outside the chats was deleted")
+	}
+}
