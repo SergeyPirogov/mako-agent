@@ -116,6 +116,13 @@ var webStrings = map[string]string{
 	"s.tr.githubApi":          "GitHub Enterprise API",
 	"s.lessons.title":         "Review lessons in CLAUDE.md",
 	"s.lessons.hint":          "The rules saved from your corrections of the agents. Change or remove them in the repository's CLAUDE.md.",
+	"s.lessons.offered":       "Lessons from the reviewer's remarks",
+	"s.lessons.offeredHint":   "The reviewer agent kept asking for the same thing on several tasks. Save the rule to CLAUDE.md on the base branch, so the next agents do it from the start, or dismiss it: it is not offered again.",
+	"s.lessons.evidence":      "The reviewer asked for it on {tasks}:",
+	"s.lessons.ruleLabel":     "Rule for CLAUDE.md",
+	"s.lessons.save":          "Save to CLAUDE.md",
+	"s.lessons.dismiss":       "Dismiss",
+	"s.lessons.saving":        "Committing and pushing…",
 
 	// A tracker's projects.
 	"s.pr.title":             "Projects",
@@ -412,6 +419,7 @@ var webStrings = map[string]string{
 	"b.groupProject":     "Grouped by project. Click to group by status",
 	"b.nothingInWork":    "Nothing in work",
 	"b.inProgress":       "In progress",
+	"b.lessonOffer":      "The reviewer keeps asking for the same thing on this project's tasks: Mako offers a rule for CLAUDE.md. Open it in the settings",
 	"b.pick":             "Pick a task on the left",
 	"b.openSettings":     "Open the settings →",
 	"b.resume":           "Search paused: resume",

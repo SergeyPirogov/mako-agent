@@ -176,6 +176,9 @@ func (d *Dispatcher) review(id, wt, base, head string) {
 	// The rounds ran out with remarks open: a person decides, told once; another round is theirs to start.
 	a.Escalated = a.State == "notes" && a.Structured() && rounds >= core.ReviewRounds && !escalated(r.AgentReviews)
 	d.setReview(id, a)
+	if len(a.Remarks) > 0 {
+		go d.suggestRepoLesson(id) // the remarks the reviewer keeps making on the repo's tasks: a rule for CLAUDE.md
+	}
 	if a.Escalated {
 		d.escalate(id, fmt.Sprintf("review ×%d", rounds)) // the agent's fix of these remarks goes a level up
 	}

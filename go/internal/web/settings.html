@@ -394,17 +394,52 @@ function renderTrackers() {
   });
 }
 
-// The rules saved to the repos' CLAUDE.md from your corrections of the agents (newest first), by project.
+// The rules saved to the repos' CLAUDE.md from your corrections of the agents (newest first), by project; above
+// them, the rules Mako offers from the remarks the reviewer agent keeps making on the project's tasks.
 let lessons = [];
 function lessonsHTML(tk) {
   const mine = lessons.filter((l) => l.trackerId === (tk.id || tk.type));
-  if (!mine.length) return "";
+  const saved = mine.filter((l) => !l.state), offered = mine.filter((l) => l.state === "offered");
+  if (!saved.length && !offered.length) return "";
   const by = {};
-  for (const l of mine) (by[l.project] ??= []).push(l);
-  return `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">${t("s.lessons.title")}</h3>
-    <div style="font-size:12.5px;color:var(--mute)">${t("s.lessons.hint")}</div>` +
+  for (const l of saved) (by[l.project] ??= []).push(l);
+  // A task of the project itself as «#275».
+  const short = (l, id) => (id.startsWith(l.project + "#") ? id.slice(l.project.length) : id);
+  const h3 = (key) => `<h3 style="margin:16px 0 4px;font-size:13px;text-transform:none;letter-spacing:0;color:var(--fg)">${t(key)}</h3>`;
+  let html = `<div data-lessons>`;
+  if (offered.length) html += h3("s.lessons.offered") + `<div style="font-size:12.5px;color:var(--mute)">${t("s.lessons.offeredHint")}</div>` +
+    offered.map((l) => `<div class="lesson-offer" data-offer="${esc(l.id)}" style="margin-top:8px;font-size:12.5px">
+      <b>${esc(l.project)}</b>${l.repo ? ` <span style="color:var(--mute)">· ${esc(l.repo)}</span>` : ""}
+      <div style="color:var(--mute);margin:2px 0">${t("s.lessons.evidence", { tasks: (l.tasks ?? []).map((x) => esc(short(l, x))).join(", ") })}</div>
+      ${(l.examples ?? []).length ? `<ul style="margin:2px 0 4px;padding-left:18px;color:var(--mute)">${l.examples.map((e) => `<li>${esc(short(l, e))}</li>`).join("")}</ul>` : ""}
+      <input type="text" value="${esc(l.rule)}" aria-label="${esc(t("s.lessons.ruleLabel"))}" style="width:100%">
+      <div style="margin-top:4px;display:flex;gap:6px;align-items:center"><button type="button" class="primary" data-answer="base">${t("s.lessons.save")}</button>
+        <button type="button" class="ghost" data-answer="no">${t("s.lessons.dismiss")}</button><span class="msg" data-msg></span></div></div>`).join("");
+  if (saved.length) html += h3("s.lessons.title") + `<div style="font-size:12.5px;color:var(--mute)">${t("s.lessons.hint")}</div>` +
     Object.entries(by).map(([p, ls]) => `<div style="margin-top:8px;font-size:12.5px"><b>${esc(p)}</b><ul style="margin:4px 0 0;padding-left:18px">${ls.map((l) =>
-      `<li style="margin:2px 0">${esc(l.rule)} <span style="color:var(--mute)">· ${esc(l.task || "navigation retro")} → <code>${esc(l.branch)}</code>${l.commit ? ` <code>${esc(l.commit)}</code>` : ""} · ${new Date(l.at).toLocaleDateString(LANG)}</span></li>`).join("")}</ul></div>`).join("");
+      `<li style="margin:2px 0">${esc(l.rule)} <span style="color:var(--mute)">· ${esc(l.task || (l.section === "navigation" ? "navigation retro" : (l.tasks ?? []).map((x) => short(l, x)).join(", ")))} → <code>${esc(l.branch)}</code>${l.commit ? ` <code>${esc(l.commit)}</code>` : ""} · ${new Date(l.at).toLocaleDateString(LANG)}</span></li>`).join("")}</ul></div>`).join("");
+  return html + `</div>`;
+}
+
+// «Save to CLAUDE.md» and «Dismiss» of the offered lessons: answered at once, not with the settings' «Save».
+function wireLessons(wrap) {
+  for (const box of wrap.querySelectorAll("[data-offer]")) for (const btn of box.querySelectorAll("[data-answer]")) btn.onclick = async () => {
+    for (const b of box.querySelectorAll("button")) b.disabled = true;
+    box.querySelector("[data-msg]").textContent = btn.dataset.answer === "base" ? t("s.lessons.saving") : "";
+    let r;
+    try {
+      r = await (await fetch(`/api/settings/lessons/answer?id=${encodeURIComponent(box.dataset.offer)}&to=${btn.dataset.answer}`, { method: "POST", body: box.querySelector("input").value })).json();
+    } catch {
+      r = { ok: false, error: t("s.noAnswer") };
+    }
+    if (!r.ok) {
+      for (const b of box.querySelectorAll("button")) b.disabled = false;
+      box.querySelector("[data-msg]").textContent = r.error;
+      return;
+    }
+    lessons = await fetch("/api/settings/lessons").then((x) => x.json()).catch(() => lessons);
+    renderTrackers();
+  };
 }
 
 function projectsTable(tk) {
@@ -469,6 +504,7 @@ function projectsTable(tk) {
     }
   }
   wrap.insertAdjacentHTML("beforeend", lessonsHTML(tk));
+  wireLessons(wrap);
   if (!rows.length) body.innerHTML = `<tr><td colspan="4" style="color:var(--mute);font-size:12.5px;padding:6px 0">${t(tk.allProjects ? "s.pr.optional" : "s.pr.none")}</td></tr>`;
   wrap.querySelector("[data-addp]").onclick = () => {
     const key = prompt(t("s.pr.addAsk", { what, example: ph }))?.trim();
@@ -712,6 +748,15 @@ function renderNav() {
 }
 function show(id) {
   const ts = cfg.trackers ?? [];
+  // #lessons:<tracker>|<project>, from the board's badge: the project's tracker, scrolled to its lessons.
+  let toLessons = false;
+  if (id?.startsWith("lessons:")) {
+    const [tid, ...rest] = id.slice(8).split("|");
+    const l = lessons.find((x) => x.trackerId === tid && x.project === rest.join("|") && x.state === "offered");
+    const i = l ? ts.findIndex((tk) => (tk.id || tk.type) === l.trackerId) : -1;
+    id = i >= 0 ? `tracker:${i}` : "";
+    toLessons = i >= 0;
+  }
   if (!id || (id.startsWith("tracker:") && !ts[+id.slice(8)])) id = ts.length ? "tracker:0" : "add";
   pane = id;
   history.replaceState(null, "", "#" + id);
@@ -722,7 +767,8 @@ function show(id) {
   if (id === "phone") renderPhone();
   if (id === "disk") renderDisk();
   if (id === "mako") renderMako();
-  window.scrollTo(0, 0);
+  const at = toLessons && document.querySelector("[data-lessons]");
+  window.scrollTo(0, at ? Math.max(0, at.getBoundingClientRect().top + window.scrollY - 16) : 0);
 }
 
 // The agents' worktrees: what each one holds, and removing the chosen ones.

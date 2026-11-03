@@ -132,6 +132,7 @@ var goStrings = map[string][2]string{
 	"mr.howChecked":      {"## How it was checked\nMako ran the project's checks in the agent's worktree before opening this merge request:", "## Як перевірено\nMako прогнав перевірки проєкту у worktree агента, перш ніж відкрити цей merge request:"},
 	"commit.lesson":      {"%s: Add a review lesson to CLAUDE.md\n\n- %s", "%s: Додати урок з рев'ю в CLAUDE.md\n\n- %s"},
 	"commit.navrule":     {"Add a navigation hint to CLAUDE.md\n\n- %s", "Додати підказку з навігації в CLAUDE.md\n\n- %s"},
+	"commit.repoLesson":  {"Add a reviewer lesson to CLAUDE.md\n\n- %s\n- The reviewer kept asking for it on %s", "Додати урок рецензента в CLAUDE.md\n\n- %s\n- Рецензент щоразу просив про це в %s"},
 
 	// What the settings page and the board show as problems.
 	"problem.notSetUp":   {"Mako is not set up yet: add a tracker in the Settings", "Mako ще не налаштований: додайте трекер у Налаштуваннях"},

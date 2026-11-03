@@ -97,7 +97,17 @@ type Reviewer struct {
 	// Comments: where its remarks and the agent's answers on them go as comments: "issue", "mr", "both";
 	// "" — nowhere, they stay on the board. «mr» with no MR yet goes to the issue.
 	Comments string
+	// LessonTasks: a kind of remark the reviewer made on this many of a repo's tasks makes Mako offer a rule
+	// for its CLAUDE.md; LessonDays: how far back the tasks (the archived ones too) are looked at.
+	LessonTasks int
+	LessonDays  int
 }
+
+// The defaults of Reviewer.LessonTasks and Reviewer.LessonDays.
+const (
+	DefaultLessonTasks = 3
+	DefaultLessonDays  = 90
+)
 
 // reviewComments: the setting's value, "" for anything else.
 func reviewComments(s string) string {
@@ -345,8 +355,10 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			AwayHours:    orInt(raw.Notifications.AwayHours, 4),
 			Off:          map[string]bool{},
 		},
-		Orca:          Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
-		Reviewer:      Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model), Comments: reviewComments(raw.AgentReview.Comments)},
+		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
+		Reviewer: Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model), Comments: reviewComments(raw.AgentReview.Comments),
+			LessonTasks: atLeast(orInt(raw.AgentReview.LessonTasks, DefaultLessonTasks), 2, DefaultLessonTasks),
+			LessonDays:  atLeast(orInt(raw.AgentReview.LessonDays, DefaultLessonDays), 1, DefaultLessonDays)},
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
@@ -608,6 +620,14 @@ func orInt(v *int, def int) int {
 	return *v
 }
 
+// atLeast: v, or def when v is below min.
+func atLeast(v, min, def int) int {
+	if v < min {
+		return def
+	}
+	return v
+}
+
 type rawConfig struct {
 	AgentLanguage    string                 `json:"agentLanguage"`
 	Language         string                 `json:"language"` // older configs: read as agentLanguage
@@ -627,8 +647,10 @@ type rawConfig struct {
 		OnReview Localized `json:"onReview"`
 	} `json:"comments"`
 	AgentReview struct {
-		Model    string `json:"model"`
-		Comments string `json:"comments"`
+		Model       string `json:"model"`
+		Comments    string `json:"comments"`
+		LessonTasks *int   `json:"lessonTasks"`
+		LessonDays  *int   `json:"lessonDays"`
 	} `json:"agentReview"`
 	Estimate struct {
 		Enabled  *bool `json:"enabled"`
