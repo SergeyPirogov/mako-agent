@@ -1548,7 +1548,7 @@ a.tchip:hover { text-decoration: none; background: var(--hover); }
 .rm.must { border-left-color: var(--err); }
 .rm.should { border-left-color: var(--warn); }
 .rm-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12.5px; }
-.rm-id { font-variant-numeric: tabular-nums; }
+.rm-id { font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; font-weight: 400; }
 .rm-w { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; color: var(--mute); background: var(--hover); }
 .rm.must .rm-w { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
 .rm.should .rm-w { color: color-mix(in srgb, var(--warn) 80%, var(--fg)); background: color-mix(in srgb, var(--warn) 14%, transparent); }
