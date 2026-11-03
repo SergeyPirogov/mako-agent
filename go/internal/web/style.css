@@ -625,6 +625,12 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .mr-adv { flex: 1; min-width: 0; padding: 5px 0; line-height: 20px; overflow-wrap: anywhere; }
 .mr-adv b { display: block; font-weight: 600; color: var(--fg); }
 .mr-why { display: block; margin-top: 1px; font-size: 12px; line-height: 17px; color: var(--mute); }
+.rp-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.rp { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.rp.fixed { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--card)); }
+.rp.partial { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, var(--card)); }
+.rp.not { color: var(--err); background: color-mix(in srgb, var(--err) 12%, var(--card)); }
+.rp.none { color: var(--mute); background: var(--hover); }
 .mr-advice.past { min-height: 0; margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .mr-advice.past .mr-adv { padding: 0; }
 .mr-advice.past .mr-adv b { font-size: 12px; font-weight: 500; color: var(--mute); }
