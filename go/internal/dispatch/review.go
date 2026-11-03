@@ -263,6 +263,9 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	case "fixing":
 		return fmt.Errorf("the agent is still fixing the reviewer's remarks: you can merge once it finishes")
 	}
+	if d.ReviewBlocks(r) {
+		return fmt.Errorf("the reviewer left blockers: pass them to the agent with Fix first")
+	}
 	desk, err := d.desk(ctx, id)
 	if err != nil {
 		return err
