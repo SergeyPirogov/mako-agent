@@ -1369,6 +1369,7 @@ const reviewBtn = (label, cls = "ghost", title = "The reviewer agent will read t
   `<button type="button" class="${cls}" data-a="agentreview" title="${esc(title)}">${label}</button>`;
 const skipBtn = () => `<button type="button" class="ghost" data-a="reviewskip" title="No review needed: the reviewer will not run until you change your mind">Skip</button>`;
 const reviewFixBtn = () => `<button type="button" class="ghost" data-a="reviewfix" title="Pass the reviewer's remarks to the agent: it fixes them, and you can run the review again">Fix</button>`;
+const suggestFixBtn = () => `<button type="button" class="ghost" data-a="reviewfix" title="Pass the reviewer's suggestions to the agent: optional, the merge is not blocked">Fix suggestions</button>`;
 // The agent's advice from its assessment of the finished task: true (do a review), false (not needed), null (none
 // yet). An older assessment without it goes by the risk: 4–5 of 5 advise one.
 function adviseReview(r) {
@@ -1445,7 +1446,11 @@ function reviewerRow(r, need) {
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
   const n = r.agentReviews.length, rounds = last.state === "clean" && n > 1 ? ` · ${n} rounds` : "";
   // Passed with suggestions only: say why it passed, so the suggestions beside it do not look like a contradiction.
-  if (last.state === "clean" && last.remarks?.length) return adviceBlock(icon, cleanText(last) + rounds, SUGGESTIONS_HINT, ready ? reviewBtn("Review again") : "", "past");
+  if (last.state === "clean" && last.remarks?.length) {
+    if (!last.sent) return adviceBlock(icon, cleanText(last) + rounds, SUGGESTIONS_HINT, ready || step === "idle" ? suggestFixBtn() + (ready ? reviewBtn("Review again") : "") : "", "past");
+    if (step === "fixing") return row("run", "The agent is fixing the reviewer's suggestions", "");
+    return row("talk", "The agent replied to the suggestions" + replyTally(last), "", ready ? reviewBtn("Review again") : "");
+  }
   return row(icon, text + rounds, "", ready ? reviewBtn("Review again") : "");
 }
 // «2 blockers, 4 suggestions»: a round's remarks by weight, a part with none left out. Each part is a button that takes
