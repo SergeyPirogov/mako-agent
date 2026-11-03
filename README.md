@@ -39,39 +39,26 @@ Mako бере ваші задачі з GitLab, GitHub і Jira, віддає їх
 **Mac:** завантажте `Mako-<версія>-mac.zip` з [релізів](https://github.com/SergeyPirogov/mako-agent/releases),
 розпакуйте й перенесіть Mako.app у Applications. Підпис ad-hoc, тож перший запуск — правий клік → «Відкрити».
 
-**Через агента:** дайте цей промпт Claude Code, і він поставить Mako з коду. Токени ви впишете самі: агент їх не бачить.
+**Через агента:** дайте цей промпт Claude Code, і він поставить Mako з релізу. Токени ви впишете самі в `/settings`: агент їх не бачить.
 
 ````text
-Встанови Mako (https://github.com/SergeyPirogov/mako-agent) на цю машину. Роби по кроках, відповідай українською.
+Встанови Mako (https://github.com/SergeyPirogov/mako-agent) на цей Mac з останнього релізу. Роби по кроках, відповідай українською.
 
-1. Перевір, що є `git`, `go` версії 1.26 або новіше (потрібна версія — у `go/go.mod`, рядок `go`) і `claude` у PATH.
+1. Перевір, що це macOS і що в PATH є `gh` (і він залогінений: `gh auth status`) та `claude`.
    Чогось бракує — скажи, що саме і як поставити, і зупинись. Нічого не став без мого дозволу.
-2. Склонуй репозиторій у `~/mako-agent` (якщо папка вже є — `git pull` у ній) і збери:
-   `cd ~/mako-agent/go && go build -o mako ./cmd/mako`.
-3. Запитай мене, якими трекерами я користуюся: GitLab, GitHub, Jira Cloud (можна кілька).
-4. Створи папку `~/.mako` і файл `~/.mako/.env`: скопіюй `.env.example` з кореня репозиторію й лиши рядки лише
-   для вибраних трекерів, токени порожні. Права: `chmod 600 ~/.mako/.env`.
-   Токени я впишу сам. Не питай їх у чаті, не читай `~/.mako/.env` після створення, не виводь його вміст, не додавай
-   у git і не підставляй у команди. Скажи, які саме змінні заповнити (`GITLAB_TOKEN` зі scope `api`, `GITHUB_TOKEN`
-   або `gh auth login`, `JIRA_EMAIL` + `JIRA_API_TOKEN` + `JIRA_BASE_URL`), і дочекайся, поки я напишу, що готово.
-5. Запусти `cd ~/mako-agent/go && ./mako -home ~/.mako -open` у фоні й перевір, що `http://127.0.0.1:7777`
-   відповідає (наприклад, `curl -sI http://127.0.0.1:7777`). Не відповідає — подивись `~/.mako/.mako/mako.log`
-   (там немає токенів) і розбери причину.
-6. Наприкінці скажи, що дошка відкрита на http://127.0.0.1:7777, а решту (проєкти, агент, сповіщення, телефон)
-   я налаштую в `/settings`.
+2. Завантаж останній реліз:
+   `gh release download --repo SergeyPirogov/mako-agent --pattern '*-mac.zip' --dir ~/Downloads --clobber`.
+3. Розпакуй архів (`ditto -x -k ~/Downloads/Mako-*-mac.zip ~/Downloads/Mako`) і перенеси `Mako.app` у `/Applications`
+   (якщо стара версія вже є, спершу закрий Mako і заміни її).
+4. Підпис ad-hoc: зніми карантин `xattr -dr com.apple.quarantine /Applications/Mako.app` або підкажи мені
+   перший запуск через правий клік → «Відкрити».
+5. Запусти `open /Applications/Mako.app` і перевір, що `http://127.0.0.1:7777` відповідає (`curl -sI http://127.0.0.1:7777`).
+   Не відповідає — подивись журнал `.mako/mako.log` у папці Mako (`~/.mako` або `~/Library/Application Support/Mako`)
+   і розбери причину.
+6. Наприкінці скажи, що Mako відкрилась. Токени (`GITLAB_TOKEN` зі scope `api`, `GITHUB_TOKEN` або `gh auth login`,
+   `JIRA_EMAIL` + `JIRA_API_TOKEN` + `JIRA_BASE_URL`), проєкти, агента, сповіщення й телефон я налаштую в `/settings`.
+   Токенів не питай у чаті й не читай `.env`.
 ````
-
-На Mac без Go можна поставити готову збірку: у кроці 2 замість клонування й `go build` попроси агента виконати
-`gh release download --repo SergeyPirogov/mako-agent --pattern '*-mac.zip' --dir ~/Downloads`, розпакувати архів
-і перенести Mako.app у Applications. Тоді токени вписуються в `/settings`, а `go` перевіряти не треба.
-
-**З коду** (Go):
-
-```sh
-cd go
-go build -o mako ./cmd/mako
-./mako -open        # -no-tray: без значка в меню
-```
 
 Перший запуск відкриває налаштування. Повторний запуск не стартує другу копію, а відкриває дошку.
 
@@ -93,6 +80,19 @@ go build -o mako ./cmd/mako
 `JIRA_EMAIL` + `JIRA_API_TOKEN` + `JIRA_BASE_URL`. Для задач з Jira MR шукаються на хості `origin` репозиторію.
 
 ## Розробка
+
+Запуск з коду (потрібен Go, версія — у `go/go.mod`):
+
+```sh
+cd go
+go build -o mako ./cmd/mako
+./mako -open        # -no-tray: без значка в меню
+```
+
+`-home <папка>` задає папку з налаштуваннями (за замовчуванням `MAKO_HOME`, `~/.mako` або
+`~/Library/Application Support/Mako`).
+
+Перевірки:
 
 ```sh
 cd go && go vet ./... && go test ./...
