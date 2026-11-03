@@ -145,3 +145,62 @@ func benchStore(b *testing.B) *Store {
 	}
 	return s
 }
+
+// A broken state.json does not keep Mako from starting: it is kept aside as state.json.broken and the board
+// starts empty; what is saved after that is read back.
+func TestBrokenStateKeptAside(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "state.json"), []byte("{broken"), 0o600)
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.All()) != 0 {
+		t.Fatalf("records = %v", s.All())
+	}
+	want := filepath.Join(dir, "state.json.broken")
+	if s.Broken != want {
+		t.Fatalf("Broken = %q, want %q", s.Broken, want)
+	}
+	if b, _ := os.ReadFile(want); string(b) != "{broken" {
+		t.Fatalf("state.json.broken = %q", b)
+	}
+	s.Update("task-1", func(r *core.Record) { r.Status = core.Snoozed })
+	again, err := Open(dir)
+	if err != nil || again.Broken != "" {
+		t.Fatalf("%v %q", err, again.Broken)
+	}
+	if _, ok := again.Get("task-1"); !ok {
+		t.Fatal("not saved after the start from scratch")
+	}
+}
+
+// A change that cannot reach the disk (no rights, a full disk) is told to OnSaveError, not swallowed.
+func TestStateSaveErrorIsTold(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes anywhere")
+	}
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told []error
+	s.OnSaveError = func(err error) {
+		// Outside the lock: the store can be read from here.
+		s.All()
+		told = append(told, err)
+	}
+	s.Update("task-1", func(r *core.Record) {})
+	if len(told) != 0 {
+		t.Fatalf("an error on a good save: %v", told)
+	}
+	os.Chmod(dir, 0o500)
+	defer os.Chmod(dir, 0o700)
+	s.Update("task-2", func(r *core.Record) {})
+	s.UpdateIfExists("task-2", func(r *core.Record) {})
+	s.Delete("task-1")
+	if len(told) != 3 {
+		t.Fatalf("errors told = %v, want 3", told)
+	}
+}

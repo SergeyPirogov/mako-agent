@@ -25,3 +25,26 @@ func TestBrokenReviewRequests(t *testing.T) {
 		t.Fatal("not saved")
 	}
 }
+
+// A review request that cannot be saved is told to OnSaveError.
+func TestReviewRequestsSaveErrorIsTold(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes anywhere")
+	}
+	dir := t.TempDir()
+	s, err := OpenReviewRequests(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Update("u", func(r *core.ReviewRequest) {})
+	var told []error
+	s.OnSaveError = func(err error) { told = append(told, err) }
+	os.Chmod(dir, 0o500)
+	defer os.Chmod(dir, 0o700)
+	s.Update("v", func(r *core.ReviewRequest) {})
+	s.Delete("u")
+	s.Delete("missing") // nothing to save: nothing to tell
+	if len(told) != 2 {
+		t.Fatalf("errors told = %v, want 2", told)
+	}
+}

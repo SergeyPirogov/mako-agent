@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 )
 
@@ -1207,7 +1208,9 @@ func (m *Manager) SetLimits(l Limits) {
 	m.mu.Unlock()
 	if m.file != "" {
 		b, _ := json.Marshal(l)
-		os.WriteFile(m.file, b, 0o600)
+		if err := fsx.WriteFile(m.file, b, 0o600); err != nil {
+			log.Printf("%s: not saved: %v", m.file, err)
+		}
 	}
 }
 

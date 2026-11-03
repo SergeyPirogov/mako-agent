@@ -149,7 +149,13 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove
+	// A change that stayed in memory only goes to Mako's errors. In a goroutine: the store may be saved while
+	// the dispatcher's own lock is held, which Fault takes too.
+	if store != nil {
+		store.OnSaveError = func(err error) { go d.Fault("mako", "state not saved", err) }
+	}
 	if rs, err := state.OpenReviewRequests(cfg.StateDir); err == nil {
+		rs.OnSaveError = func(err error) { go d.Fault("mako", "review requests not saved", err) }
 		d.Reviews = rs
 	} else {
 		log.Printf("review-requests.json: %v", err)

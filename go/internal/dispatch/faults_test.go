@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -168,4 +169,23 @@ func TestFaultsSkipTransient(t *testing.T) {
 	if fs := d.Faults(); len(fs) != 4 {
 		t.Fatalf("assignee kept: %+v", fs)
 	}
+}
+
+// A record that cannot reach state.json is not lost in silence: it becomes one of Mako's errors.
+func TestStateSaveErrorIsAFault(t *testing.T) {
+	d, _, _ := setup(t)
+	file := filepath.Join(d.Config().StateDir, "state.json")
+	// state.json turned into a folder: the rename over it fails, the rest of the state folder still works.
+	os.Remove(file)
+	os.MkdirAll(filepath.Join(file, "x"), 0o755)
+	d.Store.Update("grp/app#5", func(r *core.Record) {})
+	for i := 0; i < 200; i++ {
+		for _, f := range d.Faults() {
+			if f.What == "state not saved" && f.Task == "mako" {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no fault for an unsaved state: %+v", d.Faults())
 }

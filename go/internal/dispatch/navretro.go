@@ -14,6 +14,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/navstat"
@@ -73,11 +74,7 @@ func (d *Dispatcher) updateNav(key string, change func(x *core.NavRetro) error) 
 	if err := os.MkdirAll(filepath.Dir(d.navFile()), 0o755); err != nil {
 		return x, err
 	}
-	tmp := d.navFile() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return x, err
-	}
-	return x, os.Rename(tmp, d.navFile())
+	return x, fsx.WriteFile(d.navFile(), b, 0o600)
 }
 
 // navRepo: the merged tasks of a repository, the newest first, and the repository itself.

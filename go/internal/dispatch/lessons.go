@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
@@ -273,9 +274,5 @@ func (d *Dispatcher) updateLessons(change func([]core.SavedLesson) []core.SavedL
 	if err := os.MkdirAll(filepath.Dir(d.lessonsFile()), 0o755); err != nil {
 		return err
 	}
-	tmp := d.lessonsFile() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, d.lessonsFile())
+	return fsx.WriteFile(d.lessonsFile(), b, 0o600)
 }

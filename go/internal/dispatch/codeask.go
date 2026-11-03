@@ -17,6 +17,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
@@ -144,7 +145,7 @@ func (d *Dispatcher) updateThreads(f func([]CodeThread) []CodeThread) error {
 	all := f(d.readThreads())
 	b, _ := json.MarshalIndent(all, "", "  ")
 	os.MkdirAll(filepath.Dir(d.threadsFile()), 0o755)
-	return os.WriteFile(d.threadsFile(), b, 0o600)
+	return fsx.WriteFile(d.threadsFile(), b, 0o600)
 }
 
 // CodeThreads: a project's questions, the latest first.

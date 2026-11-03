@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
@@ -92,7 +94,9 @@ func (d *Dispatcher) Fault(id, what string, err error) {
 	if len(all) > maxFaults {
 		all = all[:maxFaults]
 	}
-	d.writeFaults(all)
+	if err := d.writeFaults(all); err != nil {
+		log.Printf("faults.json: not saved: %v", err)
+	}
 }
 
 // Faults: Mako's errors, the newest first.
@@ -148,7 +152,9 @@ func (d *Dispatcher) ReportFaults(ctx context.Context) (string, error) {
 			all[i].Reported = link
 		}
 	}
-	d.writeFaults(all)
+	if err := d.writeFaults(all); err != nil {
+		log.Printf("faults.json: not saved: %v", err)
+	}
 	d.faultsMu.Unlock()
 	d.Log("mako", fmt.Sprintf("Mako errors (%d) sent for analysis: %s", len(fresh), link))
 	return id, nil
@@ -257,9 +263,5 @@ func (d *Dispatcher) writeFaults(all []Fault) error {
 	if err := os.MkdirAll(filepath.Dir(d.faultsFile()), 0o755); err != nil {
 		return err
 	}
-	tmp := d.faultsFile() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, d.faultsFile())
+	return fsx.WriteFile(d.faultsFile(), b, 0o600)
 }

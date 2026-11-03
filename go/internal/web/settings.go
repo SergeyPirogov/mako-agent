@@ -17,6 +17,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
@@ -87,6 +88,10 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		// Refuse what Mako could not read back, before anything is written.
 		if _, err := config.Parse(in.Config, env); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		if err := config.CheckEnv(in.Env); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": ".env: " + err.Error()})
 			return
 		}
 		problems, err := s.saveConfig(r.Context(), in.Config, in.Env)
@@ -230,7 +235,7 @@ func (s *Server) saveConfigLocked(ctx context.Context, data json.RawMessage, env
 	return problems, nil
 }
 
-// writeConfig: the only writer of mako.config.json, indented, through a temporary file; cfgMu is held.
+// writeConfig: the only writer of mako.config.json, indented, atomically; cfgMu is held.
 func (s *Server) writeConfig(data json.RawMessage) error {
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, data, "", "  "); err != nil {
@@ -241,10 +246,7 @@ func (s *Server) writeConfig(data json.RawMessage) error {
 		return err
 	}
 	path := filepath.Join(s.Home, "mako.config.json")
-	if err := os.WriteFile(path+".tmp", pretty.Bytes(), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(path+".tmp", path)
+	return fsx.WriteFile(path, pretty.Bytes(), 0o600)
 }
 
 // pauseTracker sets "paused" of the tracker id (its "id", else its "type", as config.Tracker.ID) in

@@ -3,6 +3,8 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,12 +12,17 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 )
 
 type Store struct {
 	mu      sync.Mutex
 	file    string
 	records map[string]*core.Record
+	// Broken: where a state.json that could not be read was kept aside ("" when it was fine).
+	Broken string
+	// OnSaveError hears that a change stayed in memory only (a full disk, no rights); it is called outside the lock.
+	OnSaveError func(error)
 }
 
 func Open(dir string) (*Store, error) {
@@ -26,7 +33,13 @@ func Open(dir string) (*Store, error) {
 	data, err := os.ReadFile(s.file)
 	if err == nil && len(data) > 0 {
 		if err := json.Unmarshal(data, &s.records); err != nil {
-			return nil, err
+			// A broken file must not keep Mako from starting: it is kept aside and the board starts empty.
+			s.records = map[string]*core.Record{}
+			s.Broken = s.file + ".broken"
+			if rerr := os.Rename(s.file, s.Broken); rerr != nil {
+				return nil, fmt.Errorf("%w; and it cannot be kept aside: %v", err, rerr)
+			}
+			log.Printf("state.json: CANNOT BE READ (%v): kept as %s, Mako starts with an empty board", err, s.Broken)
 		}
 	}
 	// A notification left on screen when Mako stopped: ask again.
@@ -64,6 +77,12 @@ func (s *Store) All() []core.Record {
 
 // Update changes a record (or makes it) under the lock and saves.
 func (s *Store) Update(id string, change func(r *core.Record)) core.Record {
+	out, err := s.update(id, change)
+	s.saveFailed(err)
+	return out
+}
+
+func (s *Store) update(id string, change func(r *core.Record)) (core.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.records[id]
@@ -74,31 +93,44 @@ func (s *Store) Update(id string, change func(r *core.Record)) core.Record {
 	change(r)
 	r.ID = id
 	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	_ = s.saveLocked()
-	return r.Clone()
+	return r.Clone(), s.saveLocked()
 }
 
 // UpdateIfExists is Update for a record that must not come back: a background job that finishes after the task
 // was deleted would otherwise leave an empty record. It reports whether the record was there.
 func (s *Store) UpdateIfExists(id string, change func(r *core.Record)) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	r, ok := s.records[id]
 	if !ok {
+		s.mu.Unlock()
 		return false
 	}
 	change(r)
 	r.ID = id
 	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	_ = s.saveLocked()
+	err := s.saveLocked()
+	s.mu.Unlock()
+	s.saveFailed(err)
 	return true
 }
 
 func (s *Store) Delete(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.records, id)
-	_ = s.saveLocked()
+	err := s.saveLocked()
+	s.mu.Unlock()
+	s.saveFailed(err)
+}
+
+// saveFailed says loudly that the disk no longer matches what Mako keeps in memory.
+func (s *Store) saveFailed(err error) {
+	if err == nil {
+		return
+	}
+	log.Printf("state.json: not saved: %v", err)
+	if s.OnSaveError != nil {
+		s.OnSaveError(err)
+	}
 }
 
 func (s *Store) saveLocked() error {
@@ -106,9 +138,5 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := s.file + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.file)
+	return fsx.WriteFile(s.file, data, 0o600)
 }

@@ -22,6 +22,7 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/relay"
 )
 
@@ -103,11 +104,7 @@ func (p *Phones) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(p.file), 0o755); err != nil {
 		return err
 	}
-	tmp := p.file + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p.file)
+	return fsx.WriteFile(p.file, data, 0o600)
 }
 
 func random(n int) string {
