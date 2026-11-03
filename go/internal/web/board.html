@@ -3367,15 +3367,22 @@ function nowHTML(r, card, bar) {
 
 // An MR waiting for the merge: what holds it up, on top.
 function blockersHTML(r) {
-  const c = review?.review, lines = [];
-  if (r.blocked) lines.push(`<div><b>${esc(r.blocked.charAt(0).toUpperCase() + r.blocked.slice(1))}</b></div>`);
+  const c = review?.review, details = [];
   if (c?.conflicts || r.baseConflict?.files?.length) {
     const files = r.baseConflict?.files ?? [];
-    lines.push(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
+    details.push(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
       + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : ""));
   }
-  if (c?.ci === "failed" && c.failed?.length) lines.push(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>`);
-  if (c?.threads?.length) lines.push(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>`);
+  if (c?.ci === "failed" && c.failed?.length) details.push(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>`);
+  if (c?.threads?.length) details.push(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>`);
+  // The bold reason repeats the details (“CI failed”, “the MR has conflicts”), so it is shown only when there
+  // are no details yet (the review is not loaded) or when it says what they do not: the agent's state.
+  const lines = [];
+  if (r.blocked && (!details.length || r.blocked.startsWith("agent"))) {
+    const why = r.blocked.startsWith("agent stopped") ? "Agent stopped — continue it in the chat" : r.blocked.charAt(0).toUpperCase() + r.blocked.slice(1);
+    lines.push(`<div><b>${esc(why)}</b></div>`);
+  }
+  lines.push(...details);
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
   return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
 }
