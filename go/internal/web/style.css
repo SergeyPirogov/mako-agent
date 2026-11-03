@@ -130,7 +130,6 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .group.folded .chev { transform: rotate(-90deg); }
 /* "Ready to merge": green, so the MRs a person can merge now do not get lost. */
 .group.merge, .group.merge:hover { color: var(--ok); }
-.group.merge .ck { flex: none; }
 .group.merge .n { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); font-weight: 600; padding: 1px 7px; border-radius: 8px; }
 .sub.merge { color: var(--ok); font-weight: 600; }
 .proj-head .p-sum .ok { color: var(--ok); font-weight: 600; }

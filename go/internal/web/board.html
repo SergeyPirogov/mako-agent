@@ -643,10 +643,11 @@ function taskRow(r) {
   const badges = `${reviewBadge(r)}${checksBadge(r)}`;
   // A calm short status ("the agent works") stays in the meta line, so such a card is compact. A warn/err one, a long
   // one, or one next to the review/checks badges has no room there: it gets a line of its own, up to two lines long.
-  const own = !!tone || say.length > 14 || !!badges;
-  return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""} ${groupOf(r) === "merge" ? "merge" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
+  const merge = groupOf(r) === "merge"; // the group heading already says "Ready to merge"
+  const own = !merge && (!!tone || say.length > 14 || !!badges);
+  return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""} ${merge ? "merge" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
     <span class="t">${esc(r.task.title)}</span>
-    <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}<span class="num" title="${esc(r.id)}">${esc(shortId(r.id))}</span>${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}${own ? "" : `<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>`}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${badges}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span>${own ? `<span class="st2 ${tone}" title="${esc(why)}">${esc(say)}</span>` : ""}</button>`;
+    <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}<span class="num" title="${esc(r.id)}">${esc(shortId(r.id))}</span>${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}${own || merge ? "" : `<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>`}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${badges}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span>${own ? `<span class="st2 ${tone}" title="${esc(why)}">${esc(say)}</span>` : ""}</button>`;
 }
 // The order inside a group: MRs to review first; the tasks of an agent that waits for you first; "New": the clear and small ones first, the not estimated last.
 const attnRank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
@@ -661,7 +662,7 @@ function listByStatus(entries, showAll) {
     const items = entries.filter((e) => e.g === col).sort((a, b) => entryRank(a) - entryRank(b));
     if (!items.length) continue;
     const fold = !showAll && !!folded[col];
-    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}${col === "merge" ? " merge" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${col === "merge" ? `<span class="ck">✓</span>` : ""}${title}<span class="n">${items.length}</span></button>`;
+    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}${col === "merge" ? " merge" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
     if (!fold) {
       const ps = [...new Set(items.map((e) => e.p))].sort(byProjectOrder);
       if (ps.length < 2) html += items.map((e) => e.html).join("");
@@ -692,7 +693,7 @@ function listByProject(entries, showAll) {
     if (!isFolded) {
       // Ready to merge first, under a small green heading: the next action for a person.
       const ready = active.filter((e) => e.g === "merge"), doing = active.filter((e) => e.g !== "merge" && e.g !== "new"), fresh = active.filter((e) => e.g === "new");
-      if (ready.length) html += `<div class="sub merge">✓ ${COLUMNS.find(([c]) => c === "merge")[1]}</div>` + ready.map((e) => e.html).join("");
+      if (ready.length) html += `<div class="sub merge" title="CI passed, no conflicts or open threads: the MR can be merged">${COLUMNS.find(([c]) => c === "merge")[1]}</div>` + ready.map((e) => e.html).join("");
       // The rest in two small groups: what is in progress, then the new ones.
       for (const [title, rs] of [[t("b.inProgress"), doing], [COLUMNS.find(([c]) => c === "new")[1], fresh]]) {
         if (rs.length) html += `<div class="sub">${title}<span class="n">${rs.length}</span></div>` + rs.map((e) => e.html).join("");
