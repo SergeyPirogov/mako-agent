@@ -284,3 +284,102 @@ func TestWorktreeUsageMetadata(t *testing.T) {
 		t.Fatalf("task: %+v", task)
 	}
 }
+
+// A branch the remote never had: its commits are lost with the worktree, so the clean tree is not enough.
+func TestRemoveWorktreesKeepsCommitsNoRemoteHas(t *testing.T) {
+	d, id, repo, _, _, _, _, other := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	ref := []WorktreeRef{{Repo: d.repoOf(r).Name, Path: other}}
+
+	commitIn(t, other, "local.txt") // never pushed, no origin/fix/9-other at all
+	res := d.RemoveWorktrees(ctx, ref, false)
+	if res.Removed != 0 || len(res.Kept) != 1 || res.Kept[0].Unpushed != 1 || res.Kept[0].Dirty != 0 || !exists(other) {
+		t.Fatalf("local commits: %+v", res)
+	}
+	if res = d.RemoveWorktrees(ctx, ref, true); res.Removed != 1 || gitx.HasBranch(ctx, repo, "fix/9-other") {
+		t.Fatalf("forced: %+v", res)
+	}
+}
+
+// A detached HEAD with a commit no branch holds.
+func TestRemoveWorktreesKeepsDetachedCommits(t *testing.T) {
+	d, id, repo, _, _, _, _, _ := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	name := d.repoOf(r).Name
+	det := filepath.Join(filepath.Dir(repo), "wt-detached")
+	git(t, repo, "worktree", "add", "-q", "--detach", det)
+	ref := []WorktreeRef{{Repo: name, Path: det}}
+
+	// Nothing of its own: it goes.
+	clean := filepath.Join(filepath.Dir(repo), "wt-detached-clean")
+	git(t, repo, "worktree", "add", "-q", "--detach", clean)
+	if res := d.RemoveWorktrees(ctx, []WorktreeRef{{Repo: name, Path: clean}}, false); res.Removed != 1 || exists(clean) {
+		t.Fatalf("detached without commits: %+v", res)
+	}
+	commitIn(t, det, "lone.txt")
+	res := d.RemoveWorktrees(ctx, ref, false)
+	if res.Removed != 0 || len(res.Kept) != 1 || res.Kept[0].Unpushed != 1 || !exists(det) {
+		t.Fatalf("detached with a commit: %+v", res)
+	}
+}
+
+// A locked worktree is not taken: git refuses and the error comes back; a worktree whose folder is gone is
+// cleared with its branch.
+func TestRemoveWorktreesLockedAndPrunable(t *testing.T) {
+	d, id, repo, _, _, _, _, other := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	name := d.repoOf(r).Name
+
+	git(t, repo, "worktree", "lock", other)
+	res := d.RemoveWorktrees(ctx, []WorktreeRef{{Repo: name, Path: other}}, true)
+	if res.Removed != 0 || len(res.Errors) != 1 || !exists(other) || !gitx.HasBranch(ctx, repo, "fix/9-other") {
+		t.Fatalf("locked: %+v", res)
+	}
+	git(t, repo, "worktree", "unlock", other)
+
+	// The settings give the path as git lists it.
+	listed := ""
+	wts, _ := gitx.Worktrees(ctx, repo)
+	for _, w := range wts {
+		if samePath(w.Path, other) {
+			listed = w.Path
+		}
+	}
+	os.RemoveAll(other)
+	res = d.RemoveWorktrees(ctx, []WorktreeRef{{Repo: name, Path: listed}}, false)
+	if res.Removed != 1 || res.Branches != 1 || len(res.Errors) != 0 || gitx.HasBranch(ctx, repo, "fix/9-other") {
+		t.Fatalf("prunable: %+v", res)
+	}
+	wts, _ = gitx.Worktrees(ctx, repo)
+	for _, w := range wts {
+		if w.Path == listed {
+			t.Fatalf("git still lists %s", other)
+		}
+	}
+}
+
+// The repository's base branch is not taken with the worktree that has it checked out.
+func TestRemoveWorktreesKeepsBaseBranch(t *testing.T) {
+	d, id, repo, _, _, _, _, _ := cleanupSetup(t)
+	ctx := context.Background()
+	r, _ := d.Store.Get(id)
+	rp := d.repoOf(r)
+	base := rp.BaseBranch
+	if base == "" {
+		base = gitx.DetectBaseBranch(repo)
+	}
+	if !gitx.HasBranch(ctx, repo, base) {
+		git(t, repo, "branch", base)
+	}
+	git(t, repo, "checkout", "-q", "--detach") // the main checkout lets go of it
+	wt := filepath.Join(filepath.Dir(repo), "wt-base")
+	git(t, repo, "worktree", "add", "-q", wt, base)
+
+	res := d.RemoveWorktrees(ctx, []WorktreeRef{{Repo: rp.Name, Path: wt}}, false)
+	if res.Removed != 1 || exists(wt) || !gitx.HasBranch(ctx, repo, base) {
+		t.Fatalf("base branch: %+v", res)
+	}
+}

@@ -72,15 +72,19 @@ func DeleteBranch(ctx context.Context, repo, branch string) error {
 
 // DirSize: the bytes of the files under dir, without following links; what cannot be read counts as nothing.
 func DirSize(dir string) int64 {
-	n, _ := DirStat(dir)
+	n, _ := DirStat(context.Background(), dir)
 	return n
 }
 
-// DirStat: DirSize and the time the newest file under dir was changed (zero for none), from one walk.
-func DirStat(dir string) (int64, time.Time) {
+// DirStat: DirSize and the time the newest file under dir was changed (zero for none), from one walk; a
+// cancelled ctx ends the walk with what it has counted.
+func DirStat(ctx context.Context, dir string) (int64, time.Time) {
 	var n int64
 	var newest time.Time
 	filepath.WalkDir(dir, func(_ string, e fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil
 		}
@@ -126,6 +130,31 @@ func LastCommit(ctx context.Context, worktree string) (time.Time, string, error)
 	at, title, _ := strings.Cut(out, "\x00")
 	t, err := time.Parse(time.RFC3339, at)
 	return t, title, err
+}
+
+// UnsavedCommits: commits that exist only in this worktree and would be lost with it. On a branch the remote
+// has, those origin/<branch> lacks. On a branch the remote never had, every commit on top of the base branch
+// (Unpushed counts none there). With a detached HEAD, those no branch and no remote holds.
+func UnsavedCommits(ctx context.Context, worktree string, detached bool, base string) (int, error) {
+	count := func(args ...string) (int, error) {
+		out, err := Run(ctx, worktree, append([]string{"rev-list", "--count"}, args...)...)
+		if err != nil {
+			return 0, err
+		}
+		return strconv.Atoi(strings.TrimSpace(out))
+	}
+	if detached {
+		return count("HEAD", "--not", "--branches", "--remotes")
+	}
+	name, err := Run(ctx, worktree, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return 0, err
+	}
+	if HasRemoteBranch(ctx, worktree, name) {
+		return Unpushed(ctx, worktree), nil
+	}
+	ahead, _, err := AheadBehind(ctx, worktree, base)
+	return ahead, err
 }
 
 // HasRemoteBranch: the repository has origin/<branch>.

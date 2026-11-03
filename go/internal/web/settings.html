@@ -708,8 +708,9 @@ function show(id) {
 
 // The agents' worktrees: what each one holds, and removing the chosen ones.
 let diskNote = "";
-const picked = new Set(); // "repo\u0000path" of the ticked worktrees; they stay ticked while the list is redrawn
-const pickKey = (repo, path) => repo + "\u0000" + path;
+const picked = new Set(); // pickKey of the ticked worktrees; they stay ticked while the list is redrawn
+// A JSON array, so that it goes through an HTML attribute and back whatever the names hold.
+const pickKey = (repo, path) => JSON.stringify([repo, path]);
 const size = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} ${t("s.gb")}` : b >= 1 << 20 ? `${Math.round(b / (1 << 20))} ${t("s.mb")}` : `${Math.round(b / 1024)} ${t("s.kb")}`;
 const diskAgo = (iso) => {
   const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
@@ -791,7 +792,7 @@ async function renderDisk(msg = "") {
   for (const el of box.querySelectorAll("[data-copy]")) el.onclick = () => navigator.clipboard?.writeText(el.dataset.copy);
   for (const a of box.querySelectorAll("[data-open]")) a.onclick = async (e) => {
     e.preventDefault();
-    const [repo, path] = a.dataset.open.split("\u0000");
+    const [repo, path] = JSON.parse(a.dataset.open);
     try {
       await fetch("/api/settings/worktrees/open", { method: "POST", body: JSON.stringify({ repo, path }) });
     } catch {}
@@ -799,7 +800,7 @@ async function renderDisk(msg = "") {
   sync();
 
   $("disk-remove").onclick = async () => {
-    const items = [...picked].map((k) => { const [repo, path] = k.split("\u0000"); return { repo, path }; });
+    const items = [...picked].map((k) => { const [repo, path] = JSON.parse(k); return { repo, path }; });
     const bytes = [...picked].reduce((s, k) => s + (bytesOf.get(k) || 0), 0);
     if (!confirm(t("s.d.confirm", { n: items.length, size: size(bytes) }))) return;
     const post = async (items, force) => (await fetch("/api/settings/worktrees/remove", { method: "POST", body: JSON.stringify({ items, force }) })).json();

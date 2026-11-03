@@ -78,7 +78,7 @@ func TestWorktreeMetadata(t *testing.T) {
 	if HasRemoteBranch(ctx, wt, "fix/1") || HasRemoteBranch(ctx, wt, "") {
 		t.Fatal("a remote branch out of nowhere")
 	}
-	n, mod := DirStat(wt)
+	n, mod := DirStat(ctx, wt)
 	if n < 5 || mod.IsZero() || time.Since(mod) > time.Minute {
 		t.Fatalf("dir stat: %d %v", n, mod)
 	}

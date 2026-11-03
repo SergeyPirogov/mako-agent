@@ -255,6 +255,12 @@ type WorktreeSize struct {
 // metaJobs: git processes running at once while the settings read the worktrees.
 const metaJobs = 4
 
+// metaTimeout: how long one worktree's size and git state may take; a slower one shows what was read by then.
+const metaTimeout = 20 * time.Second
+
+// stopWait: how long a stopped agent has to let go of its worktree.
+const stopWait = 5 * time.Second
+
 // configuredRepos: every configured repository that is on the disk, once.
 func (d *Dispatcher) configuredRepos() []*config.Repo {
 	seen := map[string]bool{}
@@ -319,7 +325,9 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				fillMeta(ctx, s, repo.BaseBranch)
+				mctx, cancel := context.WithTimeout(ctx, metaTimeout)
+				defer cancel()
+				fillMeta(mctx, s, repo.BaseBranch)
 			}()
 		}
 		out = append(out, u)
@@ -343,7 +351,7 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 // fillMeta reads the size and the git state of a worktree; what git cannot tell stays empty.
 func fillMeta(ctx context.Context, s *WorktreeSize, base string) {
 	var mod time.Time
-	s.Bytes, mod = gitx.DirStat(s.Path)
+	s.Bytes, mod = gitx.DirStat(ctx, s.Path)
 	if !mod.IsZero() {
 		s.ModifiedAt = mod.UTC().Format(time.RFC3339)
 	}
@@ -425,36 +433,43 @@ func (d *Dispatcher) RemoveWorktrees(ctx context.Context, items []WorktreeRef, f
 			fail(w.Path, fmt.Errorf("the agent of %s is still working", rec.ID))
 			continue
 		}
+		base := repo.BaseBranch
+		if base == "" {
+			base = gitx.DetectBaseBranch(repo.Path)
+		}
 		if exists(w.Path) && !w.Prunable {
 			dirty, derr := gitx.Dirty(ctx, w.Path)
-			unpushed := 0
+			unsaved := 0
 			if derr == nil {
-				unpushed = gitx.Unpushed(ctx, w.Path)
+				unsaved, derr = gitx.UnsavedCommits(ctx, w.Path, w.Detached, base)
 			}
 			if derr != nil && !force {
 				fail(w.Path, derr)
 				continue
 			}
-			if (dirty > 0 || unpushed > 0) && !force {
-				res.Kept = append(res.Kept, KeptWorktree{Path: w.Path, Dirty: dirty, Unpushed: unpushed})
+			if (dirty > 0 || unsaved > 0) && !force {
+				res.Kept = append(res.Kept, KeptWorktree{Path: w.Path, Dirty: dirty, Unpushed: unsaved})
 				continue
 			}
 		}
-		// The branch goes with the worktree unless another worktree has it checked out.
+		// The branch goes with the worktree, unless another worktree has it checked out or it is the
+		// repository's base branch (-D would take it without asking).
 		branch := w.Branch
 		for j, o := range wts {
 			if j != i && o.Branch == branch {
 				branch = ""
 			}
 		}
+		if branch == base {
+			branch = ""
+		}
 		if mako && !onTerminal(rec) {
 			err = d.RemoveWorkspace(ctx, repo.Path, w.Path, branch)
 		} else {
-			if mako && (d.Sessions.Get(rec.ID) != nil || d.Chats.Get(rec.ID) != nil) {
-				d.StopTerminal(rec.ID)
-				time.Sleep(500 * time.Millisecond) // the agent lets go of the folder
+			if mako {
+				d.stopAndWait(rec.ID)
 			}
-			err = gitx.DropWorktree(ctx, repo.Path, w.Path, branch)
+			err = dropListedWorktree(ctx, repo.Path, w, branch)
 		}
 		if err != nil {
 			if mako {
@@ -473,6 +488,32 @@ func (d *Dispatcher) RemoveWorktrees(ctx context.Context, items []WorktreeRef, f
 		}
 	}
 	return res
+}
+
+// stopAndWait stops the task's terminal agent and waits until it is gone, so that it has let go of the folder.
+func (d *Dispatcher) stopAndWait(id string) {
+	if !d.Live(id) {
+		return
+	}
+	d.StopTerminal(id)
+	for end := time.Now().Add(stopWait); d.Live(id) && time.Now().Before(end); {
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// dropListedWorktree removes the worktree and its branch. A folder that is already gone (prunable) leaves only what
+// git keeps about it, which `git worktree prune` clears.
+func dropListedWorktree(ctx context.Context, repo string, w gitx.Worktree, branch string) error {
+	if !w.Prunable && exists(w.Path) {
+		return gitx.DropWorktree(ctx, repo, w.Path, branch)
+	}
+	if _, err := gitx.Run(ctx, repo, "worktree", "prune"); err != nil {
+		return err
+	}
+	if branch != "" {
+		gitx.DeleteBranch(ctx, repo, branch)
+	}
+	return nil
 }
 
 // OpenWorktreePath shows a worktree of a configured repository in Finder.
