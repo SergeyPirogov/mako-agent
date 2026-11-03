@@ -40,6 +40,13 @@ body { display: block; }
 .wt-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .wt-path span { cursor: copy; font-family: ui-monospace, monospace; font-size: 12px; }
 .wt-path a { margin-left: 8px; }
+.busy [data-open] { pointer-events: none; opacity: .5; }
+.wt-doing { background: var(--hover, #f6f6f6); }
+.wt-done { opacity: .45; }
+.wt-done code { text-decoration: line-through; }
+.wt-state:empty { display: none; }
+.spin { display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: -1px; border: 2px solid var(--faint, #ccc); border-top-color: var(--mute, #888); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .add-big { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .add-big button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px; text-align: left; border-radius: 12px; }
 .add-big span { color: var(--mute); font-size: 12.5px; }
@@ -739,13 +746,19 @@ function worktreeRow(u, w) {
     w.modifiedAt ? t("s.d.changedFiles", { when: diskAgo(w.modifiedAt) }) : "",
   ].filter(Boolean).join(" · ");
   const k = pickKey(u.repo, w.path);
-  return `<div class="device wt"><label class="wt-pick"><input type="checkbox" data-pick="${esc(k)}" ${picked.has(k) ? "checked" : ""}></label>
+  return `<div class="device wt" data-row="${esc(k)}"><label class="wt-pick"><input type="checkbox" data-pick="${esc(k)}" ${picked.has(k) ? "checked" : ""}></label>
     <div class="wt-body"><div><code>${esc(w.branch || w.path.split("/").pop())}</code> ${badges}</div>
       <div class="muted">${task}</div>
       ${git ? `<div class="muted">${git}</div>` : ""}
       <div class="muted wt-path"><span data-copy="${esc(w.path)}" title="${t("s.d.copy")}">${esc(w.path)}</span>
-        <a href="#" data-open="${esc(k)}">${t("s.d.finder")}</a></div></div>
+        <a href="#" data-open="${esc(k)}">${t("s.d.finder")}</a></div>
+      <div class="muted wt-state"></div></div>
     <span class="muted">${size(w.bytes)}</span></div>`;
+}
+// While the worktrees are being removed the choice must not change: renderDisk redraws the list and lifts this.
+function lockDisk(on) {
+  $("disk").classList.toggle("busy", on);
+  for (const el of $("disk").querySelectorAll("input[type=checkbox], #disk-remove, #disk-clean")) el.disabled = on;
 }
 async function renderDisk(msg = "") {
   const box = $("disk");
@@ -803,34 +816,62 @@ async function renderDisk(msg = "") {
     const items = [...picked].map((k) => { const [repo, path] = JSON.parse(k); return { repo, path }; });
     const bytes = [...picked].reduce((s, k) => s + (bytesOf.get(k) || 0), 0);
     if (!confirm(t("s.d.confirm", { n: items.length, size: size(bytes) }))) return;
+    lockDisk(true);
     const post = async (items, force) => (await fetch("/api/settings/worktrees/remove", { method: "POST", body: JSON.stringify({ items, force }) })).json();
-    $("disk-remove").disabled = true;
-    $("disk-remove").textContent = t("s.d.cleaning");
-    let r, kept = [], errors = [], removed = 0, branches = 0;
-    try {
-      r = await post(items, false);
-      removed += r.removed; branches += r.branches; errors = r.errors || [];
-      if (r.kept?.length) {
-        // Their changes would go with them: ask again.
-        const rows = r.kept.map((k) => `${k.path} (${t("s.d.dirty", { n: k.dirty })}, ${t("s.d.unpushed", { n: k.unpushed })})`).join("\n");
-        if (confirm(t("s.d.confirmForce", { list: rows }))) {
-          const f = await post(r.kept.map((k) => ({ repo: items.find((i) => i.path === k.path)?.repo, path: k.path })), true);
-          removed += f.removed; branches += f.branches; errors = errors.concat(f.errors || []);
-        } else {
-          kept = r.kept;
+    const rowOf = (item) => [...box.querySelectorAll("[data-row]")].find((r) => r.dataset.row === pickKey(item.repo, item.path));
+    const show = (item, cls, html) => {
+      const row = rowOf(item);
+      if (!row) return;
+      row.classList.remove("wt-doing", "wt-done", "wt-kept", "wt-err");
+      if (cls) row.classList.add(cls);
+      row.querySelector(".wt-state").innerHTML = html;
+    };
+    let kept = [], errors = [], removed = 0, branches = 0;
+    // One worktree per request, in turn, so that each row shows where the removal is.
+    const run = async (list, force) => {
+      const keptNow = [];
+      for (const [i, item] of list.entries()) {
+        $("disk-remove").textContent = t("s.d.progress", { i: i + 1, n: list.length });
+        show(item, "wt-doing", `<span class="spin"></span>${t("s.d.removingOne")}`);
+        try {
+          const r = await post([item], force);
+          const err = r.errors?.[0];
+          if (r.removed > 0) {
+            removed += r.removed; branches += r.branches;
+            show(item, "wt-done", esc(t("s.d.removedOne")));
+          } else if (r.kept?.length) {
+            keptNow.push({ item, k: r.kept[0] });
+            show(item, "wt-kept", esc(t("s.d.keptOne", { dirty: t("s.d.dirty", { n: r.kept[0].dirty }), unpushed: t("s.d.unpushed", { n: r.kept[0].unpushed }) })));
+          } else {
+            const e = err || { path: item.path, error: t("s.noAnswer") };
+            errors.push(e);
+            show(item, "wt-err", `<span class="bad">${esc(e.error)}</span>`);
+          }
+        } catch {
+          const e = { path: item.path, error: t("s.noAnswer") };
+          errors.push(e);
+          show(item, "wt-err", `<span class="bad">${esc(e.error)}</span>`);
         }
       }
-    } catch {
-      renderDisk(t("s.noAnswer"));
-      return;
+      return keptNow;
+    };
+    let keptItems = await run(items, false);
+    if (keptItems.length) {
+      // Their changes would go with them: ask again.
+      const rows = keptItems.map(({ k }) => `${k.path} (${t("s.d.dirty", { n: k.dirty })}, ${t("s.d.unpushed", { n: k.unpushed })})`).join("\n");
+      if (confirm(t("s.d.confirmForce", { list: rows }))) {
+        await run(keptItems.map((x) => x.item), true);
+      } else {
+        kept = keptItems;
+      }
     }
     picked.clear();
-    for (const k of kept) picked.add(pickKey(items.find((i) => i.path === k.path)?.repo, k.path));
+    for (const { item } of kept) picked.add(pickKey(item.repo, item.path));
     renderDisk(t("s.d.removed", { removed, branches }) + (kept.length ? t("s.d.keptList", { n: kept.length }) : "") +
       (errors.length ? t("s.d.errorList", { list: errors.map((e) => `${e.path.split("/").pop()}: ${e.error}`).join("; ") }) : ""));
   };
   $("disk-clean").onclick = async () => {
-    $("disk-clean").disabled = true;
+    lockDisk(true);
     $("disk-clean").textContent = t("s.d.cleaning");
     let r;
     try {
