@@ -18,7 +18,7 @@ What it changes:
 2. **Footer:** "Checked 1 min ago", check now, pause and "?" (why is a task missing) move to the bottom.
 3. **Groups by what moves:** At work, Blocked, In review, Reviews for me, New, Not done, Postponed, Done. Headings in sentence case, the count on the right.
 4. **Rows:** the title in two lines at most, no tracker icon when there is one tracker, the time on the right.
-5. **Group by project.** A folder button next to the filter switches the list between "by status" (the default) and "by project"; the choice is remembered.
+5. **Group by project.** A folder button next to the filter switches the list between "by project" (the default) and "by status"; the choice is remembered.
    - By project: a group per project (a coloured square, the short name, the path, the count), its tasks in work order, then Postponed and Done, each a folded line of its own with its count.
    - A project folds with a click on its heading (remembered); folded, it shows a one-line summary instead of its tasks ("1 new", "1 at work · 2 new", "nothing in work").
    - By status with several projects: inside a status group, a thin label per project over its tasks.

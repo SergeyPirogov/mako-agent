@@ -101,8 +101,8 @@ const FOLDED_BY_DEFAULT = { later: true, done: true, failed: true };
 let folded = (() => { try { return { ...FOLDED_BY_DEFAULT, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { ...FOLDED_BY_DEFAULT }; } })();
 // The list's filter.
 let query = "";
-// How the list is grouped, "status" or "project" (remembered), and the projects folded in the second (a click on the heading).
-let groupBy = (() => { try { return localStorage.getItem("mako-group") === "project" ? "project" : "status"; } catch { return "status"; } })();
+// How the list is grouped, "project" (the default) or "status" (the user's choice is remembered in mako-group), and the projects folded in the first (a click on the heading).
+let groupBy = (() => { try { return localStorage.getItem("mako-group") === "status" ? "status" : "project"; } catch { return "project"; } })();
 let foldedProjects = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-projects") || "[]"); } catch { return []; } })());
 // "Postponed" and "Done" of a project, opened on their own ("project|column").
 const openQuiet = new Set();
