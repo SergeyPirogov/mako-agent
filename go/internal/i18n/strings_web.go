@@ -425,6 +425,8 @@ var webStrings = map[string]string{
 	"b.resume":           "Search paused: resume",
 	"b.inOrca":           "In Orca",
 	"b.of":               "of",
+	"b.wipShortOrca":     "Orca",
+	"b.wipShortWork":     "Work",
 	"b.col.later":        "Postponed",
 	"b.col.new":          "New",
 	"b.col.doing":        "At work",

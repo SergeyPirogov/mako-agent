@@ -834,3 +834,45 @@ func TestPagesHaveNoCyrillic(t *testing.T) {
 		}
 	}
 }
+
+// The wording of the board's "waits for Fix" (a normal state, not a breakage) and the Fix in the merge's blockers.
+// The board has no script tests, so these check the page's source: the old wording is gone, the new one is in the
+// three places it is shown, the blockers' block holds its own Fix, and the phone's counter has a short label.
+func TestBoardFixWording(t *testing.T) {
+	src := string(board)
+	if strings.Contains(src, "never reached the agent") {
+		t.Error("board.html still says the remarks never reached the agent: it reads as a breakage")
+	}
+	const want = "The reviewer left remarks: press Fix to hand them to the agent"
+	// "Needs attention" and the blockers' line (for no counted blockers) both say it.
+	if n := strings.Count(src, want) + strings.Count(src, "The reviewer left ${n ?"); n < 2 {
+		t.Errorf("the text %q is shown %d times, want it in \"Needs attention\" and in the blockers", want, n)
+	}
+	if !strings.Contains(src, "the reviewer left remarks: press Fix to hand them to the agent. The numbers above do not count them yet.") {
+		t.Error("Quality's \"AI review\" card does not use the new wording")
+	}
+	// The Fix is in the "What blocks the merge" block itself, only while "Fix" can be pressed (step "notes").
+	i := strings.Index(src, "function blockersHTML(")
+	j := strings.Index(src[i:], "\n}\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no blockersHTML in board.html")
+	}
+	body := src[i : i+j]
+	if !strings.Contains(body, `r.reviewStep === "notes"`) || !strings.Contains(body, "reviewFixBtn(true, n)") {
+		t.Error("blockersHTML has no Fix button for the reviewer's blockers")
+	}
+	// No "Skip review" there: SkipReview refuses while the remarks are pending, so the button would only fail.
+	if strings.Contains(body, "skipBtn") || strings.Contains(body, "reviewskip") {
+		t.Error("blockersHTML offers Skip review, which the server refuses while remarks are pending")
+	}
+	// The phone's counter keeps a short word: the long ones are hidden there.
+	css := string(style)
+	if !strings.Contains(src, `<span class="ws">`) || !strings.Contains(css, ".wip .sl, .wip .ws { display: inline; }") {
+		t.Error("the phone's counter in the header has no short label")
+	}
+	for _, k := range []string{"b.wipShortOrca", "b.wipShortWork"} {
+		if i18n.WebStrings()[k] == "" {
+			t.Errorf("no text for %s", k)
+		}
+	}
+}

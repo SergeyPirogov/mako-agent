@@ -47,7 +47,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .wip { color: var(--mute); font-size: 13px; white-space: nowrap; flex: none; }
 .wip b { color: var(--fg); }
 .wip.full b { color: var(--warn); }
-.wip .sl { display: none; }
+.wip .sl, .wip .ws { display: none; }
 .waiting-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
   background: color-mix(in srgb, var(--warn) 14%, var(--card)); color: var(--warn); white-space: nowrap; }
 .waiting-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
@@ -1205,10 +1205,10 @@ details.journal .log { margin-top: 8px; }
    per screen, touch targets of 44 px, clear of the notch and the home indicator. */
 @media (max-width: 760px) {
   .actions :is(button, a.btn, details.menu > summary) { padding: 10px 14px; }
-  /* The header: 🦈, «2/5», the limits as numbers, the icons. */
+  /* The header: 🦈, «Orca 2/5», the limits as numbers, the icons. */
   header { gap: 4px; height: calc(48px + env(safe-area-inset-top)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(4px, env(safe-area-inset-right)); }
   .logo-t, .wip .w, #restart-note { display: none; }
-  .wip .sl { display: inline; }
+  .wip .sl, .wip .ws { display: inline; }
   .logo .ver { font-size: 10px; }
   .wip { font-size: 13px; margin-left: 4px; }
   /* Nothing in the header may push it past the screen: iOS would widen the page and drop the phone layout. */
