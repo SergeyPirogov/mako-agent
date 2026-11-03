@@ -67,7 +67,7 @@ func (s *Store) Update(id string, change func(r *core.Record)) core.Record {
 	defer s.mu.Unlock()
 	r, ok := s.records[id]
 	if !ok {
-		r = &core.Record{ID: id}
+		r = &core.Record{ID: id, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 		s.records[id] = r
 	}
 	change(r)

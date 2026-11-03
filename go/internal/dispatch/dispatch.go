@@ -309,6 +309,7 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 	if _, paused := d.Status(); paused {
 		return
 	}
+	d.dropPhantoms()
 	for _, t := range d.TrackerList() {
 		if !t.Config().ReviewRequests {
 			d.dropReviews(t.ID())
@@ -358,14 +359,25 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 			st, err := t.IssueState(ctx, r.Task)
 			switch {
 			case err != nil:
-			case st == "open" && recent(r.UpdatedAt):
-				// Just made or changed: the tracker's search may not have indexed it yet.
+			case st == "open" && recent(r.CreatedAt):
+				// Just made: the tracker's search may not have indexed it yet.
 			case st == "open":
 				d.Log(r.ID, "no longer matches the search, removing")
 				d.Store.Delete(r.ID)
 			default:
 				d.markGone(r, st)
 			}
+		}
+	}
+}
+
+// dropPhantoms removes the records that are not tasks: no status and no project, only what a stray background
+// write left (an estimate of a task removed meanwhile).
+func (d *Dispatcher) dropPhantoms() {
+	for _, r := range d.Store.All() {
+		if r.Status == "" && r.Task.Project == "" {
+			d.Log(r.ID, "removing an empty record")
+			d.Store.Delete(r.ID)
 		}
 	}
 }

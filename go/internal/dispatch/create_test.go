@@ -171,3 +171,16 @@ func TestPhantomRecordIsReplaced(t *testing.T) {
 		t.Fatalf("the phantom stayed: %+v", r)
 	}
 }
+
+// An empty record whose issue is not in the search at all (closed, reassigned) does not stay in state.json forever.
+func TestPhantomRecordIsDropped(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Store.Update("grp/app#99", func(r *core.Record) { r.Estimate = &core.Estimate{State: "done", Size: "small"} })
+	d.Poll(context.Background())
+	if r, ok := d.Store.Get("grp/app#99"); ok {
+		t.Fatalf("the phantom stayed: %+v", r)
+	}
+	if _, ok := d.Store.Get("grp/app#5"); !ok {
+		t.Fatal("a real task was dropped")
+	}
+}

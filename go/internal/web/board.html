@@ -328,6 +328,8 @@ async function load() {
     if (statsDays) q.set("days", statsDays);
     if (statsProject) q.set("project", statsProject);
     data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`)).json();
+    // A record without a project is not a task (a stray write made it): no group with no name, no row in «needs attention».
+    data.records = (data.records || []).filter((r) => r.task?.project);
     if (data.now) skew = Date.now() - data.now;
     // The words of the page, the first time.
     if (!Object.keys(I18N).length) {
@@ -428,8 +430,7 @@ function limitHoldHTML(h) {
 }
 
 function visible() {
-  // A record without a project is not a task (a stray write made it): a group with no name would show it.
-  return data.records.filter((r) => r.task.project && (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
+  return data.records.filter((r) => (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
 }
 
 // A commit subject for the "What's new" list: the "owner/repo#N: " prefix becomes a "#N ↗" link to the issue.

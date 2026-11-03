@@ -42,7 +42,7 @@ func Assessing(r core.Record) bool {
 	return a != nil && a.State == "running" && !stale(a.At)
 }
 
-// recent: the record changed less than searchLag ago.
+// recent: the record was made less than searchLag ago.
 func recent(at string) bool {
 	t, err := time.Parse(time.RFC3339Nano, at)
 	return err == nil && time.Since(t) < searchLag
@@ -78,5 +78,5 @@ func (d *Dispatcher) assess(ctx context.Context, id string) {
 	} else {
 		d.Log(id, "agent assessed the task")
 	}
-	d.Store.Update(id, func(r *core.Record) { r.Assessment = &a })
+	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Assessment = &a }) // not a record made anew if the task left meanwhile
 }
