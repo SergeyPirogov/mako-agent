@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 	"github.com/creack/pty"
 )
 
@@ -49,7 +50,15 @@ type Session struct {
 	onState func()
 	onSess  func(string)
 	done    chan struct{} // closed once the process ended and onState ran
+	drained chan struct{} // closed once the terminal gave its last output
 }
+
+// stopGrace: how long Stop waits after hanging up before it kills the agent and all it started.
+var stopGrace = 3 * time.Second
+
+// drainGrace: how long the end of the process waits for the terminal's last output. A descendant that outlived it
+// (an MCP server, a shell in a group of its own) may hold the terminal open: the agent has ended all the same.
+var drainGrace = time.Second
 
 // State: what the agent does now, from its hooks. "exited" once its process ended.
 type State struct {
@@ -77,7 +86,7 @@ type Options struct {
 func Start(o Options) (*Session, error) {
 	cmd := exec.Command(o.Command, o.Args...)
 	cmd.Dir = o.Worktree
-	cmd.Env = append(cleanEnv(os.Environ()), append([]string{"TERM=xterm-256color", "COLORTERM=truecolor", "FORCE_COLOR=1"}, o.Env...)...)
+	cmd.Env = append(proc.CleanEnv(os.Environ()), append([]string{"TERM=xterm-256color", "COLORTERM=truecolor", "FORCE_COLOR=1"}, o.Env...)...)
 	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 34})
 	if err != nil {
 		return nil, err
@@ -87,8 +96,9 @@ func Start(o Options) (*Session, error) {
 		state = "done"
 	}
 	s := &Session{ID: o.ID, Worktree: o.Worktree, Token: o.Token, cmd: cmd, pty: f, subs: map[chan Event]struct{}{},
-		state: state, since: time.Now(), onState: o.OnState, onSess: o.OnSession, done: make(chan struct{})}
+		state: state, since: time.Now(), onState: o.OnState, onSess: o.OnSession, done: make(chan struct{}), drained: make(chan struct{})}
 	go s.read()
+	go s.wait()
 	return s, nil
 }
 
@@ -107,7 +117,16 @@ func (s *Session) read() {
 			break
 		}
 	}
+	close(s.drained)
+}
+
+// wait: the agent ends with its process, not with its terminal, which a descendant may still hold.
+func (s *Session) wait() {
 	s.cmd.Wait()
+	select {
+	case <-s.drained:
+	case <-time.After(drainGrace):
+	}
 	s.mu.Lock()
 	s.exited = true
 	s.since = time.Now()
@@ -127,27 +146,6 @@ func (s *Session) read() {
 
 // Wait blocks until the process has ended and its last state change was reported.
 func (s *Session) Wait() { <-s.done }
-
-// The marks of a Claude Code session Mako may have been started from: an agent that inherits them takes itself
-// for that session's child and saves no transcript (so no last message and no --continue).
-var sessionMarks = map[string]bool{
-	"CLAUDECODE": true, "CLAUDE_PID": true, "CLAUDE_EFFORT": true, "CLAUDE_CODE_ENTRYPOINT": true,
-	"CLAUDE_CODE_EXECPATH": true, "CLAUDE_CODE_SESSION_ID": true, "CLAUDE_CODE_SESSION_ATTENDED": true,
-	"CLAUDE_CODE_CHILD_SESSION": true, "CLAUDE_CODE_MESSAGING_SOCKET": true, "CLAUDE_CODE_MESSAGING_TOKEN": true,
-}
-
-// CleanEnv drops the marks of the Claude Code session Mako may run in, so its agents are sessions of their own.
-func CleanEnv(env []string) []string { return cleanEnv(env) }
-
-func cleanEnv(env []string) []string {
-	out := env[:0:0]
-	for _, kv := range env {
-		if k, _, _ := strings.Cut(kv, "="); !sessionMarks[k] {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
 
 // validPrefix: the bytes up to a UTF-8 character the read cut in two.
 func validPrefix(b []byte) int {
@@ -266,21 +264,26 @@ func (s *Session) Output(max int) string {
 	return PlainTail(string(s.buf), max)
 }
 
-// Stop ends the agent: hang up its terminal, then kill it if it is still there.
+// Stop ends the agent: hang up its terminal, then kill it and all it started if it is still there.
 func (s *Session) Stop() {
 	if !s.Running() {
 		return
 	}
-	if p := s.cmd.Process; p != nil {
-		syscall.Kill(-p.Pid, syscall.SIGHUP)
-		p.Signal(syscall.SIGHUP)
-		go func() {
-			time.Sleep(3 * time.Second)
-			if s.Running() {
-				p.Kill()
-			}
-		}()
+	p := s.cmd.Process
+	if p == nil {
+		return
 	}
+	// The terminal starts the agent in a session of its own: its process group is the agent's pid.
+	syscall.Kill(-p.Pid, syscall.SIGHUP)
+	go func() {
+		select {
+		case <-s.done:
+			return
+		case <-time.After(stopGrace):
+		}
+		proc.KillGroup(p.Pid)
+		s.pty.Close()
+	}()
 }
 
 func (s *Session) set(state, reason, tool string) {

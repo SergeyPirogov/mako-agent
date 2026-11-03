@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
-	"github.com/SergeyPirogov/mako-agent/go/internal/term"
+	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 )
 
 // Item is one thing in the conversation, as the board draws it.
@@ -225,7 +225,7 @@ func (s *Session) run() {
 	s.pid = cmd.Process.Pid
 	s.mu.Unlock()
 	if stopped {
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		proc.KillGroup(cmd.Process.Pid)
 	}
 	s.write(map[string]any{"type": "control_request", "request_id": randomID(), "request": map[string]any{"subtype": "initialize"}})
 	if s.o.Prompt != "" {
@@ -243,7 +243,7 @@ func (s *Session) run() {
 		s.add(Item{Kind: "error", Text: "agent output unreadable: " + scanErr.Error()})
 		cmd.WaitDelay = 5 * time.Second
 		go io.Copy(io.Discard, stdout)
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		proc.KillGroup(cmd.Process.Pid)
 	}
 	err = cmd.Wait()
 	if err != nil && !stopping && scanErr == nil {
@@ -991,7 +991,7 @@ func (s *Session) Stop() {
 	go func() {
 		time.Sleep(3 * time.Second)
 		if s.Running() {
-			syscall.Kill(-pid, syscall.SIGKILL)
+			proc.KillGroup(pid)
 		}
 	}()
 }
@@ -1121,7 +1121,7 @@ func (l *limitWriter) Write(p []byte) (int, error) {
 }
 
 // environ: the environment without the marks of a Claude Code session Mako may run in.
-func environ() []string { return term.CleanEnv(os.Environ()) }
+func environ() []string { return proc.CleanEnv(os.Environ()) }
 
 // Manager keeps the conversations of all tasks and the account's last known limits; the limits are kept in a
 // file too, so a restarted Mako shows them before an agent reports again.
