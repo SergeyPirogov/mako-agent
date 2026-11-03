@@ -428,8 +428,8 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 	tc := t.Config()
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if tc.Projects[project] != nil || !tc.AllProjects || !strings.Contains(project, "/") {
+		d.mu.Unlock()
 		return
 	}
 	taken := map[string]bool{}
@@ -440,6 +440,7 @@ func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 			}
 		}
 	}
+	d.mu.Unlock()
 	parts := strings.Split(project, "/")
 	name := parts[len(parts)-1]
 	// Two projects called «frontend» in different groups must not share a folder.
@@ -449,8 +450,14 @@ func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 			break
 		}
 	}
+	// Looking for the clone walks the home folder: not under d.mu, which every handler of the board waits for.
 	existing := gitx.FindClone(d.Config().Home, project)
 	repo := d.Config().NewRepo(name, existing, config.DefaultCloneURL(tc, project), "", "")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if tc.Projects[project] != nil {
+		return // another poll added it while the clone was searched for
+	}
 	if tc.Projects == nil {
 		tc.Projects = map[string]*config.Project{}
 	}

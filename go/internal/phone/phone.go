@@ -416,11 +416,16 @@ type Action struct {
 // the app was removed or its permission taken back) is dropped.
 func (p *Phones) Push(ctx context.Context, m Message) []error {
 	payload, _ := json.Marshal(m)
+	// A snapshot of who to push to, taken under the lock: Subscribe changes a device's Push at any time.
+	type target struct {
+		name, token string
+		sub         webpush.Subscription
+	}
 	p.mu.Lock()
-	targets := []*Device{}
+	targets := []target{}
 	for _, d := range p.data.Devices {
 		if d.Push != nil {
-			targets = append(targets, d)
+			targets = append(targets, target{name: d.Name, token: d.Token, sub: *d.Push})
 		}
 	}
 	opts := &webpush.Options{
@@ -432,21 +437,21 @@ func (p *Phones) Push(ctx context.Context, m Message) []error {
 	}
 	p.mu.Unlock()
 	var errs []error
-	for _, d := range targets {
+	for _, t := range targets {
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		res, err := p.Send(cctx, payload, d.Push, opts)
+		res, err := p.Send(cctx, payload, &t.sub, opts)
 		cancel()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", d.Name, err))
+			errs = append(errs, fmt.Errorf("%s: %w", t.name, err))
 			continue
 		}
 		res.Body.Close()
 		switch {
 		case res.StatusCode == 404 || res.StatusCode == 410:
-			p.Subscribe(d.Token, nil)
-			errs = append(errs, fmt.Errorf("%s: the notification subscription is no longer valid", d.Name))
+			p.Subscribe(t.token, nil)
+			errs = append(errs, fmt.Errorf("%s: the notification subscription is no longer valid", t.name))
 		case res.StatusCode >= 300:
-			errs = append(errs, fmt.Errorf("%s: the notification service responded %d", d.Name, res.StatusCode))
+			errs = append(errs, fmt.Errorf("%s: the notification service responded %d", t.name, res.StatusCode))
 		}
 	}
 	return errs

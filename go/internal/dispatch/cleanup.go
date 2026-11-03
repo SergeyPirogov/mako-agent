@@ -263,18 +263,25 @@ const stopWait = 5 * time.Second
 
 // configuredRepos: every configured repository that is on the disk, once.
 func (d *Dispatcher) configuredRepos() []*config.Repo {
-	seen := map[string]bool{}
-	var out []*config.Repo
+	// The projects are read under d.mu, as ensureProject adds to them; the disk is looked at after it.
+	var all []*config.Repo
+	d.mu.Lock()
 	for _, t := range d.Config().Trackers {
 		for _, p := range t.Projects {
 			for _, repo := range p.Repos {
-				if seen[repo.Path] || !exists(repo.Path) {
-					continue
-				}
-				seen[repo.Path] = true
-				out = append(out, repo)
+				all = append(all, repo)
 			}
 		}
+	}
+	d.mu.Unlock()
+	seen := map[string]bool{}
+	var out []*config.Repo
+	for _, repo := range all {
+		if seen[repo.Path] || !exists(repo.Path) {
+			continue
+		}
+		seen[repo.Path] = true
+		out = append(out, repo)
 	}
 	return out
 }

@@ -45,3 +45,65 @@ func TestUpdateIfExists(t *testing.T) {
 		t.Fatalf("record %+v", r)
 	}
 }
+
+// Get, All and Update hand out copies that share nothing with the stored record: Update changing the record
+// (a pointer's field, a slice's append) does not reach a copy a reader holds, and the reader changing its copy
+// does not reach the store.
+func TestCopiesShareNothingWithTheStore(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Update("a", func(r *core.Record) {
+		r.Checks = &core.Checks{State: "passed"}
+		r.Estimate = &core.Estimate{Questions: "old"}
+		r.Task.Comments = []core.Comment{{Author: "me", Body: "one"}}
+	})
+	held, _ := s.Get("a")
+	all := s.All()
+	returned := s.Update("a", func(r *core.Record) {
+		r.Checks.Error = "boom"
+		r.Estimate.Questions = "new"
+		r.Task.Comments = append(r.Task.Comments, core.Comment{Body: "two"})
+	})
+	for name, r := range map[string]core.Record{"Get": held, "All": all[0]} {
+		if r.Checks.Error != "" || r.Estimate.Questions != "old" || len(r.Task.Comments) != 1 {
+			t.Errorf("%s: the copy changed with the store: %+v %+v", name, r.Checks, r.Estimate)
+		}
+	}
+	// The copy Update returns is the reader's too.
+	returned.Checks.Error = "mine"
+	returned.Task.Comments[0].Body = "mine"
+	held, _ = s.Get("a")
+	if held.Checks.Error != "boom" || held.Task.Comments[0].Body != "one" {
+		t.Errorf("changing the returned copy reached the store: %+v %+v", held.Checks, held.Task.Comments)
+	}
+}
+
+// Readers of copies run beside Updates (go test -race): what Get hands out is never the stored memory.
+func TestGetBesideUpdateDoesNotRace(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Update("a", func(r *core.Record) { r.Checks = &core.Checks{} })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			s.Update("a", func(r *core.Record) {
+				r.Checks.Error = "e"
+				r.Task.Comments = append(r.Task.Comments, core.Comment{Body: "c"})
+			})
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		r, _ := s.Get("a")
+		_ = r.Checks.Error
+		_ = len(r.Task.Comments)
+		for _, x := range s.All() {
+			_ = x.Checks.Error
+		}
+	}
+	<-done
+}

@@ -82,6 +82,33 @@ func TestPush(t *testing.T) {
 	}
 }
 
+// A phone re-subscribing (or dropping its subscription) while pushes go out must not race with them: Push works
+// on a snapshot of the subscription taken under the lock (go test -race).
+func TestPushBesideSubscribeDoesNotRace(t *testing.T) {
+	p, _ := Open(t.TempDir())
+	a, _ := p.Pair(p.NewPairing(), "iPhone", "")
+	p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/first"})
+	p.Send = func(ctx context.Context, msg []byte, sub *webpush.Subscription, o *webpush.Options) (*http.Response, error) {
+		if sub == nil || !strings.HasPrefix(sub.Endpoint, "https://web.push.apple.com/") {
+			t.Errorf("the push went to %+v", sub)
+		}
+		return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader(""))}, nil
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 300; i++ {
+			p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/second"})
+			p.Subscribe(a.Token, nil)
+		}
+	}()
+	for i := 0; i < 300; i++ {
+		p.Push(context.Background(), Message{Title: "x"})
+		p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/third"})
+	}
+	<-done
+}
+
 // A phones.json from before Mako kept the origin opens fine, keeps its phones and marks them as paired through
 // Tailscale; a phone paired at another address is not marked.
 func TestOldPhonesFileIsTailscale(t *testing.T) {
