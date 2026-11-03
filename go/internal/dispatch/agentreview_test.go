@@ -42,6 +42,30 @@ func TestSeen(t *testing.T) {
 	}
 }
 
+func TestReviewable(t *testing.T) {
+	ok := core.Record{Executor: terminalExecutor, Worktree: "/wt", Status: core.HandedOff}
+	with := func(f func(*core.Record)) core.Record { r := ok; f(&r); return r }
+	cases := []struct {
+		name string
+		r    core.Record
+		want bool
+	}{
+		{"in work", ok, true},
+		{"in an open MR", with(func(r *core.Record) { r.Status = core.Done; r.PRURL = "https://x/mr/1" }), true},
+		{"merged or closed", with(func(r *core.Record) { r.Status = core.Done; r.PRURL = "https://x/mr/1"; r.ReviewState = "merged" }), false},
+		{"done without an MR", with(func(r *core.Record) { r.Status = core.Done }), false},
+		{"archived", with(func(r *core.Record) { r.ArchivedAt = 1 }), false},
+		{"no worktree", with(func(r *core.Record) { r.Worktree = "" }), false},
+		{"not Mako's agent", with(func(r *core.Record) { r.Executor = "orca" }), false},
+	}
+	var d Dispatcher
+	for _, c := range cases {
+		if got := d.Reviewable(c.r); got != c.want {
+			t.Errorf("%s: Reviewable = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 // reviewSetup: Mako's agent on grp/app#5 in a worktree; prep changes the settings before it starts.
 func reviewSetup(t *testing.T, prep ...func(*config.Config)) (d *Dispatcher, cfg *config.Config, id, wt string, idle func(), f *fakeGitLab) {
 	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
