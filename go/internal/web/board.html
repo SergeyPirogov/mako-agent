@@ -682,9 +682,8 @@ function listByProject(entries, showAll) {
     const active = all.filter((e) => !QUIET.includes(e.g)), isFolded = foldedProjects.has(p) && !showAll;
     const count = (g) => all.filter((e) => e.g === g).length;
     const summary = order.filter((g) => SUMMARY[g] && count(g)).map((g) => g === "merge" ? `<span class="ok">${count(g)} ${SUMMARY[g]}</span>` : esc(`${count(g)} ${SUMMARY[g]}`)).join(" · ") || "nothing in work";
-    const dir = p.split("/").slice(0, -1).join("/");
     html += `<div class="group-box proj${isFolded ? " folded" : ""}"><button class="proj-head" data-proj="${esc(p)}" aria-expanded="${!isFolded}" title="${esc(p)}">${ICON.chevron}${projectDot(p)}<b>${esc(shortProject(p))}</b>`
-      + `<span class="${isFolded ? "p-sum" : "p-path"}">${isFolded ? summary : esc(dir)}</span><span class="n">${all.length}</span></button>`;
+      + (isFolded ? `<span class="p-sum">${summary}</span>` : "") + `<span class="n">${all.length}</span></button>`;
     if (!isFolded) {
       // Ready to merge first, under a small green heading: the next action for a person.
       const ready = active.filter((e) => e.g === "merge"), rest = active.filter((e) => e.g !== "merge");
