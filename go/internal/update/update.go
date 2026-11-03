@@ -147,7 +147,7 @@ func (u *Updater) Check(ctx context.Context) error {
 		}
 	}
 	// Merge commits ("Merge pull request #…") are no changes of their own: the commits they bring are counted.
-	out, err := gitx.Run(ctx, u.Source, "log", "--no-merges", "--format=%s", sha+"..origin/"+branch)
+	out, err := gitx.Run(ctx, u.Source, "log", "--no-merges", "--topo-order", "--format=%s", sha+"..origin/"+branch)
 	if err != nil {
 		return err
 	}

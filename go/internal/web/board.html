@@ -2151,9 +2151,11 @@ async function showCode() {
     const tk = e.target.closest("[data-ticket]");
     if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
     const pb = e.target.closest("[data-plan-block]");
-    if (pb) { const p = code.plans?.[pb.dataset.planBlock]; if (p) openPlanXfer(p.plan, p.title, planSource(code)); return; }
+    if (pb) { const p = code.plans?.[pb.dataset.planBlock]; if (p) openPlanXfer(p.plan, p.title, { ...planSource(code), thread: code.thread, doneKey: planKey(code.thread, +pb.dataset.planBlock), draftTitle: p.title || planTitle(p.plan) }); return; }
     const made = e.target.closest("[data-task]");
     if (made) { e.preventDefault(); code = null; select(made.dataset.task); return; }
+    const madeChat = e.target.closest("[data-chat]");
+    if (madeChat) { e.preventDefault(); code = null; openFreeChat(madeChat.dataset.chat); return; }
     if (e.target.closest("[data-open-ticket]")) { openMade(code.ticket); return; }
     if (e.target.closest("[data-ca-delete]")) { removeQuestion(code.thread); return; }
     // The agent's question: an option, or your own words.
@@ -2326,14 +2328,21 @@ function ticketOf(text) {
 const TICKETS_KEY = "mako-tickets";
 const ticketsMade = () => { try { return JSON.parse(localStorage.getItem(TICKETS_KEY)) || {}; } catch { return {}; } };
 const ticketSource = (thread, i) => `${thread}#${i}`;
+// The plan of the same answer has its own key, so it never marks the ticket of that answer as made.
+const planKey = (thread, i) => `${thread}#${i}#plan`;
+// The link to what a chat made: a task (its tracker's page, or the board) or a free chat.
+function madeLink(id) {
+  if (id.startsWith("chat-")) return `<a href="#${encodeURIComponent(id)}" data-chat="${esc(id)}">${esc(id)}</a>`;
+  const rec = data?.records?.find((r) => r.id === id);
+  return rec?.task?.url ? `<a href="${esc(rec.task.url)}" target="_blank" rel="noopener">${esc(id)}</a>` : `<a href="#${encodeURIComponent(id)}" data-task="${esc(id)}">${esc(id)}</a>`;
+}
 function rememberTicket(source, title, id) {
   try { localStorage.setItem(TICKETS_KEY, JSON.stringify({ ...ticketsMade(), [source]: { id, title } })); } catch {}
 }
 function ticketCard(d, i, thread) {
   const made = ticketsMade()[ticketSource(thread, i)];
   const done = made && made.title === d.title ? made.id : null;
-  const rec = done && data?.records?.find((r) => r.id === done);
-  const link = done ? (rec?.task?.url ? `<a href="${esc(rec.task.url)}" target="_blank" rel="noopener">${esc(done)}</a>` : `<a href="#${encodeURIComponent(done)}" data-task="${esc(done)}">${esc(done)}</a>`) : "";
+  const link = done ? madeLink(done) : "";
   return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Ticket draft</span></div>
     <b>${esc(d.title)}</b><div class="md ca-ticket-body">${md(d.description)}</div>
     <div class="ca-ticket-foot">${done ? `<span class="muted">Task ${link}</span>` : `<span class="muted">You can edit it and pick a tracker before creating</span>`}<span class="spacer"></span>
@@ -2347,6 +2356,19 @@ function toTicket(d, i) {
   openTicketDialog({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
+// The Ask chat is done: it keeps the id of the task or the chat it led to (shown in the history and above the chat).
+async function markCodeDone(v, thread, id) {
+  const r = !thread ? { ok: false, error: "the chat has no id yet" } : await fetch(`/api/code/done?id=${encodeURIComponent(thread)}&ticket=${encodeURIComponent(id)}`, { method: "POST" })
+    .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+  await load();
+  if (v !== code) return r;
+  const t = v.threads?.find((x) => x.id === thread);
+  if (r.ok && t) t.ticket = id;
+  if (v.thread === thread) renderCode();
+  loadThreads();
+  return r;
+}
+
 // The form in a dialog over the chat. A task made, the chat is marked done with its id and stays: the developer opens
 // the task only if they want to.
 function openTicketDialog(draft) {
@@ -2354,15 +2376,8 @@ function openTicketDialog(draft) {
   const close = () => { dlg.close(); box.innerHTML = ""; };
   taskForm(box, { draft, onCancel: close, onCreated: async (res) => {
     close();
-    const r = !thread ? { ok: false, error: "the chat has no id yet" } : await fetch(`/api/code/done?id=${encodeURIComponent(thread)}&ticket=${encodeURIComponent(res.id)}`, { method: "POST" })
-      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    const r = await markCodeDone(v, thread, res.id);
     if (!r.ok) toast(`Task ${res.id} created, but the chat was not marked done: ${r.error}`, true);
-    await load();
-    if (v !== code) return;
-    const t = v.threads?.find((x) => x.id === thread);
-    if (r.ok && t) t.ticket = res.id;
-    if (v.thread === thread) renderCode();
-    loadThreads();
   } });
   dlg.onclose = () => { box.innerHTML = ""; };
   dlg.showModal();
@@ -2373,7 +2388,7 @@ function openTicketDialog(draft) {
 function openMade(id) {
   if (!id) return;
   code = null;
-  select(id);
+  if (id.startsWith("chat-")) openFreeChat(id); else select(id);
 }
 
 // The plan the agent proposes in Ask about code: a fenced mako-plan block of JSON {title, plan}, handled like the ticket.
@@ -2385,11 +2400,13 @@ function planOf(text) {
   try { const j = JSON.parse(m[1]); if (j && typeof j.plan === "string" && j.plan.trim()) p = { title: String(j.title ?? "").trim(), plan: j.plan.trim() }; } catch {}
   return p ? { text: text.replace(m[0], ""), plan: p } : { text, plan: null };
 }
-function planBlockCard(p, i) {
+function planBlockCard(p, i, thread) {
+  const made = thread ? ticketsMade()[planKey(thread, i)] : null;
+  const done = made && made.title === (p.title || planTitle(p.plan)) ? made.id : null;
   return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Plan</span></div>
     ${p.title ? `<b>${esc(p.title)}</b>` : ""}<div class="md ca-ticket-body">${md(p.plan)}</div>
-    <div class="ca-ticket-foot"><span class="muted">${data?.remote ? "Plans are handed over from the Mac" : "Hand it over to a new or an existing session"}</span><span class="spacer"></span>
-      ${data?.remote ? "" : `<button type="button" class="primary" data-plan-block="${i}">Send plan to…</button>`}</div></div>`;
+    <div class="ca-ticket-foot">${done ? `<span class="muted">${done.startsWith("chat-") ? "Sent to chat" : "Task"} ${madeLink(done)}</span>` : `<span class="muted">${data?.remote ? "Plans are handed over from the Mac" : "Hand it over to a new or an existing session"}</span>`}<span class="spacer"></span>
+      ${done ? `<button type="button" disabled>Plan sent</button>` : data?.remote ? "" : `<button type="button" class="primary" data-plan-block="${i}">Send plan to…</button>`}</div></div>`;
 }
 
 // «Send plan to…»: the plan's text (not a path to its file) goes to another session; the plan's own session stays as it
@@ -2421,7 +2438,16 @@ const planXferBtn = (it) => data?.remote || !(it.input?.plan ?? "").trim() ? "" 
 
 async function openPlanXfer(plan, title, src) {
   const dlg = $("plan-xfer-dlg"), box = $("plan-xfer-box");
+  const v = src.thread ? code : null; // started from Ask about code: it stays open and is marked done
   const close = () => { dlg.close(); box.innerHTML = ""; };
+  // Sent from Ask: the chat stays, done, with the id of where the plan went.
+  const sentFromAsk = async (id, what) => {
+    close();
+    rememberTicket(src.doneKey, src.draftTitle, id);
+    const r = await markCodeDone(v, src.thread, id);
+    if (!r.ok) toast(`Plan sent to ${what}, but the chat was not marked done: ${r.error}`, true);
+    else toast(`Plan sent to ${what}`);
+  };
   const [projects, chats] = await Promise.all([getJSON("/api/code/projects").then((r) => r.projects ?? []), getJSON("/api/chats").then((r) => r.chats ?? [])]);
   const key = src.key || projects.find((x) => x.tracker === src.tracker && x.project === src.project)?.key || projects[0]?.key || "";
   const post = (url, init) => fetch(url, { method: "POST", ...init }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
@@ -2454,18 +2480,21 @@ async function openPlanXfer(plan, title, src) {
     if (act === "task") {
       const p = projects.find((x) => x.key === key);
       close();
-      return openPlanTask({ title: (title || planTitle(plan)).slice(0, 250), desc: `${plan.trim()}\n\n${planFrom(src.from)}`, tracker: p?.tracker ?? src.tracker, project: p?.project ?? src.project, fromPlan: true });
+      const draft = { title: (title || planTitle(plan)).slice(0, 250), desc: `${plan.trim()}\n\n${planFrom(src.from)}`, tracker: p?.tracker ?? src.tracker, project: p?.project ?? src.project, fromPlan: true };
+      return v ? openTicketDialog({ ...draft, source: src.doneKey, draftTitle: src.draftTitle }) : openPlanTask(draft);
     }
     b.disabled = true;
     if (act === "go-chat") {
       const r = await post("/api/chats/new", { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: $("px-project").value, text: planMessage(plan, title, src.from), fromPlan: true }) });
       if (!r.ok) { draw("chat", r.error || "Could not start the chat"); return; }
+      if (v) return sentFromAsk(r.id, "a new chat");
       close(); code = null; openFreeChat(r.id);
       return;
     }
     const id = b.dataset.pxTo;
     const r = await post(`/api/say?id=${encodeURIComponent(id)}&plan=1`, { body: planMessage(plan, title, src.from) });
     if (!r.ok) { draw("existing", r.error || "Could not send the plan"); return; }
+    if (v) return sentFromAsk(id, id.startsWith("chat-") ? "the chat" : `task ${id}`);
     close(); code = null;
     if (id.startsWith("chat-")) openFreeChat(id); else select(id);
   };
@@ -2568,7 +2597,7 @@ function drawThreads() {
       <button type="button" class="danger" data-sel="delete" ${v.sel.size ? "" : "disabled"}>Delete selected (${v.sel.size})</button>
       <button type="button" class="ghost" data-sel="cancel">Cancel</button>`;
   }
-  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}${t.ticket ? " done" : ""}${v.selecting && v.sel.has(t.id) ? " sel" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}${t.ticket ? ` — done, task ${esc(t.ticket)}` : ""}">
+  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}${t.ticket ? " done" : ""}${v.selecting && v.sel.has(t.id) ? " sel" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}${t.ticket ? ` — done, ${t.ticket.startsWith("chat-") ? "chat" : "task"} ${esc(t.ticket)}` : ""}">
       ${v.selecting ? `<input type="checkbox" class="ca-check" tabindex="-1" aria-label="Select the question" ${v.sel.has(t.id) ? "checked" : ""}>` : ""}<span>${t.ticket ? "✓ " : ""}${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
       ${v.selecting ? "" : `<button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button>`}</div>`).join("")
     : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
@@ -2594,8 +2623,9 @@ function renderCode() {
   const items = s?.items ?? [];
   v.drafts = {}; v.plans = {};
   v.ticket = v.threads?.find((t) => t.id === v.thread)?.ticket ?? "";
-  const done = v.ticket ? `<div class="ca-done"><span>✓ Chat is done: task <b>${esc(v.ticket)}</b> was created. You can still ask more here.</span><span class="spacer"></span>
-    <button type="button" data-open-ticket>Open task</button><button type="button" data-ca-delete>Delete question</button></div>` : "";
+  const toChat = v.ticket.startsWith("chat-");
+  const done = v.ticket ? `<div class="ca-done"><span>✓ Chat is done: ${toChat ? "the plan was sent to chat" : "task"} <b>${esc(v.ticket)}</b>${toChat ? "" : " was created"}. You can still ask more here.</span><span class="spacer"></span>
+    <button type="button" data-open-ticket>${toChat ? "Open chat" : "Open task"}</button><button type="button" data-ca-delete>Delete question</button></div>` : "";
   v.list.innerHTML = `<div class="chat-col">${done}${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, plans: v.plans, snap: s, ticket: v.ticket }) ||
       `<div class="files-empty">${v.thread ? "Loading the conversation…" : "Ask a question about the project's code: the agent will find the answer and show the places in the code."}</div>`}
     ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}</div>`;
@@ -4318,7 +4348,7 @@ function chatItem(it, i, v) {
       const pl = planOf(it.text), t = ticketOf(pl.text);
       if (t.draft) v.drafts[i] = t.draft;
       if (pl.plan && v.plans) v.plans[i] = pl.plan;
-      return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i, v.id) : ""}${pl.plan ? planBlockCard(pl.plan, i) : ""}</div>`;
+      return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i, v.id) : ""}${pl.plan ? planBlockCard(pl.plan, i, v.id) : ""}</div>`;
     }
     case "tool": {
       const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
