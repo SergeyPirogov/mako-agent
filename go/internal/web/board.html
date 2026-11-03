@@ -3541,6 +3541,18 @@ const STAGE_MARK = {
 };
 const STAGE_WORD = { done: "done", now: "current", fail: "failed", skip: "skipped", todo: "not yet" };
 const stageOpen = {};
+// On a phone the strip scrolls sideways: it keeps where it was scrolled to over the board's reloads, and the first time a
+// task is shown it opens on the stage the work is at (the current or the failed one), not on «Estimate».
+const stripScroll = {};
+function revealStage(strip, id) {
+  if (!strip) return;
+  if (stripScroll[id] != null) { strip.scrollLeft = stripScroll[id]; return; }
+  const cur = strip.querySelector(".st.now, .st.fail");
+  if (cur && strip.scrollWidth > strip.clientWidth) {
+    strip.scrollLeft = cur.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft - (strip.clientWidth - cur.offsetWidth) / 2;
+  }
+  stripScroll[id] = strip.scrollLeft;
+}
 function stripHTML(r, card) {
   const ss = r.card?.stages;
   if (!ss?.length) return "";
@@ -3790,7 +3802,10 @@ function renderDetail() {
   const answering = document.activeElement?.dataset?.qa != null && { qa: document.activeElement.dataset.qa, at: [document.activeElement.selectionStart, document.activeElement.selectionEnd] };
   // An open menu ("⋯", Snooze, model) stays open: the board re-renders every few seconds.
   const openMenus = [...$("detail").querySelectorAll("details.menu")].map((m) => m.open);
+  const strip0 = $("detail").querySelector(".stage-strip");
+  if (strip0) stripScroll[r.id] = strip0.scrollLeft;
   $("detail").innerHTML = shown = html;
+  revealStage($("detail").querySelector(".stage-strip"), r.id);
   $("detail").querySelectorAll("details.menu").forEach((m, i) => { if (openMenus[i]) m.open = true; });
   bindAnswers(r, answering);
   const tp2 = $("detail").querySelector(".task-pane");

@@ -1742,8 +1742,17 @@ details.desc .r { flex: none; color: var(--accent) !important; }
   .d-head .actions { flex-wrap: wrap; }
   .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary) { height: 44px; padding-block: 0; }
   details.more > summary.icon { width: 44px; }
-  .stage-strip { overflow-x: auto; scrollbar-width: none; }
-  .stage-strip .st { flex: none; min-width: 108px; }
+  /* The strip scrolls sideways: every stage keeps its own width (its status wraps, it is not cut), the stages snap, and the
+     shadow at an edge (and the card's colour covering it at the very end) says there is more on that side. */
+  .stage-strip { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: 6px; overscroll-behavior-x: contain;
+    background:
+      linear-gradient(to right, var(--card) 30%, transparent) left center / 36px 100% no-repeat local,
+      linear-gradient(to left, var(--card) 30%, transparent) right center / 36px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / .22), transparent) left center / 12px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / .22), transparent) right center / 12px 100% no-repeat scroll,
+      var(--card); }
+  .stage-strip::-webkit-scrollbar { display: none; }
+  .stage-strip .st, .stage-strip .st:last-child { flex: none; width: 138px; max-width: none; min-width: 0; padding: 10px 6px 10px 12px; scroll-snap-align: start; }
   .rec-line .rec-why { flex-basis: 100%; }
 }
 .ws-bar .actions > button svg { vertical-align: -3px; margin-right: 4px; }
