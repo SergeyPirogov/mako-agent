@@ -1048,6 +1048,9 @@ func TestBoardMergeHeldAfterConfirm(t *testing.T) {
 		// An error frees the button again and shows the toast, for the merge as well as for ask.
 		`if (action === "ask" || action === "merge") asked.delete(`,
 		`action === "ask" ? kind : action}`,
+		// A slow merge keeps the button disabled past the 2-minute hold while the request is in flight.
+		`if (kind === "merge" && merging.has(id)) return true;`,
+		`if (action === "merge") merging.add(id);`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("board.html lacks %q", want)
@@ -1058,5 +1061,25 @@ func TestBoardMergeHeldAfterConfirm(t *testing.T) {
 	}
 	if !strings.Contains(css, ".merge-go.busy") || !strings.Contains(css, ".icon[data-merge].busy") {
 		t.Error("style.css has no .busy style for the merge button and icon")
+	}
+}
+
+// The style sheet's braces balance: a missing "}" once swallowed everything below the reduced-motion media block.
+func TestStyleBracesBalance(t *testing.T) {
+	css := string(style)
+	// Comments may hold braces; strip them first.
+	for {
+		i := strings.Index(css, "/*")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(css[i+2:], "*/")
+		if j < 0 {
+			t.Fatal("style.css has an unclosed comment")
+		}
+		css = css[:i] + css[i+2+j+2:]
+	}
+	if o, c := strings.Count(css, "{"), strings.Count(css, "}"); o != c {
+		t.Errorf("style.css has %d \"{\" and %d \"}\"", o, c)
 	}
 }

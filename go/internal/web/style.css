@@ -1220,7 +1220,7 @@ details.journal .log { margin-top: 8px; }
   section { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { button, a.btn, details.menu > summary { transition: none; } .s.ag-working::before { animation: none; }
-  .fix-btn.busy, .fix-btn.busy svg, .mr-h .icon[data-ask].busy, .mr-h .icon[data-ask].busy svg { animation: none;  .merge-go.busy svg, .mr-h .icon[data-merge].busy svg { animation: none; } #toast { transition: none; } }
+  .fix-btn.busy, .fix-btn.busy svg, .mr-h .icon[data-ask].busy, .mr-h .icon[data-ask].busy svg, .merge-go.busy svg, .mr-h .icon[data-merge].busy svg { animation: none; } #toast { transition: none; } }
 
 /* The board on a phone (iPhone 15 Pro Max is 430 px wide, SE 375): nothing wider than the screen, one scroll
    per screen, touch targets of 44 px, clear of the notch and the home indicator. */

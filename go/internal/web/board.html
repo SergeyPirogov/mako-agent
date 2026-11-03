@@ -1290,7 +1290,10 @@ const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}
 // ✨: the agent in the terminal does it; only while it runs.
 // A pressed ✨ stays a disabled check for ASK_HOLD, through the redraws the polling brings; the key is "<task>:<kind>".
 const asked = new Map(), ASK_HOLD = 120000;
+// A merge request still in flight holds its button past ASK_HOLD: a slow merge must not unlock a second click.
+const merging = new Set();
 function isAsked(id, kind) {
+  if (kind === "merge" && merging.has(id)) return true;
   const t = asked.get(`${id}:${kind}`);
   if (t === undefined) return false;
   if (Date.now() - t < ASK_HOLD) return true;
@@ -1850,7 +1853,9 @@ function toast(text, bad = false) {
 
 // The card's buttons: a request to the agent, or the merge.
 async function mrAction(id, action, kind = "") {
+  if (action === "merge") merging.add(id);
   const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
+  merging.delete(id);
   const failed = res.ok === false || !!res.error;
   const note = failed ? `⚠ ${res.error}` : "";
   // Success is a toast only: the card header already shows the merged/closed state, so no note under the card.
