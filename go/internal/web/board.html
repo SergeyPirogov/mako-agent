@@ -1505,6 +1505,7 @@ function reviewerBadge(r) {
 }
 // The remark's weight as people read it; the data and the reviewer's markers keep «must» / «should».
 const WEIGHT = { must: "blocker", should: "suggestion" };
+const WEIGHT_ICON = { must: "🛑", should: "💡" };
 // The table's order: blockers first, then suggestions, an unknown weight last; by the R number inside a weight.
 const RANK = { must: 0, should: 1 };
 const remarkNum = (id) => parseInt(String(id).replace(/\D/g, ""), 10) || 0;
@@ -1534,8 +1535,9 @@ function remarksTable(r, a, last, verdicts, answered) {
     const v = verdicts[m.id];
     const next = v ? chip("Re-check:", VERDICT[v.verdict], v.note) : "";
     const notes = [m.replyNote && REPLY[m.reply] ? `<div class="rm-note"><i>Agent:</i> ${inlineCode(m.replyNote)}</div>` : "", v?.note ? `<div class="rm-note"><i>Re-check:</i> ${inlineCode(v.note)}</div>` : ""].join("");
-    return `<li class="rm ${esc(m.weight)}"><div class="rm-h"><b class="rm-id">${esc(m.id)}</b><span class="rm-w">${WEIGHT[m.weight] ?? esc(m.weight)}</span>`
-      + `${m.again ? `<span class="rm-again" title="Not closed in the previous round">↻ again</span>` : ""}${where}<span class="rm-st">${reply}${next}</span></div>`
+    return `<li class="rm ${esc(m.weight)}"><div class="rm-h"><span class="rm-w">${WEIGHT_ICON[m.weight] ?? ""} ${WEIGHT[m.weight] ?? esc(m.weight)}</span>`
+      + `${m.again ? `<span class="rm-again" title="Not closed in the previous round">↻ again</span>` : ""}${where}`
+      + `<span class="rm-id" title="Remark ${esc(m.id)}: the agent's reply and the next round's re-check refer to it">#${remarkNum(m.id)}</span><span class="rm-st">${reply}${next}</span></div>`
       + `<div class="rm-t">${inlineCode(m.text)}</div>${notes}</li>`;
   }).join("");
   return `<ol class="rm-list">${items}</ol>`;
@@ -1552,7 +1554,7 @@ function reviewerHTML(r) {
     const text = a.state === "skipped" ? skippedText(a) : (a.state === "clean" ? cleanText(a) : (REVIEW_STATE[a.state] ?? ["", a.state])[1]) + (a.sent ? ", passed to the agent" : "");
     const links = [extLink(a.commentUrl, "comment in the task"), extLink(a.mrCommentUrl, "comment in the MR"), extLink(a.replyUrl, "agent's reply"), extLink(a.mrReplyUrl, "agent's reply in the MR")].filter(Boolean).join(" · ");
     const structured = a.remarks?.length || a.checks?.length;
-    const checks = a.checks?.length ? `<div class="rm-prev"><span class="muted">Re-checked:</span>${a.checks.map((c) => chip(esc(c.id), VERDICT[c.verdict], c.note)).join("")}</div>` : "";
+    const checks = a.checks?.length ? `<div class="rm-prev"><span class="muted">Re-checked:</span>${a.checks.map((c) => chip(`#${remarkNum(c.id)}`, VERDICT[c.verdict], c.note)).join("")}</div>` : "";
     const body = structured ? checks + (a.remarks?.length ? remarksTable(r, a, i === r.agentReviews.length - 1, verdictsAfter(i), !!a.replyAt) : "")
       + (a.replyAt && !a.remarks?.some((m) => m.reply) && a.reply ? `<details><summary class="muted">The agent gave no point-by-point report — what it wrote</summary><div class="summary">${md(a.reply)}</div></details>` : "")
       : a.notes ? `<div class="summary">${md(a.notes)}</div>` : "";
