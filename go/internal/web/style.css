@@ -1483,6 +1483,7 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 /* The estimate's advice, taken with a click. */
 .tchip.pick { cursor: pointer; font: inherit; background: var(--card); border-style: dashed; }
 .tchip.pick:hover { background: var(--hover); }
+.tchip.note { cursor: default; border-color: transparent; background: none; padding-left: 0; color: var(--mute); }
 .tchip.pick.on { border-style: solid; color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
 .tchip.st { color: var(--purple); border-color: color-mix(in srgb, var(--purple) 35%, var(--line)); }
 /* A tracker's error can be long: one line, cut; the whole of it in the tooltip. */
@@ -1652,11 +1653,11 @@ button.link:hover { background: none; text-decoration: underline; }
 .est-line .eb.good .pips i.on { background: var(--ok); }
 .est-line .eb.mid .pips i.on { background: var(--warn); }
 .est-line .eb.bad .pips i.on { background: var(--err); }
-.rec-line { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; min-width: 0; }
+.rec-line { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; min-width: 0; }
 .rec-line .ic { width: 20px; height: 20px; border-radius: 6px; flex: none; display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
   background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
 .rec-line .tchip { flex: none; }
-.rec-line .rec-why { flex: 1; min-width: 0; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-line .rec-why { flex: 1 1 240px; min-width: 0; color: var(--mute); white-space: normal; overflow-wrap: anywhere; }
 details.qs { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--warn) 6%, var(--card)); }
 details.qs > summary { display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer; font-size: 13px; font-weight: 600; list-style: none; }
 details.qs > summary::-webkit-details-marker { display: none; }
@@ -1699,8 +1700,7 @@ details.desc .r { flex: none; color: var(--accent) !important; }
   details.more > summary.icon { width: 44px; }
   .stage-strip { overflow-x: auto; scrollbar-width: none; }
   .stage-strip .st { flex: none; min-width: 108px; }
-  .rec-line { flex-wrap: wrap; }
-  .rec-line .rec-why { flex-basis: 100%; white-space: normal; }
+  .rec-line .rec-why { flex-basis: 100%; }
 }
 .ws-bar .actions > button svg { vertical-align: -3px; margin-right: 4px; }
 .ws-bar .actions { align-items: center; }
