@@ -610,9 +610,10 @@ const showTrackerMark = () => (data?.trackers || []).length > 1;
 // A task's row: its title (two lines at most); a line with the dot, the number, the badges and the time; and, when it
 // needs room, the status on a line of its own. The number is the short one (#333, PROJ-12), the full id is in the tooltip.
 const shortId = (id) => id.replace(/^.*(?=#\d+$)/, "");
+// The row shows a status with a capital first letter (cap); the strings stay as they are: "agent stopped" is checked on them.
 function taskRow(r) {
   const st = state(r);
-  const [say, tone, more] = cardStatus(r), why = r.error && r.status !== "cancelled" ? r.error : more ?? say;
+  const [say0, tone, more] = cardStatus(r), say = cap(say0), why = cap(r.error && r.status !== "cancelled" ? r.error : more ?? say0);
   const badges = `${reviewBadge(r)}${checksBadge(r)}`;
   // A calm short status ("the agent works") stays in the meta line, so such a card is compact. A warn/err one, a long
   // one, or one next to the review/checks badges has no room there: it gets a line of its own, up to two lines long.
