@@ -119,7 +119,7 @@ func Group(items []Item, worktree string) []Turn {
 	for i, it := range items {
 		if it.Kind == "user" {
 			flush()
-			text, images := splitImages(it.Text)
+			text, images := SplitImages(it.Text)
 			turns = append(turns, Turn{Who: "user", At: it.At, Item: i, Text: text, Images: images,
 				Prompt: i == 0 && len(it.Text) > PromptAt})
 			cur = nil
@@ -439,7 +439,8 @@ var imageLine = regexp.MustCompile(`(?m)^\[Image: ([^\]\n]+)\]\s*$`)
 // ImageLine: how a picture attached to a message is named in it, for the agent to read.
 func ImageLine(path string) string { return "[Image: " + path + "]" }
 
-func splitImages(text string) (string, []string) {
+// SplitImages: the text of a message without the lines naming its pictures, and those pictures' paths.
+func SplitImages(text string) (string, []string) {
 	var images []string
 	for _, m := range imageLine.FindAllStringSubmatch(text, -1) {
 		images = append(images, strings.TrimSpace(m[1]))

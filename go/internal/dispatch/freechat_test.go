@@ -14,6 +14,27 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 )
 
+// A first message of a picture only (the attached lines) does not title the chat with the line naming the file.
+func TestNewChatTitleSkipsPictures(t *testing.T) {
+	d, _, _, _ := freeChatSetup(t)
+	p := d.CodeProjects()[0]
+	for text, want := range map[string]string{
+		"[Image: /tmp/screenshots/ask-new/a.png]":                  "Picture",
+		"Що на картинці?\n[Image: /tmp/screenshots/ask-new/a.png]": "Що на картинці?",
+		"[Image: /tmp/a.png]\n[Image: /tmp/b.png]\nОпиши обидві":   "Опиши обидві",
+	} {
+		id, err := d.NewChat(p.Key, text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, _ := d.freeChat(id)
+		if c.Title != want {
+			t.Fatalf("title of %q is %q, want %q", text, c.Title, want)
+		}
+		waitFor(t, func() bool { c, _ := d.freeChat(id); return c.Session != "" }, "the chat did not start")
+	}
+}
+
 // A chat without a task: its own worktree on a new branch from main, the agent with the terminal's settings and
 // the first message; a message after the agent stopped resumes its session; «×» takes the worktree away, the branch
 // stays.

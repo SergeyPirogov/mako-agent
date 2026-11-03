@@ -2312,23 +2312,55 @@ function mountFreeChat() {
   if ($("fc-new-box")) return;
   closeChat();
   slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty">Write what to do or ask: the first message starts the agent. In a project it first creates the chat's worktree and branch; with no project the agent works in an empty folder.</div></div></div>
-    <div class="chat-foot"><div class="chat-box"><textarea rows="2" aria-label="Message to the agent" placeholder="E.g.: try out a faster cache for the board; explain how the update works"></textarea>
-      <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.up}</button></div>
+    <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
+      <textarea rows="2" aria-label="Message to the agent" placeholder="E.g.: try out a faster cache for the board; explain how the update works. Paste a screenshot with ⌘V"></textarea>
+      <div class="chat-row"><span class="spacer"></span>
+        <input type="file" accept="image/*" multiple hidden>
+        <button type="button" class="icon chat-attach" title="Attach a picture (or paste it with ⌘V)" aria-label="Attach a picture">${ICON.clip}</button>
+        <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.up}</button></div></div>
       <div class="chat-keys" hidden></div></div></div>`;
   const input = slot.querySelector("textarea"), keys = slot.querySelector(".chat-keys"), btn = slot.querySelector(".chat-send");
+  const file = slot.querySelector('input[type="file"]'), clip = slot.querySelector(".chat-attach");
+  // The pictures attached: a new chat has no id yet, so they are kept under the shared one, as a new question's are.
+  const box = { el: $("fc-new-box"), input, att: [], loading: 0 };
+  const lock = () => { btn.disabled = box.sending || box.loading > 0; };
   const send = async () => {
-    const text = input.value.trim(), project = $("fc-project")?.value ?? "";
-    if (!text) return;
-    input.disabled = btn.disabled = true;
+    const text = [input.value.trim(), ...box.att.map((a) => a.line)].filter(Boolean).join("\n"), project = $("fc-project")?.value ?? "";
+    if (!text || box.loading || box.sending) return;
+    box.sending = true; input.disabled = clip.disabled = true; lock();
     keys.hidden = false; keys.classList.remove("err"); keys.textContent = project ? "Creating the worktree…" : "Starting the agent…";
     const r = await fetch("/api/chats/new", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project, text }) })
       .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
-    input.disabled = btn.disabled = false;
+    box.sending = false; input.disabled = clip.disabled = false; lock();
     if (!r.ok) { keys.classList.add("err"); keys.textContent = `⚠ ${r.error}`; return; }
     openFreeChat(r.id);
   };
+  const attach = async (files) => {
+    for (const f of files) {
+      if (!f.type.startsWith("image/")) continue;
+      box.loading++; lock();
+      const r = await fetch(`/api/attach?id=ask-new&name=${encodeURIComponent(f.name || "image.png")}`,
+        { method: "POST", headers: { "Content-Type": f.type }, body: f }).then((x) => x.json()).catch(() => ({ ok: false, error: "the picture did not upload" }));
+      box.loading--; lock();
+      if (!box.el.isConnected) return;
+      if (r.ok === false) { keys.hidden = false; keys.classList.add("err"); keys.textContent = `⚠ ${r.error}`; continue; }
+      keys.hidden = true; keys.classList.remove("err"); keys.textContent = "";
+      box.att.push({ line: r.line, url: r.url, name: f.name || "image" });
+      drawAttached(box);
+    }
+  };
   input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   btn.onclick = send;
+  clip.onclick = () => file.click();
+  file.onchange = () => { attach([...file.files]); file.value = ""; };
+  input.onpaste = (e) => {
+    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+    if (files.length) { e.preventDefault(); attach(files); }
+  };
+  slot.querySelector(".chat-att").onclick = (e) => {
+    const x = e.target.closest("[data-unattach]");
+    if (x) { box.att.splice(+x.dataset.unattach, 1); drawAttached(box); }
+  };
 }
 
 async function loadFreeChats() {
