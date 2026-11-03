@@ -24,8 +24,8 @@ async function loadI18n() {
 
 // askConfirm: Mako's own confirmation instead of the window's confirm(): resolves true on OK, false on Cancel, Esc
 // or a click outside. Focus starts on OK (on Cancel when danger, so a stray Enter does not destroy anything); a
-// destructive OK is red. {ok, cancel} are the buttons' labels.
-function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.cancel"), danger = false } = {}) {
+// destructive OK is red, and with success the OK is green. {ok, cancel} are the buttons' labels.
+function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.cancel"), danger = false, success = false } = {}) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
     dlg.className = "confirm-dlg";
@@ -37,7 +37,7 @@ function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.can
     const okBtn = document.createElement("button"), noBtn = document.createElement("button");
     okBtn.type = noBtn.type = "button";
     okBtn.textContent = ok; noBtn.textContent = cancel;
-    okBtn.className = danger ? "danger" : "primary";
+    okBtn.className = danger ? "danger" : success ? "success" : "primary";
     // The buttons and a click outside answer at once; Esc closes the dialog, and that is a cancel.
     let done = false;
     const answer = (yes) => { if (done) return; done = true; resolve(yes); dlg.remove(); };

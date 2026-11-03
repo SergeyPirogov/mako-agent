@@ -1470,6 +1470,11 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .confirm-a { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .confirm-a button.danger { color: #fff; background: var(--err); border-color: var(--err); font-weight: 600; }
 .confirm-a button.danger:hover { opacity: .9; background: var(--err); }
+.confirm-a button.success { color: #fff; background: var(--ok); border-color: var(--ok); font-weight: 600; }
+.confirm-a button.success:hover { opacity: .9; background: var(--ok); }
+/* --ok is light in the dark theme: white text on it is too faint, so the text goes dark. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .confirm-a button.success { color: #111214; } }
+:root[data-theme="dark"] .confirm-a button.success { color: #111214; }
 /* The task tab: the facts as chips, then a card per part of the task. */
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
 .tchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px;
