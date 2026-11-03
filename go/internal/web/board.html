@@ -81,6 +81,8 @@
 <dialog id="ca-ticket-dlg" aria-label="New task"><div id="ca-ticket-form"></div></dialog>
 <!-- "Send plan to…" on an agent's plan: a new chat, a new task or a chat that exists. -->
 <dialog id="plan-xfer-dlg" aria-label="Send plan to"><div id="plan-xfer-box"></div></dialog>
+<!-- A picture of a task, a chat or an agent's answer, enlarged over the board (the desktop app has no browser tab to open it in). -->
+<dialog id="pic-dlg" aria-label="Picture"><img id="pic-dlg-img" alt=""></dialog>
 <script src="/theme.js"></script>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
@@ -5262,6 +5264,16 @@ else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) 
 document.addEventListener("click", (e) => {
   for (const m of document.querySelectorAll("details.menu[open]")) if (!m.contains(e.target)) m.open = false;
 });
+// A click on a picture inside a link enlarges it over the board; Cmd/Ctrl+click still opens it on its own.
+document.addEventListener("click", (e) => {
+  const img = e.target.closest?.("a > img");
+  if (!img || e.metaKey || e.ctrlKey) return;
+  e.preventDefault();
+  $("pic-dlg-img").src = img.closest("a").href;
+  $("pic-dlg-img").alt = img.alt;
+  $("pic-dlg").showModal();
+});
+$("pic-dlg").addEventListener("click", () => $("pic-dlg").close());
 window.addEventListener("hashchange", () => {
   const since = digestHash();
   if (since) return loadDigest(since);
