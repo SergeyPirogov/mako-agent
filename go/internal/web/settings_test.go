@@ -143,3 +143,14 @@ func TestWorktreeRemoveEndpoints(t *testing.T) {
 		t.Fatalf("unknown project: %d %+v %v", res.StatusCode, out, err)
 	}
 }
+
+// On the first start the «Add a tracker» pane shows the tracker tiles first; the language card follows them.
+func TestSettingsFirstRunOrder(t *testing.T) {
+	page := string(settingsPage)
+	pane := page[strings.Index(page, `data-pane="add"`):]
+	pane = pane[:strings.Index(pane, `data-pane="language"`)]
+	title, tiles, lang := strings.Index(pane, `data-t="s.add.title"`), strings.Index(pane, `class="add-big"`), strings.Index(pane, `id="first-language"`)
+	if title < 0 || tiles < 0 || lang < 0 || !(title < tiles && tiles < lang) {
+		t.Fatalf("order in the add pane: title %d, tiles %d, language %d", title, tiles, lang)
+	}
+}

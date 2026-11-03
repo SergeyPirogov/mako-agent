@@ -55,6 +55,7 @@ body { display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .add-big { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .add-big button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px; text-align: left; border-radius: 12px; }
+#first-language { margin-top: 16px; }
 .add-big span { color: var(--mute); font-size: 12.5px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 .lead { color: var(--mute); margin: 0 0 20px; }
@@ -132,7 +133,6 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <div id="trackers"></div>
     </div>
     <div class="pane" data-pane="add">
-      <div class="card" id="first-language"></div>
       <h2 data-t="s.add.title">Add a tracker</h2>
       <p class="lead" data-t="s.add.lead"></p>
       <div class="add-big">
@@ -140,6 +140,7 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
         <button data-add="github"><b>GitHub</b><span data-t="s.add.github"></span></button>
         <button data-add="jira"><b>Jira Cloud</b><span data-t="s.add.jira"></span></button>
       </div>
+      <div class="card" id="first-language"></div>
     </div>
     <div class="pane" data-pane="language">
       <h2 data-t="s.lang.title"></h2>
@@ -634,7 +635,7 @@ function languageSelect() {
 function renderLanguage() {
   $("language").innerHTML = "";
   $("language").append(languageSelect());
-  // The first start: no trackers yet, the language comes first.
+  // The first start: no trackers yet, so the language is offered under the tracker tiles, not above them.
   const first = $("first-language");
   first.innerHTML = "";
   first.style.display = (cfg.trackers ?? []).length ? "none" : "";
