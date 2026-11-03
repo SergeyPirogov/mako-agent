@@ -100,3 +100,12 @@ func TestReviewHeldWhileCIRuns(t *testing.T) {
 		t.Fatalf("github %+v %v", c, err)
 	}
 }
+
+func TestGitHubFindReviewWithoutOwner(t *testing.T) {
+	gh, _ := NewGitHub(&config.Tracker{APIURL: "http://127.0.0.1:0"}, "tok")
+	for _, repo := range []string{"app", "", "/app"} {
+		if r, err := gh.FindReview(context.Background(), repo, "feat"); err == nil || r != nil {
+			t.Fatalf("repo %q: want error, got %+v %v", repo, r, err)
+		}
+	}
+}
