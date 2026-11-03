@@ -251,7 +251,7 @@ type Repo struct {
 }
 
 // ErrMissing: there is no mako.config.json yet (first start).
-var ErrMissing = errors.New("Mako is not set up yet")
+var ErrMissing = errors.New("the config is missing: Mako is not set up yet")
 
 // Load reads mako.config.json and .env from home. When the file is missing or wrong it still returns a config
 // with the defaults, so Mako starts and the settings page can fix it; the error says what is wrong.

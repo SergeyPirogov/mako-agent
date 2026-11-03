@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -229,22 +231,33 @@ func TestWaitingCanBeCancelledOrForced(t *testing.T) {
 			t.Fatalf("state %q (%s), want %q", u.Status().State, u.Status().Error, want)
 		}
 	}
-	newUpdater := func() (*Updater, *bool, *[]string) {
+	// quit and restarted are set by the update's goroutine and read by the test: guarded for -race.
+	type exits struct {
+		quit      atomic.Bool
+		mu        sync.Mutex
+		restarted []string
+	}
+	newUpdater := func() (*Updater, *exits) {
 		clone, built := repos(t)
 		exe := filepath.Join(t.TempDir(), "mako")
 		os.WriteFile(exe, []byte("old"), 0o755)
-		quit, restarted := false, []string{}
+		e := &exits{}
 		return &Updater{Source: clone, Revision: built, Exe: exe,
 			Busy: func() int { return 3 },
-			Quit: func() { quit = true },
+			Quit: func() { e.quit.Store(true) },
 			Build: func(_ context.Context, _, out string) error {
 				return os.WriteFile(out, []byte("new"), 0o755)
 			},
-			Restart: func(_ int, c []string) error { restarted = c; return nil },
-		}, &quit, &restarted
+			Restart: func(_ int, c []string) error {
+				e.mu.Lock()
+				defer e.mu.Unlock()
+				e.restarted = c
+				return nil
+			},
+		}, e
 	}
 
-	u, quit, _ := newUpdater()
+	u, e := newUpdater()
 	u.Start()
 	wait(u, "waiting")
 	if !u.Waiting() || u.Status().Busy != 3 {
@@ -254,7 +267,7 @@ func TestWaitingCanBeCancelledOrForced(t *testing.T) {
 		t.Fatal("not cancelled")
 	}
 	wait(u, "")
-	if u.Waiting() || *quit {
+	if u.Waiting() || e.quit.Load() {
 		t.Fatal("cancelled update restarted or still holds")
 	}
 	if b, _ := os.ReadFile(u.Exe); string(b) != "old" {
@@ -266,16 +279,19 @@ func TestWaitingCanBeCancelledOrForced(t *testing.T) {
 	u.Cancel()
 	wait(u, "")
 
-	u, quit, restarted := newUpdater()
+	u, e = newUpdater()
 	u.Start()
 	wait(u, "waiting")
 	if !u.Force() {
 		t.Fatal("not forced")
 	}
-	for i := 0; i < 500 && !*quit; i++ {
+	for i := 0; i < 500 && !e.quit.Load(); i++ {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if !*quit || len(*restarted) == 0 {
-		t.Fatalf("no restart: quit %v, %v", *quit, *restarted)
+	e.mu.Lock()
+	restarted := e.restarted
+	e.mu.Unlock()
+	if !e.quit.Load() || len(restarted) == 0 {
+		t.Fatalf("no restart: quit %v, %v", e.quit.Load(), restarted)
 	}
 }

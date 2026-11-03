@@ -714,7 +714,7 @@ func (d *Dispatcher) OpenWorktree(id, where, file string) error {
 // Claudes on one conversation would each go their own way.
 func (d *Dispatcher) OpenInTerminal(id string) error {
 	if runtime.GOOS != "darwin" {
-		return errors.New("Terminal.app is only on a Mac")
+		return errors.New("only a Mac has Terminal.app")
 	}
 	wt, _, err := d.workOf(id)
 	if err != nil {
@@ -738,7 +738,7 @@ func (d *Dispatcher) OpenInTerminal(id string) error {
 	}
 	script := terminalScript(wt, command, sid)
 	if err := exec.Command("osascript", "-e", `tell application "Terminal"`, "-e", "activate", "-e", "do script "+appleString(script), "-e", "end tell").Run(); err != nil {
-		return fmt.Errorf("Terminal.app did not open: %w", err)
+		return fmt.Errorf("could not open Terminal.app: %w", err)
 	}
 	d.Log(id, "the agent continues in Terminal.app")
 	return nil
