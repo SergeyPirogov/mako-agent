@@ -203,7 +203,7 @@ func stagesOf(v recordView, now time.Time) []stageView {
 			switch {
 			case last.Sent && last.ReplyAt != "" && last.Unverified:
 				// The agent says it fixed them, but the branch has no new commit: a person has to look.
-				rev.State, rev.Note = "fail", joinNote(rev.Note, "unverified")
+				rev.State, rev.label = "fail", "review: unverified fix"
 			case last.Sent && last.ReplyAt != "":
 				rev.State, rev.Note = "done", joinNote(rev.Note, "fixed")
 			case last.Sent:
@@ -326,6 +326,9 @@ func checksOf(ci, rev stageView) stageView {
 		}
 	case "fail":
 		rv = "review failed"
+		if rev.label != "" {
+			rv = rev.label
+		}
 	case "skip":
 		rv = "review skipped"
 	default:

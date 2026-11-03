@@ -176,18 +176,24 @@ func TestCardChecksAfterRemarks(t *testing.T) {
 		state, merge string
 		note         string // in the Checks note's review line
 		not          string // and not there
+		merged       bool   // the MR is merged
 	}{
-		{"answered", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t"}}, "", "done", "now", "review ✓ fixed", "running"},
-		{"answered, two rounds", []core.AgentReview{{State: "clean"}, {State: "notes", Sent: true, ReplyAt: "t"}}, "", "done", "now", "review ✓ 2 rounds, fixed", "running"},
-		{"unverified", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t", Unverified: true}}, "", "fail", "now", "unverified", "running"},
-		{"being fixed", []core.AgentReview{{State: "notes", Sent: true}}, "fixing", "now", "todo", "fixing remarks", "review running"},
-		{"not sent", []core.AgentReview{{State: "notes", Remarks: remarks}}, "notes", "now", "todo", "2 remarks", "review running"},
-		{"running", []core.AgentReview{{State: "running"}}, "running", "now", "todo", "review running", ""},
+		{"answered", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t"}}, "", "done", "now", "review ✓ fixed", "running", false},
+		{"answered, two rounds", []core.AgentReview{{State: "clean"}, {State: "notes", Sent: true, ReplyAt: "t"}}, "", "done", "now", "review ✓ 2 rounds, fixed", "running", false},
+		{"unverified", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t", Unverified: true}}, "", "fail", "now", "review: unverified fix", "review failed", false},
+		{"being fixed", []core.AgentReview{{State: "notes", Sent: true}}, "fixing", "now", "todo", "fixing remarks", "review running", false},
+		{"not sent", []core.AgentReview{{State: "notes", Remarks: remarks}}, "notes", "now", "todo", "2 remarks", "review running", false},
+		{"running", []core.AgentReview{{State: "running"}}, "running", "now", "todo", "review running", "", false},
+		{"answered, merged", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t"}}, "", "done", "done", "review ✓ fixed", "running", true},
+		{"unverified, merged", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t", Unverified: true}}, "", "done", "done", "review ✓", "unverified", true},
 	}
 	for _, c := range cases {
 		r := mr
 		r.AgentReviews = c.reviews
 		v := recordView{Record: r, Column: "review", ReviewStep: c.step}
+		if c.merged {
+			v.ReviewState, v.Column = "merged", "done"
+		}
 		got := map[string]stageView{}
 		for _, s := range stagesOf(v, now) {
 			got[s.Key] = s
