@@ -167,7 +167,7 @@ func (d *Dispatcher) DefaultModel(r core.Record) string {
 // wantsPlan decides at its start.
 func (d *Dispatcher) WillPlan(r core.Record) bool {
 	cfg := d.Config()
-	return cfg.Executor == terminalExecutor && wantsPlan(cfg.Terminal, r.Task, r.Estimate, r.PlanFirst)
+	return cfg.Executor == terminalExecutor && !r.NoPlan && wantsPlan(cfg.Terminal, r.Task, r.Estimate, r.PlanFirst)
 }
 
 // StartModel: the model the task's agent will start with, as the board shows it before the start: its work's route.

@@ -19,15 +19,23 @@ func (s *Server) chatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/chats", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"chats": s.D.FreeChats()})
 	})
-	// A new chat: {project, text}.
+	// A new chat: {project, text}; fromPlan: the text is an agent's plan handed over from another session, which the
+	// phone does not do.
 	mux.HandleFunc("POST /api/chats/new", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		var in struct{ Project, Text string }
+		var in struct {
+			Project, Text string
+			FromPlan      bool `json:"fromPlan"`
+		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		if in.FromPlan && remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		id, err := s.D.NewChat(in.Project, in.Text)

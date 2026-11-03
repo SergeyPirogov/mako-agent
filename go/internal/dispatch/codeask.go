@@ -38,6 +38,10 @@ var CodeModels = []string{"opus", "sonnet", "haiku"}
 // TicketFence: the fenced block the agent proposes a ticket in, JSON {"title", "description"}.
 const TicketFence = "mako-ticket"
 
+// PlanFence: the fenced block the agent proposes a plan in, JSON {"title", "plan"}: the developer hands it over to
+// another session (a new chat, a new task, a chat that exists).
+const PlanFence = "mako-plan"
+
 const codePrompt = "You help the developer explore the code in this repository: answer questions, look for problems, " +
 	"come up with ideas. You may read, search and run commands (tests, builds, git log, scripts), but never change, " +
 	"create or delete files, and never change the repository (no git commit, push, checkout, reset, branch changes): " +
@@ -48,7 +52,11 @@ const codePrompt = "You help the developer explore the code in this repository: 
 	"an idea worth a ticket, or the developer asks for one, end the answer with one fenced code block whose language " +
 	"is " + TicketFence + " holding JSON {\"title\": \"…\", \"description\": \"…\"}: a short title and a Markdown " +
 	"description (what, why, where in the code, how to check), in the language of the conversation. The developer " +
-	"edits it and creates the ticket from it."
+	"edits it and creates the ticket from it. When the conversation comes to a plan for a change in the code, or the " +
+	"developer asks for a plan, end the answer instead with one fenced code block whose language is " + PlanFence +
+	" holding JSON {\"title\": \"…\", \"plan\": \"…\"}: a short title and the plan in Markdown (the steps, the " +
+	"files as path:line, how to check it), in the language of the conversation, so that another agent can carry it " +
+	"out without this conversation. The developer hands it over to a session of their choice."
 
 // askSlug: the folder of a project's shared worktree among the worktrees of its tasks.
 const askSlug = "mako-ask"

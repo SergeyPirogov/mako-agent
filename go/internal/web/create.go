@@ -29,13 +29,18 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 			Description string `json:"description"`
 			Type        string `json:"type"` // "task" or "bug"
 			Take        bool   `json:"take"`
+			FromPlan    bool   `json:"fromPlan"` // made from an agent's plan: not from the phone, and no plan mode
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": "could not read the task: " + err.Error()})
 			return
 		}
+		if in.FromPlan && remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		n := trackers.NewIssue{Project: in.Project, Title: in.Title, Description: in.Description, Bug: in.Type == "bug"}
-		id, err := s.D.CreateTask(context.WithoutCancel(r.Context()), in.Tracker, n, in.Take)
+		id, err := s.D.CreateTaskWith(context.WithoutCancel(r.Context()), in.Tracker, n, in.Take, in.FromPlan)
 		if err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return

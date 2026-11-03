@@ -398,6 +398,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		ctx := context.WithoutCancel(r.Context())
 		action, id := r.PathValue("action"), r.URL.Query().Get("id")
+		if action == "say" && r.URL.Query().Get("plan") == "1" && remote(r) {
+			// An agent's plan handed over to this session: from the Mac only.
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		if action == "show" {
 			if s.Show == nil {
 				http.Error(w, "no window", http.StatusNotImplemented)

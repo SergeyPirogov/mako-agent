@@ -193,3 +193,22 @@ func TestFreeChatAttach(t *testing.T) {
 		t.Fatalf("say %v", err)
 	}
 }
+
+// A plan handed over to a new chat: its first line names the chat, and the agent gets the whole text, with the line
+// that says where the plan comes from.
+func TestNewChatFromPlan(t *testing.T) {
+	d, _, _, out := freeChatSetup(t)
+	p := d.CodeProjects()[0]
+	text := "Execute this plan: Faster cache\n\n1. Add the cache\n2. Test it\n\n_Plan from task grp/app#3 \"Cache\"._"
+	id, err := d.NewChat(p.Key, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs := d.FreeChats(); len(cs) != 1 || cs[0].ID != id || cs[0].Title != "Execute this plan: Faster cache" {
+		t.Fatalf("chats %+v", cs)
+	}
+	waitFor(t, func() bool {
+		b, _ := os.ReadFile(filepath.Join(out, "msgs.txt"))
+		return strings.Contains(string(b), "_Plan from task grp/app#3")
+	}, "the plan did not reach the agent")
+}
