@@ -248,7 +248,7 @@ function startingHTML(r) {
     <ol class="start-steps">${rows.map(([label, cls, ms]) => `<li class="${cls}">${esc(label)}${cls === "next" ? "" : `<span class="t">${secs(ms)}</span>`}</li>`).join("")}</ol></div>`;
 }
 // A small Markdown for what agents write and for tasks' text from the tracker: headings, lists, tables, code blocks,
-// inline code, bold and links.
+// inline code, bold, italic and links.
 // Images in it (screenshots for the MR, Mako's own ones, the tracker's), Markdown (![alt](url)) or HTML (<img src="…">), shown as images.
 const MD_IMG = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)[^>]*>|!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/api\/screenshots\/[^\s)]+)(?:\s+"[^"]*")?\)/gi;
 // Links: Markdown ([text](url)) and bare URLs.
@@ -257,7 +257,12 @@ const pic = (src, alt) => `<a href="${esc(src)}" target="_blank" rel="noopener">
 function md(text) {
   const links = (x) => esc(x).replace(MD_LINK, (u, label, href) => `<a href="${href ?? u}" target="_blank" rel="noopener">${label ?? u}</a>`);
   // Inline code first: what is in backticks is never searched for links, so a URL there cannot swallow the closing </code>.
-  const plain = (x) => x.split(/`([^`]+)`/).map((s, i) => i % 2 ? `<code>${esc(s)}</code>` : links(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")).join("");
+  // Bold and italic only outside the <a> that links() made, so a URL with _a_ in its path stays intact. Italic comes after bold;
+  // _x_ and *x* need non-word characters around them, so snake_case and my_file.go stay as they are.
+  const emph = (s) => s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^\w])_([^_\n]+?)_(?=[^\w]|$)/g, "$1<i>$2</i>")
+    .replace(/(^|[^*\w])\*([^*\n]+?)\*(?![*\w])/g, "$1<i>$2</i>");
+  const plain = (x) => x.split(/`([^`]+)`/).map((s, i) => i % 2 ? `<code>${esc(s)}</code>` : links(s).split(/(<a [^>]*>.*?<\/a>)/).map((t, j) => j % 2 ? t : emph(t)).join("")).join("");
   const inline = (x) => {
     let out = "", at = 0;
     for (const m of x.matchAll(MD_IMG)) {
