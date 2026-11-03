@@ -82,6 +82,26 @@ func lockState(dir string) (release func(), err error) {
 	return release, nil
 }
 
+// showExisting: Mako is already running at addr, so its board is shown (in its window) instead of starting a
+// second one. false when nothing answers there.
+func showExisting(addr string) bool {
+	if !running("http://" + addr) {
+		return false
+	}
+	if !showRunning("http://" + addr) {
+		notify.Open("http://" + addr)
+	}
+	return true
+}
+
+// reportBrokenState puts a state.json that could not be read among Mako's errors, so it is seen on the board
+// and not only in the log.
+func reportBrokenState(d *dispatch.Dispatcher, store *state.Store) {
+	if store.Broken != "" {
+		d.Fault("mako", "state.json broken", fmt.Errorf("it could not be read and is kept as %s; Mako started with an empty board", store.Broken))
+	}
+}
+
 func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	desktop.FixPath()
 	home := findHome(homeFlag)
@@ -100,6 +120,17 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
 		return err
 	}
+	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Notifications.Port)
+	// One Mako per state folder: a second one (on another port too) would write over the same state.json and
+	// rotate the first one's log. Taken before anything in the folder is touched.
+	release, err := lockState(cfg.StateDir)
+	if err != nil {
+		if !readonly && showExisting(addr) {
+			return nil
+		}
+		return err
+	}
+	defer release()
 	// Started from Finder nobody sees stderr: the log goes to a file too, the older part of a big one to mako.log.1.
 	logFile := filepath.Join(cfg.StateDir, "mako.log")
 	if err := fsx.Rotate(logFile, maxLog); err != nil {
@@ -114,33 +145,19 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	}
 	notify.Enabled = cfg.Notifications.Enabled
 
-	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Notifications.Port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		// Mako is already running: show its board (in its window) instead of starting a second one.
-		if !readonly && running("http://"+addr) {
-			if !showRunning("http://" + addr) {
-				notify.Open("http://" + addr)
-			}
+		if !readonly && showExisting(addr) {
 			return nil
 		}
 		return fmt.Errorf("port %d is busy: %w", cfg.Notifications.Port, err)
 	}
-	// One Mako per state folder: a second one on another port would write over the same state.json. Taken
-	// before state.Open, which already writes it.
-	release, err := lockState(cfg.StateDir)
-	if err != nil {
-		return err
-	}
-	defer release()
 	store, err := state.Open(cfg.StateDir)
 	if err != nil {
 		return fmt.Errorf("state.json: %w", err)
 	}
 	d := dispatch.New(cfg, store, ts)
-	if store.Broken != "" {
-		d.Fault("mako", "state.json broken", fmt.Errorf("it could not be read and is kept as %s; Mako started with an empty board", store.Broken))
-	}
+	reportBrokenState(d, store)
 	d.Problems = problems
 	d.Version = version
 	d.BoardURL = "http://" + ln.Addr().String()

@@ -31,8 +31,11 @@ func OpenReviewRequests(dir string) (*ReviewRequests, error) {
 		if err := json.Unmarshal(data, &s.list); err != nil {
 			// A broken file must not turn the feature off: it is kept aside and the list starts anew (the
 			// next search fills it again).
-			log.Printf("review-requests.json: cannot be read (%v): kept as %s.broken", err, s.file)
-			_ = os.Rename(s.file, s.file+".broken")
+			if to, rerr := keepAside(s.file); rerr != nil {
+				log.Printf("review-requests.json: cannot be read (%v) nor kept aside: %v", err, rerr)
+			} else {
+				log.Printf("review-requests.json: cannot be read (%v): kept as %s", err, to)
+			}
 			s.list = map[string]*core.ReviewRequest{}
 		}
 	}

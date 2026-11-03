@@ -35,10 +35,11 @@ func Open(dir string) (*Store, error) {
 		if err := json.Unmarshal(data, &s.records); err != nil {
 			// A broken file must not keep Mako from starting: it is kept aside and the board starts empty.
 			s.records = map[string]*core.Record{}
-			s.Broken = s.file + ".broken"
-			if rerr := os.Rename(s.file, s.Broken); rerr != nil {
+			broken, rerr := keepAside(s.file)
+			if rerr != nil {
 				return nil, fmt.Errorf("%w; and it cannot be kept aside: %v", err, rerr)
 			}
+			s.Broken = broken
 			log.Printf("state.json: CANNOT BE READ (%v): kept as %s, Mako starts with an empty board", err, s.Broken)
 		}
 	}
@@ -49,6 +50,16 @@ func Open(dir string) (*Store, error) {
 		}
 	}
 	return s, s.saveLocked()
+}
+
+// keepAside moves a file that cannot be read to file.broken, or to file.broken-<time> when an earlier one is
+// already there, so no broken copy is ever written over. It returns where the file went.
+func keepAside(file string) (string, error) {
+	to := file + ".broken"
+	if _, err := os.Lstat(to); err == nil {
+		to = file + ".broken-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	return to, os.Rename(file, to)
 }
 
 // Get returns a deep copy, so a caller cannot change a record without Update, and an Update changing the stored

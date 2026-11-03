@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -202,5 +203,30 @@ func TestStateSaveErrorIsTold(t *testing.T) {
 	s.Delete("task-1")
 	if len(told) != 3 {
 		t.Fatalf("errors told = %v, want 3", told)
+	}
+}
+
+// A second broken state.json does not write over the first one kept aside: both copies stay.
+func TestBrokenStateKeepsEarlierCopy(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "state.json")
+	os.WriteFile(file, []byte("{first"), 0o600)
+	first, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(file, []byte("{second"), 0o600)
+	second, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Broken != file+".broken" || second.Broken == first.Broken || !strings.HasPrefix(second.Broken, file+".broken-") {
+		t.Fatalf("kept as %q, then %q", first.Broken, second.Broken)
+	}
+	if b, _ := os.ReadFile(first.Broken); string(b) != "{first" {
+		t.Fatalf("the first copy = %q", b)
+	}
+	if b, _ := os.ReadFile(second.Broken); string(b) != "{second" {
+		t.Fatalf("the second copy = %q", b)
 	}
 }

@@ -48,3 +48,20 @@ func TestReviewRequestsSaveErrorIsTold(t *testing.T) {
 		t.Fatalf("errors told = %v, want 2", told)
 	}
 }
+
+// A second broken review-requests.json keeps the first copy set aside.
+func TestBrokenReviewRequestsKeepsEarlierCopy(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "review-requests.json")
+	os.WriteFile(file+".broken", []byte("{first"), 0o600)
+	os.WriteFile(file, []byte("{second"), 0o600)
+	if _, err := OpenReviewRequests(dir); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(file + ".broken"); string(b) != "{first" {
+		t.Fatalf("the first copy = %q", b)
+	}
+	if more, _ := filepath.Glob(file + ".broken-*"); len(more) != 1 {
+		t.Fatalf("second copies: %v", more)
+	}
+}
