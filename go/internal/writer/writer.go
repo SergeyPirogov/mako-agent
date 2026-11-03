@@ -199,7 +199,7 @@ func Ask(ctx context.Context, dir, prompt string) (string, error) {
 func AskModel(ctx context.Context, dir string, route core.Route, prompt string, timeout time.Duration) (string, error) {
 	path, err := exec.LookPath(Claude)
 	if err != nil {
-		return "", errors.New("Claude Code not found")
+		return "", errors.New("no Claude Code found")
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -210,14 +210,14 @@ func AskModel(ctx context.Context, dir string, route core.Route, prompt string, 
 	cmd.Stderr = &stderr
 	out, err := run(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("Claude did not answer within %d min", int(timeout.Minutes()))
+		return "", fmt.Errorf("no answer from Claude within %d min", int(timeout.Minutes()))
 	}
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
 	}
 	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, route.Model)), ""))
 	if text == "" || len(text) > 6000 {
-		return "", errors.New("Claude gave no answer")
+		return "", errors.New("empty answer from Claude")
 	}
 	return text, nil
 }
@@ -409,7 +409,7 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	}, "\n")
 	path, err := exec.LookPath(Claude)
 	if err != nil {
-		return "", errors.New("Claude Code not found")
+		return "", errors.New("no Claude Code found")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()

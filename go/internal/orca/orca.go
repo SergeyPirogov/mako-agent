@@ -175,7 +175,7 @@ func Resolve(configured string) (string, error) {
 		if p, err := exec.LookPath(config.Expand(configured)); err == nil {
 			return p, nil
 		}
-		return "", fmt.Errorf("Orca CLI not found at \"%s\". Check the Orca command in the settings", configured)
+		return "", fmt.Errorf("the Orca CLI is not found at \"%s\". Check the Orca command in the settings", configured)
 	}
 	name := "orca"
 	if runtime.GOOS == "linux" {
@@ -193,7 +193,7 @@ func Resolve(configured string) (string, error) {
 			}
 		}
 	}
-	return "", errors.New("Orca CLI not found. Install Orca (onorca.dev) and register the CLI: Orca → Settings → General → Orca CLI, " +
+	return "", errors.New("the Orca CLI is not found. Install Orca (onorca.dev) and register the CLI: Orca → Settings → General → Orca CLI, " +
 		"or set the full path in the Mako settings (orca.command)")
 }
 
@@ -208,11 +208,11 @@ func ensureRunning(ctx context.Context, command, repoPath string, log func(strin
 		return nil
 	}
 	if runtime.GOOS != "darwin" {
-		return errors.New("Orca is not running. Open Orca and press \"Retry\"")
+		return errors.New("the Orca app is not running. Open Orca and press \"Retry\"")
 	}
 	log("Orca is not running: opening it and waiting")
 	if err := exec.Command("open", "-a", "Orca").Run(); err != nil {
-		return errors.New("Orca is not running and Mako could not open it. Open Orca and press \"Retry\"")
+		return errors.New("the Orca app is not running and Mako could not open it. Open Orca and press \"Retry\"")
 	}
 	for i := 0; i < 30; i++ {
 		select {

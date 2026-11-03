@@ -2,3 +2,5 @@ dist/
 .env
 mako.config.json
 .mako/
+go/mako
+*.log

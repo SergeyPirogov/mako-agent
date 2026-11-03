@@ -6,7 +6,10 @@ cd "$(dirname "$0")/../.."
 VERSION="${1:-$(git describe --tags --always 2>/dev/null || echo dev)}"
 VERSION="${VERSION#v}"
 # The clone Mako is built from (the main one, when building in a worktree): Mako updates itself from it.
-SOURCE="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo .)")"
+# SOURCE= (set, empty) names none: CI's checkout is not on the user's Mac.
+SOURCE="${SOURCE-$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo .)")}"
+# Info.plist promises macOS 11: clang links the cgo parts for it, not for the build Mac's version.
+export MACOSX_DEPLOYMENT_TARGET=11.0
 OUT="dist"
 APP="$OUT/Mako.app"
 rm -rf "$OUT"
@@ -31,8 +34,9 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns"
 rm -rf "$ICONSET"
 
-# Ad-hoc signature: enough to run on Apple Silicon; not notarized, so the first start is right click → Open.
-codesign --force --deep --sign - "$APP"
+# Ad-hoc signature with the hardened runtime: enough to run on Apple Silicon; not notarized, so the first start is
+# right click → Open. The bundle has one binary, so no --deep.
+codesign --force --options runtime --sign - "$APP"
 ditto -c -k --keepParent "$APP" "$OUT/Mako-$VERSION-mac.zip"
 echo "$APP"
 echo "$OUT/Mako-$VERSION-mac.zip"

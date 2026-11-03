@@ -52,3 +52,7 @@ Mako живе в меню Mac і дивиться у ваш трекер. Щой
 - **Телефон.** Налаштування → Телефон → QR-код, потім додайте дошку на екран «Додому».
 - **Усі можливості** з деталями, налаштуваннями й порадами — у [docs/features.md](docs/features.md).
 - **Запуск з коду, збірка, реліз** — у [docs/development.md](docs/development.md).
+
+## Ліцензія
+
+[Apache License 2.0](LICENSE). Як долучитися — у [CONTRIBUTING.md](CONTRIBUTING.md).

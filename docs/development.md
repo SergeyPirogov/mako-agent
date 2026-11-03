@@ -16,11 +16,14 @@ go build -o mako ./cmd/mako
 ## Перевірки
 
 ```sh
-cd go && gofmt -l . && go vet ./... && go test ./...
+cd go
+gofmt -l . && go vet ./... && go test -race ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 ```
 
 Тести ганяють диспетчер на імітації GitLab (httptest), а Orca — на фейковому скрипті. CI (`.github/workflows/test.yml`)
-робить те саме на Ubuntu і на macOS.
+робить те саме на Ubuntu (staticcheck і govulncheck — лише там) і на macOS. Залежності й actions оновлює Dependabot.
 
 ## Файли Mako
 
@@ -53,7 +56,8 @@ go/packaging/mac/build-app.sh 0.3.0   # → go/dist/Mako.app і Mako-0.3.0-mac.z
 git tag v0.3.0 && git push --tags
 ```
 
-CI (`release.yml`) збере Mako.app і прикріпить `Mako-<версія>-mac.zip` до релізу на GitHub.
+CI (`release.yml`) збере Mako.app і прикріпить `Mako-<версія>-mac.zip` до релізу на GitHub; нотатки релізу GitHub
+збирає сам із PR після попереднього тегу.
 
 ## Скриншоти для задач про інтерфейс
 
