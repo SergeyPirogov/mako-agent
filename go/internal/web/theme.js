@@ -23,8 +23,9 @@ async function loadI18n() {
 }
 
 // askConfirm: Mako's own confirmation instead of the window's confirm(): resolves true on OK, false on Cancel, Esc
-// or a click outside. Focus starts on OK (on Cancel when danger, so a stray Enter does not destroy anything); a
-// destructive OK is red, and with success the OK is green. {ok, cancel} are the buttons' labels.
+// or a click outside. Focus starts on OK (on Cancel when danger, so a stray Enter does not destroy anything); the
+// focus ring shows only after a key (other than Enter/Esc) is pressed in the dialog, so a mouse-opened dialog has
+// no ring. A destructive OK is red, and with success the OK is green. {ok, cancel} are the buttons' labels.
 function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.cancel"), danger = false, success = false } = {}) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
@@ -52,6 +53,8 @@ function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.can
     dlg.addEventListener("close", () => answer(false));
     document.body.append(dlg);
     dlg.showModal();
+    // Programmatic focus counts as :focus-visible in a modal dialog; show the ring only once the keyboard is used.
+    dlg.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== "Escape") dlg.classList.add("kbd"); });
     (danger ? noBtn : okBtn).focus();
   });
 }
