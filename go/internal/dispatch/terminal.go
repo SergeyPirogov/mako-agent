@@ -330,7 +330,7 @@ func (d *Dispatcher) resume(id, message string) error {
 		return nil
 	}
 	if !exists(r.Worktree) {
-		return fmt.Errorf("worktree %s was deleted", r.Worktree)
+		return worktreeGone(r.Worktree)
 	}
 	prompt, cont := message, true
 	if !orca.HasTranscript(r.Worktree) {
@@ -377,7 +377,7 @@ func (d *Dispatcher) NewConversation(id string) error {
 		return fmt.Errorf("the task is not in a Mako terminal")
 	}
 	if !exists(r.Worktree) {
-		return fmt.Errorf("worktree %s was deleted", r.Worktree)
+		return worktreeGone(r.Worktree)
 	}
 	prompt, err := d.taskPrompt(r)
 	if err != nil {

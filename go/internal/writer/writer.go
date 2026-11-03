@@ -453,7 +453,7 @@ func Assess(ctx context.Context, dir, baseBranch string, route core.Route, t cor
 	for _, c := range t.Comments {
 		comments = append(comments, "- "+c.Author+": "+clipTo(c.Body, 1500))
 	}
-	text, err := AskModel(ctx, dir, route, strings.Join([]string{
+	prompt := strings.Join([]string{
 		"A coding agent finished the task below. Rate it, for the developer who gave the task, on four scores from 1 to 5:",
 		"- clarity: how well the task was described: 5 when it said everything needed to do it (what, where, how to tell it is done), 1 when the agent had to guess most of it;",
 		"- complexity: how hard the task was: 1 a trivial edit, 5 a large or tricky change across many places;",
@@ -472,18 +472,66 @@ func Assess(ctx context.Context, dir, baseBranch string, route core.Route, t cor
 		"", "Summary of the work:", orNone(summary),
 		"", "End of the agent's session:", orNone(lastOf(agentText, 6000)),
 		"", "Commits:", orNone(commits), stat, clip(diff),
-	}, "\n"), 2*time.Minute)
+	}, "\n")
+	return askParsed(func() (string, error) { return AskModel(ctx, dir, route, prompt, 2*time.Minute) }, ParseAssessment)
+}
+
+// askParsed asks the model and reads its answer with parse; an answer that does not parse is a slip of the model
+// (a stray quote, a word before the key), not a verdict, so it is asked once more before the task is left unrated.
+func askParsed[T any](ask func() (string, error), parse func(string) (T, error)) (T, error) {
+	text, err := ask()
 	if err != nil {
-		return core.Assessment{}, err
+		var zero T
+		return zero, err
 	}
-	return ParseAssessment(text)
+	v, err := parse(text)
+	if err == nil || !errors.Is(err, errNotJSON) {
+		return v, err
+	}
+	text, again := ask()
+	if again != nil {
+		return v, err
+	}
+	if v, again := parse(text); again == nil || !errors.Is(again, errNotJSON) {
+		return v, again
+	}
+	return v, err
+}
+
+// errNotJSON: the model's answer has no JSON object of the shape asked for.
+var errNotJSON = errors.New("the assessment is not JSON")
+
+// jsonObject finds the JSON object in a model's answer: the first "{" that starts a whole object holding key. The
+// model may write a few words first, and braces in them (or a half-written object) must not hide the answer.
+func jsonObject(answer, key string) ([]byte, error) {
+	var first error
+	for i := 0; i < len(answer); i++ {
+		if answer[i] != '{' {
+			continue
+		}
+		var obj map[string]json.RawMessage
+		err := json.NewDecoder(strings.NewReader(answer[i:])).Decode(&obj)
+		if err == nil {
+			if _, ok := obj[key]; ok {
+				return json.Marshal(obj)
+			}
+			continue
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	if first != nil {
+		return nil, fmt.Errorf("%w: %v", errNotJSON, first)
+	}
+	return nil, errNotJSON
 }
 
 // ParseAssessment reads the JSON Assess asks for; a score out of 1..5 is an error, not a guess.
 func ParseAssessment(answer string) (core.Assessment, error) {
-	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
-	if start < 0 || end < start {
-		return core.Assessment{}, errors.New("the assessment is not JSON")
+	raw, err := jsonObject(answer, "clarity")
+	if err != nil {
+		return core.Assessment{}, err
 	}
 	type score struct {
 		Score int    `json:"score"`
@@ -499,8 +547,8 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 			Check string `json:"check"`
 		}
 	}
-	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
-		return core.Assessment{}, fmt.Errorf("the assessment is not JSON: %v", err)
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return core.Assessment{}, fmt.Errorf("%w: %v", errNotJSON, err)
 	}
 	a := core.Assessment{State: "done", Missing: pointsText(in.Missing)}
 	// The size came later than the scores: one it does not know is left out, not a failed assessment.
@@ -625,7 +673,7 @@ func Estimate(ctx context.Context, dir string, route core.Route, t core.Task, ou
 	for _, c := range t.Comments {
 		comments = append(comments, "- "+c.Author+": "+clipTo(c.Body, 1500))
 	}
-	text, err := AskModel(ctx, dir, route, strings.Join([]string{
+	prompt := strings.Join([]string{
 		"A developer is deciding whether to give the task below to a coding agent, and how. Before anyone starts, estimate it",
 		"from its text and the repository's layout (you do not see the code). Answer with JSON only, no code fences, in this shape:",
 		`{"clarity":{"score":1,"why":"..."},"questions":["..."],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
@@ -642,18 +690,15 @@ func Estimate(ctx context.Context, dir string, route core.Route, t core.Task, ou
 		"", "Task: " + t.ID + " — " + t.Title, orNone(t.Meta), orNone(clipTo(t.Description, 8000)),
 		"", "Comments on the task:", orNone(strings.Join(comments, "\n")),
 		"", "Repository:", orNone(outline),
-	}, "\n"), EstimateTimeout)
-	if err != nil {
-		return core.Estimate{}, err
-	}
-	return ParseEstimate(text)
+	}, "\n")
+	return askParsed(func() (string, error) { return AskModel(ctx, dir, route, prompt, EstimateTimeout) }, ParseEstimate)
 }
 
 // ParseEstimate reads the JSON Estimate asks for; a score out of 1..5 or an unknown size is an error.
 func ParseEstimate(answer string) (core.Estimate, error) {
-	start, end := strings.Index(answer, "{"), strings.LastIndex(answer, "}")
-	if start < 0 || end < start {
-		return core.Estimate{}, errors.New("the assessment is not JSON")
+	raw, err := jsonObject(answer, "clarity")
+	if err != nil {
+		return core.Estimate{}, err
 	}
 	type score struct {
 		Score int    `json:"score"`
@@ -666,8 +711,8 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		Advice             string
 		Plan, Split        bool
 	}
-	if err := json.Unmarshal([]byte(answer[start:end+1]), &in); err != nil {
-		return core.Estimate{}, fmt.Errorf("the assessment is not JSON: %v", err)
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return core.Estimate{}, fmt.Errorf("%w: %v", errNotJSON, err)
 	}
 	e := core.Estimate{
 		State: "done", Questions: pointsText(in.Questions), Size: strings.ToLower(strings.TrimSpace(in.Size)),
