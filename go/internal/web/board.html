@@ -3771,7 +3771,7 @@ function renderDetail() {
   };
   for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; btn.classList.add("busy"); markAsked(r.id, btn.dataset.ask); mrAction(r.id, "ask", btn.dataset.ask); };
   for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = async () => {
-    if (await askConfirm("Merge the MR? The task branch will be deleted and the task will get its final status.", { ok: "Merge" })) { btn.disabled = true; mrAction(r.id, "merge"); }
+    if (await askConfirm("Merge the MR? The task branch will be deleted and the task will get its final status.", { ok: "Merge", success: true })) { btn.disabled = true; mrAction(r.id, "merge"); }
   };
   for (const btn of $("detail").querySelectorAll("[data-close-mr]")) btn.onclick = async () => {
     if (await askConfirm("Close the MR without merging? The changes stay on the branch and the task gets the status “Not done”.", { ok: "Close MR" })) { btn.disabled = true; mrAction(r.id, "close"); }
