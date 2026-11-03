@@ -1631,9 +1631,9 @@ function estimateHTML(r, card) {
     : `<span class="tchip">${label}</span>`;
   const advice = [
     e.plan ? chip(plan, "plan first", pick(model, !plan), plan ? "The agent will start with a plan. Click to cancel" : "The agent will start with a plan: it will change nothing until you approve it") : "",
-    e.split ? `<span class="tchip">split into several tasks</span>` : "",
+    e.split ? `<span class="tchip note" title="Split the task into several in the tracker yourself; Mako does not do it">split it in the tracker</span>` : "",
   ].filter(Boolean);
-  const rec = advice.length || e.advice ? `<div class="rec-line"><span class="ic">→</span><b>Recommendation</b>${advice.join("")}${e.advice ? `<span class="rec-why" title="${esc(e.advice)}">${esc(e.advice)}</span>` : ""}</div>` : "";
+  const rec = advice.length || e.advice ? `<div class="rec-line"><span class="ic">→</span><b>Recommendation</b>${advice.join("")}${e.advice ? `<span class="rec-why">${esc(e.advice)}</span>` : ""}</div>` : "";
   // While the estimate runs again (after the answers were sent) the old questions are answered: no empty form.
   const n = splitQuestions(e.questions).length;
   const questions = !fresh || !n ? "" : e.state === "running" ? `<div class="sec"><h4><span class="ic">?</span>Questions about the task</h4><p class="muted">Analysing the answers and estimating the task again…</p></div>`
