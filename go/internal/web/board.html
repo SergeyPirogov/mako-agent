@@ -3413,7 +3413,7 @@ function stripHTML(r, card) {
          [[s.seconds >= 60 ? durText(s.seconds) : "", s.cost >= 0.005 ? `$${s.cost.toFixed(2)}` : ""].filter(Boolean).join(" · "), "m"]];
     const kept = lines.filter(([t]) => t);
     const sub = kept.length ? kept.map(([t, cls]) => `<span class="ln${cls ? ` ${cls}` : ""}">${esc(t)}</span>`).join("") : "—";
-    return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${s.route ? esc(` · ${s.route}${s.why ? ` — ${s.why}` : ""}`) : ""}">
+    return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${esc(`${s.route ? ` · ${s.route}` : ""}${s.why ? ` — ${s.why}` : ""}`)}">
       <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b><span class="tr"></span></span><small>${sub}</small></button>`;
   }).join("");
   return `<div class="stage-strip" role="group" aria-label="Stages">${cells}</div>${open ? `<div class="stage-more">${stageMore(r, open, card) || `<div class="muted">Nothing here yet.</div>`}</div>` : ""}`;

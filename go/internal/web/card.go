@@ -123,7 +123,7 @@ func stagesOf(v recordView, now time.Time) []stageView {
 	est := stageView{Key: stEstimate, State: "todo", Cost: cost(core.PhaseEstimate)}
 	switch e := r.Estimate; {
 	case e == nil && taken:
-		est.State, est.Note = "skip", "none"
+		est.State, est.Note, est.Why = "skip", "none", "Task was taken before it was estimated"
 	case e == nil:
 	case e.State == "running":
 		est.State = "now"
@@ -131,6 +131,9 @@ func stagesOf(v recordView, now time.Time) []stageView {
 		est.State, est.Note = "fail", "failed"
 		if taken {
 			est.State = "skip"
+			if e.Error != "" {
+				est.Why = "Estimate failed: " + e.Error
+			}
 		}
 	default:
 		est.State = "done"
@@ -154,7 +157,8 @@ func stagesOf(v recordView, now time.Time) []stageView {
 			plan.Note = "planned"
 		}
 	case taken && r.Status != core.Queued:
-		plan.State, plan.Note = "skip", "not needed"
+		plan.State = "skip"
+		plan.Note, plan.Why = planSkipReason(r)
 	case r.Estimate != nil && r.Estimate.Plan:
 		plan.Note = "advised"
 	}
@@ -339,6 +343,24 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// planSkipReason: the short word and the full reason why a taken task went without a plan.
+func planSkipReason(r core.Record) (note, why string) {
+	e := r.Estimate
+	switch {
+	case r.NoPlan:
+		return "from a plan", "The task was made from a written plan"
+	case e != nil && e.Plan:
+		return "not picked", "The estimate advised a plan, but «plan first» was not picked"
+	case e != nil && e.State != "failed":
+		why = "The estimate found no plan needed"
+		if e.Advice != "" {
+			why += ": " + e.Advice
+		}
+		return "not needed", why
+	}
+	return "not picked", "No estimate, plan first was not picked"
 }
 
 // routed: the stage shows the route its phase last ran with.
