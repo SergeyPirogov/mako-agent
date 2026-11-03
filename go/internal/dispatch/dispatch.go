@@ -427,10 +427,21 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 // existing clone if there is one, else ~/mako/projects/<name>, cloned on «Взяти в роботу».
 func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 	tc := t.Config()
+	missing := func() bool { return tc.Projects[project] == nil && tc.AllProjects && strings.Contains(project, "/") }
 	d.mu.Lock()
-	if tc.Projects[project] != nil || !tc.AllProjects || !strings.Contains(project, "/") {
-		d.mu.Unlock()
+	ok := missing()
+	d.mu.Unlock()
+	if !ok {
 		return
+	}
+	// Looking for the clone walks the home folder: not under d.mu, which every handler of the board waits for.
+	existing := gitx.FindClone(d.Config().Home, project)
+	// The folder's name is picked and the project added in one go under d.mu: two projects called «frontend» in
+	// different groups, added at once, must not both take the same folder.
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !missing() {
+		return // another poll added it while the clone was searched for
 	}
 	taken := map[string]bool{}
 	for _, tr := range d.TrackerList() {
@@ -440,24 +451,15 @@ func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 			}
 		}
 	}
-	d.mu.Unlock()
 	parts := strings.Split(project, "/")
 	name := parts[len(parts)-1]
-	// Two projects called «frontend» in different groups must not share a folder.
 	for _, n := range []string{name, strings.Join(parts[len(parts)-2:], "-"), strings.ReplaceAll(project, "/", "-")} {
 		if !taken[filepath.Join(d.Config().ProjectsDir, n)] {
 			name = n
 			break
 		}
 	}
-	// Looking for the clone walks the home folder: not under d.mu, which every handler of the board waits for.
-	existing := gitx.FindClone(d.Config().Home, project)
 	repo := d.Config().NewRepo(name, existing, config.DefaultCloneURL(tc, project), "", "")
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if tc.Projects[project] != nil {
-		return // another poll added it while the clone was searched for
-	}
 	if tc.Projects == nil {
 		tc.Projects = map[string]*config.Project{}
 	}

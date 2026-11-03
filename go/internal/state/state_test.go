@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -106,4 +107,41 @@ func TestGetBesideUpdateDoesNotRace(t *testing.T) {
 		}
 	}
 	<-done
+}
+
+// BenchmarkAll: the board's poll over a realistic number of records, each with the metrics of a finished task.
+func BenchmarkAll(b *testing.B) {
+	s := benchStore(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.All()
+	}
+}
+
+// BenchmarkUpdate: what every Update costs under the same lock (it writes all the records to state.json).
+func BenchmarkUpdate(b *testing.B) {
+	s := benchStore(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Update("grp/app#1", func(r *core.Record) { r.Attempt++ })
+	}
+}
+
+func benchStore(b *testing.B) *Store {
+	s, err := Open(b.TempDir())
+	if err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < 500; i++ {
+		s.Update(fmt.Sprintf("grp/app#%d", i), func(r *core.Record) {
+			run := core.ContextRun{Phase: "work", Tools: map[string]int{"Read": 1, "Bash": 2, "Edit": 3}, Steps: make([]int, 60), Compacted: make([]int, 3),
+				Files: make([]core.Heavy, 10), Commands: make([]core.Heavy, 10)}
+			r.Metrics = &core.Metrics{Seconds: map[string]float64{"work": 1}, Cost: map[string]float64{"work": 1}, Tokens: map[string]int{"work": 1},
+				Context: []core.ContextRun{run, run, run, run}}
+			r.Task.Comments = make([]core.Comment, 10)
+			r.AgentReviews = make([]core.AgentReview, 2)
+			r.Checks = &core.Checks{Results: make([]core.CheckResult, 3)}
+		})
+	}
+	return s
 }

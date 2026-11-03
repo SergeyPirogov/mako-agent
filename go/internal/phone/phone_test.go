@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -107,6 +108,23 @@ func TestPushBesideSubscribeDoesNotRace(t *testing.T) {
 		p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/third"})
 	}
 	<-done
+}
+
+// Push keeps a copy of the subscription made by assignment, which is deep only while the subscription holds
+// nothing but values: a pointer, slice or map in webpush.Subscription needs a real copy in Push.
+func TestSubscriptionHoldsOnlyValues(t *testing.T) {
+	var check func(path string, typ reflect.Type)
+	check = func(path string, typ reflect.Type) {
+		switch typ.Kind() {
+		case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Interface, reflect.Chan, reflect.Func:
+			t.Errorf("%s is a %s: copy it in Push", path, typ.Kind())
+		case reflect.Struct:
+			for i := 0; i < typ.NumField(); i++ {
+				check(path+"."+typ.Field(i).Name, typ.Field(i).Type)
+			}
+		}
+	}
+	check("Subscription", reflect.TypeOf(webpush.Subscription{}))
 }
 
 // A phones.json from before Mako kept the origin opens fine, keeps its phones and marks them as paired through

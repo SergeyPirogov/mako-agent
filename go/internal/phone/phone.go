@@ -416,7 +416,8 @@ type Action struct {
 // the app was removed or its permission taken back) is dropped.
 func (p *Phones) Push(ctx context.Context, m Message) []error {
 	payload, _ := json.Marshal(m)
-	// A snapshot of who to push to, taken under the lock: Subscribe changes a device's Push at any time.
+	// A snapshot of who to push to, taken under the lock: Subscribe changes a device's Push at any time. The
+	// subscription is copied by assignment: it holds only strings (TestSubscriptionHoldsOnlyValues).
 	type target struct {
 		name, token string
 		sub         webpush.Subscription
