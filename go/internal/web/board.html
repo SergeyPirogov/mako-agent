@@ -1404,13 +1404,13 @@ function mrCard(r, term) {
   const ask = (kind, label, name) => isAsked(r.id, kind) ? icon(`data-ask="${kind}"`, "Already passed to the agent", "check", "sent", true) : icon(`data-ask="${kind}"`, label, name);
   const open = live && !r.prUrl ? ask("open", "Open MR: the agent commits, pushes and opens it", "pr") : "";
   const update = live && r.prUrl && state === "open" ? ask("push", "Update MR: the agent commits and pushes what it has done", "push") : "";
-  const reviewing = r.reviewStep === "running", fixing = r.reviewStep === "fixing", held = mergeHeld(r);
-  const merge = c?.state === "open" && !waitCI ? icon("data-merge", reviewing ? "The reviewer agent is reviewing the branch: merge once it finishes"
+  const reviewing = r.reviewStep === "running", fixing = r.reviewStep === "fixing", held = mergeHeld(r), merging = isAsked(r.id, "merge");
+  const merge = c?.state === "open" && !waitCI ? icon("data-merge", merging ? "Merging…" : reviewing ? "The reviewer agent is reviewing the branch: merge once it finishes"
     : fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
     : r.reviewBlocks ? "The reviewer left blockers: fix them before the merge"
     : assessing(r) ? "The agent is judging whether a review is needed: merge once it decides"
     : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
-    "merge", c.mergeable && !held ? "ready" : "", !c.mergeable || held) : "";
+    "merge", merging ? "busy" : c.mergeable && !held ? "ready" : "", !c.mergeable || held || merging) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
   return `<div class="mr-card"><div class="mr-h"><span class="files-h-t">MR</span>
       ${r.prUrl ? `<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">${num ? (r.prUrl.includes("/pull/") ? "#" : "!") + num : "open"}</a>` : ""}
@@ -1854,7 +1854,8 @@ async function mrAction(id, action, kind = "") {
   const failed = res.ok === false || !!res.error;
   const note = failed ? `⚠ ${res.error}` : "";
   // Success is a toast only: the card header already shows the merged/closed state, so no note under the card.
-  if (failed) { if (action === "ask") { asked.delete(`${id}:${kind}`); toast(note, true); } }
+  // A failed ask or merge frees its button again; the other actions have no hold.
+  if (failed) { if (action === "ask" || action === "merge") asked.delete(`${id}:${action === "ask" ? kind : action}`); toast(note, true); }
   else toast({ merge: "MR merged", close: "MR closed without merging" }[action] ?? "✨ Passed to the agent");
   // The answer may come once another task is open (a merged task leaves the list): the note is this task's only.
   if (workOf !== id) return;
@@ -3547,7 +3548,8 @@ function primaryHTML(r) {
     case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
     // The fix buttons are in the "What blocks the merge" block, under their rows (blockersHTML); the header has the MR.
     case "fix-conflicts": case "fix-ci": return openMR(r, "primary");
-    case "merge": return `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
+    case "merge": return isAsked(r.id, "merge") ? `<button class="merge-go busy" disabled title="Merging…">${ICON.merge}Merging…</button>` + openMR(r)
+      : `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
     // CI still running, or the agent is in Orca: the MR is where to look.
     case "open-mr": return openMR(r, "primary");
     case "retry": return b("retry", "Retry", "primary");
@@ -4034,7 +4036,7 @@ function renderDetail() {
   };
   for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; btn.classList.add("busy"); markAsked(r.id, btn.dataset.ask); mrAction(r.id, "ask", btn.dataset.ask); };
   for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = async () => {
-    if (await askConfirm("Merge the MR? The task branch will be deleted and the task will get its final status.", { ok: "Merge", success: true })) { btn.disabled = true; mrAction(r.id, "merge"); }
+    if (await askConfirm("Merge the MR? The task branch will be deleted and the task will get its final status.", { ok: "Merge", success: true })) { markAsked(r.id, "merge"); btn.disabled = true; btn.classList.add("busy"); mrAction(r.id, "merge"); }
   };
   for (const btn of $("detail").querySelectorAll("[data-close-mr]")) btn.onclick = async () => {
     if (await askConfirm("Close the MR without merging? The changes stay on the branch and the task gets the status “Not done”.", { ok: "Close MR" })) { btn.disabled = true; mrAction(r.id, "close"); }

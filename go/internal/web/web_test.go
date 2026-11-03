@@ -1033,3 +1033,30 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 		t.Error("the header does not keep Open MR for the fix states")
 	}
 }
+
+// After the merge is confirmed, the Merge button stays disabled through the redraws (the polling, loadWork) until
+// the merge fails. The board has no script tests, so this checks the page's source for each piece of that.
+func TestBoardMergeHeldAfterConfirm(t *testing.T) {
+	src, css := string(board), string(style)
+	for _, want := range []string{
+		// The handler marks the merge as asked before the request and disables the button.
+		`{ markAsked(r.id, "merge"); btn.disabled = true; btn.classList.add("busy"); mrAction(r.id, "merge"); }`,
+		// The main button and the MR row's icon are drawn disabled while it is held.
+		`isAsked(r.id, "merge") ? ` + "`" + `<button class="merge-go busy" disabled title="Merging…">`,
+		`merging = isAsked(r.id, "merge")`,
+		`!c.mergeable || held || merging`,
+		// An error frees the button again and shows the toast, for the merge as well as for ask.
+		`if (action === "ask" || action === "merge") asked.delete(`,
+		`action === "ask" ? kind : action}`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("board.html lacks %q", want)
+		}
+	}
+	if strings.Contains(src, `if (failed) { if (action === "ask")`) {
+		t.Error("mrAction shows the error toast for ask only: a failed merge would be silent")
+	}
+	if !strings.Contains(css, ".merge-go.busy") || !strings.Contains(css, ".icon[data-merge].busy") {
+		t.Error("style.css has no .busy style for the merge button and icon")
+	}
+}
