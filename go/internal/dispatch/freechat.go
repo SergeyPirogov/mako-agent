@@ -134,6 +134,16 @@ func chatRepo(p CodeProject) *config.Repo {
 	return &repo
 }
 
+// chatTitle: the first line of the words of a first message; a message of pictures only is titled "Picture".
+func chatTitle(text string) string {
+	words, _ := chat.SplitImages(text)
+	title := firstLine(words)
+	if title == "" {
+		title = "Picture"
+	}
+	return clipText(title, 200)
+}
+
 // NewChat opens a chat without a task with its first message and returns its id at once.
 //
 // With no project (""), the chat gets an empty folder of its own and the agent starts at once.
@@ -158,7 +168,7 @@ func (d *Dispatcher) NewChat(project, text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	c := FreeChat{ID: id, Project: project, Title: clipText(firstLine(text), 200), Branch: "mako/" + id, At: time.Now().UnixMilli()}
+	c := FreeChat{ID: id, Project: project, Title: chatTitle(text), Branch: "mako/" + id, At: time.Now().UnixMilli()}
 	if err := d.updateChats(func(all []FreeChat) []FreeChat { return append(all, c) }); err != nil {
 		return "", err
 	}
@@ -174,7 +184,7 @@ func (d *Dispatcher) newLooseChat(id, text string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	c := FreeChat{ID: id, Title: clipText(firstLine(text), 200), Dir: dir, At: time.Now().UnixMilli()}
+	c := FreeChat{ID: id, Title: chatTitle(text), Dir: dir, At: time.Now().UnixMilli()}
 	if err := d.updateChats(func(all []FreeChat) []FreeChat { return append(all, c) }); err != nil {
 		os.RemoveAll(dir)
 		return err
