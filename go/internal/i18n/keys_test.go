@@ -87,3 +87,31 @@ func known(key string) bool {
 	_, ok := webStrings[key]
 	return ok
 }
+
+// The pages get only webStrings: a key that lives among the Go texts (the tray's «tray.poll») would show as
+// the raw key. Walks every data-t, data-t-title, data-t-ph and t("…") in the pages.
+func TestPagesUseOnlyWebStrings(t *testing.T) {
+	attr := regexp.MustCompile(`data-t(?:-title|-ph)?="([^"]+)"`)
+	call := regexp.MustCompile(`\bt\("([^"]+)"`)
+	for _, f := range []string{"../web/board.html", "../web/settings.html"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, re := range []*regexp.Regexp{attr, call} {
+			for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+				n++
+				if strings.HasSuffix(m[1], ".") {
+					continue // put together from a prefix; TestEveryKeyUsedExists lists its endings
+				}
+				if _, ok := webStrings[m[1]]; !ok {
+					t.Errorf("%s: %q is not in the web strings", f, m[1])
+				}
+			}
+		}
+		if n < 20 {
+			t.Errorf("%s: only %d keys found: the search is broken", f, n)
+		}
+	}
+}
