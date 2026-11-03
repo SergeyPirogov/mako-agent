@@ -107,6 +107,9 @@ type recordView struct {
 	DefaultModel string `json:"defaultModel,omitempty"`
 	// ReviewStep: what the reviewer agent's row offers: "running", "notes", "fixing", "ready", "idle" or "" (dispatch.ReviewStep).
 	ReviewStep string `json:"reviewStep,omitempty"`
+	// Reviewable: the reviewer's remarks can still be passed to the agent (dispatch.Reviewable): the agent is Mako's,
+	// with a worktree, and the task is in work or in an open MR.
+	Reviewable bool `json:"reviewable,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
 	// CIWait: the MR in review is open and its CI still runs.
@@ -199,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 				v.DefaultModel = s.D.DefaultModel(rec)
 			}
 			v.ReviewStep = s.D.ReviewStep(rec)
+			v.Reviewable = s.D.Reviewable(rec)
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
 				v.CIWait = s.D.CIWait(rec)

@@ -32,6 +32,9 @@ func reviewable(r core.Record) bool {
 	return r.Status == core.HandedOff || r.Status == core.Done && r.PRURL != "" && r.ReviewState == ""
 }
 
+// Reviewable: the reviewer's remarks of the task can still reach its agent (the board tells «queued» from «not sent» by it).
+func (d *Dispatcher) Reviewable(r core.Record) bool { return reviewable(r) }
+
 // seen: a round read the branch at head already. A stale «running» one, from before Mako restarted, one that
 // failed, or one skipped for the task's risk (by older versions of Mako) does not count.
 func seen(list []core.AgentReview, head string) bool {

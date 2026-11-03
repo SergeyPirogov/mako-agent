@@ -1188,6 +1188,8 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 // One line of a card: a status icon, what it is (a link when it has one), and the button that fixes it.
 const row = (icon, text, href, btn = "") => `<div class="mr-row">${MR_ICON[icon]}${href
   ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>` : `<span>${esc(text)}</span>`}${btn}</div>`;
+// The same line with HTML in it (the caller escapes what it puts in).
+const rowHTML = (icon, html, btn = "") => `<div class="mr-row">${MR_ICON[icon]}<span>${html}</span>${btn}</div>`;
 // A section of a card: its name (and a note to it on the right), then its lines.
 const sec = (title, body, note = "") => `<div class="mr-sec"><div class="mr-sec-h"><span class="files-h-t">${esc(title)}</span>${note ? `<span class="mr-sec-n">${esc(note)}</span>` : ""}</div>${body}</div>`;
 // The tracker's priority in words ("Highest", "P1", "urgent") as a tone: hot, high, mid (unknown) or low.
@@ -1394,9 +1396,9 @@ function reviewerRow(r, need) {
     case "skipped": return row("idle", last.reason === "skipped by you" ? "Review skipped by you" : skippedText(last), "", ready ? reviewBtn("Do it anyway") : "");
     case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Try again") : "");
     case "notes": {
-      const n = last.remarks?.length, what = n ? `${n} ${plural(n, "remark", "remarks")}` : "remarks";
-      if (step === "notes") return row("talk", `The reviewer left ${what}: they are in the task` + (last.escalated ? ". The rounds are over: the decision is yours" : ""), "", reviewFixBtn());
-      if (!last.sent) return row("talk", `The reviewer left ${what}: you pass them to the agent when it finishes`, "");
+      const n = last.remarks?.length, split = n ? remarksSplit(last) : "", what = n ? `${n} ${plural(n, "remark", "remarks")}` + (split ? `: ${split}` : "") : "remarks";
+      if (step === "notes") return rowHTML("talk", `The reviewer left ${what}` + (last.escalated ? esc(". The rounds are over: the decision is yours") : ""), reviewFixBtn());
+      if (!last.sent) return rowHTML("talk", `The reviewer left ${what}${esc(". You pass them to the agent when it finishes")}`);
       if (step === "fixing") return row("run", "The agent is fixing the reviewer's remarks", "");
       const tally = replyTally(last);
       if (r.agentReviews.some((a) => a.escalated)) return row("bad", "AI review rounds did not converge: the decision is yours" + (last.replyAt ? ` · the agent replied${tally}` : ""), "",
@@ -1410,6 +1412,14 @@ function reviewerRow(r, need) {
   // Passed with suggestions only: say why it passed, so the suggestions beside it do not look like a contradiction.
   if (last.state === "clean" && last.remarks?.length) return adviceBlock(icon, cleanText(last) + rounds, SUGGESTIONS_HINT, ready ? reviewBtn("Review again") : "", "past");
   return row(icon, text + rounds, "", ready ? reviewBtn("Review again") : "");
+}
+// «2 blockers, 4 suggestions»: a round's remarks by weight, a part with none left out. Each part is a button that takes
+// you to the remarks in the table (data-remarks: the weight to land on).
+function remarksSplit(a) {
+  const n = (w) => a.remarks.filter((m) => m.weight === w).length;
+  const parts = Object.keys(WEIGHT).map((w) => [w, n(w)]).filter(([, c]) => c)
+    .map(([w, c]) => `<button type="button" class="rm-jump" data-remarks="${w}">${c} ${plural(c, WEIGHT[w], WEIGHT[w] + "s")}</button>`);
+  return parts.join(", ");
 }
 // «AI review passed · no blockers, 2 suggestions»: why a clean round with remarks passed. Its remarks are all suggestions.
 const SUGGESTIONS_HINT = "Suggestions don't block the merge: fix them if you want";
@@ -1456,11 +1466,19 @@ const extLink = (url, label) => /^https?:\/\//.test(url || "") ? `<a href="${esc
 const inlineCode = (t) => esc(t).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\n/g, "<br>");
 // A status chip: ✅ green, ❌ red, ◐ amber, ⏳ grey; its note in the tooltip.
 const chip = (label, [icon, text] = ["⏳", ""], note = "") => `<span class="rm-chip ${icon === "✅" ? "ok" : icon === "❌" ? "bad" : icon === "◐" ? "part" : "wait"}"${note ? ` title="${esc(note)}"` : ""}>${label ? `<i>${label}</i> ` : ""}${esc(text)}</span>`;
-function remarksTable(a, verdicts, answered) {
+// What stands where a remark has no answer yet because it did not reach the agent: «pending» (waits for Fix),
+// «queued» (the agent is busy: Fix comes when it finishes), «not sent» (the task is closed: it never will).
+function unsentChip(r, a, last, m) {
+  if (a.state === "clean" && m.weight === "should") return chip("", ["", "optional"]);
+  if (last && r.reviewStep === "notes") return chip("", ["⏳", "pending"], "Not sent to the agent yet: press Fix");
+  if (last && r.reviewStep === "" && r.reviewable) return chip("", ["⏳", "queued"], "Fix will be available when the agent finishes");
+  return chip("", ["❌", "not sent"], "The task was closed before the remarks reached the agent");
+}
+function remarksTable(r, a, last, verdicts, answered) {
   const items = a.remarks.map((m) => {
     const where = m.file ? `<code class="rm-at">${esc(m.file)}${m.line ? `:${m.line}` : ""}</code>` : "";
     const reply = REPLY[m.reply] ? chip("Agent:", REPLY[m.reply], m.replyNote) + (a.unverified && m.reply !== "not" ? `<span class="rm-chip bad" title="The branch has no new commits after Fix">⚠ no commits</span>` : "")
-      : a.sent ? chip("Agent:", ["⏳", answered ? "no reply" : "awaiting report"]) : chip("", ["", a.state === "clean" && m.weight === "should" ? "optional" : "not passed on"]);
+      : a.sent ? chip("Agent:", ["⏳", answered ? "no reply" : "awaiting report"]) : unsentChip(r, a, last, m);
     const v = verdicts[m.id];
     const next = v ? chip("Re-check:", VERDICT[v.verdict], v.note) : "";
     const notes = [m.replyNote && REPLY[m.reply] ? `<div class="rm-note"><i>Agent:</i> ${inlineCode(m.replyNote)}</div>` : "", v?.note ? `<div class="rm-note"><i>Re-check:</i> ${inlineCode(v.note)}</div>` : ""].join("");
@@ -1483,12 +1501,12 @@ function reviewerHTML(r) {
     const links = [extLink(a.commentUrl, "comment in the task"), extLink(a.mrCommentUrl, "comment in the MR"), extLink(a.replyUrl, "agent's reply"), extLink(a.mrReplyUrl, "agent's reply in the MR")].filter(Boolean).join(" · ");
     const structured = a.remarks?.length || a.checks?.length;
     const checks = a.checks?.length ? `<div class="rm-prev"><span class="muted">Re-checked:</span>${a.checks.map((c) => chip(esc(c.id), VERDICT[c.verdict], c.note)).join("")}</div>` : "";
-    const body = structured ? checks + (a.remarks?.length ? remarksTable(a, verdictsAfter(i), !!a.replyAt) : "")
+    const body = structured ? checks + (a.remarks?.length ? remarksTable(r, a, i === r.agentReviews.length - 1, verdictsAfter(i), !!a.replyAt) : "")
       + (a.replyAt && !a.remarks?.some((m) => m.reply) && a.reply ? `<details><summary class="muted">The agent gave no point-by-point report — what it wrote</summary><div class="summary">${md(a.reply)}</div></details>` : "")
       : a.notes ? `<div class="summary">${md(a.notes)}</div>` : "";
     const human = a.escalated ? `<div class="mr-err">👤 The agent review rounds are over, but the "blocker" remarks are still open: the decision is yours.</div>` : "";
     const at = new Date(a.at).toLocaleString(LANG, { dateStyle: "medium", timeStyle: "short" });
-    return `<div class="agent-review ${esc(a.state)}"><div class="ar-h"><b>Round ${i + 1}</b><span class="ar-s">${esc(text)}</span>`
+    return `<div class="agent-review ${esc(a.state)}" id="ar-${esc(r.id)}-${i + 1}"><div class="ar-h"><b>Round ${i + 1}</b><span class="ar-s">${esc(text)}</span>`
       + `<span class="ar-m">${at} · <code>${esc(a.commit.slice(0, 8))}</code>${links ? ` · ${links}` : ""}</span></div>
       ${body}${human}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
   }).join("");
@@ -3440,6 +3458,20 @@ function renderDetail() {
     if (shownBelow) return shownBelow.scrollIntoView({ behavior: "smooth", block: "start" });
     stageOpen[r.id] = stageOpen[r.id] === btn.dataset.stage ? "" : btn.dataset.stage;
     renderDetail();
+  };
+  // «2 blockers, 4 suggestions» in the Review row: to the last round's table, to the first remark of that weight.
+  // The table is in the Checks stage: opened first when it is not on the page.
+  for (const btn of $("detail").querySelectorAll("[data-remarks]")) btn.onclick = () => {
+    const id = `ar-${r.id}-${r.agentReviews?.length}`;
+    if (!document.getElementById(id)) { stageOpen[r.id] = "checks"; renderDetail(); }
+    const round = document.getElementById(id);
+    if (!round) return;
+    const to = (btn.dataset.remarks && round.querySelector(`li.rm.${btn.dataset.remarks}`)) || round;
+    to.scrollIntoView({ behavior: "smooth", block: "start" });
+    to.classList.remove("rm-flash");
+    void to.offsetWidth;
+    to.classList.add("rm-flash");
+    to.addEventListener("animationend", () => to.classList.remove("rm-flash"), { once: true });
   };
   // A pick in "⋯" closes it.
   for (const m of $("detail").querySelectorAll("details.more")) m.querySelector(".menu-pop").addEventListener("click", (e) => { if (e.target.closest("button, a")) m.open = false; });
