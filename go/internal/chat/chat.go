@@ -206,6 +206,13 @@ func (s *Session) run() {
 		s.end()
 		return
 	}
+	// Stop may have come between taking the flag above and Start: it found no process to kill then.
+	s.mu.Lock()
+	stopped = s.stopping
+	s.mu.Unlock()
+	if stopped {
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 	s.write(map[string]any{"type": "control_request", "request_id": randomID(), "request": map[string]any{"subtype": "initialize"}})
 	if s.o.Prompt != "" {
 		s.write(userMessage(s.o.Prompt))
