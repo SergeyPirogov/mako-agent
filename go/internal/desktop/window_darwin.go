@@ -86,6 +86,40 @@ static NSString *L(NSString *key) {
 
 static MakoWindowDelegate *makoDelegate;
 
+// Defined in quit_darwin.go: asks Mako to end the usual way.
+extern void makoQuitRequested(void);
+
+// ⌘Q and Quit in the Dock end in [NSApp terminate:], and the menu bar library's delegate then lets AppKit exit() at
+// once: the agents are not stopped. This delegate turns it into Mako's own quit, which ends the loop and stops them.
+@interface MakoAppDelegate : NSObject <NSApplicationDelegate>
+@property (strong) id<NSApplicationDelegate> inner;
+@end
+
+@implementation MakoAppDelegate
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)app {
+	makoQuitRequested();
+	return NSTerminateCancel;
+}
+- (void)applicationWillTerminate:(NSNotification *)n {
+	if ([self.inner respondsToSelector:@selector(applicationWillTerminate:)]) {
+		[self.inner applicationWillTerminate:n];
+	}
+}
+@end
+
+static MakoAppDelegate *makoAppDelegate;
+
+static void makoInterceptQuit(void) {
+	dispatch_async(dispatch_get_main_queue(), ^{
+		if (makoAppDelegate != nil) {
+			return;
+		}
+		makoAppDelegate = [MakoAppDelegate new];
+		makoAppDelegate.inner = NSApp.delegate;
+		NSApp.delegate = makoAppDelegate;
+	});
+}
+
 static NSMenuItem *menuItem(NSString *title, SEL action, NSString *key) {
 	return [[NSMenuItem alloc] initWithTitle:title action:action keyEquivalent:key];
 }
@@ -358,6 +392,10 @@ func OnReopen(url string) {
 	defer C.free(unsafe.Pointer(s))
 	C.makoOnReopen(s)
 }
+
+// InterceptQuit makes ⌘Q and Quit in the Dock end Mako the usual way (see MakoAppDelegate). Call it once the menu
+// bar is up: it wraps the delegate the menu bar library sets.
+func InterceptQuit() { C.makoInterceptQuit() }
 
 // NotificationsOn lets Mako.app show its own notifications, clicked to the board at boardURL. macOS asks the user
 // once. Call it once the menu bar is up.
