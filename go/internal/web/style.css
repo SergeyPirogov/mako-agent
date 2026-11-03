@@ -1486,11 +1486,12 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 /* Merge in the dialog: an outline in the ready-to-merge green, like .merge-go on the task card. */
 .confirm-a button.success { background: transparent; border-color: var(--ok); color: var(--ok); font-weight: 600; }
 .confirm-a button.success:hover { background: color-mix(in srgb, var(--ok) 10%, transparent); opacity: 1; }
-/* Our own focus ring instead of the browser's blue one (theme.js focuses the OK button, so Enter confirms). */
+/* Our own focus ring instead of the browser's blue one (theme.js focuses the OK button, so Enter confirms).
+   The ring shows only after a key is pressed in the dialog (.kbd), not when it was opened with the mouse. */
 .confirm-a button:focus { outline: none; }
-.confirm-a button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
-.confirm-a button.success:focus-visible { outline-color: color-mix(in srgb, var(--ok) 45%, transparent); }
-.confirm-a button.danger:focus-visible { outline-color: color-mix(in srgb, var(--err) 45%, transparent); }
+.confirm-dlg.kbd .confirm-a button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+.confirm-dlg.kbd .confirm-a button.success:focus-visible { outline-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.confirm-dlg.kbd .confirm-a button.danger:focus-visible { outline-color: color-mix(in srgb, var(--err) 45%, transparent); }
 /* The task tab: the facts as chips, then a card per part of the task. */
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
 .tchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px;
