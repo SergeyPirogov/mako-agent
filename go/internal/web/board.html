@@ -24,7 +24,7 @@
   <span class="limits" id="limits"></span>
   <button class="icon-btn" id="awake"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/><path class="slash" d="M3 3l18 18"/></svg></button>
   <button class="icon-btn" id="restart" data-t-title="b.restart"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v7"/><path d="M6.4 6.4a8 8 0 1 0 11.2 0"/></svg></button>
-  <button class="icon-btn" id="code-btn" data-t-title="b.code"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M10 8l-3 2 3 2M14 8l3 2-3 2"/></svg></button>
+  <button class="icon-btn" id="code-btn" data-t-title="b.code"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></button>
   <button class="icon-btn" id="stats-btn" data-t-title="b.stats"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button class="ghost" id="bell" hidden data-t-title="b.bell">🔔</button>
   <a class="icon-btn" id="settings-link" href="/settings" data-t-title="s.title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
@@ -46,6 +46,7 @@
       <div class="new-pop" id="new-pop" role="menu" hidden>
         <button id="new-task" role="menuitem" data-t="b.menuTask" hidden>Task</button>
         <button id="new-chat" role="menuitem" data-t="b.menuChat" data-t-title="b.newChatHint" hidden>Chat</button>
+        <button id="new-code" role="menuitem" data-t="b.menuCode" hidden>Question about code</button>
       </div>
     </div>
     <div class="filter" id="filter"><span id="need-chip" hidden></span><span class="scope" id="scope-box"><span class="scope-l" id="scope-l"></span><select id="scope" aria-label="Show"></select></span></div>
@@ -596,7 +597,8 @@ function render() {
   const html = groupBy === "project" ? listByProject(entries, showAll) : listByStatus(entries, showAll);
   $("new-task").hidden = !newTaskTargets().length;
   $("new-chat").hidden = !(data?.trackers || []).length;
-  $("new-menu").hidden = $("new-task").hidden && $("new-chat").hidden;
+  $("new-code").hidden = $("new-chat").hidden;
+  $("new-menu").hidden = $("new-task").hidden && $("new-chat").hidden && $("new-code").hidden;
   $("new-menu").ariaLabel = $("new-menu").title = t("b.new");
   $("why-btn").ariaLabel = t("b.why");
   $("q").title = t("b.filterHint");
@@ -1940,10 +1942,10 @@ $("group-by").onclick = () => {
   try { localStorage.setItem("mako-group", groupBy); } catch {}
   render();
 };
-// "+": a menu of a new task or a chat; with only one of them to choose, it opens at once.
+// "+": a menu of a new task, a chat or a question about code; with only one of them to choose, it opens at once.
 const newPop = (on) => { $("new-pop").hidden = !on; $("new-menu").setAttribute("aria-expanded", on); };
 $("new-menu").onclick = () => {
-  const ways = [$("new-task"), $("new-chat")].filter((b) => !b.hidden);
+  const ways = [$("new-task"), $("new-chat"), $("new-code")].filter((b) => !b.hidden);
   if (ways.length === 1) return ways[0].click();
   newPop($("new-pop").hidden);
 };
@@ -2061,28 +2063,34 @@ function showWhy() {
   };
 }
 
-// "Ask about code": a question about a project's code, without a task. The agent works in the project's shared
+// "Code questions": a question about a project's code, without a task. The agent works in the project's shared
 // worktree on main: it reads, searches and runs commands but changes no code, and answers here; its file:line places
 // open the file beside the chat. It may propose a ticket: a draft the developer edits and creates. The project keeps
 // its questions; the model, picked here, is kept in the settings for every repository.
 let code = null;
-$("code-btn").onclick = () => {
+// How the page opens: "history" (the header button) shows the latest question, "new" ("+ → Question about code") an empty one.
+let codeStart = "history";
+function openCode(start) {
+  codeStart = start;
   selected = null; statsOpen = false; newOpen = "code"; digest = null;
   history.replaceState(null, "", location.pathname);
   try { localStorage.removeItem("mako-selected"); } catch {}
+  const open = !!code && !!$("code-ask"); // already on the page: showCode will not run again
   render();
-  document.querySelector("#code-ask textarea")?.focus();
-};
+  if (open) { if (start === "new") openThread(""); else openLatest(); }
+  if (start === "new") document.querySelector("#code-ask textarea")?.focus();
+}
+$("code-btn").onclick = () => openCode("history");
+$("new-code").onclick = () => openCode("new");
 
 async function showCode() {
   $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button><div class="code-ask" id="code-ask">
-    <div class="ca-head"><h1>Ask about code</h1>
+    <div class="ca-head"><h1>Code questions</h1>
       <select id="ca-project" aria-label="Project"></select>
-      <select id="ca-model" aria-label="Model" title="The agent model for 'Ask about code', for all projects"></select>
-      <button type="button" id="ca-new">New chat</button></div>
+      <select id="ca-model" aria-label="Model" title="The agent model for 'Code questions', for all projects"></select></div>
     <p class="muted ca-sub">Read-only agent in a separate worktree on main: it reads, searches and runs tests and builds, but can't change files or the repository. It can turn a remark or an idea into a ticket draft.</p>
     <div class="ca-body">
-      <aside class="ca-history"><div class="ca-h"><span>Question history</span><button type="button" class="ghost ca-sel-btn" id="ca-select">Select</button><button type="button" class="ghost ca-sel-btn" id="ca-cancel" hidden>Cancel</button></div><div class="ca-selbar" id="ca-selbar" hidden></div><div id="ca-threads"></div></aside>
+      <aside class="ca-history"><div class="ca-h"><span>History</span><button type="button" class="ghost ca-sel-btn" id="ca-select">Select</button><button type="button" class="ghost ca-sel-btn" id="ca-cancel" hidden>Cancel</button></div><div class="ca-selbar" id="ca-selbar" hidden></div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
         <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
           <textarea rows="2" aria-label="Question about the code" placeholder="E.g.: where do we handle payments? how does the update work? Paste a screenshot with ⌘V"></textarea>
@@ -2113,7 +2121,7 @@ async function showCode() {
   $("ca-project").innerHTML = projects.map((p) => `<option value="${esc(p.key)}" ${p.key === code.project ? "selected" : ""}>${esc(p.name)}</option>`).join("");
   $("back").onclick = () => { newOpen = false; code = null; render(); };
   if (!projects.length) {
-    $("ca-project").disabled = $("ca-new").disabled = true; code.input.disabled = true;
+    $("ca-project").disabled = true; code.input.disabled = true;
     code.list.innerHTML = `<div class="files-empty">There are no project clones on this Mac. A clone appears when Mako takes a task of the project, or set a path to it in the settings.</div>`;
     return;
   }
@@ -2136,7 +2144,6 @@ async function showCode() {
     if (!r.ok) alert(r.error || "Failed");
     loadWorkspace();
   };
-  $("ca-new").onclick = () => { openThread(""); code.input.focus(); };
   // The pictures attached go with the question as lines naming their files: the agent reads them from there.
   const send = async () => {
     const typed = code.input.value.trim();
@@ -2229,7 +2236,8 @@ async function showCode() {
     } else if (b.dataset.sel === "delete") removeQuestions([...v.sel]);
   };
   code.timer = setInterval(pollCode, 1000);
-  openLatest(); loadWorkspace();
+  if (codeStart === "new") { loadThreads(); openThread(""); } else openLatest();
+  loadWorkspace();
 }
 
 // A chat without a task: a conversation with the agent in a project, as in a task's chat (modes, permissions, plan,
@@ -2252,8 +2260,7 @@ async function showFreeChat() {
   closeChat(); fcListed = null;
   $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button><div class="code-ask" id="free-chat">
     <div class="ca-head"><h1>Chat</h1>
-      <select id="fc-project" aria-label="Project"></select>
-      <button type="button" id="fc-new">New chat</button></div>
+      <select id="fc-project" aria-label="Project"></select></div>
     <p class="muted ca-sub" id="fc-sub">${FC_SUB}</p>
     <div class="ca-body">
       <aside class="ca-history"><div class="ca-h">Chats</div><div id="fc-list"></div></aside>
@@ -2268,7 +2275,6 @@ async function showFreeChat() {
   $("fc-project").disabled = !projects.length;
   $("fc-project").onchange = (e) => { try { localStorage.setItem("mako-chat-project", e.target.value); } catch {} };
   $("fc-project").dataset.none = projects.length ? "" : "1";
-  $("fc-new").onclick = () => openFreeChat("");
   $("fc-list").onclick = async (e) => {
     const x = e.target.closest("[data-fc-remove]");
     if (x) {
@@ -2392,7 +2398,7 @@ function ticketCard(d, i, thread) {
 // The chat stays open; once the task exists it is marked done (see openTicketDialog).
 function toTicket(d, i) {
   const p = code.projects.find((x) => x.key === code.project);
-  openTicketDialog({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project });
+  openTicketDialog({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Code questions" on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
 // The Ask chat is done: it keeps the id of the task or the chat it led to (shown in the history and above the chat).
@@ -2430,7 +2436,7 @@ function openMade(id) {
   if (id.startsWith("chat-")) openFreeChat(id); else select(id);
 }
 
-// The plan the agent proposes in Ask about code: a fenced mako-plan block of JSON {title, plan}, handled like the ticket.
+// The plan the agent proposes in Code questions: a fenced mako-plan block of JSON {title, plan}, handled like the ticket.
 const PLAN_BLOCK = /```mako-plan[^\n]*\n([\s\S]*?)\n\s*```/;
 function planOf(text) {
   const m = text.match(PLAN_BLOCK);
@@ -2458,7 +2464,7 @@ const planMessage = (plan, title, from) => `Execute this plan${(title || planTit
 function planSource(v) {
   if (v.code) {
     const p = code.projects.find((x) => x.key === code.project);
-    return { from: `"Ask about code" on the Mako board`, tracker: p?.tracker, project: p?.project, key: code.project, id: "" };
+    return { from: `"Code questions" on the Mako board`, tracker: p?.tracker, project: p?.project, key: code.project, id: "" };
   }
   if (v.id.startsWith("chat-")) {
     const c = freeChats.find((x) => x.id === v.id);
@@ -2477,7 +2483,7 @@ const planXferBtn = (it) => data?.remote || !(it.input?.plan ?? "").trim() ? "" 
 
 async function openPlanXfer(plan, title, src) {
   const dlg = $("plan-xfer-dlg"), box = $("plan-xfer-box");
-  const v = src.thread ? code : null; // started from Ask about code: it stays open and is marked done
+  const v = src.thread ? code : null; // started from Code questions: it stays open and is marked done
   const close = () => { dlg.close(); box.innerHTML = ""; };
   // Sent from Ask: the chat stays, done, with the id of where the plan went.
   const sentFromAsk = async (id, what) => {
@@ -2559,10 +2565,10 @@ async function removeQuestion(id) {
   const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
   if (!r.ok) alert(r.error || "Failed");
   if (v !== code) return;
-  if (id === v.thread) openThread(""); else loadThreads();
+  if (id === v.thread) openLatest(); else loadThreads();
 }
 
-// «Delete selected»: one confirm for all, the agents still answering stop. The open question gone: a new one.
+// «Delete selected»: one confirm for all, the agents still answering stop. The open question gone: the history.
 async function removeQuestions(ids) {
   const v = code;
   if (!ids.length) return;
@@ -2572,7 +2578,7 @@ async function removeQuestions(ids) {
   if (!r.ok) alert(r.error || "Failed");
   if (v !== code) return;
   v.selecting = false; v.sel = new Set(); v.selLast = null;
-  if (ids.includes(v.thread)) openThread(""); else loadThreads();
+  if (ids.includes(v.thread)) openLatest(); else loadThreads();
 }
 
 function selectMode(on) {
@@ -2599,14 +2605,19 @@ function pickThread(id, range) {
   drawThreads();
 }
 
-// The project's latest question, to go on with; "New chat" starts another.
+// The project's latest question, to go on with; "+ → Question about code" starts another.
+// With no questions at all there is nothing to write into: a hint to use "+" shows instead of the composer.
 async function openLatest() {
   const v = code;
   await loadThreads();
-  if (v === code) openThread(v.threads?.[0]?.id ?? "");
+  if (v !== code) return;
+  const id = v.threads?.[0]?.id ?? "";
+  openThread(id);
+  v.history = !id; renderCode();
 }
 
 function openThread(id) {
+  code.history = false;
   code.thread = id; code.version = -1; code.snap = null; code.flip = new Set();
   $("ca-file").hidden = true;
   renderCode(); loadThreads(); pollCode();
@@ -2666,10 +2677,11 @@ function renderCode() {
   const done = v.ticket ? `<div class="ca-done"><span>✓ Chat is done: ${toChat ? "the plan was sent to chat" : "task"} <b>${esc(v.ticket)}</b>${toChat ? "" : " was created"}. You can still ask more here.</span><span class="spacer"></span>
     <button type="button" data-open-ticket>${toChat ? "Open chat" : "Open task"}</button><button type="button" data-ca-delete>Delete question</button></div>` : "";
   v.list.innerHTML = `<div class="chat-col">${done}${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, plans: v.plans, snap: s, ticket: v.ticket }) ||
-      `<div class="files-empty">${v.thread ? "Loading the conversation…" : "Ask a question about the project's code: the agent will find the answer and show the places in the code."}</div>`}
+      `<div class="files-empty">${v.thread ? "Loading the conversation…" : v.history ? "No questions yet. Ask a new question with +" : "Ask a question about the project's code: the agent will find the answer and show the places in the code."}</div>`}
     ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}</div>`;
   linkSources(v.list);
   if (atEnd || v.version <= 1) v.list.scrollTop = v.list.scrollHeight;
+  document.querySelector("#code-ask .chat-foot").hidden = !!v.history;
   document.querySelector("#code-ask .chat-stop").hidden = s?.state !== "working";
   $("ca-task").hidden = !items.some((it) => it.kind === "text");
   for (const b of document.querySelectorAll("#ca-threads .ca-thread")) b.classList.toggle("on", b.dataset.thread === v.thread);
@@ -2722,7 +2734,7 @@ function toTask() {
   // The agent's ticket draft is not part of the answer: "Create ticket" is its way to a task.
   const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
     .map((it) => it.kind === "user" ? `**Question:** ${it.text}` : ticketOf(it.text).text.trim()).filter(Boolean).join("\n\n");
-  openTicketDialog({ title, desc: `${desc}\n\n_From "Ask about code" on the Mako board._`, tracker: p?.tracker, project: p?.project });
+  openTicketDialog({ title, desc: `${desc}\n\n_From "Code questions" on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
 // A pasted screenshot goes to the tracker; a placeholder stands in the text until its link comes back.
