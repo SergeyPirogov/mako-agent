@@ -592,7 +592,6 @@ section.ws #term-slot:has(.term-wrap) { padding: 0; }
 .branch-name:hover { background: var(--hover); }
 .branch-name:active { transform: none; }
 .branch-name .bn-pre { color: var(--mute); }
-.branch-name .bn-num { font-weight: 700; }
 .branch-name .bn-copy { position: absolute; right: 6px; top: 5px; display: inline-flex; color: var(--mute); opacity: 0; transition: opacity .15s; }
 .branch-name:hover .bn-copy, .branch-name:focus-visible .bn-copy { opacity: 1; }
 .branch-name.copied { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }

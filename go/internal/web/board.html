@@ -1229,12 +1229,12 @@ const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}
 const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
 const commits = (n) => `${n} ${plural(n, "commit", "commits")}`;
 
-// The branch's name for the panel: the prefix ("feature/") muted, the task number marked, a line may break only after "/" and "-".
+// The branch's name for the panel: the prefix ("feature/") muted, a line may break only after "/" and "-".
 let nameFlashUntil = 0; // until when the name shows it was copied: a redraw of the panel keeps the flash
 function branchName(name) {
   const m = /^(.*\/)?(?:(\d+)(?=[-_]|$))?(.*)$/s.exec(name);
   const wrap = (t) => t.split(/([/-])/).map((x, i) => (i % 2 ? `${x}<wbr>` : esc(x))).join("");
-  return `${m[1] ? `<span class="bn-pre">${wrap(m[1])}</span>` : ""}${m[2] ? `<b class="bn-num">${m[2]}</b>` : ""}${wrap(m[3])}`;
+  return `${m[1] ? `<span class="bn-pre">${wrap(m[1])}</span>` : ""}${m[2] ? `<span class="bn-num">${m[2]}</span>` : ""}${wrap(m[3])}`;
 }
 
 // The branch: against its base and its remote, uncommitted work; click the name to copy it, open it in Finder or the editor.
