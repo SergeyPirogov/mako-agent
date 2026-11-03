@@ -1467,7 +1467,7 @@ const reviewBtn = (label, cls = "ghost", title = "The reviewer agent will read t
 const skipBtn = () => `<button type="button" class="ghost" data-a="reviewskip" title="No review needed: the reviewer will not run until you change your mind">Skip</button>`;
 // "Fix N blockers" when the merge waits for them (n: counted like remarksSplit), else "Fix with the agent".
 const reviewFixBtn = (blocks = false, n = 0) => `<button type="button" class="${blocks ? "primary" : "ghost fix"}" data-a="reviewfix" title="${blocks ? "Required: the reviewer left blockers, the merge waits for the fix" : "Pass the reviewer's remarks to the agent: it fixes them, and you can run the review again"}">${blocks && n ? `Fix ${n} ${plural(n, WEIGHT.must, WEIGHT.must + "s")}` : "Fix with the agent"}</button>`;
-const suggestFixBtn = () => `<button type="button" class="ghost fix" data-a="reviewfix" title="Pass the reviewer's suggestions to the agent: optional, the merge is not blocked">Fix suggestions with the agent</button>`;
+const suggestFixBtn = () => `<button type="button" class="ghost fix" data-a="reviewfix" title="Pass the reviewer's suggestions to the agent: optional, the merge is not blocked">Fix with the agent</button>`;
 // The agent is still judging the task (a judgement that started over 5 minutes ago and never ended is stale, not
 // holding anything): the twin of the Go Assessing.
 const assessing = (r) => r.assessment?.state === "running" && Date.now() - skew - Date.parse(r.assessment.at) < 5 * 60e3;
