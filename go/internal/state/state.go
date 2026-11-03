@@ -38,7 +38,8 @@ func Open(dir string) (*Store, error) {
 	return s, s.saveLocked()
 }
 
-// Get returns a copy, so a caller cannot change a record without Update.
+// Get returns a deep copy, so a caller cannot change a record without Update, and an Update changing the stored
+// one does not race with the caller reading its copy.
 func (s *Store) Get(id string) (core.Record, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -46,16 +47,16 @@ func (s *Store) Get(id string) (core.Record, bool) {
 	if !ok {
 		return core.Record{}, false
 	}
-	return *r, true
+	return r.Clone(), true
 }
 
-// All returns copies of every record, the most recently updated first.
+// All returns deep copies of every record, the most recently updated first.
 func (s *Store) All() []core.Record {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]core.Record, 0, len(s.records))
 	for _, r := range s.records {
-		out = append(out, *r)
+		out = append(out, r.Clone())
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
 	return out
@@ -74,7 +75,7 @@ func (s *Store) Update(id string, change func(r *core.Record)) core.Record {
 	r.ID = id
 	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	_ = s.saveLocked()
-	return *r
+	return r.Clone()
 }
 
 // UpdateIfExists is Update for a record that must not come back: a background job that finishes after the task

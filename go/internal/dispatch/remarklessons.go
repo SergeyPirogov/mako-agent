@@ -489,15 +489,20 @@ func (d *Dispatcher) AnswerRepoLesson(ctx context.Context, lessonID, to, rule st
 	if t == nil {
 		return fmt.Errorf("tracker %s was removed from settings", l.TrackerID)
 	}
+	// The projects map is read under d.mu, as ensureProject adds to it.
+	d.mu.Lock()
 	p := t.Config().Projects[l.Project]
+	var repo *config.Repo
+	if p != nil {
+		for _, r := range p.Repos {
+			if r.Name == l.Repo {
+				repo = r
+			}
+		}
+	}
+	d.mu.Unlock()
 	if p == nil {
 		return fmt.Errorf("project %s is not configured", l.Project)
-	}
-	var repo *config.Repo
-	for _, r := range p.Repos {
-		if r.Name == l.Repo {
-			repo = r
-		}
 	}
 	if repo == nil || !exists(repo.Path) {
 		return fmt.Errorf("repository %s of project %s does not exist", l.Repo, l.Project)

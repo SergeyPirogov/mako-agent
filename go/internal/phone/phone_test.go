@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -80,6 +81,50 @@ func TestPush(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("after 410: %v", sent)
 	}
+}
+
+// A phone re-subscribing (or dropping its subscription) while pushes go out must not race with them: Push works
+// on a snapshot of the subscription taken under the lock (go test -race).
+func TestPushBesideSubscribeDoesNotRace(t *testing.T) {
+	p, _ := Open(t.TempDir())
+	a, _ := p.Pair(p.NewPairing(), "iPhone", "")
+	p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/first"})
+	p.Send = func(ctx context.Context, msg []byte, sub *webpush.Subscription, o *webpush.Options) (*http.Response, error) {
+		if sub == nil || !strings.HasPrefix(sub.Endpoint, "https://web.push.apple.com/") {
+			t.Errorf("the push went to %+v", sub)
+		}
+		return &http.Response{StatusCode: 201, Body: io.NopCloser(strings.NewReader(""))}, nil
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 300; i++ {
+			p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/second"})
+			p.Subscribe(a.Token, nil)
+		}
+	}()
+	for i := 0; i < 300; i++ {
+		p.Push(context.Background(), Message{Title: "x"})
+		p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/third"})
+	}
+	<-done
+}
+
+// Push keeps a copy of the subscription made by assignment, which is deep only while the subscription holds
+// nothing but values: a pointer, slice or map in webpush.Subscription needs a real copy in Push.
+func TestSubscriptionHoldsOnlyValues(t *testing.T) {
+	var check func(path string, typ reflect.Type)
+	check = func(path string, typ reflect.Type) {
+		switch typ.Kind() {
+		case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Interface, reflect.Chan, reflect.Func:
+			t.Errorf("%s is a %s: copy it in Push", path, typ.Kind())
+		case reflect.Struct:
+			for i := 0; i < typ.NumField(); i++ {
+				check(path+"."+typ.Field(i).Name, typ.Field(i).Type)
+			}
+		}
+	}
+	check("Subscription", reflect.TypeOf(webpush.Subscription{}))
 }
 
 // A phones.json from before Mako kept the origin opens fine, keeps its phones and marks them as paired through
