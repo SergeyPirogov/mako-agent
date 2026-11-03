@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,12 +24,16 @@ import (
 
 // Device is a paired phone: its token is its key to the board, its subscription where its pushes go.
 type Device struct {
-	ID       string                `json:"id"`
-	Name     string                `json:"name"`
-	Token    string                `json:"token"`
-	Created  int64                 `json:"created"`
-	LastSeen int64                 `json:"lastSeen"`
-	Push     *webpush.Subscription `json:"push,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Token    string `json:"token"`
+	Created  int64  `json:"created"`
+	LastSeen int64  `json:"lastSeen"`
+	// Origin is the address the phone was paired through ("https://host"). Cookies belong to an origin, so a phone
+	// paired through another address has to be paired again. Empty: paired before Mako kept it, which was always
+	// through Tailscale.
+	Origin string                `json:"origin,omitempty"`
+	Push   *webpush.Subscription `json:"push,omitempty"`
 }
 
 type stored struct {
@@ -107,8 +112,30 @@ func (p *Phones) NewPairing() string {
 	return code
 }
 
-// Pair turns a QR code into a device: the code works once.
-func (p *Phones) Pair(code, name string) (*Device, error) {
+// ViaTailscale: the phone was paired through Tailscale (a *.ts.net address, or an old phones.json with no origin).
+func (d Device) ViaTailscale() bool {
+	if d.Origin == "" {
+		return true
+	}
+	u, err := url.Parse(d.Origin)
+	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".ts.net")
+}
+
+// HasTailscaleDevices: some paired phone came through Tailscale, so a Funnel or `tailscale serve` of an older
+// Mako may still be open.
+func (p *Phones) HasTailscaleDevices() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, d := range p.data.Devices {
+		if d.ViaTailscale() {
+			return true
+		}
+	}
+	return false
+}
+
+// Pair turns a QR code into a device: the code works once. origin is the address the phone opened.
+func (p *Phones) Pair(code, name, origin string) (*Device, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	until, ok := p.pairing[code]
@@ -117,7 +144,7 @@ func (p *Phones) Pair(code, name string) (*Device, error) {
 	}
 	delete(p.pairing, code)
 	now := time.Now().UnixMilli()
-	d := &Device{ID: random(6), Name: name, Token: random(32), Created: now, LastSeen: now}
+	d := &Device{ID: random(6), Name: name, Token: random(32), Created: now, LastSeen: now, Origin: origin}
 	p.data.Devices = append(p.data.Devices, d)
 	return d, p.saveLocked()
 }
