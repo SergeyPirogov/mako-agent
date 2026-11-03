@@ -28,7 +28,7 @@ func TestAskModelTimeoutKillsChildren(t *testing.T) {
 	fakeClaude(t, "sleep 30 & exec sleep 30")
 	start := time.Now()
 	_, err := AskModel(context.Background(), t.TempDir(), core.Route{Model: "haiku"}, "q", 300*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), "did not answer") {
+	if err == nil || !strings.Contains(err.Error(), "no answer from Claude") {
 		t.Fatalf("error %v", err)
 	}
 	if d := time.Since(start); d > 3*time.Second {
