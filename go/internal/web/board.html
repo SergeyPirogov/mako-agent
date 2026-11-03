@@ -2067,7 +2067,7 @@ async function showCode() {
       <button type="button" id="ca-new">New chat</button></div>
     <p class="muted ca-sub">Read-only agent in a separate worktree on main: it reads, searches and runs tests and builds, but can't change files or the repository. It can turn a remark or an idea into a ticket draft.</p>
     <div class="ca-body">
-      <aside class="ca-history"><div class="ca-h"><span>Question history</span><button type="button" class="ghost ca-sel-btn" id="ca-select">Select</button></div><div class="ca-selbar" id="ca-selbar" hidden></div><div id="ca-threads"></div></aside>
+      <aside class="ca-history"><div class="ca-h"><span>Question history</span><button type="button" class="ghost ca-sel-btn" id="ca-select">Select</button><button type="button" class="ghost ca-sel-btn" id="ca-cancel" hidden>Cancel</button></div><div class="ca-selbar" id="ca-selbar" hidden></div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
         <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
           <textarea rows="2" aria-label="Question about the code" placeholder="E.g.: where do we handle payments? how does the update work? Paste a screenshot with ⌘V"></textarea>
@@ -2202,12 +2202,12 @@ async function showCode() {
   };
   // Several questions at once: "Select" gives the rows checkboxes, one confirm deletes the chosen.
   $("ca-select").onclick = () => selectMode(true);
+  $("ca-cancel").onclick = () => selectMode(false);
   $("ca-selbar").onclick = (e) => {
     const b = e.target.closest("[data-sel]");
     if (!b) return;
     const v = code;
-    if (b.dataset.sel === "cancel") selectMode(false);
-    else if (b.dataset.sel === "all") {
+    if (b.dataset.sel === "all") {
       const all = v.threads ?? [];
       v.sel = v.sel.size === all.length ? new Set() : new Set(all.map((t) => t.id));
       drawThreads();
@@ -2317,7 +2317,7 @@ async function loadFreeChats() {
   const cur = freeChats.find((c) => c.id === freeChat);
   $("fc-sub").textContent = cur ? `${cur.dir} · ${cur.branch}` : FC_SUB;
   $("fc-list").innerHTML = freeChats.length ? freeChats.map((c) => `<div class="ca-thread fc-item ${c.id === freeChat ? "on" : ""}" role="button" tabindex="0" data-fc="${esc(c.id)}" title="${esc(c.title)}">
-      <span>${esc(c.title)}</span><span class="muted">${esc(projectName(c.project))} · ${esc(ago(new Date(c.at).toISOString()))}</span>
+      <span class="ca-line"><span class="ca-title">${esc(c.title)}</span></span><span class="muted">${esc(projectName(c.project))} · ${esc(ago(new Date(c.at).toISOString()))}</span>
       <button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="Delete the chat and its worktree" aria-label="Delete the chat">×</button></div>`).join("")
     : `<div class="muted ca-none">No chats yet.</div>`;
 }
@@ -2615,14 +2615,14 @@ function drawThreads() {
     for (const id of v.sel) if (!ids.has(id)) v.sel.delete(id);
   }
   $("ca-select").hidden = v.selecting || !v.threads.length;
+  $("ca-cancel").hidden = !v.selecting;
   $("ca-selbar").hidden = !v.selecting;
   if (v.selecting) {
     $("ca-selbar").innerHTML = `<button type="button" class="ghost" data-sel="all">${v.sel.size === v.threads.length ? "Clear" : "Select all"}</button>
-      <button type="button" class="danger" data-sel="delete" ${v.sel.size ? "" : "disabled"}>Delete selected (${v.sel.size})</button>
-      <button type="button" class="ghost" data-sel="cancel">Cancel</button>`;
+      <button type="button" class="danger" data-sel="delete" ${v.sel.size ? "" : "disabled"}>${v.sel.size ? `Delete (${v.sel.size})` : "Delete"}</button>`;
   }
   $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}${t.ticket ? " done" : ""}${v.selecting && v.sel.has(t.id) ? " sel" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}${t.ticket ? ` — done, ${t.ticket.startsWith("chat-") ? "chat" : "task"} ${esc(t.ticket)}` : ""}">
-      ${v.selecting ? `<input type="checkbox" class="ca-check" tabindex="-1" aria-label="Select the question" ${v.sel.has(t.id) ? "checked" : ""}>` : ""}<span>${t.ticket ? "✓ " : ""}${esc(t.title)}</span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
+      ${v.selecting ? `<input type="checkbox" class="ca-check" tabindex="-1" aria-label="Select the question" ${v.sel.has(t.id) ? "checked" : ""}>` : ""}<span class="ca-line">${t.ticket ? `<span class="ca-ok" role="img" aria-label="Done">✓</span>` : ""}<span class="ca-title">${esc(t.title)}</span></span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
       ${v.selecting ? "" : `<button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button>`}</div>`).join("")
     : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
 }

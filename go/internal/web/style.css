@@ -1329,16 +1329,22 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .ca-history { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .ca-h { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); padding: 4px 8px; }
 .ca-thread { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; border: 0; border-radius: 8px; background: none; padding: 6px 8px; text-align: left; font-size: 13px; color: var(--fg); }
-.ca-thread span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ca-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; max-width: 100%; }
+.ca-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-ok { flex: none; color: var(--ok); }
 .ca-thread .muted { font-size: 11.5px; }
 .ca-h { display: flex; align-items: center; justify-content: space-between; }
 .ca-sel-btn { padding: 2px 8px; font-size: 12px; text-transform: none; letter-spacing: 0; }
-.ca-selbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 8px 6px; }
+.ca-selbar { display: flex; flex-wrap: nowrap; justify-content: space-between; gap: 4px; padding: 2px 8px 6px; }
 .ca-selbar button { padding: 3px 8px; font-size: 12px; }
+.ca-selbar button:disabled { color: var(--faint); opacity: .6; cursor: default; background: none; }
 .ca-selbar[hidden] { display: none; }
 .ca-thread { position: relative; }
-.ca-check { position: absolute; top: 8px; left: 8px; margin: 0; pointer-events: none; }
-.ca-thread:has(.ca-check) { padding-left: 28px; }
+.ca-check { grid-column: 1; grid-row: 1 / span 2; margin: 0; pointer-events: none; }
+/* The selection mode: the checkbox in its own column, the title and the time in the other. */
+.ca-thread:has(.ca-check) { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: center; padding-right: 8px; }
+.ca-thread:has(.ca-check) .ca-line { grid-column: 2; grid-row: 1; }
+.ca-thread:has(.ca-check) .muted { grid-column: 2; grid-row: 2; }
 .ca-thread.sel { background: var(--hover); }
 .ca-thread:hover { background: var(--hover); }
 .ca-thread.on { background: var(--hover); font-weight: 600; }
@@ -1369,7 +1375,7 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .ca-made { color: var(--ok, var(--accent)); }
 .ca-done { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--hover); font-size: 13px; }
 .ca-done button { height: 26px; padding: 0 12px; font-size: 12px; }
-.ca-thread.done > span:first-child { color: var(--mute); }
+.ca-thread.done .ca-title { color: var(--mute); }
 #ca-ticket-dlg { width: 720px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); padding: 0 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--fg); }
 #ca-ticket-dlg::backdrop { background: rgb(0 0 0 / .35); }
 #ca-ticket-dlg .nt-form { margin: 16px auto; }
@@ -1388,6 +1394,7 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
   .ca-head h1 { flex-basis: 100%; }
   .ca-head select { flex: 1; min-width: 0; max-width: none; }
   .ca-history { max-height: 120px; }
+  .ca-history:has(.ca-selbar:not([hidden])) { max-height: 200px; }
   .ca-file { position: fixed; inset: 10% 8px 8px; z-index: 20; }
 }
 .why { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
