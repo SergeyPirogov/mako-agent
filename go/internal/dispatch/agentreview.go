@@ -248,7 +248,18 @@ func escalated(rounds []core.AgentReview) bool {
 	return false
 }
 
-// FixReview is the board's «Виправити»: the reviewer's last remarks go to the agent, once.
+// fixable: the round's remarks may go to the agent, once: the remarks of «notes», or the suggestions of a
+// «clean» round (they do not block the merge: it is the person's choice to pass them on).
+func fixable(a core.AgentReview) bool {
+	return !a.Sent && (a.State == "notes" || a.State == "clean" && len(a.Remarks) > 0)
+}
+
+// sentFix: the round's remarks were already passed to the agent.
+func sentFix(a core.AgentReview) bool {
+	return a.Sent && (a.State == "notes" || a.State == "clean" && len(a.Remarks) > 0)
+}
+
+// FixReview is the board's «Виправити»: the reviewer's last remarks (or the suggestions of a clean round) go to the agent, once.
 func (d *Dispatcher) FixReview(id string) error {
 	r, ok := d.Store.Get(id)
 	if !ok {
@@ -267,14 +278,14 @@ func (d *Dispatcher) FixReview(id string) error {
 	var last core.AgentReview
 	d.Store.Update(id, func(r *core.Record) {
 		n := len(r.AgentReviews)
-		if n == 0 || r.AgentReviews[n-1].State != "notes" || r.AgentReviews[n-1].Sent {
+		if n == 0 || !fixable(r.AgentReviews[n-1]) {
 			return
 		}
 		last = r.AgentReviews[n-1]
 		r.AgentReviews = markSent(r.AgentReviews, true)
 	})
-	if last.State != "notes" {
-		if l := lastReview(r); l.State == "notes" && l.Sent {
+	if last.State == "" {
+		if sentFix(lastReview(r)) {
 			return errors.New("remarks were already sent to the agent")
 		}
 		return errors.New("no reviewer remarks")
@@ -340,7 +351,7 @@ func (d *Dispatcher) ReviewStep(r core.Record) string {
 		return "running"
 	}
 	if !d.agentIdle(r.ID) {
-		if last.State == "notes" && last.Sent {
+		if sentFix(last) {
 			return "fixing"
 		}
 		return ""

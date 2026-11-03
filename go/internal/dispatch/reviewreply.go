@@ -33,7 +33,7 @@ func (d *Dispatcher) turnEnd(id string) (time.Time, bool) {
 // awaitsReply: the task's last round went to the agent, whose report Mako has not read yet.
 func awaitsReply(r core.Record) bool {
 	last := lastReview(r)
-	return last.State == "notes" && last.Sent && last.ReplyAt == "" && len(last.Remarks) > 0
+	return (last.State == "notes" || last.State == "clean") && last.Sent && last.ReplyAt == "" && len(last.Remarks) > 0
 }
 
 // maybeReply reads the agent's report once its turn after «Виправити» is over. A task Mako restarted in

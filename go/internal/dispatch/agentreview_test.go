@@ -229,6 +229,74 @@ func TestAgentReview(t *testing.T) {
 	}
 }
 
+// A clean round that left suggestions only: «Виправити» passes them to the agent, once; with no suggestions there
+// is nothing to pass; the agent's report on them is read.
+func TestFixSuggestions(t *testing.T) {
+	d, _, id, wt, idle, _ := reviewSetup(t)
+	old := ReviewBranch
+	t.Cleanup(func() { ReviewBranch = old })
+	suggest := true
+	ReviewBranch = func(ctx context.Context, worktree, base string, task core.Task, route core.Route, prior []core.Remark) (string, error) {
+		if suggest {
+			return "- R1 [варто] — назва функції незрозуміла", nil
+		}
+		return "", nil
+	}
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Pay")
+	git(t, wt, "push", "-q", "origin", "fix/5-pay")
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatal(err)
+	}
+	r := reviewEnd(t, d, id, "clean")
+	if last := lastReview(r); len(last.Remarks) != 1 || last.Sent || !fixable(last) {
+		t.Fatalf("round %+v", last)
+	}
+	if awaitsReply(r) {
+		t.Fatal("a round not sent awaits a reply")
+	}
+	if step := d.ReviewStep(r); step == "notes" {
+		t.Fatalf("suggestions are not blocking: step %q", step)
+	}
+	if err := d.FixReview(id); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = d.Store.Get(id)
+	if !lastReview(r).Sent {
+		t.Fatalf("not marked sent: %+v", lastReview(r))
+	}
+	if !d.agentIdle(id) && d.ReviewStep(r) != "fixing" {
+		t.Fatalf("the agent works on the suggestions: step %q", d.ReviewStep(r))
+	}
+	if !awaitsReply(r) && lastReview(r).ReplyAt == "" {
+		t.Fatal("a clean round sent to the agent awaits its report")
+	}
+	idle()
+	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "already sent") {
+		t.Fatalf("sent twice: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(wt, "said.json")); !strings.Contains(string(b), "назва функції незрозуміла") {
+		t.Fatalf("the agent got %s", b)
+	}
+	replied(t, d, id)
+
+	// Nothing to pass on a clean round with no suggestions.
+	suggest = false
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Rename")
+	git(t, wt, "push", "-q", "origin", "fix/5-pay")
+	d.mu.Lock()
+	delete(d.branches, id)
+	d.mu.Unlock()
+	if err := d.ReviewNow(id); err != nil {
+		t.Fatal(err)
+	}
+	if r := reviewEnd(t, d, id, "clean"); len(r.AgentReviews) != 2 || len(lastReview(r).Remarks) != 0 {
+		t.Fatalf("reviews %+v", r.AgentReviews)
+	}
+	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "no reviewer remarks") {
+		t.Fatalf("fix of a clean review: %v", err)
+	}
+}
+
 // The button after a failed round and after one a restart of Mako cut short, and while one runs.
 func TestReviewRetry(t *testing.T) {
 	d, _, id, wt, _, _ := reviewSetup(t)
