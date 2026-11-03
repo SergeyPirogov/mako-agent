@@ -54,7 +54,7 @@ func Prompt(t core.Task, trackerName string) string {
 - Run the relevant tests/linters if the project has them.
 - Never bypass git hooks (no --no-verify). If a hook or check fails, fix the cause; if you cannot, say so.
 - If the task is unclear or impossible, make no changes and explain why.`, trackerName, t.ID, core.UntrustedNote, t.ID,
-		core.Untrusted("issue title", false, t.Title), meta, core.Untrusted(by, false, description), comments)
+		core.Untrusted("issue title", !t.AuthorMember, t.Title), meta, core.Untrusted(by, !t.AuthorMember, description), comments)
 }
 
 // DefaultHandoff: the agent finishes with a pushed branch and the MR Mako watches for.

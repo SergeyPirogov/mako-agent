@@ -125,6 +125,8 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 			return nil
 		}
 		seen[t.ID] = true
+		me, _ := g.Me(ctx)
+		t.AuthorMember = byProject(t.Author, me, t.Assignees) || g.member(ctx, projectPath, is.Author.ID)
 		if is.NotesCount > 0 {
 			var notes []struct {
 				System bool   `json:"system"`
@@ -136,7 +138,6 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 				} `json:"author"`
 			}
 			if err := g.do(ctx, "GET", fmt.Sprintf("%s/issues/%d/notes?sort=asc&per_page=100", project(projectPath), is.IID), nil, &notes); err == nil {
-				me, _ := g.Me(ctx)
 				for _, n := range notes {
 					if !n.System {
 						member := ofTask(n.Author.Username, me, t) || g.member(ctx, projectPath, n.Author.ID)

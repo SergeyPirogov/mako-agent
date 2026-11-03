@@ -30,6 +30,9 @@ type Task struct {
 	Attachments []Attachment `json:"attachments,omitempty"`
 	// Author: who wrote the issue in the tracker ("" unknown).
 	Author string `json:"author,omitempty"`
+	// AuthorMember: the issue's author is someone of the project (see Comment.Member); an agent follows an
+	// outsider's task only for the code change it asks for.
+	AuthorMember bool `json:"authorMember,omitempty"`
 	// CommentsUnread: the tracker failed to give its comments this time; the ones Mako has stay.
 	CommentsUnread bool `json:"-"`
 }

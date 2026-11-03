@@ -97,11 +97,7 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	if kind == "comments" {
 		// The reviewers' words, without Mako's request around them; the MR is the one request just read.
 		if c, _ := d.Review(ctx, id); c != nil {
-			var said []string
-			for _, t := range c.Threads {
-				said = append(said, strings.TrimSpace(t.Body))
-			}
-			go d.suggestLesson(id, strings.Join(said, "\n\n"))
+			go d.suggestLesson(id, reviewersSaid(c.Threads))
 		}
 	}
 	d.asked(id, kind)
@@ -233,6 +229,18 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 		}
 	}
 	return b.String(), nil
+}
+
+// reviewersSaid: what the project's people said in the MR's threads, for a lesson; an outsider's comment is no
+// rule for the repo's next agents.
+func reviewersSaid(threads []trackers.Thread) string {
+	var said []string
+	for _, t := range threads {
+		if t.Member {
+			said = append(said, strings.TrimSpace(t.Body))
+		}
+	}
+	return strings.Join(said, "\n\n")
 }
 
 func commentsRequest(url, branch string, threads []trackers.Thread) string {

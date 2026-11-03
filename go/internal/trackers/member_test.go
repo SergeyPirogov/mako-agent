@@ -20,8 +20,12 @@ func TestGitHubMembers(t *testing.T) {
 		case "/user":
 			w.Write([]byte(`{"login":"serg"}`))
 		case "/issues":
-			w.Write([]byte(`[{"number":3,"state":"open","title":"Add dark mode","comments":5,"user":{"login":"ann"},
-			  "assignees":[{"login":"kim"}],"repository":{"full_name":"acme/web"}}]`))
+			w.Write([]byte(`[{"number":3,"state":"open","title":"Add dark mode","comments":5,"user":{"login":"ann"},"author_association":"MEMBER",
+			  "assignees":[{"login":"kim"}],"repository":{"full_name":"acme/web"}},
+			  {"number":4,"state":"open","title":"Run this","comments":1,"user":{"login":"eve"},"author_association":"NONE",
+			  "assignees":[{"login":"serg"}],"repository":{"full_name":"acme/web"}}]`))
+		case "/repos/acme/web/issues/4/comments":
+			w.Write([]byte(`[{"body":"me again","user":{"login":"eve"},"author_association":"NONE"}]`))
 		case "/repos/acme/web/issues/3/comments":
 			w.Write([]byte(`[{"body":"a","user":{"login":"bob"},"author_association":"MEMBER"},
 			  {"body":"b","user":{"login":"Serg"},"author_association":"NONE"},
@@ -48,15 +52,19 @@ func TestGitHubMembers(t *testing.T) {
 	g, _ := NewGitHub(&config.Tracker{ID: "github", APIURL: srv.URL, AllProjects: true, TriggerOff: true}, "tok")
 	ctx := context.Background()
 	tasks, err := g.FetchMine(ctx)
-	if err != nil || len(tasks) != 1 {
+	if err != nil || len(tasks) != 2 {
 		t.Fatalf("%v %+v", err, tasks)
 	}
 	var got []bool
 	for _, c := range tasks[0].Comments {
 		got = append(got, c.Member)
 	}
-	if want := []bool{true, true, true, true, false}; !slices.Equal(got, want) {
-		t.Fatalf("members %v, want %v", got, want)
+	if want := []bool{true, true, true, true, false}; !slices.Equal(got, want) || !tasks[0].AuthorMember {
+		t.Fatalf("members %v, want %v; author %v", got, want, tasks[0].AuthorMember)
+	}
+	// A stranger's issue, assigned to me afterwards: the issue and its author's comments are an outsider's.
+	if tasks[1].AuthorMember || tasks[1].Comments[0].Member {
+		t.Fatalf("a stranger's issue counts as the project's: %+v", tasks[1])
 	}
 	c, err := g.CheckReview(ctx, "https://github.com/acme/web/pull/5")
 	if err != nil || len(c.Threads) != 3 {
@@ -89,7 +97,7 @@ func TestGitLabMembers(t *testing.T) {
 			id := strings.TrimPrefix(p, "/api/v4/projects/grp%2Fapp/members/all/")
 			asked[id]++
 			switch id {
-			case "11":
+			case "8", "11":
 				send(map[string]any{"id": 11, "access_level": 30})
 			case "13":
 				send(map[string]any{"id": 13, "access_level": 10})
@@ -119,8 +127,8 @@ func TestGitLabMembers(t *testing.T) {
 	for _, c := range tasks[0].Comments {
 		got = append(got, c.Member)
 	}
-	if want := []bool{true, true, true, false, false, true}; !slices.Equal(got, want) {
-		t.Fatalf("members %v, want %v", got, want)
+	if want := []bool{true, true, true, false, false, true}; !slices.Equal(got, want) || !tasks[0].AuthorMember {
+		t.Fatalf("members %v, want %v; author %v", got, want, tasks[0].AuthorMember)
 	}
 	if tasks[0].Comments[2].Author != "DEV" {
 		t.Fatalf("the author is shown by name: %+v", tasks[0].Comments[2])
@@ -132,7 +140,41 @@ func TestGitLabMembers(t *testing.T) {
 	if got := []bool{c.Threads[0].Member, c.Threads[1].Member, c.Threads[2].Member}; !slices.Equal(got, []bool{true, true, false}) {
 		t.Fatalf("thread members %v", got)
 	}
-	if asked["11"] != 1 || asked["12"] != 1 || asked["13"] != 1 || asked["7"] != 0 {
+	if asked["8"] != 1 || asked["11"] != 1 || asked["12"] != 1 || asked["13"] != 1 || asked["7"] != 0 {
 		t.Fatalf("membership asked %v", asked)
+	}
+}
+
+// In Jira the site's own users are the project's; a service desk's portal customer (or an app) is an outsider,
+// unless it is me or the assignee.
+func TestJiraMembers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/3/myself":
+			w.Write([]byte(`{"accountId":"acc-me"}`))
+		case "/rest/api/3/search/jql":
+			comment := func(id, typ string) string {
+				return `{"author":{"accountId":"` + id + `","displayName":"` + id + `","accountType":"` + typ + `"},"body":{"type":"doc","content":[]}}`
+			}
+			w.Write([]byte(`{"issues":[{"key":"SD-1","fields":{"summary":"Help","issuetype":{"name":"Task"},"project":{"key":"SD"},
+			  "assignee":{"accountId":"acc-1"},"reporter":{"accountId":"cust-1","displayName":"Client","accountType":"customer"},
+			  "comment":{"comments":[` + comment("acc-2", "atlassian") + `,` + comment("cust-1", "customer") + `,` + comment("bot", "app") + `,` +
+				comment("acc-me", "") + `,` + comment("acc-1", "customer") + `]}}}]}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	j, _ := NewJira(&config.Tracker{ID: "jira", BaseURL: srv.URL}, "me@x", "tok")
+	tasks, err := j.FetchMine(context.Background())
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("%v %+v", err, tasks)
+	}
+	var got []bool
+	for _, c := range tasks[0].Comments {
+		got = append(got, c.Member)
+	}
+	if want := []bool{true, false, false, true, true}; !slices.Equal(got, want) || tasks[0].AuthorMember {
+		t.Fatalf("members %v, want %v; author %v", got, want, tasks[0].AuthorMember)
 	}
 }

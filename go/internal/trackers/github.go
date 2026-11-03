@@ -43,8 +43,9 @@ type ghIssue struct {
 	User *struct {
 		Login string `json:"login"`
 	} `json:"user"`
-	Comments   int `json:"comments"`
-	Repository *struct {
+	AuthorAssociation string `json:"author_association"`
+	Comments          int    `json:"comments"`
+	Repository        *struct {
 		FullName string `json:"full_name"`
 	} `json:"repository"`
 }
@@ -124,6 +125,8 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 			return
 		}
 		seen[t.ID] = true
+		me, _ := g.Me(ctx)
+		t.AuthorMember = ghMember(is.AuthorAssociation) || byProject(t.Author, me, t.Assignees)
 		if is.Comments > 0 {
 			var cs []struct {
 				Body string `json:"body"`
@@ -133,7 +136,6 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 				AuthorAssociation string `json:"author_association"`
 			}
 			if err := g.do(ctx, "GET", fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100", repo, is.Number), nil, &cs); err == nil {
-				me, _ := g.Me(ctx)
 				for _, c := range cs {
 					member := ghMember(c.AuthorAssociation) || ofTask(c.User.Login, me, t)
 					t.Comments = append(t.Comments, core.Comment{Author: c.User.Login, Body: c.Body, Member: member})
@@ -237,9 +239,14 @@ func ghMember(association string) bool {
 	return false
 }
 
-// ofTask: user is me, the task's author or one of its assignees ("" is none of them).
+// byProject: user is me or one of the task's assignees, whom only the project's people assign ("" is neither).
+func byProject(user, me string, assignees []string) bool {
+	return user != "" && (strings.EqualFold(user, me) || slices.ContainsFunc(assignees, func(a string) bool { return strings.EqualFold(a, user) }))
+}
+
+// ofTask: user is me, one of the task's assignees, or its author when the author is the project's.
 func ofTask(user, me string, t core.Task) bool {
-	return user != "" && (strings.EqualFold(user, me) || strings.EqualFold(user, t.Author) || slices.ContainsFunc(t.Assignees, func(a string) bool { return strings.EqualFold(a, user) }))
+	return byProject(user, me, t.Assignees) || (t.AuthorMember && user != "" && strings.EqualFold(user, t.Author))
 }
 
 func ghIssuePath(t core.Task) string {
