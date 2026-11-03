@@ -145,6 +145,8 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .proj-head .chev { flex: none; color: var(--faint); transition: transform .15s; }
 .proj.folded .proj-head .chev { transform: rotate(-90deg); }
 .proj-head b { font-weight: 600; white-space: nowrap; }
+.proj-head .lesson-badge { flex: none; padding: 0 4px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+.proj-head .lesson-badge:hover { background: var(--hover); outline: 1px solid var(--line, var(--faint)); }
 .proj-head .p-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--faint); }
 .proj-head .p-sum { color: var(--mute); }
 .proj-head .n { margin-left: auto; flex: none; color: var(--faint); font-weight: 500; }

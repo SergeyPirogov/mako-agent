@@ -411,7 +411,8 @@ type Lesson struct {
 	From string `json:"from"` // what you wrote, clipped
 }
 
-// SavedLesson is a rule that went into a repo's CLAUDE.md, for the project's settings.
+// SavedLesson is a rule that went into a repo's CLAUDE.md, for the project's settings; or, with a State, one
+// Mako drew from the reviewer's remarks that repeat across the repo's tasks.
 type SavedLesson struct {
 	TrackerID string `json:"trackerId"`
 	Project   string `json:"project"`
@@ -423,7 +424,26 @@ type SavedLesson struct {
 	At        string `json:"at"`
 	// Section: "navigation" for a rule of the navigation retro (under its own heading), "" for a review lesson.
 	Section string `json:"section,omitempty"`
+	// ID: the offer's id, for the board's answer; "" for the lessons saved from a task.
+	ID string `json:"id,omitempty"`
+	// State: "" saved; LessonOffered (waits for your answer), LessonDeclined (you said no), LessonNone (the
+	// model found no rule in the remarks): neither of the last two is offered again.
+	State string `json:"state,omitempty"`
+	// Source: "reviewer" for a lesson drawn from the reviewer's remarks.
+	Source string `json:"source,omitempty"`
+	// Key: the words the group of remarks shares; a new group much like it is the same one.
+	Key string `json:"key,omitempty"`
+	// Tasks: the tasks the remarks were made on; Examples: a few of them, clipped.
+	Tasks    []string `json:"tasks,omitempty"`
+	Examples []string `json:"examples,omitempty"`
 }
+
+// The states of a lesson drawn from the reviewer's remarks.
+const (
+	LessonOffered  = "offered"
+	LessonDeclined = "declined"
+	LessonNone     = "none"
+)
 
 // TrackerState is what happened to the issue's status at the last step, shown on the board.
 type TrackerState struct {

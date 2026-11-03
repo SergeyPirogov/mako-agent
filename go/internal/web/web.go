@@ -89,6 +89,8 @@ type stateReply struct {
 		Active bool `json:"active"`
 	} `json:"awake"`
 	Faults []dispatch.Fault `json:"faults"` // Mako's own errors, the newest first
+	// LessonOffers: the lessons from the reviewer's remarks waiting for an answer in the settings, by project.
+	LessonOffers map[string]int `json:"lessonOffers,omitempty"`
 	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
 	Digest *core.Digest `json:"digest,omitempty"`
 }
@@ -236,6 +238,7 @@ func (s *Server) Handler() http.Handler {
 		reply.NavRetros = s.D.NavRetros(r.URL.Query().Get("project"))
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
+		reply.LessonOffers = s.D.LessonOffers()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)

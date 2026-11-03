@@ -80,6 +80,10 @@ type Dispatcher struct {
 	reviews  map[string]reviewLook
 	// lessoning: the tasks whose last message Mako is looking into for a lesson.
 	lessoning map[string]bool
+	// repoLessoning, repoLessoned: the repos whose reviewer's remarks Mako is looking into for a lesson, and when
+	// it last did, by "tracker|project|repo".
+	repoLessoning map[string]bool
+	repoLessoned  map[string]time.Time
 	// reviewing: the tasks whose branch the reviewer agent reads now.
 	reviewing map[string]bool
 	// branches: the tasks' branches as the board's reviewer row last looked at them (lookBranch).
@@ -138,7 +142,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]selfLook{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, repoLessoning: map[string]bool{}, repoLessoned: map[string]time.Time{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]selfLook{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
 		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery,
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}

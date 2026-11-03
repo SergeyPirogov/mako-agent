@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -131,6 +132,22 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 	// The rules saved to the repos' CLAUDE.md from the agents' corrections, for each project's settings.
 	mux.HandleFunc("GET /api/settings/lessons", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.D.Lessons())
+	})
+	// «Зберегти в CLAUDE.md» (to=base) or «Відхилити» (to=no) for a lesson from the reviewer's remarks; the body
+	// is the rule as you edited it.
+	mux.HandleFunc("POST /api/settings/lessons/answer", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		if err := s.D.AnswerRepoLesson(ctx, r.URL.Query().Get("id"), r.URL.Query().Get("to"), string(body)); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	})
 	// How much of the disk the agents' worktrees take, per project.
 	mux.HandleFunc("GET /api/settings/worktrees", func(w http.ResponseWriter, r *http.Request) {

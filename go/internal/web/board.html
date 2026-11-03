@@ -615,7 +615,10 @@ function render() {
     try { localStorage.setItem("mako-folded", JSON.stringify(folded)); } catch {}
     render();
   };
-  for (const b of $("list").querySelectorAll(".proj-head")) b.onclick = () => {
+  for (const b of $("list").querySelectorAll(".proj-head")) b.onclick = (e) => {
+    // The 💡 of a lesson from the reviewer's remarks: to the project's lessons in the settings.
+    const lesson = e.target.closest("[data-lessons-of]");
+    if (lesson) return (location.href = "/settings#lessons:" + encodeURIComponent(lesson.dataset.lessonsOf));
     if (showAll) return;
     foldedProjects.has(b.dataset.proj) ? foldedProjects.delete(b.dataset.proj) : foldedProjects.add(b.dataset.proj);
     try { localStorage.setItem("mako-folded-projects", JSON.stringify([...foldedProjects])); } catch {}
@@ -689,6 +692,7 @@ function listByProject(entries, showAll) {
     const count = (g) => all.filter((e) => e.g === g).length;
     const summary = order.filter((g) => SUMMARY[g] && count(g)).map((g) => g === "merge" ? `<span class="ok">${count(g)} ${SUMMARY[g]}</span>` : esc(`${count(g)} ${SUMMARY[g]}`)).join(" · ") || "nothing in work";
     html += `<div class="group-box proj${isFolded ? " folded" : ""}"><button class="proj-head" data-proj="${esc(p)}" aria-expanded="${!isFolded}" title="${esc(p)}">${ICON.chevron}${projectDot(p)}<b>${esc(shortProject(p))}</b>`
+      + (data?.lessonOffers?.[p] ? `<span class="lesson-badge" data-lessons-of="${esc(p)}" title="${esc(t("b.lessonOffer"))}">💡</span>` : "")
       + (isFolded ? `<span class="p-sum">${summary}</span>` : "") + `<span class="n">${all.length}</span></button>`;
     if (!isFolded) {
       // Ready to merge first, under a small green heading: the next action for a person.
