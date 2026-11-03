@@ -106,8 +106,15 @@ func TestReviewRequests(t *testing.T) {
 		t.Fatalf("closed MR %+v", r)
 	}
 
+	// A look that is not the board's (another site's <img>) leaves «оновлено» as it is.
+	if v, err := d.ReviewRequest(ctx, a.ID, false); err != nil || !v.Item.Updated {
+		t.Fatalf("not seen %+v %v", v, err)
+	}
+	if r, _ := d.Reviews.Get(a.ID); !r.Updated {
+		t.Fatalf("taken off unseen %+v", r)
+	}
 	// Opening the card takes «оновлено» off.
-	v, err := d.ReviewRequest(ctx, a.ID)
+	v, err := d.ReviewRequest(ctx, a.ID, true)
 	if err != nil || v.Item.Updated || len(v.Files) != 1 || v.Check.CI != "success" {
 		t.Fatalf("card %+v %v", v, err)
 	}
@@ -168,7 +175,7 @@ func TestReviewRequestsOff(t *testing.T) {
 	if len(d.ReviewList()) != 0 {
 		t.Fatal("cards of a removed tracker shown")
 	}
-	if _, err := d.ReviewRequest(ctx, mrToReview(1, "a").ID); err == nil {
+	if _, err := d.ReviewRequest(ctx, mrToReview(1, "a").ID, true); err == nil {
 		t.Fatal("card of a removed tracker opened")
 	}
 }

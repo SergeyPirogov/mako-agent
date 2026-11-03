@@ -387,7 +387,7 @@ func (p *Phones) Subscribe(token string, sub *webpush.Subscription) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, d := range p.data.Devices {
-		if d.Token == token {
+		if token != "" && subtle.ConstantTimeCompare([]byte(d.Token), []byte(token)) == 1 {
 			d.Push = sub
 			return p.saveLocked()
 		}

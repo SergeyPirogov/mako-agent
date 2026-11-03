@@ -68,7 +68,11 @@ func TestPairingThroughAnEvilRelay(t *testing.T) {
 
 	post := func(f relay.Sealed) *http.Response {
 		body, _ := json.Marshal(f)
-		res, err := http.Post(evil.URL+"/pair", "application/json", bytes.NewReader(body))
+		// The phone's page, served through the relay: its origin is the relay's.
+		req, _ := http.NewRequest("POST", evil.URL+"/pair", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", evil.URL)
+		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -150,6 +154,7 @@ func TestPairingTheOldWayStillWorks(t *testing.T) {
 	req, _ := http.NewRequest("POST", srv.URL+"/pair", strings.NewReader("code="+code))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("X-Forwarded-For", "100.64.0.2")
+	req.Header.Set("Origin", srv.URL)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil || res.StatusCode != 200 || len(res.Cookies()) == 0 {
 		t.Fatalf("old pairing: %v %d", err, res.StatusCode)

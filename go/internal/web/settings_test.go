@@ -3,11 +3,13 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
@@ -65,6 +67,83 @@ func TestAwakeToggle(t *testing.T) {
 	b, _ = os.ReadFile(filepath.Join(home, "mako.config.json"))
 	if strings.Contains(string(b), "keepAwake") || !d.Config().KeepAwake {
 		t.Fatalf("on: %s", b)
+	}
+}
+
+// ☕, a tracker's pause and the code model changed at once: each change stays, none fails on the file's rename.
+func TestConfigChangesAtOnce(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, ".env"), []byte("GITHUB_TOKEN=a\n"), 0o600)
+	os.WriteFile(filepath.Join(home, "mako.config.json"), []byte(`{"wipLimit":3,"trackers":[{"type":"github","allProjects":true}]}`), 0o644)
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), KeepAwake: true}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	posts := []struct{ path, body string }{
+		{"/api/awake?on=0", ""},
+		{"/api/tracker-pause?id=github&on=1", ""},
+		{"/api/code/model", `{"model":"opus"}`},
+	}
+	var wg sync.WaitGroup
+	errs := make(chan string, 3*len(posts))
+	for range 3 {
+		for _, p := range posts {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req, _ := http.NewRequest("POST", srv.URL+p.path, strings.NewReader(p.body))
+				req.Header.Set("Origin", srv.URL)
+				res, err := http.DefaultClient.Do(req)
+				if err != nil {
+					errs <- err.Error()
+					return
+				}
+				var out map[string]any
+				json.NewDecoder(res.Body).Decode(&out)
+				res.Body.Close()
+				if out["ok"] != true {
+					errs <- fmt.Sprintf("%s: %v", p.path, out)
+				}
+			}()
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "mako.config.json"))
+	var cfg struct {
+		WipLimit  int                     `json:"wipLimit"`
+		KeepAwake *bool                   `json:"keepAwake"`
+		CodeAsk   struct{ Model string }  `json:"codeAsk"`
+		Trackers  []struct{ Paused bool } `json:"trackers"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		t.Fatalf("config: %v\n%s", err, b)
+	}
+	if cfg.WipLimit != 3 || cfg.KeepAwake == nil || *cfg.KeepAwake || cfg.CodeAsk.Model != "opus" || len(cfg.Trackers) != 1 || !cfg.Trackers[0].Paused {
+		t.Fatalf("a change got lost:\n%s", b)
+	}
+}
+
+// No mako.config.json yet: ☕ writes one.
+func TestAwakeWithoutConfig(t *testing.T) {
+	home := t.TempDir()
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), KeepAwake: true}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/awake?on=0", nil)
+	req.Header.Set("Origin", srv.URL)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	json.NewDecoder(res.Body).Decode(&out)
+	if b, _ := os.ReadFile(filepath.Join(home, "mako.config.json")); out["ok"] != true || !strings.Contains(string(b), `"keepAwake": false`) {
+		t.Fatalf("%v: %s", out, b)
 	}
 }
 

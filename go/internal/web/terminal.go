@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -26,7 +27,7 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /hook", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		sess := s.D.Sessions.Get(q.Get("id"))
-		if sess == nil || q.Get("token") == "" || q.Get("token") != sess.Token {
+		if sess == nil || !tokenIs(q.Get("token"), sess.Token) {
 			http.Error(w, "unknown session", http.StatusForbidden)
 			return
 		}
@@ -37,7 +38,7 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 	// The push guard: the agent's PreToolUse hook before a Bash command; a push carrying secrets gets «deny».
 	mux.HandleFunc("POST /guard", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if token := s.D.GuardToken(q.Get("id")); token == "" || q.Get("token") != token {
+		if !tokenIs(q.Get("token"), s.D.GuardToken(q.Get("id"))) {
 			http.Error(w, "unknown session", http.StatusForbidden)
 			return
 		}
@@ -85,7 +86,10 @@ func (s *Server) terminal(c *websocket.Conn) {
 		return
 	}
 	defer sess.Unsubscribe(events)
+	// done: the board went away; the writer below stops then, not at the session's next output.
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		for {
 			var m struct {
 				T          string `json:"t"`
@@ -110,9 +114,19 @@ func (s *Server) terminal(c *websocket.Conn) {
 			}
 		}
 	}()
-	for e := range events {
-		if websocket.JSON.Send(c, e) != nil {
+	for {
+		select {
+		case e, ok := <-events:
+			if !ok || websocket.JSON.Send(c, e) != nil {
+				return
+			}
+		case <-done:
 			return
 		}
 	}
+}
+
+// tokenIs: got is the token want, compared in constant time; no token is never one.
+func tokenIs(got, want string) bool {
+	return want != "" && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }

@@ -269,7 +269,12 @@ func running(base string) bool {
 // showRunning asks the running Mako to show its board.
 func showRunning(base string) bool {
 	c := http.Client{Timeout: 2 * time.Second}
-	res, err := c.Post(base+"/api/show", "text/plain", nil)
+	req, err := http.NewRequest("POST", base+"/api/show", nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("X-Mako", "1") // the board takes a POST without Origin from Mako only
+	res, err := c.Do(req)
 	if err != nil {
 		return false
 	}

@@ -106,7 +106,10 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 			return
 		}
 		var answers map[string]string
-		json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
+		if err := decodeJSON(r, 200<<10, &answers); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
 		if err := c.Answer(r.URL.Query().Get("req"), answers); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return

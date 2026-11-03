@@ -327,7 +327,8 @@ async function load() {
     if (document.visibilityState === "visible") q.set("seen", "1");
     if (statsDays) q.set("days", statsDays);
     if (statsProject) q.set("project", statsProject);
-    data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`)).json();
+    // X-Mako: the board's own look; only then does seen=1 count (another site cannot send it).
+    data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`, { headers: { "X-Mako": "1" } })).json();
     // A record without a project is not a task (a stray write made it): no group with no name, no row in «needs attention».
     data.records = (data.records || []).filter((r) => r.task?.project);
     if (data.now) skew = Date.now() - data.now;
@@ -750,7 +751,8 @@ function reviewAskRow(q) {
 // The open MR to review as its code host has it now ({check, files, item} or {error}), and the files unfolded.
 let askView = null, askOpen = new Set();
 async function loadAsk(q) {
-  const id = q.id, v = await getJSON(`/api/review-request?id=${encodeURIComponent(id)}`);
+  // X-Mako: the board's own look, so the MR counts as seen.
+  const id = q.id, v = await fetch(`/api/review-request?id=${encodeURIComponent(id)}`, { headers: { "X-Mako": "1" } }).then((r) => r.json()).catch((e) => ({ error: e.message }));
   if (selected !== id) return;
   askView = { id, sha: q.headSha, v };
   // "updated" is off once seen: the list shows it at once.
@@ -1300,7 +1302,7 @@ function branchCard(r, term) {
     rows = st.every((x) => x[0] === "ok") ? row("ok", st.map((x) => x[1]).join(" · ")) : st.map((x) => row(x[0], x[1], "", x[2])).join("");
   }
   return `<div class="mr-card br-card"><div class="mr-h"><span class="files-h-t">Branch</span><span class="mr-sp"></span>
-      <button type="button" class="icon" data-open="finder" title="Show in Finder" aria-label="Show in Finder">${ICON.folder}</button>
+      ${data.remote ? "" : `<button type="button" class="icon" data-open="finder" title="Show in Finder" aria-label="Show in Finder">${ICON.folder}</button>`}
       ${data.editor ? `<button type="button" class="icon" data-open="editor" title="Open in ${esc(data.editor)}" aria-label="Open in ${esc(data.editor)}">${ICON.code}</button>` : ""}
     </div>${b.name ? `<button type="button" class="branch-name${Date.now() < nameFlashUntil ? " copied" : ""}" data-copy="${esc(b.name)}" title="Copy branch name" aria-label="Copy branch name ${esc(b.name)}">${branchName(b.name)}<span class="bn-copy">${ICON.copy}</span></button>` : ""}${rows}</div>`;
 }
@@ -3525,7 +3527,7 @@ function moreMenu(r) {
   if (r.prUrl && !["merge", "fix-conflicts", "fix-ci", "open-mr"].includes(p)) items.push(`<a href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))} ↗</a>`);
   if (r.worktree && r.column !== "done") {
     if (data.editor) it(`data-open="editor"`, `Open in ${esc(data.editor)}`);
-    it(`data-open="finder"`, "Show in Finder");
+    if (!data.remote) it(`data-open="finder"`, "Show in Finder"); // Finder and the editor open on the Mac
     it(`data-copy="${esc(r.worktree)}" title="${esc(r.worktree)}"`, "Copy worktree path");
   }
   if (r.task.url) it(`data-copy="${esc(r.task.url)}"`, "Copy task link");

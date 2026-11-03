@@ -167,7 +167,13 @@ func deliver(base, task, name, file string) (string, error) {
 	}
 	u := strings.TrimRight(base, "/") + "/api/screenshot?id=" + url.QueryEscape(task) + "&name=" + url.QueryEscape(name)
 	c := http.Client{Timeout: 2 * time.Minute}
-	res, err := c.Post(u, "image/png", bytes.NewReader(data))
+	req, err := http.NewRequest("POST", u, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "image/png")
+	req.Header.Set("X-Mako", "1") // the board takes a POST without Origin from Mako only
+	res, err := c.Do(req)
 	if err != nil {
 		return "", err
 	}

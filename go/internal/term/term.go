@@ -214,6 +214,13 @@ func (s *Session) Unsubscribe(c chan Event) {
 	}
 }
 
+// Subscribers: how many boards watch the session now.
+func (s *Session) Subscribers() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.subs)
+}
+
 // Input is what you type.
 func (s *Session) Input(d string) {
 	s.mu.Lock()

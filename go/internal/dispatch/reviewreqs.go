@@ -181,8 +181,8 @@ type ReviewRequestView struct {
 	Item  core.ReviewRequest    `json:"item"`
 }
 
-// ReviewRequest reads the MR from its code host for the card, and takes «оновлено» off it: it is seen now.
-func (d *Dispatcher) ReviewRequest(ctx context.Context, id string) (*ReviewRequestView, error) {
+// ReviewRequest reads the MR from its code host for the card; seen takes «оновлено» off it (the board looked).
+func (d *Dispatcher) ReviewRequest(ctx context.Context, id string, seen bool) (*ReviewRequestView, error) {
 	if d.Reviews == nil {
 		return nil, fmt.Errorf("no such MR to review: %s", id)
 	}
@@ -206,7 +206,7 @@ func (d *Dispatcher) ReviewRequest(ctx context.Context, id string) (*ReviewReque
 	} else if v.Error == "" {
 		v.Error = err.Error()
 	}
-	if r.Updated {
+	if r.Updated && seen {
 		v.Item = d.Reviews.Update(id, func(r *core.ReviewRequest) { r.Updated = false })
 	}
 	return v, nil

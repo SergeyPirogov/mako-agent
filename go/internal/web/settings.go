@@ -78,7 +78,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			return
 		}
 		var in settingsSave
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -118,7 +118,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			Tracker json.RawMessage   `json:"tracker"`
 			Env     map[string]string `json:"env"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -173,7 +173,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			Items []dispatch.WorktreeRef `json:"items"`
 			Force bool                   `json:"force"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -186,7 +186,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			return
 		}
 		var in dispatch.WorktreeRef
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -209,19 +209,14 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 // saveConfig writes mako.config.json (and the .env keys typed in) and makes Mako work by them; the problems are
 // what the new settings leave to fix.
 func (s *Server) saveConfig(ctx context.Context, data json.RawMessage, envChanges map[string]string) ([]string, error) {
-	var pretty bytes.Buffer
-	if err := json.Indent(&pretty, data, "", "  "); err != nil {
-		return nil, err
-	}
-	pretty.WriteByte('\n')
-	if err := os.MkdirAll(s.Home, 0o755); err != nil {
-		return nil, err
-	}
-	path := filepath.Join(s.Home, "mako.config.json")
-	if err := os.WriteFile(path+".tmp", pretty.Bytes(), 0o600); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(path+".tmp", path); err != nil {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	return s.saveConfigLocked(ctx, data, envChanges)
+}
+
+// saveConfigLocked: saveConfig with cfgMu held.
+func (s *Server) saveConfigLocked(ctx context.Context, data json.RawMessage, envChanges map[string]string) ([]string, error) {
+	if err := s.writeConfig(data); err != nil {
 		return nil, err
 	}
 	if len(envChanges) > 0 {
@@ -233,6 +228,23 @@ func (s *Server) saveConfig(ctx context.Context, data json.RawMessage, envChange
 	problems = append(problems, assigneeProblems(ctx, ts)...)
 	s.D.Reload(cfg, ts, problems)
 	return problems, nil
+}
+
+// writeConfig: the only writer of mako.config.json, indented, through a temporary file; cfgMu is held.
+func (s *Server) writeConfig(data json.RawMessage) error {
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, data, "", "  "); err != nil {
+		return err
+	}
+	pretty.WriteByte('\n')
+	if err := os.MkdirAll(s.Home, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(s.Home, "mako.config.json")
+	if err := os.WriteFile(path+".tmp", pretty.Bytes(), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }
 
 // pauseTracker sets "paused" of the tracker id (its "id", else its "type", as config.Tracker.ID) in
@@ -271,15 +283,19 @@ func (s *Server) setCodeModel(ctx context.Context, model string) error {
 	})
 }
 
-// changeConfig changes mako.config.json as change says, keeping the rest as it is, and Mako reloads it.
+// changeConfig changes mako.config.json as change says, keeping the rest as it is, and Mako reloads it. The
+// whole read-change-write holds cfgMu: two changes at once (☕ and a tracker's pause) both stay. No file yet: {}.
 func (s *Server) changeConfig(ctx context.Context, change func(map[string]json.RawMessage) error) error {
-	data, err := os.ReadFile(filepath.Join(s.Home, "mako.config.json"))
-	if err != nil {
-		return err
-	}
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("mako.config.json: %w", err)
+	data, err := os.ReadFile(filepath.Join(s.Home, "mako.config.json"))
+	if err == nil {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return fmt.Errorf("mako.config.json: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 	if raw == nil {
 		raw = map[string]json.RawMessage{}
@@ -291,7 +307,7 @@ func (s *Server) changeConfig(ctx context.Context, change func(map[string]json.R
 	if err != nil {
 		return err
 	}
-	_, err = s.saveConfig(ctx, out, nil)
+	_, err = s.saveConfigLocked(ctx, out, nil)
 	return err
 }
 
@@ -382,37 +398,14 @@ func assigneeProblems(ctx context.Context, ts []trackers.Tracker) []string {
 	return out
 }
 
-// setConfig sets one top-level key of mako.config.json (a default value removes it), writes the file as the
-// settings page does and has Mako work with it.
-func (s *Server) setConfig(key string, value bool) error {
-	path := filepath.Join(s.Home, "mako.config.json")
-	raw := map[string]any{}
-	if b, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(b, &raw); err != nil {
-			return err
+// setConfig sets one top-level key of mako.config.json (a default value removes it), as changeConfig does.
+func (s *Server) setConfig(ctx context.Context, key string, value bool) error {
+	return s.changeConfig(ctx, func(raw map[string]json.RawMessage) error {
+		if value {
+			delete(raw, key) // on is the default
+		} else {
+			raw[key] = json.RawMessage("false")
 		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if value {
-		delete(raw, key) // on is the default
-	} else {
-		raw[key] = value
-	}
-	pretty, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(s.Home, 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path+".tmp", append(pretty, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(path+".tmp", path); err != nil {
-		return err
-	}
-	cfg, ts, problems := setup.Build(s.Home)
-	s.D.Reload(cfg, ts, problems)
-	return nil
+		return nil
+	})
 }

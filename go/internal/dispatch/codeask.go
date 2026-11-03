@@ -444,10 +444,24 @@ func (d *Dispatcher) CodeFile(ctx context.Context, project, path string) (text, 
 	if st.Size() > 2<<20 {
 		return "", "", fmt.Errorf("%s is too large to show", path)
 	}
-	b, err := os.ReadFile(full)
 	root, _ := filepath.EvalSymlinks(p.Path)
 	found, _ = filepath.Rel(root, full)
-	return string(b), filepath.ToSlash(found), err
+	found = filepath.ToSlash(found)
+	// The project's own files only: not .git/config, nor an untracked .env next to them.
+	if !tracked(ctx, root, found) {
+		return "", "", fmt.Errorf("%s is not a tracked file of the project", path)
+	}
+	b, err := os.ReadFile(full)
+	return string(b), found, err
+}
+
+// tracked: rel (slashes, from the clone's root) is a file git tracks there.
+func tracked(ctx context.Context, root, rel string) bool {
+	out, err := gitx.Run(ctx, root, "--literal-pathspecs", "ls-files", "-z", "--", rel)
+	if err != nil {
+		return false
+	}
+	return slices.Contains(strings.Split(out, "\x00"), rel)
 }
 
 // uniqueTracked: the clone's only tracked file whose path ends with path, "" when none or several.

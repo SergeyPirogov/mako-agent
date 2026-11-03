@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/awake"
@@ -56,6 +57,8 @@ type Server struct {
 	Update *update.Updater
 	// Release: a newer release of Mako, for one installed from a release (no clone); nil otherwise.
 	Release *update.Releases
+
+	cfgMu sync.Mutex // mako.config.json is read, changed and written by one request at a time
 }
 
 type stateReply struct {
@@ -72,7 +75,7 @@ type stateReply struct {
 	Paused         bool                       `json:"paused"`
 	Agents         map[string]dispatch.Agent  `json:"agents"`
 	Executor       string                     `json:"executor"`            // who gets new tasks: "orca" or "terminal"
-	Editor         string                     `json:"editor"`              // the code editor a worktree opens in, "" when none
+	Editor         string                     `json:"editor"`              // the code editor a worktree opens in, "" when none or on a phone
 	Limits         chat.Limits                `json:"limits"`              // Claude's usage limits, as the agents last reported them
 	Hold           *dispatch.LimitHold        `json:"limitHold,omitempty"` // the queue waits for a Claude limit to reset
 	LimitPct       int                        `json:"limitPausePct"`       // the threshold of the settings, 0: none
@@ -207,8 +210,11 @@ func (s *Server) Handler() http.Handler {
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		reply.Hold, reply.LimitPct = s.D.LimitHold(), s.D.Config().LimitPausePct
 		reply.Remote = remote(r)
-		// seen=1: the board is on screen (not a hidden tab), so you are back.
-		if r.URL.Query().Get("seen") == "1" {
+		if reply.Remote {
+			reply.Editor = "" // the editor opens on the Mac: a phone gets no button for it
+		}
+		// seen=1: the board is on screen (not a hidden tab), so you are back; from the board itself only.
+		if r.URL.Query().Get("seen") == "1" && fromMako(r) {
 			reply.Digest = s.D.Seen(time.Now())
 		}
 		if s.Update != nil && !reply.Remote {
@@ -337,9 +343,10 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]any{"review": c})
 	})
-	// An MR to review for its card: CI, open threads, the files with their diffs; it is seen from now on.
+	// An MR to review for its card: CI, open threads, the files with their diffs; it is seen from now on when the
+	// board itself asks.
 	mux.HandleFunc("GET /api/review-request", func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.D.ReviewRequest(r.Context(), r.URL.Query().Get("id"))
+		v, err := s.D.ReviewRequest(r.Context(), r.URL.Query().Get("id"), fromMako(r))
 		if err != nil {
 			writeJSON(w, map[string]string{"error": err.Error()})
 			return
@@ -497,7 +504,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		if action == "awake" {
 			// The header's ☕: the settings' «Не давати Mac заснути», saved like the settings page saves it.
-			if err := s.setConfig("keepAwake", r.URL.Query().Get("on") == "1"); err != nil {
+			if err := s.setConfig(r.Context(), "keepAwake", r.URL.Query().Get("on") == "1"); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
@@ -550,7 +557,10 @@ func (s *Server) Handler() http.Handler {
 		case "redo":
 			// «Повторити інакше»: {note, model}.
 			var in struct{ Note, Model string }
-			json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in)
+			if err := decodeJSON(r, 200<<10, &in); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 			if err := s.D.Redo(ctx, id, in.Note, in.Model); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
@@ -580,14 +590,16 @@ func (s *Server) Handler() http.Handler {
 				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
 				err = s.D.Say(id, strings.TrimSpace(string(body)))
 			case action == "plan":
-				do, o := readPlan(r)
+				do, o, perr := readPlan(r)
 				req := r.URL.Query().Get("req")
-				switch do {
-				case "approve":
+				switch {
+				case perr != nil:
+					err = perr
+				case do == "approve":
 					err = s.D.ApprovePlan(id, req, o)
-				case "revise":
+				case do == "revise":
 					err = s.D.RevisePlan(id, req, o.Notes.Text())
-				case "reject":
+				case do == "reject":
 					err = s.D.RejectPlan(id, req)
 				default:
 					err = fmt.Errorf("unknown plan action %q", do)
@@ -718,11 +730,19 @@ func (s *Server) Handler() http.Handler {
 	return s.guard(mux)
 }
 
-// sameOrigin keeps other sites in the browser from pressing the board's buttons.
+// makoHeader: what the board's own requests (and Mako's command line) carry. Another site in the browser cannot
+// send it: a header of its own makes the browser ask first (CORS), and the board answers no such question.
+const makoHeader = "X-Mako"
+
+// fromMako: the request carries makoHeader, so it is the board's own; a GET does what it changes only then.
+func fromMako(r *http.Request) bool { return r.Header.Get(makoHeader) == "1" }
+
+// sameOrigin keeps other sites in the browser from pressing the board's buttons. Without Origin, only a request
+// the browser marks same-origin, or one with makoHeader (`mako show`, `mako screenshot`), gets through.
 func sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		return r.Header.Get("Sec-Fetch-Site") == "" || r.Header.Get("Sec-Fetch-Site") == "same-origin"
+		return r.Header.Get("Sec-Fetch-Site") == "same-origin" || fromMako(r)
 	}
 	u, err := url.Parse(origin)
 	host := r.Host

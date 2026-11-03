@@ -29,7 +29,7 @@ func TestScreenshot(t *testing.T) {
 	defer srv.Close()
 
 	png := []byte("\x89PNG\r\n\x1a\nfake")
-	res, err := http.Post(srv.URL+"/api/screenshot?id=grp/app%235&name=after.png", "image/png", bytes.NewReader(png))
+	res, err := postMako(srv.URL+"/api/screenshot?id=grp/app%235&name=after.png", "image/png", bytes.NewReader(png))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestScreenshot(t *testing.T) {
 	}
 
 	// An unknown task, a foreign page and a path out of the folder are refused.
-	res, _ = http.Post(srv.URL+"/api/screenshot?id=nope&name=a.png", "image/png", bytes.NewReader(png))
+	res, _ = postMako(srv.URL+"/api/screenshot?id=nope&name=a.png", "image/png", bytes.NewReader(png))
 	json.NewDecoder(res.Body).Decode(&reply)
 	if reply.OK {
 		t.Fatal("unknown task accepted")
@@ -83,7 +83,7 @@ func TestAttach(t *testing.T) {
 	}
 	post := func(query, typ string, body []byte) reply {
 		t.Helper()
-		res, err := http.Post(srv.URL+"/api/attach?"+query, typ, bytes.NewReader(body))
+		res, err := postMako(srv.URL+"/api/attach?"+query, typ, bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
