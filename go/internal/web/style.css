@@ -1367,6 +1367,9 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .fc-item:hover .fc-remove, .fc-item.on .fc-remove, .fc-remove:focus-visible { opacity: 1; }
 .fc-remove:hover { color: var(--fg); }
 #fc-sub { overflow-wrap: anywhere; }
+/* A question about code among the chats: its mark. The mode of a new chat above its field. */
+.fc-kind { flex: none; padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 10.5px; font-weight: 600; line-height: 16px; }
+.fc-mode { align-self: flex-start; margin: 0 0 6px; }
 .ca-chat .chat-hint #ca-task { height: 24px; font-size: 12px; }
 .ca-chat .chat-hint #ca-task[hidden] { display: none; }
 .src-link { font-family: var(--mono); }
