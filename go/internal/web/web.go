@@ -218,9 +218,13 @@ func (s *Server) Handler() http.Handler {
 		reply.Restart = restartView{Pending: s.D.RestartPending(), Busy: s.D.BusyTasks()}
 		reply.Awake.On, reply.Awake.Active = s.D.Config().KeepAwake, awake.Active()
 		all := s.D.Store.All()
-		// days: the board's period for the statistics, the last N days (none: all the time).
+		// days: the board's period for the statistics: "today" (since the local midnight), the last N days
+		// (none: all the time).
 		var since time.Time
-		if n, err := strconv.Atoi(r.URL.Query().Get("days")); err == nil && n > 0 {
+		if d := r.URL.Query().Get("days"); d == "today" {
+			n := time.Now()
+			since = time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, n.Location())
+		} else if n, err := strconv.Atoi(d); err == nil && n > 0 {
 			since = time.Now().AddDate(0, 0, -n)
 		}
 		reply.Models = core.Models

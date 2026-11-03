@@ -268,3 +268,13 @@ func TestOfProject(t *testing.T) {
 		t.Fatalf("none: %+v", got)
 	}
 }
+
+// The trend of "today" (since the local midnight) is one day, though less than a day has passed.
+func TestSummarizeTrendToday(t *testing.T) {
+	now := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	since := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	st := Summarize([]Record{{Status: Done, StartedAt: "2026-10-08T08:00:00Z", FinishedAt: "2026-10-08T09:00:00Z"}}, now, since)
+	if len(st.Days) != 1 || st.Days[0].Date != "2026-10-08" {
+		t.Fatalf("days %+v", st.Days)
+	}
+}

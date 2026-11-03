@@ -481,6 +481,37 @@ func TestStateStatsByProject(t *testing.T) {
 	}
 }
 
+// ?days=today counts the tasks taken since the local midnight only: not yesterday's.
+func TestStateStatsToday(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	n := time.Now()
+	midnight := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, n.Location())
+	stamp := func(at time.Time) string { return at.UTC().Format(time.RFC3339Nano) }
+	for id, at := range map[string]time.Time{
+		"grp/one#1": midnight.Add(-time.Hour),          // yesterday
+		"grp/one#2": midnight.Add(n.Sub(midnight) / 2), // today
+	} {
+		store.Update(id, func(r *core.Record) {
+			r.Status, r.Task, r.StartedAt, r.FinishedAt = core.Done, core.Task{ID: id, Title: id, Project: "grp/one"}, stamp(at), stamp(at)
+		})
+	}
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	stats := func(q string) core.Stats {
+		res, _ := http.Get(srv.URL + "/api/state" + q)
+		var st stateReply
+		json.NewDecoder(res.Body).Decode(&st)
+		return st.Stats
+	}
+	if s := stats("?days=today"); s.Taken != 1 {
+		t.Fatalf("today: %+v", s)
+	}
+	if s := stats(""); s.Taken != 2 {
+		t.Fatalf("all: %+v", s)
+	}
+}
+
 // «Пауза» of one tracker from the board writes "paused" to its entry only and reloads Mako.
 func TestTrackerPause(t *testing.T) {
 	home := t.TempDir()
