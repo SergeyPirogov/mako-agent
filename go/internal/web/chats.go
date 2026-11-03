@@ -19,7 +19,7 @@ func (s *Server) chatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/chats", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"chats": s.D.FreeChats()})
 	})
-	// A new chat: {project, text}; fromPlan: the text is an agent's plan handed over from another session, which the
+	// A new chat: {project, text}; an empty project is a chat with no project (NewChat checks the rest); fromPlan: the text is an agent's plan handed over from another session, which the
 	// phone does not do.
 	mux.HandleFunc("POST /api/chats/new", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {
