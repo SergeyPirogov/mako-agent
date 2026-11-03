@@ -1975,8 +1975,8 @@ async function showCode() {
     <div class="ca-head"><h1>Ask about code</h1>
       <select id="ca-project" aria-label="Project"></select>
       <select id="ca-model" aria-label="Model" title="The agent model for 'Ask about code', for all projects"></select>
-      <button type="button" id="ca-new">New question</button></div>
-    <p class="muted ca-sub">The agent works in a separate worktree of the project on main: it reads, searches, and runs tests and builds without asking. Mako does not let it change files or the repository (Edit/Write, git commit/push/checkout/reset, rm…) and does not load MCP servers or permissions from Claude Code settings. The first question prepares the worktree (dependencies), as for a task. It can turn a remark or an idea into a ticket draft.</p>
+      <button type="button" id="ca-new">New chat</button></div>
+    <p class="muted ca-sub">Read-only agent in a separate worktree on main: it reads, searches and runs tests and builds, but can't change files or the repository. It can turn a remark or an idea into a ticket draft.</p>
     <div class="ca-body">
       <aside class="ca-history"><div class="ca-h"><span>Question history</span><button type="button" class="ghost ca-sel-btn" id="ca-select">Select</button></div><div class="ca-selbar" id="ca-selbar" hidden></div><div id="ca-threads"></div></aside>
       <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
@@ -2357,7 +2357,7 @@ function pickThread(id, range) {
   drawThreads();
 }
 
-// The project's latest question, to go on with; "New question" starts another.
+// The project's latest question, to go on with; "New chat" starts another.
 async function openLatest() {
   const v = code;
   await loadThreads();
