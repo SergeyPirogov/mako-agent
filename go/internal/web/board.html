@@ -3366,7 +3366,7 @@ function metaLine(r) {
   const meta = t.meta?.split(" | ").filter((p) => !(t.priority && p.startsWith("Priority:")) && !(t.labels?.length && p.startsWith("Labels:"))).join(" | ");
   if (meta) parts.push(`<span title="Tracker">${esc(meta)}</span>`);
   if (r.trackerStatus) parts.push(`<span class="${r.trackerStatus.ok ? "" : "bad"}" title="Tracker status">${esc(r.trackerStatus.text)}</span>`);
-  if (t.labels?.length) parts.push(`<span title="Labels">${t.labels.map(esc).join(", ")}</span>`);
+  if (t.labels?.length) parts.push(`<span class="labels" title="Labels">${t.labels.map((l) => `<span class="lbl">${esc(l)}</span>`).join("")}</span>`);
   return parts.length ? `<div class="d-meta">${parts.join(`<i>·</i>`)}</div>` : "";
 }
 
