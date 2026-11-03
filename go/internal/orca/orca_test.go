@@ -242,3 +242,24 @@ func TestConversation(t *testing.T) {
 		t.Fatalf("limit: %+v", last)
 	}
 }
+
+func TestCLISingleWordFailure(t *testing.T) {
+	dir := t.TempDir()
+	cmd := filepath.Join(dir, "orca")
+	if err := os.WriteFile(cmd, []byte("#!/bin/sh\necho 'not json'; exit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out any
+	err := cli(context.Background(), config.Orca{Command: cmd}, "", &out, "open")
+	if err == nil || !strings.Contains(err.Error(), "orca open:") {
+		t.Fatalf("error: %v", err)
+	}
+	// A reply that is not JSON at all must not panic either.
+	if err := os.WriteFile(cmd, []byte("#!/bin/sh\necho 'Orca is closed'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err = cli(context.Background(), config.Orca{Command: cmd}, "", &out, "open")
+	if err == nil || !strings.Contains(err.Error(), "orca open: unintelligible response") {
+		t.Fatalf("error: %v", err)
+	}
+}

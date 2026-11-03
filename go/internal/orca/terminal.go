@@ -40,7 +40,7 @@ func cli(ctx context.Context, o config.Orca, dir string, out any, args ...string
 	}
 	reply, ok := run(ctx, command, dir, append(args, "--json")...)
 	if !ok {
-		return fmt.Errorf("orca %s: %s", strings.Join(args[:2], " "), parseFailure(reply).Message)
+		return fmt.Errorf("orca %s: %s", strings.Join(args, " "), parseFailure(reply).Message)
 	}
 	var env struct {
 		Result json.RawMessage `json:"result"`
@@ -50,7 +50,7 @@ func cli(ctx context.Context, o config.Orca, dir string, out any, args ...string
 		text = text[i:]
 	}
 	if err := json.Unmarshal([]byte(text), &env); err != nil {
-		return fmt.Errorf("orca %s: unintelligible response: %v", strings.Join(args[:2], " "), err)
+		return fmt.Errorf("orca %s: unintelligible response: %v", strings.Join(args, " "), err)
 	}
 	return json.Unmarshal(env.Result, out)
 }

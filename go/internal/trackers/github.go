@@ -317,7 +317,10 @@ func (p ghPull) state() string {
 }
 
 func (g *GitHub) FindReview(ctx context.Context, repo, branch string) (*Review, error) {
-	owner := repo[:strings.Index(repo, "/")]
+	owner, _, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" {
+		return nil, fmt.Errorf("github: repo %q is not owner/name", repo)
+	}
 	q := url.Values{"head": {owner + ":" + branch}, "state": {"all"}, "per_page": {"1"}}
 	var pulls []ghPull
 	if err := g.do(ctx, "GET", "/repos/"+repo+"/pulls?"+q.Encode(), nil, &pulls); err != nil {
