@@ -158,6 +158,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .quiet .n { margin-left: auto; color: var(--faint); font-weight: 500; }
 /* By status, several projects in a group: a thin label per project. */
 .sub { display: flex; align-items: center; gap: 6px; height: 24px; padding: 4px 12px 0 26px; font-size: 11.5px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub .n { margin-left: auto; color: var(--faint); font-weight: 500; }
 .item { display: flex; flex-direction: column; justify-content: center; gap: 4px; width: 100%; min-height: 0; text-align: left; border: 0; border-radius: 0;
   background: none; padding: 7px 12px 8px 10px; border-left: 2px solid transparent; }
 .item.merge { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 6%, var(--card)); }

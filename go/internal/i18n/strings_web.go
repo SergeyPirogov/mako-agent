@@ -405,6 +405,7 @@ var webStrings = map[string]string{
 	"b.groupStatus":      "Grouped by status. Click to group by project",
 	"b.groupProject":     "Grouped by project. Click to group by status",
 	"b.nothingInWork":    "Nothing in work",
+	"b.inProgress":       "In progress",
 	"b.pick":             "Pick a task on the left",
 	"b.openSettings":     "Open the settings →",
 	"b.resume":           "Search paused: resume",
