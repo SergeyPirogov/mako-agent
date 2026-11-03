@@ -2189,7 +2189,8 @@ function fcSub() {
 function fcHead() {
   if (!$("free-chat")) return;
   $("ca-model").hidden = !(isAsk(freeChat) || (freeChat === "" && chatMode() === "ask"));
-  $("fc-project").hidden = isAsk(freeChat);
+  // Ask needs a project: with no clones the select would be empty, and the empty state says why (#515).
+  $("fc-project").hidden = isAsk(freeChat) || (freeChat === "" && chatMode() === "ask" && !fcProjects.length);
   $("fc-sub").textContent = fcSub();
 }
 
@@ -4374,7 +4375,9 @@ function renderChat(v) {
   st.querySelector(".st-more").innerHTML = more.filter(Boolean).map((x, i) => `${i || stText ? " · " : ""}${x}`).join("");
   drawSend(v);
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
-  v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
+  // The task's header already offers «Resume» as its main action: do not put a second one in the chat (#515).
+  const headResume = data?.records.find((x) => x.id === v.id)?.card?.primary === "resume";
+  v.el.querySelector(".chat-resume").hidden = s.live || s.asleep || headResume;
   drawNextActions(v);
   drawDock(v, asked);
   v.el.querySelector(".chat-foot").hidden = !!asked && v.writeFor !== asked.id;
@@ -4412,7 +4415,8 @@ function nextActions(v) {
 function drawNextActions(v) {
   const box = v.el.querySelector(".chat-quick"), s = v.snap;
   if (!box || !s) return;
-  box.hidden = s.state === "working" || s.state === "waiting";
+  // The hints follow the conversation: an empty chat has nothing to build on (#515).
+  box.hidden = s.state === "working" || s.state === "waiting" || !s.items.length;
   if (box.hidden) return;
   box.innerHTML = nextActions(v).map((a, i) => {
     const cls = `chip${i === 0 && !a.href ? " pri" : ""}`;
