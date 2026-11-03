@@ -1421,8 +1421,9 @@ const selfState = (r) => !r.selfCheck ? "none" : r.selfCheckNew > 0 ? "stale" : 
 const adviceText = (r, need) => r.assessment?.review?.why || (need ? r.assessment?.risk?.why : "") || "";
 // A line of advice: its title, the reason under it, and its button under the reason (the side panel is narrow).
 // whyHTML: the reason is ready HTML (it holds buttons), not text to escape.
-const adviceBlock = (icon, title, why, btn = "", cls = "", whyHTML = false) => `<div class="mr-row mr-advice ${cls}">${MR_ICON[icon]}
-  <div class="mr-adv"><b>${esc(title)}</b>${why ? `<span class="mr-why">${whyHTML ? why : esc(why)}</span>` : ""}${btn ? `<div class="mr-adv-a">${btn}</div>` : ""}</div></div>`;
+// chips: ready HTML between the title and the reason (the agent's answers, see replyChips).
+const adviceBlock = (icon, title, why, btn = "", cls = "", whyHTML = false, chips = "") => `<div class="mr-row mr-advice ${cls}">${MR_ICON[icon]}
+  <div class="mr-adv"><b>${esc(title)}</b>${chips}${why ? `<span class="mr-why">${whyHTML ? why : esc(why)}</span>` : ""}${btn ? `<div class="mr-adv-a">${btn}</div>` : ""}</div></div>`;
 // "Check it yourself": a box to tick, the advice beside it. Ticked, it fades to background.
 const selfBlock = (check, state, fresh = 0) => {
   const done = state === "done";
@@ -1476,11 +1477,11 @@ function reviewerRow(r, need) {
       }
       if (!last.sent) return rowHTML("talk", `The reviewer left ${what}${esc(". You pass them to the agent when it finishes")}`);
       if (step === "fixing") return row("run", "The agent is fixing the reviewer's remarks", "");
-      const tally = replyTally(last);
-      if (r.agentReviews.some((a) => a.escalated)) return row("bad", "AI review rounds did not converge: the decision is yours" + (last.replyAt ? ` · the agent replied${tally}` : ""), "",
-        ready ? reviewBtn("Another round", "ghost", "Round limit reached: another round is your decision") : "");
-      return row(last.unverified ? "bad" : "talk", (last.replyAt ? "The agent replied to the remarks" + tally : "The agent worked on the remarks")
-        + (last.unverified ? " · ⚠ says \"fixed\", but there are no new commits" : "") + (ready ? "" : ": no new pushed changes in the branch yet"), "", ready ? reviewBtn("Review again") : "");
+      if (r.agentReviews.some((a) => a.escalated)) return adviceBlock("bad", "AI review rounds did not converge: the decision is yours", "",
+        ready ? reviewBtn("Another round", "ghost", "Round limit reached: another round is your decision") : "", "", false, last.replyAt ? replyChips(last) : "");
+      const why = last.unverified ? "⚠ says \"fixed\", but there are no new commits" : ready ? "" : "No new pushed changes in the branch yet";
+      return adviceBlock(last.unverified ? "bad" : "talk", last.replyAt ? "The agent replied to the remarks" : "The agent worked on the remarks", why,
+        ready ? reviewBtn("Review again") : "", "", false, last.replyAt ? replyChips(last) : "");
     }
   }
   const [icon, text] = REVIEW_STATE[last.state] ?? ["idle", last.state];
@@ -1489,7 +1490,7 @@ function reviewerRow(r, need) {
   if (last.state === "clean" && last.remarks?.length) {
     if (!last.sent) return adviceBlock(icon, cleanText(last) + rounds, SUGGESTIONS_HINT, ready || step === "idle" ? suggestFixBtn() + (ready ? reviewBtn("Review again") : "") : "", "past");
     if (step === "fixing") return row("run", "The agent is fixing the reviewer's suggestions", "");
-    return row("talk", "The agent replied to the suggestions" + replyTally(last), "", ready ? reviewBtn("Review again") : "");
+    return adviceBlock("talk", "The agent replied to the suggestions", "", ready ? reviewBtn("Review again") : "", "", false, replyChips(last));
   }
   return row(icon, text + rounds, "", ready ? reviewBtn("Review again") : "");
 }
@@ -1504,11 +1505,13 @@ function remarksSplit(a) {
 // «AI review passed · no blockers, 2 suggestions»: why a clean round with remarks passed. Its remarks are all suggestions.
 const SUGGESTIONS_HINT = "Suggestions don't block the merge: fix them if you want";
 const cleanText = (a) => a.remarks?.length ? `${REVIEW_STATE.clean[1]} · no blockers, ${a.remarks.length} ${plural(a.remarks.length, "suggestion", "suggestions")}` : REVIEW_STATE.clean[1];
-// «: ✅ 2 · ❌ 1»: how the agent answered on the round's remarks, "" with no answers.
-function replyTally(a) {
-  const n = (k) => (a.remarks || []).filter((m) => m.reply === k).length;
-  const parts = [["✅", n("fixed")], ["◐", n("partial")], ["❌", n("not")]].filter(([, c]) => c).map(([i, c]) => `${i} ${c}`);
-  return parts.length ? ": " + parts.join(" · ") : ": no point-by-point report";
+// «✓ 2 fixed  ◐ 1 partly  ✕ 1 not fixed»: how the agent answered on the round's remarks, as chips; a part with none
+// is left out. The labels are constants, so the result is safe HTML.
+const REPLY_CHIPS = [["fixed", "✓", "fixed"], ["partial", "◐", "partly"], ["not", "✕", "not fixed"]];
+function replyChips(a) {
+  const chips = REPLY_CHIPS.map(([k, icon, label]) => [k, icon, label, (a.remarks || []).filter((m) => m.reply === k).length])
+    .filter(([, , , c]) => c).map(([k, icon, label, c]) => `<span class="rp ${k}">${icon} ${c} ${label}</span>`);
+  return `<span class="rp-chips">${chips.length ? chips.join("") : `<span class="rp none">no point-by-point report</span>`}</span>`;
 }
 // The agent's summary, a section per heading: what was done, how it was checked (green), what to look at (amber).
 function summaryHTML(text) {
