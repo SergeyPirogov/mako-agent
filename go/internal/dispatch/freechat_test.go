@@ -211,4 +211,10 @@ func TestNewChatFromPlan(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(out, "msgs.txt"))
 		return strings.Contains(string(b), "_Plan from task grp/app#3")
 	}, "the plan did not reach the agent")
+	// The chat's agent and worktree live on in the test's folders: wait for the agent to be up and take the chat away
+	// before they are removed, or their cleanup races the worktree ("directory not empty").
+	waitFor(t, func() bool { c, _ := d.freeChat(id); return c.Session == "sess-c" }, "the chat did not keep its session")
+	if err := d.RemoveFreeChat(id); err != nil {
+		t.Fatal(err)
+	}
 }
