@@ -896,3 +896,27 @@ func TestBoardEmptyStates(t *testing.T) {
 		t.Error("a status rule for every row: a review row's long text needs its own")
 	}
 }
+
+// A picture on the board opens in a lightbox over it, not in a new window (the desktop app hands those to the browser).
+func TestBoardPictureLightbox(t *testing.T) {
+	for _, want := range []string{
+		`<dialog id="pic-dlg"`,
+		`e.target.closest?.("a > img")`,
+		`e.metaKey || e.ctrlKey`,
+		`$("pic-dlg").showModal()`,
+		`$("pic-dlg").addEventListener("click"`,
+	} {
+		if !strings.Contains(string(board), want) {
+			t.Errorf("board.html lacks %q", want)
+		}
+	}
+	css, err := os.ReadFile("style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"#pic-dlg::backdrop", "#pic-dlg img", ".me-pics img { cursor: zoom-in"} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("style.css lacks %q", want)
+		}
+	}
+}
