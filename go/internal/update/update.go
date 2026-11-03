@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -26,8 +27,9 @@ var busyPoll = 3 * time.Second
 
 // Status is what the board shows.
 type Status struct {
-	Count  int      `json:"count"`            // commits on origin's main branch the running Mako lacks
-	Titles []string `json:"titles,omitempty"` // their subjects, newest first
+	Count   int      `json:"count"`             // changes on origin's main branch the running Mako lacks, merge commits not counted
+	Titles  []string `json:"titles,omitempty"`  // their subjects, newest first
+	Compare string   `json:"compare,omitempty"` // the GitHub page comparing the running Mako with origin's main branch
 	// State: "" (nothing under way), "building", "waiting" (for agents to finish their turn), "restarting",
 	// "failed".
 	State   string `json:"state,omitempty"`
@@ -136,12 +138,22 @@ func (u *Updater) Check(ctx context.Context) error {
 	rev := u.Revision
 	if rev == "" {
 		rev = "HEAD"
-	} else if _, err := gitx.Run(ctx, u.Source, "rev-parse", "--verify", "-q", rev+"^{commit}"); err != nil {
-		rev = "HEAD" // a commit the clone does not have: compare with what it has checked out
 	}
-	out, err := gitx.Run(ctx, u.Source, "log", "--format=%s", rev+"..origin/"+branch)
+	sha, err := gitx.Run(ctx, u.Source, "rev-parse", "--verify", "-q", rev+"^{commit}")
+	if err != nil {
+		// a commit the clone does not have: compare with what it has checked out
+		if sha, err = gitx.Run(ctx, u.Source, "rev-parse", "--verify", "-q", "HEAD^{commit}"); err != nil {
+			return err
+		}
+	}
+	// Merge commits ("Merge pull request #…") are no changes of their own: the commits they bring are counted.
+	out, err := gitx.Run(ctx, u.Source, "log", "--no-merges", "--format=%s", sha+"..origin/"+branch)
 	if err != nil {
 		return err
+	}
+	var compare string
+	if origin, err := gitx.OriginURL(ctx, u.Source); err == nil {
+		compare = compareURL(origin, sha, branch)
 	}
 	var titles []string
 	for _, l := range strings.Split(out, "\n") {
@@ -150,12 +162,23 @@ func (u *Updater) Check(ctx context.Context) error {
 		}
 	}
 	u.set(func(s *Status) {
-		s.Count, s.Titles, s.Checked = len(titles), titles, time.Now().UnixMilli()
+		s.Count, s.Titles, s.Compare, s.Checked = len(titles), titles, compare, time.Now().UnixMilli()
 		if len(titles) > 20 {
 			s.Titles = titles[:20]
 		}
 	})
 	return nil
+}
+
+var githubRemote = regexp.MustCompile(`^(?:(?:ssh|https?|git)://)?(?:[^@/]+@)?github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$`)
+
+// compareURL: GitHub's page comparing rev with the branch, for a GitHub origin; "" for any other.
+func compareURL(origin, rev, branch string) string {
+	m := githubRemote.FindStringSubmatch(strings.TrimSpace(origin))
+	if m == nil {
+		return ""
+	}
+	return "https://github.com/" + m[1] + "/compare/" + rev + "..." + branch
 }
 
 // Watch checks for new commits now and every interval until ctx ends.

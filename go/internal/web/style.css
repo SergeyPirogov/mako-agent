@@ -77,7 +77,12 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .banner.down code { display: block; margin-top: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
 .banner > button { align-self: flex-start; margin-top: 4px; }
 .banner.update { background: color-mix(in srgb, var(--accent) 10%, var(--card)); gap: 6px; }
+.banner.update { border-left: 3px solid var(--accent); }
 .update-head { display: flex; align-items: center; gap: 12px; }
+.update-news summary { cursor: pointer; color: var(--mute); font-size: 12.5px; }
+.update-news ul { margin: 4px 0 0; padding-left: 18px; color: var(--mute); font-size: 12px; }
+.update-news li { margin: 2px 0; }
+.update-news a { font-weight: 500; }
 /* «Завантажити» on the new release's banner: a link that looks like the primary button. */
 .update-head a.button { padding: 6px 12px; border-radius: 8px; background: var(--primary); color: var(--primary-fg); font-weight: 600; text-decoration: none; }
 .update-head a.button:hover { opacity: .9; }

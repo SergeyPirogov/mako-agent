@@ -424,6 +424,13 @@ function visible() {
   return data.records.filter((r) => (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
 }
 
+// A commit subject for the "What's new" list: the "owner/repo#N: " prefix becomes a "#N ↗" link to the issue.
+function changeHTML(title, onGithub) {
+  const m = onGithub && /^([\w.-]+\/[\w.-]+)#(\d+):\s+(.*)$/.exec(title);
+  if (!m) return esc(title);
+  return `<a href="https://github.com/${esc(m[1])}/issues/${m[2]}" target="_blank" rel="noopener">#${m[2]} ↗</a> ${esc(m[3])}`;
+}
+
 // "Update Mako": a button when Mako's own main branch has new commits, "Updating…" while they install.
 function updateHTML(u) {
   if (!u || (!u.count && !u.state)) return "";
@@ -435,7 +442,15 @@ function updateHTML(u) {
       + `<button id="update-now" class="danger" title="Agents will be interrupted">Restart now</button><button id="update-cancel">Cancel</button>`
     : busy ? `<span class="muted">Updating…</span>` : u.count ? `<button class="primary" id="update-btn">${u.state === "failed" ? "Try again" : "Update"}</button>` : "";
   if (!button && !failed) return "";
-  return `<div class="banner update"><div class="update-head"><b>Mako update</b>${button}</div>${failed}</div>`;
+  const shown = (u.titles || []).slice(0, 5);
+  const more = u.count - shown.length;
+  const compare = u.compare ? `<a href="${esc(u.compare)}" target="_blank" rel="noopener">Compare ↗</a>` : "";
+  const news = u.count && shown.length ? `<details class="update-news"><summary>What's new</summary><ul>`
+    + shown.map((t) => `<li>${changeHTML(t, !!u.compare)}</li>`).join("")
+    + (more > 0 ? `<li class="muted">and ${more} more… ${compare}</li>` : compare ? `<li>${compare}</li>` : "")
+    + `</ul></details>` : "";
+  const n = u.count ? ` <span class="muted">· ${u.count} new ${u.count === 1 ? "change" : "changes"}</span>` : "";
+  return `<div class="banner update"><div class="update-head"><b>Mako update</b>${n}<span class="spacer"></span>${button}</div>${news}${failed}</div>`;
 }
 
 // A newer release of Mako, for one installed from a release: a link to download it, hidden until the next one.

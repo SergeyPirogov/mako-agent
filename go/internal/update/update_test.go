@@ -50,6 +50,46 @@ func TestCheckCountsNewCommits(t *testing.T) {
 	}
 }
 
+// Merge commits are not changes: a merged branch counts by its own commits, and Compare points at GitHub.
+func TestCheckSkipsMergeCommits(t *testing.T) {
+	clone, built := repos(t)
+	origin := git(t, clone, "config", "--get", "remote.origin.url")
+	git(t, origin, "checkout", "-q", "-b", "feature")
+	git(t, origin, "commit", "-q", "--allow-empty", "-m", "owner/repo#7: feature work")
+	git(t, origin, "checkout", "-q", "main")
+	git(t, origin, "merge", "-q", "--no-ff", "-m", "Merge pull request #7 from owner/feature", "feature")
+	// The clone reaches origin as if it were on GitHub.
+	git(t, clone, "config", "remote.origin.url", "git@github.com:owner/repo.git")
+	git(t, clone, "config", "url."+origin+".insteadOf", "git@github.com:owner/repo.git")
+	u := &Updater{Source: clone, Revision: built}
+	if err := u.Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s := u.Status()
+	if s.Count != 3 || strings.Join(s.Titles, ",") != "third,owner/repo#7: feature work,second" {
+		t.Fatalf("status = %+v", s)
+	}
+	if want := "https://github.com/owner/repo/compare/" + built + "...main"; s.Compare != want {
+		t.Fatalf("compare = %q, want %q", s.Compare, want)
+	}
+}
+
+func TestCompareURL(t *testing.T) {
+	for origin, want := range map[string]string{
+		"git@github.com:o/r.git":          "https://github.com/o/r/compare/abc...main",
+		"https://github.com/o/r":          "https://github.com/o/r/compare/abc...main",
+		"https://user@github.com/o/r.git": "https://github.com/o/r/compare/abc...main",
+		"ssh://git@github.com/o/r.git":    "https://github.com/o/r/compare/abc...main",
+		"git@gitlab.com:o/r.git":          "",
+		"/tmp/origin":                     "",
+		"":                                "",
+	} {
+		if got := compareURL(origin, "abc", "main"); got != want {
+			t.Errorf("compareURL(%q) = %q, want %q", origin, got, want)
+		}
+	}
+}
+
 func TestLocateFindsTheMainCheckout(t *testing.T) {
 	clone, _ := repos(t)
 	wt := filepath.Join(t.TempDir(), "wt")
