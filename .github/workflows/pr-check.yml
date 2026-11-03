@@ -20,12 +20,13 @@ jobs:
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          body=$(gh api "repos/$REPO/pulls/$NUMBER" --jq '.body // ""')
+          # The template's <!-- hints --> do not count as text.
+          body=$(gh api "repos/$REPO/pulls/$NUMBER" --jq '.body // ""' | perl -0pe 's/<!--.*?-->//gs')
           files=$(gh api "repos/$REPO/pulls/$NUMBER/files" --paginate --jq '.[].filename')
           fail=0
 
           section() { # section <heading>: the text under "## <heading>" up to the next heading
-            printf '%s\n' "$body" | awk -v h="## $1" 'index($0, h) == 1 {on=1; next} /^## / {on=0} on' | sed '/^\s*$/d; /^<!--/d'
+            printf '%s\n' "$body" | awk -v h="## $1" 'index($0, h) == 1 {on=1; next} /^## / {on=0} on' | sed '/^\s*$/d'
           }
 
           if [ -z "$(section 'Як перевірено')" ]; then
@@ -35,7 +36,7 @@ jobs:
 
           if printf '%s\n' "$files" | grep -Eq '^go/internal/web/.*\.(html|css|js)$'; then
             shots=$(section 'Скріншоти')
-            if ! printf '%s\n' "$shots" | grep -Eq '!\[|<img|не змін(ює|юють) вигляд|не потрібні'; then
+            if ! printf '%s\n' "$shots" | grep -Eq '!\[|<img|не змін(ює|юють)|не потрібні'; then
               echo "::error::The pages changed: add before/after pictures under «## Скріншоти» (mako screenshot), or write there that the change does not alter the look and why."
               fail=1
             fi
