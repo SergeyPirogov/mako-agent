@@ -18,6 +18,7 @@ func TestEveryKeyUsedExists(t *testing.T) {
 		"b.agent.":       {"waiting", "done", "idle", "unknown"},
 		"s.n.kind.":      {"waiting", "finished", "stopped", "review", "agentReview", "secrets", "merged", "newTask", "reviewAsked", "reminder", "gone", "limits"},
 		"s.nav.projects": {".one", ".many"},
+		"s.mako.commits": {".one", ".many"},
 		"tray.col.":      {"new", "doing", "review"},
 		"theme.":         {"auto", "light", "dark"},
 		"s.r.mode.":      {"cost", "balanced", "quality"},

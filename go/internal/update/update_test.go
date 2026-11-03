@@ -90,6 +90,18 @@ func TestCompareURL(t *testing.T) {
 	}
 }
 
+func TestCheckSaysWhyItFailedAndForgetsItAfterwards(t *testing.T) {
+	clone, built := repos(t)
+	u := &Updater{Source: clone, Revision: built}
+	git(t, clone, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "nowhere"))
+	if err := u.Check(context.Background()); err == nil {
+		t.Fatal("no error")
+	}
+	if s := u.Status(); s.CheckError == "" || s.Checked != 0 {
+		t.Fatalf("after a failed look: %+v", s)
+	}
+}
+
 func TestLocateFindsTheMainCheckout(t *testing.T) {
 	clone, _ := repos(t)
 	wt := filepath.Join(t.TempDir(), "wt")

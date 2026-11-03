@@ -170,6 +170,11 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <p class="lead" data-t="s.phone.lead"></p>
       <div id="phone"></div>
     </div>
+    <div class="pane" data-pane="mako">
+      <h2 data-t="s.mako.title"></h2>
+      <p class="lead" data-t="s.mako.lead"></p>
+      <div class="card" id="mako"></div>
+    </div>
     <div class="pane" data-pane="notifications">
       <h2 data-t="s.notif.title"></h2>
       <div class="card" id="notifications"></div>
@@ -692,7 +697,7 @@ function renderNav() {
     ts.map((tk, i) => item(`tracker:${i}`, NAMES[tk.type] ?? esc(tk.type), trackerNote(tk), problems.some((p) => p.startsWith(trackerId(tk) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">${t("s.nav.add")}</button>` +
     `<div class="group">${t("s.nav.work")}</div>` + item("orca", t("s.orca.title"), (onTerminal() ? t("s.nav.terminal") : "Orca · ") + t((orcaExecutor().mrBy ?? "agent") === "me" ? "s.nav.mrByMe" : "s.nav.mrByAgent")) +
-    item("routes", t("s.routes.title"), t("s.r.mode." + (cfg.routes?.mode ?? "balanced"))) + item("comments", t("s.comments.title")) + item("limits", t("s.limits.title")) + item("disk", t("s.disk.title"), diskNote) + item("notifications", t("s.notif.title")) + item("phone", t("s.phone.title"), phoneNote) +
+    item("routes", t("s.routes.title"), t("s.r.mode." + (cfg.routes?.mode ?? "balanced"))) + item("comments", t("s.comments.title")) + item("limits", t("s.limits.title")) + item("disk", t("s.disk.title"), diskNote) + item("notifications", t("s.notif.title")) + item("phone", t("s.phone.title"), phoneNote) + item("mako", t("s.mako.title"), makoNote) +
     item("language", t("s.lang.title"), LANGS.find(([l]) => l === (cfg.agentLanguage ?? "en"))?.[1]);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
@@ -710,6 +715,7 @@ function show(id) {
   renderTrackers();
   if (id === "phone") renderPhone();
   if (id === "disk") renderDisk();
+  if (id === "mako") renderMako();
   window.scrollTo(0, 0);
 }
 
@@ -882,6 +888,63 @@ async function renderDisk(msg = "") {
     const c = r.cleanup;
     renderDisk(!r.ok ? t("s.noAnswer") : t("s.d.cleaned", { worktrees: c.worktrees, branches: c.branches }) +
       (c.keptTasks?.length ? t("s.d.kept", { tasks: c.keptTasks.join(", ") }) : ""));
+  };
+  renderNav();
+}
+
+// Mako itself: the version and the way it was installed, the last look for an update, and a look now. The last
+// answer is kept, so saving the settings does not wipe what a check showed.
+let makoNote = "", makoInfo = null, makoBusy = false;
+async function renderMako() {
+  const box = $("mako");
+  if (!makoInfo) {
+    try {
+      makoInfo = await (await fetch("/api/update/info")).json();
+    } catch {
+      box.innerHTML = `<div class="bad">${t("s.noAnswer")}</div>`;
+      return;
+    }
+  }
+  const m = makoInfo;
+  makoNote = m.version || "";
+  const kind = { clone: "s.mako.kindClone", release: "s.mako.kindRelease", dev: "s.mako.kindDev" }[m.kind] ?? "s.mako.kindDev";
+  const u = m.update;
+  let found = "";
+  if (m.kind === "dev") {
+    found = `<div class="muted">${t("s.mako.devNote")}</div>`;
+  } else if (m.kind === "clone" && u?.count) {
+    const busy = ["building", "restarting", "waiting"].includes(u.state);
+    found = `<div class="row"><b>${plural(u.count, "s.mako.commits")}</b><span class="spacer"></span>`
+      + (busy ? `<span class="muted">${t("s.mako.updating")}</span>` : `<button class="primary" id="mako-update">${t("s.mako.update")}</button>`) + `</div>`
+      + `<ul style="margin:6px 0 0 18px;padding:0">${u.titles.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  } else if (m.kind === "release" && m.release) {
+    found = `<div class="row update-head"><b>${t("s.mako.available", { version: esc(m.release.version) })}</b><span class="spacer"></span>`
+      + `<a class="button primary" href="${esc(m.release.url)}" target="_blank" rel="noopener">${t("s.mako.download")}</a></div>`
+      + (m.release.notes ? `<div class="muted">${esc(m.release.notes)}</div>` : "");
+  } else if (!m.error && m.checked) {
+    found = `<div class="muted">${t("s.mako.upToDate")}</div>`;
+  }
+  box.innerHTML = `<div class="row" style="margin-top:0"><b>${t("s.mako.version", { version: esc(m.version) })}</b><span class="muted">${t(kind)}</span></div>`
+    + (m.kind === "dev" ? "" : `<div class="muted">${m.checked ? t("s.mako.checked", { time: new Date(m.checked).toLocaleString(LANG) }) : t("s.mako.never")}</div>`)
+    + (m.error && m.kind !== "dev" ? `<div class="bad">${t("s.mako.failed", { error: esc(m.error) })}</div>` : "")
+    + (m.kind === "dev" ? "" : `<div class="row"><button id="mako-check" ${makoBusy ? "disabled" : ""}>${t(makoBusy ? "s.mako.checking" : "s.mako.check")}</button></div>`)
+    + (found ? `<div style="margin-top:12px">${found}</div>` : "");
+  if ($("mako-check")) $("mako-check").onclick = async () => {
+    makoBusy = true;
+    renderMako();
+    try {
+      makoInfo = await (await fetch("/api/update/check", { method: "POST" })).json();
+    } catch {
+      makoInfo = { ...m, ok: false, error: t("s.noAnswer") };
+    }
+    makoBusy = false;
+    renderMako();
+  };
+  if ($("mako-update")) $("mako-update").onclick = async () => {
+    $("mako-update").disabled = true;
+    await fetch("/api/update", { method: "POST" }).catch(() => {});
+    makoInfo = null;
+    renderMako();
   };
   renderNav();
 }

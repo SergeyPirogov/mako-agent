@@ -38,6 +38,8 @@ type Status struct {
 	Error   string `json:"error,omitempty"`   // in a line; the whole of it goes to Issue
 	Issue   string `json:"issue,omitempty"`   // the issue the failure was reported in
 	Checked int64  `json:"checked,omitempty"` // ms: the last look at origin
+	// CheckError: why the last look at origin failed; "" when it went well.
+	CheckError string `json:"checkError,omitempty"`
 }
 
 // Updater updates the Mako built from Source.
@@ -131,6 +133,14 @@ func (u *Updater) branch() string { return gitx.DetectBaseBranch(u.Source) }
 
 // Check fetches origin's main branch and counts the commits the running Mako lacks.
 func (u *Updater) Check(ctx context.Context) error {
+	err := u.check(ctx)
+	if err != nil {
+		u.set(func(s *Status) { s.CheckError = err.Error() })
+	}
+	return err
+}
+
+func (u *Updater) check(ctx context.Context) error {
 	branch := u.branch()
 	if _, err := gitx.Run(ctx, u.Source, "fetch", "--quiet", "origin", branch); err != nil {
 		return err
@@ -162,7 +172,7 @@ func (u *Updater) Check(ctx context.Context) error {
 		}
 	}
 	u.set(func(s *Status) {
-		s.Count, s.Titles, s.Compare, s.Checked = len(titles), titles, compare, time.Now().UnixMilli()
+		s.Count, s.Titles, s.Compare, s.Checked, s.CheckError = len(titles), titles, compare, time.Now().UnixMilli(), ""
 		if len(titles) > 20 {
 			s.Titles = titles[:20]
 		}

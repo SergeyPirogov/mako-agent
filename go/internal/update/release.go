@@ -37,6 +37,8 @@ type Releases struct {
 	latest    *Release
 	dismissed string
 	loaded    bool
+	checked   int64  // ms: the last look at GitHub that got an answer
+	lastErr   string // why the last look failed; "" when it went well
 }
 
 // IsRelease: the version is a release's (x.y.z), not a build from a clone ("0.3.0-12-gabc1234") or "dev".
@@ -74,11 +76,25 @@ func newer(a, b string) bool {
 	return false
 }
 
-// Check asks GitHub for the latest release.
+// Check asks GitHub for the latest release. It keeps when it last got an answer and why a look failed, for
+// Checked; a failed look leaves the release found before as it was.
 func (r *Releases) Check(ctx context.Context) error {
 	if !IsRelease(r.Current) {
 		return nil // a build from a clone updates by commits
 	}
+	rel, err := r.fetch(ctx)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err != nil {
+		r.lastErr = err.Error()
+		return err
+	}
+	r.latest, r.lastErr, r.checked = rel, "", time.Now().UnixMilli()
+	return nil
+}
+
+// fetch reads the latest release from GitHub: nil when it is not newer than the running Mako.
+func (r *Releases) fetch(ctx context.Context) (*Release, error) {
 	api := r.API
 	if api == "" {
 		api = LatestReleaseAPI
@@ -89,16 +105,16 @@ func (r *Releases) Check(ctx context.Context) error {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	res, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub: %s", res.Status)
+		return nil, fmt.Errorf("GitHub: %s", res.Status)
 	}
 	var body struct {
 		Tag   string `json:"tag_name"`
@@ -108,19 +124,12 @@ func (r *Releases) Check(ctx context.Context) error {
 		Pre   bool   `json:"prerelease"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
-		return err
+		return nil, err
 	}
 	if body.Draft || body.Pre || !newer(body.Tag, r.Current) {
-		r.mu.Lock()
-		r.latest = nil
-		r.mu.Unlock()
-		return nil
+		return nil, nil
 	}
-	rel := &Release{Version: strings.TrimPrefix(body.Tag, "v"), URL: body.URL, Notes: notes(body.Body)}
-	r.mu.Lock()
-	r.latest = rel
-	r.mu.Unlock()
-	return nil
+	return &Release{Version: strings.TrimPrefix(body.Tag, "v"), URL: body.URL, Notes: notes(body.Body)}, nil
 }
 
 // Watch looks for a new release now and every interval until ctx ends; failures stay quiet.
@@ -148,6 +157,24 @@ func (r *Releases) Latest() *Release {
 	}
 	rel := *r.latest
 	return &rel
+}
+
+// Found: the newer release the last look found, even when its banner was hidden; nil when there is none.
+func (r *Releases) Found() *Release {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.latest == nil {
+		return nil
+	}
+	rel := *r.latest
+	return &rel
+}
+
+// Checked: when (ms) GitHub last answered, 0 before the first answer, and why the last look failed ("" when it did not).
+func (r *Releases) Checked() (int64, string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.checked, r.lastErr
 }
 
 // Dismiss hides the banner of the version until a later one is out.
