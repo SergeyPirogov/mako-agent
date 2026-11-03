@@ -29,6 +29,8 @@ type stageView struct {
 	// Route: the model and the effort its phase last ran with ("opus · high"), Why: how Mako came to it.
 	Route string `json:"route,omitempty"`
 	Why   string `json:"why,omitempty"`
+	// label: what a running stage is doing, for the Checks note ("review running", "fixing remarks"); not sent out.
+	label string
 }
 
 // The stages of the strip, in its order. CI and the reviewer agent run side by side (a fix after a review round
@@ -198,8 +200,18 @@ func stagesOf(v recordView, now time.Time) []stageView {
 			rev.State, rev.Note = "skip", "skipped"
 		case "notes":
 			rev.State = "now"
-			if !last.Sent && len(last.Remarks) > 0 {
-				rev.Note = fmt.Sprintf("%d %s", len(last.Remarks), plural(len(last.Remarks), "remark", "remarks"))
+			switch {
+			case last.Sent && last.ReplyAt != "" && last.Unverified:
+				// The agent says it fixed them, but the branch has no new commit: a person has to look.
+				rev.State, rev.label = "fail", "review: unverified fix"
+			case last.Sent && last.ReplyAt != "":
+				rev.State, rev.Note = "done", joinNote(rev.Note, "fixed")
+			case last.Sent:
+				rev.label = "fixing remarks"
+			case len(last.Remarks) > 0:
+				rev.label = fmt.Sprintf("%d %s", len(last.Remarks), plural(len(last.Remarks), "remark", "remarks"))
+			default:
+				rev.label = "review notes"
 			}
 			if finished {
 				rev.State = "done"
@@ -309,8 +321,14 @@ func checksOf(ci, rev stageView) stageView {
 		rv = "review ✓"
 	case "now":
 		rv = "review running"
+		if rev.label != "" {
+			rv = rev.label
+		}
 	case "fail":
 		rv = "review failed"
+		if rev.label != "" {
+			rv = rev.label
+		}
 	case "skip":
 		rv = "review skipped"
 	default:
@@ -321,6 +339,14 @@ func checksOf(ci, rev stageView) stageView {
 	}
 	s.Note = c + "\n" + rv
 	return s
+}
+
+// joinNote: a note with one more part, "2 rounds, fixed".
+func joinNote(note, add string) string {
+	if note == "" {
+		return add
+	}
+	return note + ", " + add
 }
 
 // questionsNote: «3 questions» for the estimate's Markdown points.
