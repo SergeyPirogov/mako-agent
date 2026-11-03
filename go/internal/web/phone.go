@@ -76,9 +76,11 @@ func publicPath(p string) bool {
 		p == "/manifest.webmanifest" || p == "/sw.js" || p == "/style.css" || p == "/theme.js"
 }
 
-// Settings and pairing stay on the Mac, and Terminal.app opens there: a phone gets the board and its buttons.
+// Settings and pairing stay on the Mac, and Terminal.app, Finder and the editor open there: a phone gets the board
+// and its buttons.
 func macOnly(p string) bool {
-	return p == "/settings" || strings.HasPrefix(p, "/api/settings") || strings.HasPrefix(p, "/api/phone") || p == "/api/show" || p == "/api/terminalapp"
+	return p == "/settings" || strings.HasPrefix(p, "/api/settings") || strings.HasPrefix(p, "/api/phone") || p == "/api/show" ||
+		p == "/api/terminalapp" || p == "/api/open"
 }
 
 // guard lets this Mac in as is, and a phone only with a paired device's key.
@@ -269,7 +271,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 			return
 		}
 		var sub webpush.Subscription
-		if err := json.NewDecoder(r.Body).Decode(&sub); err != nil || sub.Endpoint == "" {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&sub); err != nil || sub.Endpoint == "" {
 			http.Error(w, "bad subscription", http.StatusBadRequest)
 			return
 		}

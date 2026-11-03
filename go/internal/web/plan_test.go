@@ -2,7 +2,6 @@ package web
 
 import (
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -50,7 +49,7 @@ func TestPlanAction(t *testing.T) {
 					t.Fatal("no plan asked")
 				}
 			}
-			res, err := http.Post(srv.URL+"/api/plan?id=grp%2Fapp%237&req=p1"+c.query, "application/json", strings.NewReader(c.body))
+			res, err := postMako(srv.URL+"/api/plan?id=grp%2Fapp%237&req=p1"+c.query, "application/json", strings.NewReader(c.body))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,5 +96,50 @@ func TestBoardKnowsPlanNotesPrefix(t *testing.T) {
 func TestBoardFaultsOnOverviewOnly(t *testing.T) {
 	if !strings.Contains(string(board), `(statsTab === "overview" ? faultsHTML(data.faults) : "")`) {
 		t.Fatal("board.html draws the Mako errors card not only on the Overview tab")
+	}
+}
+
+// A body that is not JSON is refused with {ok:false, error}: the plan stays asked, nothing is redone or answered.
+func TestBadJSONIsAnError(t *testing.T) {
+	dir, wt := t.TempDir(), t.TempDir()
+	store, _ := state.Open(dir)
+	id := "grp/app#7"
+	store.Update(id, func(r *core.Record) { r.Planning, r.Task = true, core.Task{ID: id, Title: "Plan", Project: "grp/app"} })
+	d := dispatch.New(&config.Config{StateDir: dir}, store, nil)
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(planClaude), 0o755)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	for _, chatID := range []string{id, "ask-q1"} {
+		s := chat.Start(chat.Options{ID: chatID, Worktree: wt, Command: bin, Prompt: "Plan it", Mode: "plan"})
+		defer s.Stop()
+		d.Chats.Put(s)
+		for end := time.Now().Add(5 * time.Second); s.Asked() == nil; time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(end) {
+				t.Fatal("no plan asked")
+			}
+		}
+	}
+	for _, path := range []string{
+		"/api/plan?id=grp%2Fapp%237&req=p1&do=approve",
+		"/api/answer?id=grp%2Fapp%237&req=p1",
+		"/api/redo?id=grp%2Fapp%237",
+		"/api/code/answer?id=ask-q1&req=p1",
+	} {
+		res, err := postMako(srv.URL+path, "application/json", strings.NewReader(`{bad`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reply struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		json.NewDecoder(res.Body).Decode(&reply)
+		if reply.OK || !strings.Contains(reply.Error, "could not read the request") {
+			t.Fatalf("%s: %+v", path, reply)
+		}
+	}
+	if r, _ := store.Get(id); !r.Planning || d.Chats.Get(id).Asked() == nil || d.Chats.Get("ask-q1").Asked() == nil {
+		t.Fatal("a bad body was acted on")
 	}
 }

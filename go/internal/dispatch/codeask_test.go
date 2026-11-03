@@ -178,7 +178,10 @@ echo "$more" > "$MAKO_TEST_OUT/more.json"
 	secret := filepath.Join(t.TempDir(), "secret")
 	os.WriteFile(secret, []byte("x"), 0o644)
 	os.Symlink(secret, filepath.Join(wt, "link"))
-	for _, p := range []string{"../app/../../secret", secret, "link", "pay"} {
+	// Only what git tracks: not the clone's .git/config, nor an untracked .env beside the code.
+	os.WriteFile(filepath.Join(wt, ".env"), []byte("GITLAB_TOKEN=x"), 0o600)
+	os.WriteFile(filepath.Join(wt, "pay", "notes.txt"), []byte("x"), 0o644)
+	for _, p := range []string{"../app/../../secret", secret, "link", "pay", ".env", "./.env", "pay/notes.txt", ".git", "../app/.git/config"} {
 		if _, _, err := d.CodeFile(context.Background(), ps[0].Key, p); err == nil {
 			t.Fatalf("%s opened", p)
 		}
@@ -523,6 +526,25 @@ func TestDoneQuestion(t *testing.T) {
 	for _, c := range []struct{ id, ticket string }{{"ask-one", " "}, {"ask-none", "#1"}, {"chat-x", "#1"}} {
 		if err := d.DoneQuestion(c.id, c.ticket); err == nil {
 			t.Fatalf("marked done %+v", c)
+		}
+	}
+}
+
+// The board shows only the files git tracks: the clone's .git and untracked files stay out of reach.
+func TestTrackedOnly(t *testing.T) {
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	os.WriteFile(filepath.Join(repo, "a.go"), []byte("package a"), 0o644)
+	os.WriteFile(filepath.Join(repo, "*"), []byte("x"), 0o644)
+	git(t, repo, "add", "a.go")
+	git(t, repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "a")
+	os.WriteFile(filepath.Join(repo, ".env"), []byte("TOKEN=x"), 0o600)
+	if !tracked(context.Background(), repo, "a.go") {
+		t.Fatal("a.go is tracked")
+	}
+	for _, p := range []string{".git/config", ".git/HEAD", ".env", "*", "", "."} {
+		if tracked(context.Background(), repo, p) {
+			t.Fatalf("%q counted as tracked", p)
 		}
 	}
 }

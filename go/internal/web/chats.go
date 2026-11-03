@@ -123,8 +123,11 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 		}
 	case "plan":
 		// Not the task's ApprovePlan: it would note the plan in the task store, making a task of the chat.
-		do, o := readPlan(r)
-		err = s.D.FreePlan(id, r.URL.Query().Get("req"), do, o)
+		var do string
+		var o dispatch.PlanApproval
+		if do, o, err = readPlan(r); err == nil {
+			err = s.D.FreePlan(id, r.URL.Query().Get("req"), do, o)
+		}
 	case "permit", "answer", "choose", "interrupt", "mode":
 		err = controlChat(c, action, r)
 	default:
@@ -140,17 +143,28 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 
 // readPlan: the answer to the agent's plan, of a task or of a chat: the body {do: approve | revise | reject, mode,
 // model, notes: {steps: [{n, title, note}], whole}}; do may come in the query instead (a notification's button:
-// ?do=approve, no body).
-func readPlan(r *http.Request) (string, dispatch.PlanApproval) {
+// ?do=approve, no body). A body that is not such JSON is an error: nothing is done with it.
+func readPlan(r *http.Request) (string, dispatch.PlanApproval, error) {
 	var in struct {
 		Do, Mode, Model string
 		Notes           chat.PlanNotes
 	}
-	json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&in)
+	if err := decodeJSON(r, 200<<10, &in); err != nil {
+		return "", dispatch.PlanApproval{}, err
+	}
 	if in.Do == "" {
 		in.Do = r.URL.Query().Get("do")
 	}
-	return in.Do, dispatch.PlanApproval{Mode: in.Mode, Model: in.Model, Notes: in.Notes}
+	return in.Do, dispatch.PlanApproval{Mode: in.Mode, Model: in.Model, Notes: in.Notes}, nil
+}
+
+// decodeJSON reads the body's JSON (at most limit bytes) into v; an empty body leaves v as it is. The error says
+// the body could not be read, for {ok:false, error}.
+func decodeJSON(r *http.Request, limit int64, v any) error {
+	if err := json.NewDecoder(io.LimitReader(r.Body, limit)).Decode(v); err != nil && err != io.EOF {
+		return fmt.Errorf("could not read the request: %w", err)
+	}
+	return nil
 }
 
 // controlChat: the running agent's controls in its chat — an answer to its question, an option of one, the mode,
@@ -163,7 +177,9 @@ func controlChat(c *chat.Session, action string, r *http.Request) error {
 	switch action {
 	case "answer":
 		var answers map[string]string
-		json.NewDecoder(io.LimitReader(r.Body, 200<<10)).Decode(&answers)
+		if err := decodeJSON(r, 200<<10, &answers); err != nil {
+			return err
+		}
 		return c.Answer(q.Get("req"), answers)
 	case "choose":
 		// An option of the agent's question, from a notification's button.

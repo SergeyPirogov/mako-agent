@@ -227,6 +227,27 @@ func planStatus(s chat.Snapshot, req, status string) bool {
 	return false
 }
 
+// pairPhone: a phone paired through `tailscale serve`; its requests carry the device's cookie it returns.
+func pairPhone(t *testing.T, srv *httptest.Server, phones *phone.Phones) *http.Cookie {
+	t.Helper()
+	pair, _ := http.NewRequest("POST", srv.URL+"/pair", strings.NewReader("code="+phones.NewPairing()))
+	pair.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	pair.Header.Set("X-Forwarded-For", "100.64.0.2")
+	pair.Header.Set("X-Forwarded-Proto", "https")
+	pair.Header.Set("Origin", srv.URL)
+	res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(pair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Cookies() {
+		if c.Name == deviceCookie {
+			return c
+		}
+	}
+	t.Fatalf("the phone did not pair: %d", res.StatusCode)
+	return nil
+}
+
 // A plan handed over to another session is from the Mac only; the phone still starts and answers chats of its own.
 func TestPlanHandoverIsFromTheMacOnly(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
@@ -234,24 +255,7 @@ func TestPlanHandoverIsFromTheMacOnly(t *testing.T) {
 	phones, _ := phone.Open(t.TempDir())
 	srv := httptest.NewServer((&Server{D: d, Version: "test", Phones: phones}).Handler())
 	defer srv.Close()
-	// A paired phone: through `tailscale serve`, with the device's cookie.
-	pair, _ := http.NewRequest("POST", srv.URL+"/pair", strings.NewReader("code="+phones.NewPairing()))
-	pair.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	pair.Header.Set("X-Forwarded-For", "100.64.0.2")
-	pair.Header.Set("X-Forwarded-Proto", "https")
-	res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(pair)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var device *http.Cookie
-	for _, c := range res.Cookies() {
-		if c.Name == deviceCookie {
-			device = c
-		}
-	}
-	if device == nil {
-		t.Fatalf("the phone did not pair: %d", res.StatusCode)
-	}
+	device := pairPhone(t, srv, phones)
 	post := func(path, body string, phone bool) (int, map[string]any) {
 		req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
 		req.Header.Set("Origin", srv.URL)

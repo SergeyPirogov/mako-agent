@@ -57,6 +57,12 @@ func TestPush(t *testing.T) {
 	p.Pair(p.NewPairing(), "no pushes", "")
 	p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/a"})
 	p.Subscribe(b.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/gone"})
+	// Only a device's own token subscribes it: not an empty one, nor a part of one.
+	for _, tok := range []string{"", a.Token[:8], a.Token + "x"} {
+		if p.Subscribe(tok, &webpush.Subscription{Endpoint: "https://evil.example/x"}) == nil {
+			t.Fatalf("subscribed with %q", tok)
+		}
+	}
 	var sent []string
 	p.Send = func(ctx context.Context, msg []byte, sub *webpush.Subscription, o *webpush.Options) (*http.Response, error) {
 		var m Message

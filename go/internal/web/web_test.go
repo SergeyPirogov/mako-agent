@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -315,6 +316,7 @@ func TestPhone(t *testing.T) {
 		req, _ := http.NewRequest("POST", srv.URL+"/pair", strings.NewReader("code="+code))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("X-Forwarded-For", "100.101.102.103")
+		req.Header.Set("Origin", srv.URL)
 		req.Header.Set("X-Forwarded-Proto", "https")
 		res, err := client.Do(req)
 		if err != nil {
@@ -379,6 +381,7 @@ func TestPhone(t *testing.T) {
 	// Pushes: the app subscribes.
 	req, _ := http.NewRequest("POST", srv.URL+"/api/push/subscribe", strings.NewReader(`{"endpoint":"https://web.push.apple.com/x","keys":{"auth":"a","p256dh":"b"}}`))
 	req.Header.Set("X-Forwarded-For", "100.101.102.103")
+	req.Header.Set("Origin", srv.URL)
 	if res, _ := client.Do(req); res.StatusCode != 200 {
 		t.Fatalf("subscribe: %d", res.StatusCode)
 	}
@@ -438,7 +441,7 @@ func TestDigest(t *testing.T) {
 
 	// The board seen for the first time: nothing to compare with, no digest.
 	var st stateReply
-	res, _ := http.Get(srv.URL + "/api/state?seen=1")
+	res, _ := getMako(srv.URL + "/api/state?seen=1")
 	json.NewDecoder(res.Body).Decode(&st)
 	if st.Digest != nil {
 		t.Fatalf("digest on the first look: %+v", st.Digest)
@@ -449,6 +452,52 @@ func TestDigest(t *testing.T) {
 	json.NewDecoder(res.Body).Decode(&dg)
 	if dg.Since != since || len(dg.Review) != 1 || !dg.Review[0].New || dg.Review[0].MR != "https://mr/5" {
 		t.Fatalf("digest %+v", dg)
+	}
+}
+
+// postMako: a POST as Mako's command line makes it, with X-Mako and no Origin.
+func postMako(u, contentType string, body io.Reader) (*http.Response, error) {
+	req, _ := http.NewRequest("POST", u, body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Mako", "1")
+	return http.DefaultClient.Do(req)
+}
+
+// getMako: a GET as the board makes it, with X-Mako.
+func getMako(u string) (*http.Response, error) {
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("X-Mako", "1")
+	return http.DefaultClient.Do(req)
+}
+
+// ?seen=1 counts as «you are back» only from the board: another site's <img> does not end the absence.
+func TestSeenOnlyFromBoard(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	store.Update("grp/app#5", func(r *core.Record) {
+		r.Status, r.Task, r.PRURL = core.Done, core.Task{ID: "grp/app#5", Title: "Pay"}, "https://mr/5"
+		r.FinishedAt = time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	})
+	dir := t.TempDir()
+	away := time.Now().Add(-5 * time.Hour).UnixMilli()
+	os.WriteFile(filepath.Join(dir, "digest.json"), []byte(fmt.Sprintf(`{"seen":%d}`, away)), 0o600)
+	d := dispatch.New(&config.Config{StateDir: dir, Notifications: config.Notifications{AwayHours: 4}}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	look := func(res *http.Response, err error) (st stateReply) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		json.NewDecoder(res.Body).Decode(&st)
+		return
+	}
+	if st := look(http.Get(srv.URL + "/api/state?seen=1")); st.Digest != nil {
+		t.Fatalf("digest without X-Mako: %+v", st.Digest)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "digest.json")); !strings.Contains(string(b), strconv.FormatInt(away, 10)) {
+		t.Fatalf("seen moved without X-Mako: %s", b)
+	}
+	if st := look(getMako(srv.URL + "/api/state?seen=1")); st.Digest == nil {
+		t.Fatal("no digest from the board after 5 hours away")
 	}
 }
 
@@ -752,7 +801,7 @@ func TestAnswersErrorReachesCard(t *testing.T) {
 	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Executor: "terminal"}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
 	defer srv.Close()
-	res, err := http.Post(srv.URL+"/api/answers?id="+url.QueryEscape(task.ID), "application/json", strings.NewReader(`{"answers":[{"q":"Яка кнопка?","a":"«Оплатити»"}]}`))
+	res, err := postMako(srv.URL+"/api/answers?id="+url.QueryEscape(task.ID), "application/json", strings.NewReader(`{"answers":[{"q":"Яка кнопка?","a":"«Оплатити»"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +822,7 @@ func TestAnswersBadBody(t *testing.T) {
 	store.Update("grp/app#4", func(r *core.Record) { r.Status, r.Task = core.Snoozed, core.Task{ID: "grp/app#4"} })
 	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
 	defer srv.Close()
-	res, err := http.Post(srv.URL+"/api/answers?id="+url.QueryEscape("grp/app#4"), "application/json", strings.NewReader(`{"answers":["старий формат"]}`))
+	res, err := postMako(srv.URL+"/api/answers?id="+url.QueryEscape("grp/app#4"), "application/json", strings.NewReader(`{"answers":["старий формат"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

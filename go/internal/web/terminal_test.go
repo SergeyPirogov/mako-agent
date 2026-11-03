@@ -13,6 +13,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
@@ -107,5 +108,74 @@ func TestTermStatAndTerminalApp(t *testing.T) {
 	}
 	if !macOnly("/api/terminalapp") {
 		t.Fatal("Terminal.app is not Mac-only")
+	}
+}
+
+// Finder and the editor open on the Mac: a paired phone gets no button for them, and no Finder if it asks anyway.
+func TestOpenIsFromTheMacOnly(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	store.Update("a#1", func(r *core.Record) { r.Task, r.Worktree = core.Task{ID: "a#1"}, t.TempDir() })
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	phones, _ := phone.Open(t.TempDir())
+	srv := httptest.NewServer((&Server{D: d, Version: "test", Phones: phones}).Handler())
+	defer srv.Close()
+	device := pairPhone(t, srv, phones)
+	for _, in := range []string{"finder", "editor"} {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/open?id=a%231&in="+in, nil)
+		req.Header.Set("Origin", srv.URL)
+		req.Header.Set("X-Forwarded-For", "100.64.0.2")
+		req.AddCookie(device)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil || res.StatusCode != http.StatusForbidden {
+			t.Fatalf("open in %s from a phone: %v %v", in, err, res)
+		}
+	}
+	if !macOnly("/api/open") {
+		t.Fatal("/api/open is not Mac-only")
+	}
+	req, _ := http.NewRequest("GET", srv.URL+"/api/state", nil)
+	req.Header.Set("X-Forwarded-For", "100.64.0.2")
+	req.AddCookie(device)
+	res, err := http.DefaultClient.Do(req)
+	var st stateReply
+	if err != nil || json.NewDecoder(res.Body).Decode(&st) != nil || !st.Remote || st.Editor != "" {
+		t.Fatalf("phone state: %v remote=%v editor=%q", err, st.Remote, st.Editor)
+	}
+}
+
+// The board closes the terminal while the agent is quiet: its subscription goes at once, not at the agent's next output.
+func TestTerminalLeavesWithTheBoard(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	s, err := term.Start(term.Options{ID: "a#1", Worktree: t.TempDir(), Command: "/bin/sh", Token: "tok",
+		Args: []string{"-c", `echo ready; sleep 30`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+	d.Sessions.Put(s)
+	srv := httptest.NewServer((&Server{D: d}).Handler())
+	defer srv.Close()
+	c, err := websocket.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/ws/term?id=a%231", "", srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The agent's output so far is in, and it says nothing more.
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	for got := ""; !strings.Contains(got, "ready"); {
+		var e struct{ T, D string }
+		if err := websocket.JSON.Receive(c, &e); err != nil {
+			t.Fatalf("waiting for ready in %q: %v", got, err)
+		}
+		got += e.D
+	}
+	if n := s.Subscribers(); n != 1 {
+		t.Fatalf("subscribers %d", n)
+	}
+	c.Close()
+	for deadline := time.Now().Add(3 * time.Second); s.Subscribers() != 0; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the closed board still watches the session")
+		}
 	}
 }
