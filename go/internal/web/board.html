@@ -3691,7 +3691,7 @@ function renderDetail() {
     if (document.activeElement?.id === "stats-project") return;
     // A navigation retro's line being edited keeps its cursor.
     if (document.activeElement?.dataset?.navRule != null) return;
-    $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Tasks</button>` : "") + statsHTML(data.stats) + faultsHTML(data.faults);
+    $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Tasks</button>` : "") + statsHTML(data.stats) + (statsTab === "overview" ? faultsHTML(data.faults) : "");
     if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
     bindStats();
     bindFaults();

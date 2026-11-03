@@ -92,3 +92,10 @@ func TestBoardKnowsPlanNotesPrefix(t *testing.T) {
 		t.Fatal("board.html's PLAN_NOTES is not chat.PlanNotesPrefix")
 	}
 }
+
+// «Mako errors» are drawn on the Stats' Overview only: on the other tabs the same card looked like another list.
+func TestBoardFaultsOnOverviewOnly(t *testing.T) {
+	if !strings.Contains(string(board), `(statsTab === "overview" ? faultsHTML(data.faults) : "")`) {
+		t.Fatal("board.html draws the Mako errors card not only on the Overview tab")
+	}
+}
