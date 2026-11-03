@@ -3489,10 +3489,11 @@ function primaryHTML(r) {
     case "stop": return b("stop", `${ICON.stop}Stop`, "", "", "Stop the agent");
     case "resume": return b("resume", `${ICON.play}Resume`, "primary", "", "Continue the conversation");
     case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
-    case "fix-conflicts": return (isAsked(r.id, "conflicts") ? `<button class="primary" disabled title="Already passed to the agent">Passed to the agent…</button>`
-      : `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>`) + openMR(r);
-    case "fix-ci": return (isAsked(r.id, "ci") ? `<button class="primary" disabled title="Already passed to the agent">Passed to the agent…</button>`
-      : `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>`) + openMR(r);
+    // Once the agent has been asked, only the MR link is left, as the main button.
+    case "fix-conflicts": return isAsked(r.id, "conflicts") ? openMR(r, "primary")
+      : `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>` + openMR(r);
+    case "fix-ci": return isAsked(r.id, "ci") ? openMR(r, "primary")
+      : `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>` + openMR(r);
     case "merge": return `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
     // CI still running, or the agent is in Orca: the MR is where to look.
     case "open-mr": return openMR(r, "primary");
