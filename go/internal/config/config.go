@@ -178,8 +178,8 @@ type Terminal struct {
 	Command string // "claude" when empty
 	// Model, Effort: what the agent's run starts with; the routes fill them for each run, the config does not.
 	Model, Effort string
-	// PermissionMode: how much Claude may do without asking: "auto" (default), "acceptEdits", "default",
-	// "bypassPermissions".
+	// PermissionMode: how much Claude may do without asking: "auto" (default; "acceptEdits" with AutoTake or
+	// AutoFix, see DefaultPermissionMode), "acceptEdits", "default", "bypassPermissions".
 	PermissionMode string
 	AllowedTools   []string // used without asking: "Bash(git:*)", "WebFetch"
 	// SetupCommand prepares every new worktree unless its repo has its own setup; "" guesses from the
@@ -414,7 +414,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		c.WipLimit = AutoWip()
 	}
 	// Mako runs the agent itself unless Orca is the default executor, or the only one there is.
-	c.Executor, c.Terminal = "terminal", Terminal{PermissionMode: "auto"}
+	c.Executor, c.Terminal = "terminal", Terminal{PermissionMode: DefaultPermissionMode(c.Notifications.AutoTake, false)}
 	if e, ok := raw.Executors[raw.DefaultExecutor]; ok {
 		if e.Type == "orca" {
 			c.Executor = "orca"
@@ -424,7 +424,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst,
+			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, DefaultPermissionMode(c.Notifications.AutoTake, e.AutoFix)), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst,
 				CheckTimeoutSec: e.CheckTimeoutSec, CheckAttempts: e.CheckAttempts}
 			break
 		}
@@ -707,6 +707,16 @@ type rawConfig struct {
 	} `json:"routes"`
 	DefaultExecutor string       `json:"defaultExecutor"`
 	Trackers        []rawTracker `json:"trackers"`
+}
+
+// DefaultPermissionMode: the agent's permission mode when the settings choose none: "auto", but "acceptEdits"
+// while tasks go to work (AutoTake) or MRs get fixed (AutoFix) with nobody looking, so that a command a task's
+// text slipped in does not run without asking.
+func DefaultPermissionMode(autoTake, autoFix bool) string {
+	if autoTake || autoFix {
+		return "acceptEdits"
+	}
+	return "auto"
 }
 
 // autoTakeOnly: Notifications' AutoTakeOnly, "all" for anything else.

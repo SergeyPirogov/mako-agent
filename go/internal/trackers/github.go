@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -129,10 +130,13 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 				User struct {
 					Login string `json:"login"`
 				} `json:"user"`
+				AuthorAssociation string `json:"author_association"`
 			}
 			if err := g.do(ctx, "GET", fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100", repo, is.Number), nil, &cs); err == nil {
+				me, _ := g.Me(ctx)
 				for _, c := range cs {
-					t.Comments = append(t.Comments, core.Comment{Author: c.User.Login, Body: c.Body})
+					member := ghMember(c.AuthorAssociation) || ofTask(c.User.Login, me, t)
+					t.Comments = append(t.Comments, core.Comment{Author: c.User.Login, Body: c.Body, Member: member})
 				}
 			} else {
 				t.CommentsUnread = true
@@ -221,6 +225,21 @@ func (g *GitHub) toTask(repo string, is ghIssue) core.Task {
 		Assignees:   assignees,
 		Author:      author,
 	}
+}
+
+// ghMember: GitHub's author_association of someone of the repository: its owner, a member of its organization,
+// a collaborator.
+func ghMember(association string) bool {
+	switch association {
+	case "OWNER", "MEMBER", "COLLABORATOR":
+		return true
+	}
+	return false
+}
+
+// ofTask: user is me, the task's author or one of its assignees ("" is none of them).
+func ofTask(user, me string, t core.Task) bool {
+	return user != "" && (strings.EqualFold(user, me) || strings.EqualFold(user, t.Author) || slices.ContainsFunc(t.Assignees, func(a string) bool { return strings.EqualFold(a, user) }))
 }
 
 func ghIssuePath(t core.Task) string {

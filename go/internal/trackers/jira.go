@@ -130,7 +130,7 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 			t.Components = append(t.Components, c.Name)
 		}
 		for _, c := range is.Fields.Comment.Comments {
-			t.Comments = append(t.Comments, core.Comment{Author: c.Author.DisplayName, Body: strings.TrimSpace(adfToText(c.Body))})
+			t.Comments = append(t.Comments, core.Comment{Author: c.Author.DisplayName, Body: strings.TrimSpace(adfToText(c.Body)), Member: true})
 		}
 		if is.Fields.Assignee != nil {
 			t.Assignees = []string{is.Fields.Assignee.AccountID}

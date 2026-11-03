@@ -39,6 +39,8 @@ type Thread struct {
 	Path   string `json:"path,omitempty"`
 	Line   int    `json:"line,omitempty"`
 	URL    string `json:"url"`
+	// Member: written by someone of the project (see Comment.Member); an agent reads the others' as quotes only.
+	Member bool `json:"member,omitempty"`
 }
 
 // ReviewDesk: a code host that can show and merge its MRs.
@@ -124,6 +126,7 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 			Resolvable bool   `json:"resolvable"`
 			Resolved   bool   `json:"resolved"`
 			Author     struct {
+				ID       int    `json:"id"`
 				Username string `json:"username"`
 			} `json:"author"`
 			Position *struct {
@@ -133,12 +136,14 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 		} `json:"notes"`
 	}
 	if err := g.do(ctx, "GET", path+"/discussions?per_page=100", nil, &discussions); err == nil {
+		me, _ := g.Me(ctx)
 		for _, d := range discussions {
 			if len(d.Notes) == 0 || d.Notes[0].System || !d.Notes[0].Resolvable || d.Notes[0].Resolved {
 				continue
 			}
 			n := d.Notes[0]
-			t := Thread{Author: n.Author.Username, Body: n.Body, URL: fmt.Sprintf("%s#note_%d", mr.WebURL, n.ID)}
+			member := (me != "" && n.Author.Username == me) || g.member(ctx, mrURL.FindStringSubmatch(reviewURL)[1], n.Author.ID)
+			t := Thread{Author: n.Author.Username, Body: n.Body, URL: fmt.Sprintf("%s#note_%d", mr.WebURL, n.ID), Member: member}
 			if n.Position != nil {
 				t.Path, t.Line = n.Position.NewPath, n.Position.NewLine
 			}
@@ -226,6 +231,7 @@ func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 									Author struct {
 										Login string `json:"login"`
 									} `json:"author"`
+									AuthorAssociation string `json:"authorAssociation"`
 								} `json:"nodes"`
 							} `json:"comments"`
 						} `json:"nodes"`
@@ -234,14 +240,16 @@ func (g *GitHub) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 			} `json:"repository"`
 		} `json:"data"`
 	}
-	query := `query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{body url author{login}}}}}}}}`
+	query := `query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){reviewThreads(first:100){nodes{isResolved path line comments(first:1){nodes{body url author{login} authorAssociation}}}}}}}`
 	if call(ctx, "POST", g.graphqlURL(), g.headers, map[string]any{"query": query, "variables": map[string]any{"o": owner, "n": name, "p": n}}, &threads, nil) == nil {
+		me, _ := g.Me(ctx)
 		for _, t := range threads.Data.Repository.PullRequest.ReviewThreads.Nodes {
 			if t.IsResolved || len(t.Comments.Nodes) == 0 {
 				continue
 			}
 			first := t.Comments.Nodes[0]
-			c.Threads = append(c.Threads, Thread{Author: first.Author.Login, Body: first.Body, Path: t.Path, Line: t.Line, URL: first.URL})
+			member := ghMember(first.AuthorAssociation) || (me != "" && strings.EqualFold(first.Author.Login, me))
+			c.Threads = append(c.Threads, Thread{Author: first.Author.Login, Body: first.Body, Path: t.Path, Line: t.Line, URL: first.URL, Member: member})
 		}
 	}
 	c.Conflicts = p.MergeableState == "dirty"

@@ -57,15 +57,27 @@ func (d *Dispatcher) GuardPush(ctx context.Context, id string, hook []byte) map[
 	found, err := d.CheckSecrets(ctx, id)
 	if err != nil {
 		d.Log(id, "the secrets check failed, push not stopped: "+err.Error())
-		return nil
 	}
-	if len(found) == 0 {
-		return nil
+	if len(found) > 0 {
+		return hookDecision("deny", secretsRequest(found))
 	}
+	// Unattended (AutoTake, AutoFix): what a task's text or an MR's comment talked the agent into stays on this
+	// machine until you let it out.
+	if cfg := d.Config(); cfg.Notifications.AutoTake || cfg.Terminal.AutoFix {
+		return hookDecision("ask", unattendedPush)
+	}
+	return nil
+}
+
+// unattendedPush: why the guard asks you about a push or a new MR while tasks go to work by themselves.
+const unattendedPush = "Mako asks a human to confirm pushes and new merge requests while tasks are taken (AutoTake) or MRs are fixed (AutoFix) automatically."
+
+// hookDecision: Claude Code's PreToolUse hook output with the decision ("deny", "ask") and its reason.
+func hookDecision(decision, reason string) map[string]any {
 	return map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName":            "PreToolUse",
-		"permissionDecision":       "deny",
-		"permissionDecisionReason": secretsRequest(found),
+		"permissionDecision":       decision,
+		"permissionDecisionReason": reason,
 	}}
 }
 

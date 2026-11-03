@@ -2,6 +2,7 @@ package trackers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -23,6 +24,8 @@ type GitLab struct {
 	statuses []string
 	// memos: the MRs to review as the last poll read them, by their API path.
 	memos map[string]reviewMemo
+	// members: whether a user (by id) is a developer or more of a project (by path), as GitLab said.
+	members map[string]bool
 }
 
 type glUser struct {
@@ -127,13 +130,17 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 				System bool   `json:"system"`
 				Body   string `json:"body"`
 				Author struct {
-					Name string `json:"name"`
+					ID       int    `json:"id"`
+					Name     string `json:"name"`
+					Username string `json:"username"`
 				} `json:"author"`
 			}
 			if err := g.do(ctx, "GET", fmt.Sprintf("%s/issues/%d/notes?sort=asc&per_page=100", project(projectPath), is.IID), nil, &notes); err == nil {
+				me, _ := g.Me(ctx)
 				for _, n := range notes {
 					if !n.System {
-						t.Comments = append(t.Comments, core.Comment{Author: n.Author.Name, Body: n.Body})
+						member := ofTask(n.Author.Username, me, t) || g.member(ctx, projectPath, n.Author.ID)
+						t.Comments = append(t.Comments, core.Comment{Author: n.Author.Name, Body: n.Body, Member: member})
 					}
 				}
 			} else {
@@ -234,6 +241,40 @@ func (g *GitLab) toTask(projectPath string, is glIssue) core.Task {
 		Assignees:   assignees,
 		Author:      is.Author.Username,
 	}
+}
+
+// developerAccess: GitLab's access level from which a project's member counts as one of it: who may push to it.
+const developerAccess = 30
+
+// member: the user is a developer (or more) of the project, directly or through its groups. A definite answer
+// is kept for the next polls; a failed check counts as not a member and is asked again next time.
+func (g *GitLab) member(ctx context.Context, projectPath string, userID int) bool {
+	if userID == 0 {
+		return false
+	}
+	key := projectPath + "\x00" + strconv.Itoa(userID)
+	g.mu.Lock()
+	known, ok := g.members[key]
+	g.mu.Unlock()
+	if ok {
+		return known
+	}
+	var m struct {
+		AccessLevel int `json:"access_level"`
+	}
+	err := g.do(ctx, "GET", fmt.Sprintf("%s/members/all/%d", project(projectPath), userID), nil, &m)
+	var he *HTTPError
+	if err != nil && !(errors.As(err, &he) && he.Status == 404) {
+		return false
+	}
+	is := err == nil && m.AccessLevel >= developerAccess
+	g.mu.Lock()
+	if g.members == nil {
+		g.members = map[string]bool{}
+	}
+	g.members[key] = is
+	g.mu.Unlock()
+	return is
 }
 
 func issuePath(t core.Task) string {

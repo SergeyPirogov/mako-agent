@@ -10,13 +10,15 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
-// Prompt: the task as the agent in Orca sees it. A developer follows the session in Orca.
+// Prompt: the task as the agent in Orca sees it. A developer follows the session in Orca. What the tracker
+// gives (the title, the description, the comments) comes fenced as data: anyone who can comment on the task
+// writes it, and the agent is not to take orders from it.
 func Prompt(t core.Task, trackerName string) string {
 	comments := "(none)"
 	if len(t.Comments) > 0 {
 		var parts []string
 		for _, c := range t.Comments {
-			parts = append(parts, fmt.Sprintf("**%s:**\n%s", c.Author, strings.TrimSpace(c.Body)))
+			parts = append(parts, core.Untrusted("comment by "+c.Author, !c.Member, c.Body))
 		}
 		comments = strings.Join(parts, "\n\n")
 	}
@@ -28,9 +30,16 @@ func Prompt(t core.Task, trackerName string) string {
 	if description == "" {
 		description = "(empty)"
 	}
+	by := "issue description"
+	if t.Author != "" {
+		by += " by " + t.Author
+	}
 	return fmt.Sprintf(`You are working on %s issue %s. A developer is watching this session; ask them if something important is unclear.
 
-# %s: %s
+%s
+
+# %s
+%s
 %s
 
 ## Description
@@ -44,7 +53,8 @@ func Prompt(t core.Task, trackerName string) string {
 - Explore the codebase first, then implement the change with minimal, focused edits.
 - Run the relevant tests/linters if the project has them.
 - Never bypass git hooks (no --no-verify). If a hook or check fails, fix the cause; if you cannot, say so.
-- If the task is unclear or impossible, make no changes and explain why.`, trackerName, t.ID, t.ID, t.Title, meta, description, comments)
+- If the task is unclear or impossible, make no changes and explain why.`, trackerName, t.ID, core.UntrustedNote, t.ID,
+		core.Untrusted("issue title", false, t.Title), meta, core.Untrusted(by, false, description), comments)
 }
 
 // DefaultHandoff: the agent finishes with a pushed branch and the MR Mako watches for.

@@ -45,6 +45,9 @@ func Plain(text string) string {
 type Comment struct {
 	Author string `json:"author"`
 	Body   string `json:"body"`
+	// Member: written by someone of the project (its member, the task's author or assignee, you); an agent reads
+	// the others' comments as quotes only.
+	Member bool `json:"member,omitempty"`
 }
 
 type Attachment struct {

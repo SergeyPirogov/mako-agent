@@ -222,14 +222,14 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString(i18n.TA("agent.ci", url) + "\n")
+	b.WriteString(i18n.TA("agent.ci", url) + "\n" + i18n.TA("agent.untrusted") + "\n")
 	for i, j := range c.Failed {
 		b.WriteString("\n" + i18n.TA("agent.ciJob", j.Name, j.URL) + "\n")
 		if i >= 2 {
 			continue // the first ones' logs are enough to start with
 		}
 		if log, err := desk.JobLog(ctx, url, j, 60); err == nil && log != "" {
-			b.WriteString(i18n.TA("agent.ciLog") + "\n```\n" + log + "\n```\n")
+			b.WriteString(i18n.TA("agent.ciLog") + "\n" + core.Untrusted("CI job log "+j.Name, false, log) + "\n")
 		}
 	}
 	return b.String(), nil
@@ -237,13 +237,13 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 
 func commentsRequest(url, branch string, threads []trackers.Thread) string {
 	var b strings.Builder
-	b.WriteString(i18n.TA("agent.comments", url, branch) + "\n")
+	b.WriteString(i18n.TA("agent.comments", url, branch) + "\n" + i18n.TA("agent.untrusted") + "\n")
 	for i, t := range threads {
 		where := ""
 		if t.Path != "" {
 			where = fmt.Sprintf(" (%s:%d)", t.Path, t.Line)
 		}
-		fmt.Fprintf(&b, "\n%d. %s%s: %s\n", i+1, t.Author, where, strings.TrimSpace(t.Body))
+		fmt.Fprintf(&b, "\n%d. %s\n", i+1, core.Untrusted("review comment by "+t.Author+where, !t.Member, t.Body))
 	}
 	return b.String()
 }

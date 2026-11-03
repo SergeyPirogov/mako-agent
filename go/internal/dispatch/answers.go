@@ -105,7 +105,7 @@ func (d *Dispatcher) AnswerQuestions(ctx context.Context, id string, answers []A
 		me = "Mako"
 	}
 	d.Store.Update(id, func(r *core.Record) {
-		r.Task.Comments = append(r.Task.Comments, core.Comment{Author: me, Body: text})
+		r.Task.Comments = append(r.Task.Comments, core.Comment{Author: me, Body: text, Member: true})
 	})
 	d.Log(id, "answers to the assessment questions sent to the tracker")
 	if d.startEstimate(id) == nil {
