@@ -514,8 +514,9 @@ function render() {
   const where = data.executor === "terminal" ? t("b.col.doing") : t("b.inOrca");
   COLUMNS.find(([c]) => c === "doing")[1] = where;
   LABEL.doing = where.toLowerCase();
-  // On a phone the word goes: «2/5» fits next to the limits.
-  $("wip").innerHTML = `<span class="w">${where} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> ${t("b.of")} </span><span class="sl">/</span>${data.wipLimit}` : "");
+  // On a phone the full words go and a short one stays («Orca 2/5»): a bare «2» says nothing.
+  const short = data.executor === "terminal" ? t("b.wipShortWork") : t("b.wipShortOrca");
+  $("wip").innerHTML = `<span class="w">${where} </span><span class="ws">${short} </span><b>${doing}</b>` + (data.wipLimit ? `<span class="w"> ${t("b.of")} </span><span class="sl">/</span>${data.wipLimit}` : "");
   $("wip").title = data.wipLimit ? `${where}: ${doing} of ${data.wipLimit}` : `${where}: ${doing}`;
   $("waiting").innerHTML = waiting ? `<span class="waiting-chip" title="Waiting for you: ${waiting}"><span class="dot"></span><span class="wt">waiting for you: </span>${waiting}</span>` : "";
   document.title = waiting ? `(${waiting}) Mako` : "Mako";
@@ -2906,7 +2907,7 @@ function attentionCard(s) {
   // The counts are Summarize's, as the other cards show them; only the MRs waiting now are counted here.
   const fix = s.review?.waiting || 0, failed = s.failed || 0, unclear = unclearOf(s);
   const rows = [
-    ["fix", fix, "warn", `${plural(fix, "review round waits", "review rounds wait")} for «Fix»`, "the remarks never reached the agent"],
+    ["fix", fix, "warn", `${plural(fix, "review round waits", "review rounds wait")} for «Fix»`, "The reviewer left remarks: press Fix to hand them to the agent"],
     ["failed", failed, "err", `${plural(failed, "task", "tasks")} failed`, reasons],
     ["unclear", unclear, "", `${plural(unclear, "task", "tasks")} the agent hardly understood`, "description clarity 2/5 or less"],
     ["merge", merge.length, "", `${plural(merge.length, "MR waits", "MRs wait")} for your merge`, oldest < Infinity ? `for ${durText(Math.max(0, Date.now() - skew - oldest) / 1000)}` : ""],
@@ -3146,7 +3147,7 @@ function reviewCard(v) {
       ${step("Closed next round", v.closed, v.closed / of, `accepted explanations ${v.accepted} · open ${v.open}`)}
       ${step("Converged", `${v.converged} <span class="muted">of ${v.tasks} ${plural(v.tasks, "task", "tasks")}</span>`, v.tasks ? v.converged / v.tasks : 0, `escalated to you ${v.escalated}${v.unverified ? ` · "fixed" without commits ${v.unverified}` : ""}`)}
     </div>`;
-  const waiting = v.waiting ? `<div class="swarn"><span><b>${v.waiting} ${plural(v.waiting, "round waits", "rounds wait")} for «Fix»</b> — their remarks never reached the agent, so the numbers above miss them.</span><a href="#" data-need="fix">Show the tasks</a></div>` : "";
+  const waiting = v.waiting ? `<div class="swarn"><span><b>${v.waiting} ${plural(v.waiting, "round waits", "rounds wait")} for «Fix»</b> — the reviewer left remarks: press Fix to hand them to the agent. The numbers above do not count them yet.</span><a href="#" data-need="fix">Show the tasks</a></div>` : "";
   return scard("AI review", body + waiting, `${v.rounds} ${plural(v.rounds, "round", "rounds")} on ${v.tasks} ${plural(v.tasks, "task", "tasks")}${v.converged ? ` · ${v.toClean.toFixed(1)} rounds to a clean one` : ""}`);
 }
 
@@ -3619,7 +3620,11 @@ function blockersHTML(r) {
   lines.push(...details);
   if (r.reviewBlocks) {
     const n = (r.agentReviews?.at(-1)?.remarks ?? []).filter((m) => m.weight === "must").length;
-    lines.push(`<div>${n ? `${n} ${plural(n, "blocker", "blockers")}` : "Blockers"} from the AI reviewer: press Fix</div>`);
+    // The Fix is here too, next to what asks for it: the panel with the reviewer's rounds may be far away (on a
+    // phone, far below). Only when "Fix" is possible now (the same step as the reviewer's row). There is no "Skip
+    // review" here: the remarks are pending, and SkipReview refuses until they are sent.
+    lines.push(`<div>The reviewer left ${n ? `${n} ${plural(n, "blocker", "blockers")}` : "remarks"}: press Fix to hand ${n === 1 ? "it" : "them"} to the agent</div>`);
+    if (r.reviewStep === "notes") lines.push(`<div class="mr-actions">${reviewFixBtn(true, n)}</div>`);
   }
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
   return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
