@@ -350,6 +350,31 @@ func TestQuestionWhileSetup(t *testing.T) {
 }
 
 // Deleting a question: it leaves the history for good and keeps the others, its agent stops, its pictures go.
+func TestAllCodeThreads(t *testing.T) {
+	d, _, _ := setup(t)
+	cfg := *d.Config()
+	cfg.StateDir = t.TempDir()
+	d.Cfg = &cfg
+	if ts := d.AllCodeThreads(); ts == nil || len(ts) != 0 {
+		t.Fatalf("empty %+v", ts)
+	}
+	if err := d.updateThreads(func(all []CodeThread) []CodeThread {
+		return append(all,
+			CodeThread{ID: "ask-one", Project: "a/x", At: 1},
+			CodeThread{ID: "ask-two", Project: "b/y", At: 3},
+			CodeThread{ID: "ask-three", Project: "a/x", At: 2})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, th := range d.AllCodeThreads() {
+		ids = append(ids, th.ID)
+	}
+	if strings.Join(ids, ",") != "ask-two,ask-three,ask-one" {
+		t.Fatalf("all questions %v", ids)
+	}
+}
+
 func TestRemoveQuestion(t *testing.T) {
 	d, _, _ := setup(t)
 	cfg := *d.Config()

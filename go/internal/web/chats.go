@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -17,7 +18,7 @@ import (
 // task's do (freeChatAction).
 func (s *Server) chatRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/chats", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"chats": s.D.FreeChats()})
+		writeJSON(w, map[string]any{"chats": s.allChats()})
 	})
 	// A new chat: {project, text}. An empty project is a chat with no project.
 	// fromPlan: the text is an agent's plan handed over from another session; it needs a project, and the phone
@@ -55,12 +56,54 @@ func (s *Server) chatRoutes(mux *http.ServeMux) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if err := s.D.RemoveFreeChat(r.URL.Query().Get("id")); err != nil {
+		id := r.URL.Query().Get("id")
+		remove := s.D.RemoveFreeChat
+		if dispatch.IsQuestion(id) {
+			remove = s.D.RemoveQuestion
+		}
+		if err := remove(id); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+}
+
+// chatEntry: one line of the history «Chats»: a chat (kind "chat", all of FreeChat) or a question about code
+// (kind "ask": id, project, title, at, ticket).
+type chatEntry struct {
+	Kind string `json:"kind"`
+	dispatch.FreeChat
+}
+
+type askEntry struct {
+	Kind    string `json:"kind"`
+	ID      string `json:"id"`
+	Project string `json:"project"`
+	Title   string `json:"title"`
+	At      int64  `json:"at"`
+	Ticket  string `json:"ticket,omitempty"`
+}
+
+// allChats: the chats and the questions in one list, the latest first.
+func (s *Server) allChats() []any {
+	type line struct {
+		at int64
+		v  any
+	}
+	var all []line
+	for _, c := range s.D.FreeChats() {
+		all = append(all, line{c.At, chatEntry{Kind: "chat", FreeChat: c}})
+	}
+	for _, t := range s.D.AllCodeThreads() {
+		all = append(all, line{t.At, askEntry{"ask", t.ID, t.Project, t.Title, t.At, t.Ticket}})
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].at > all[j].at })
+	out := make([]any, len(all))
+	for i, l := range all {
+		out[i] = l.v
+	}
+	return out
 }
 
 // freeChatAction: what the chat's controls do in a chat without a task (/api/{action}?id=chat-…).

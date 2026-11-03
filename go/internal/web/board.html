@@ -46,7 +46,6 @@
       <div class="new-pop" id="new-pop" role="menu" hidden>
         <button id="new-task" role="menuitem" data-t="b.menuTask" hidden>Task</button>
         <button id="new-chat" role="menuitem" data-t="b.menuChat" data-t-title="b.newChatHint" hidden>Chat</button>
-        <button id="new-code" role="menuitem" data-t="b.menuCode" hidden>Question about code</button>
       </div>
     </div>
     <div class="filter" id="filter"><span id="need-chip" hidden></span><span class="scope" id="scope-box"><span class="scope-l" id="scope-l"></span><select id="scope" aria-label="Show"></select></span></div>
@@ -597,8 +596,7 @@ function render() {
   const html = groupBy === "project" ? listByProject(entries, showAll) : listByStatus(entries, showAll);
   $("new-task").hidden = !newTaskTargets().length;
   $("new-chat").hidden = !(data?.trackers || []).length;
-  $("new-code").hidden = $("new-chat").hidden;
-  $("new-menu").hidden = $("new-task").hidden && $("new-chat").hidden && $("new-code").hidden;
+  $("new-menu").hidden = $("new-task").hidden && $("new-chat").hidden;
   $("new-menu").ariaLabel = $("new-menu").title = t("b.new");
   $("why-btn").ariaLabel = t("b.why");
   $("q").title = t("b.filterHint");
@@ -1948,10 +1946,10 @@ $("group-by").onclick = () => {
   try { localStorage.setItem("mako-group", groupBy); } catch {}
   render();
 };
-// "+": a menu of a new task, a chat or a question about code; with only one of them to choose, it opens at once.
+// "+": a menu of a new task or a chat; with only one of them to choose, it opens at once.
 const newPop = (on) => { $("new-pop").hidden = !on; $("new-menu").setAttribute("aria-expanded", on); };
 $("new-menu").onclick = () => {
-  const ways = [$("new-task"), $("new-chat"), $("new-code")].filter((b) => !b.hidden);
+  const ways = [$("new-task"), $("new-chat")].filter((b) => !b.hidden);
   if (ways.length === 1) return ways[0].click();
   newPop($("new-pop").hidden);
 };
@@ -2069,189 +2067,38 @@ function showWhy() {
   };
 }
 
-// "Code questions": a question about a project's code, without a task. The agent works in the project's shared
-// worktree on main: it reads, searches and runs commands but changes no code, and answers here; its file:line places
-// open the file beside the chat. It may propose a ticket: a draft the developer edits and creates. The project keeps
-// its questions; the model, picked here, is kept in the settings for every repository.
+// «Chats»: one history of the chats and of the questions about code, and one place to start a new one, in a mode.
+// Work: an agent that changes code in the chat's own worktree. Ask: a read-only agent in the project's shared worktree on
+// main (it reads, searches and runs commands but changes no code); it answers with file:line places that open the file
+// beside the chat, and may propose a ticket or a plan. The model of Ask, picked in the header, is kept in the settings for
+// every repository.
+// code: the open question's view (mountQuestion), one thread; null while a chat or the empty field is open.
 let code = null;
-// How the page opens: "history" (the header button) shows the latest question, "new" ("+ → Question about code") an empty one.
-let codeStart = "history";
-function openCode(start) {
-  codeStart = start;
-  selected = null; statsOpen = false; newOpen = "code"; digest = null;
-  history.replaceState(null, "", location.pathname);
-  try { localStorage.removeItem("mako-selected"); } catch {}
-  const open = !!code && !!$("code-ask"); // already on the page: showCode will not run again
-  render();
-  if (open) { if (start === "new") openThread(""); else openLatest(); }
-  if (start === "new") document.querySelector("#code-ask textarea")?.focus();
+const isAsk = (id) => typeof id === "string" && id.startsWith("ask-");
+// The open question's view goes: its polling stops.
+function stopQuestion() {
+  if (!code) return;
+  clearInterval(code.timer);
+  code = null;
 }
-$("code-btn").onclick = () => openCode("history");
-$("new-code").onclick = () => openCode("new");
-
-async function showCode() {
-  $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button><div class="code-ask" id="code-ask">
-    <div class="ca-head"><h1>Code questions</h1>
-      <select id="ca-project" aria-label="Project"></select>
-      <select id="ca-model" aria-label="Model" title="The agent model for 'Code questions', for all projects"></select></div>
-    <p class="muted ca-sub">Read-only agent in a separate worktree on main: it reads, searches and runs tests and builds, but can't change files or the repository. It can turn a remark or an idea into a ticket draft.</p>
-    <div class="ca-body">
-      <aside class="ca-history"><div class="ca-h"><span>History</span><button type="button" class="ghost ca-sel-btn" id="ca-select">Select</button><button type="button" class="ghost ca-sel-btn" id="ca-cancel" hidden>Cancel</button></div><div class="ca-selbar" id="ca-selbar" hidden></div><div id="ca-threads"></div></aside>
-      <div class="chat ca-chat"><div class="chat-list" role="log" aria-live="polite"></div>
-        <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
-          <textarea rows="2" aria-label="Question about the code" placeholder="E.g.: where do we handle payments? how does the update work? Paste a screenshot with ⌘V"></textarea>
-          <div class="chat-row"><span class="spacer"></span>
-            <input type="file" accept="image/*" multiple hidden>
-            <button type="button" class="icon chat-attach" title="Attach a picture (or paste it with ⌘V)" aria-label="Attach a picture">${ICON.clip}</button>
-            <button type="button" class="icon chat-stop" title="Interrupt" aria-label="Interrupt" hidden>${ICON.stop}</button>
-            <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.push}</button></div></div>
-          <div class="chat-hint"><span class="chat-keys">Enter to send · Shift+Enter for a new line</span><span class="spacer"></span>
-            <button type="button" class="ghost" id="ca-task" hidden title="The question and answer will become the description of a new task">Make a task</button>
-            <div class="ca-ws" id="ca-ws"></div></div></div></div>
-      <div class="ca-file" id="ca-file" hidden></div>
-    </div></div>`;
-  const [projects, models] = await Promise.all([getJSON("/api/code/projects").then((r) => r.projects ?? []), getJSON("/api/code/models")]);
-  if (!$("code-ask")) return;
-  const names = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
-  $("ca-model").innerHTML = (models.models ?? [models.current || "haiku"]).map((m) => `<option value="${esc(m)}" ${m === models.current ? "selected" : ""}>${esc(names[m] ?? m)}</option>`).join("");
-  $("ca-model").onchange = async (e) => {
-    const r = await fetch("/api/code/model", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: e.target.value }) })
-      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
-    const keys = document.querySelector("#code-ask .chat-keys");
-    keys.classList.toggle("err", !r.ok);
-    keys.textContent = r.ok ? `Model: ${names[e.target.value] ?? e.target.value} — from the next message` : `⚠ ${r.error}`;
-  };
-  let saved = ""; try { saved = localStorage.getItem("mako-code-project") || ""; } catch {}
-  const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
-  code = { project: start?.key ?? "", projects, thread: "", selecting: false, sel: new Set(), selLast: null, version: -1, snap: null, flip: new Set(), code: true, att: [], el: $("code-ask"), list: document.querySelector("#code-ask .chat-list"), input: document.querySelector("#code-ask textarea") };
-  $("ca-project").innerHTML = projects.map((p) => `<option value="${esc(p.key)}" ${p.key === code.project ? "selected" : ""}>${esc(p.name)}</option>`).join("");
-  $("back").onclick = () => { newOpen = false; code = null; render(); };
-  if (!projects.length) {
-    $("ca-project").disabled = true; code.input.disabled = true;
-    code.list.innerHTML = `<div class="files-empty">There are no project clones on this Mac. A clone appears when Mako takes a task of the project, or set a path to it in the settings.</div>`;
-    return;
-  }
-  $("ca-project").onchange = (e) => {
-    code.project = e.target.value; code.selecting = false; code.sel = new Set();
-    try { localStorage.setItem("mako-code-project", code.project); } catch {}
-    openLatest(); loadWorkspace();
-  };
-  $("ca-ws").onclick = async (e) => {
-    const b = e.target.closest("[data-ws]");
-    if (!b) return;
-    const what = b.dataset.ws, ws = code.ws;
-    // Both stop the agents of this project's questions first: the code is not changed under their feet.
-    const stops = "An agent currently answering a question of this project will stop and its answer will be cut off; the next message continues the conversation.";
-    if (what === "reset" && !(await askConfirm(`Discard ${ws?.dirty || ""} unsaved changes in the worktree and update it from ${ws?.base || "main"}? The changes will be lost.\n\n${stops}`, { ok: "Discard", danger: true }))) return;
-    if (what === "remove" && !(await askConfirm(`Delete the worktree for questions${ws?.dirty ? ` along with ${ws.dirty} unsaved changes` : ""}? It will reappear with the next question.\n\n${stops}`, { ok: "Delete", danger: true }))) return;
-    b.disabled = true;
-    const r = await fetch(`/api/code/workspace/${what}?project=${encodeURIComponent(code.project)}`, { method: "POST" })
-      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
-    if (!r.ok) alert(r.error || "Failed");
-    loadWorkspace();
-  };
-  // The pictures attached go with the question as lines naming their files: the agent reads them from there.
-  const send = async () => {
-    const typed = code.input.value.trim();
-    const keys = document.querySelector("#code-ask .chat-keys");
-    if (!typed) {
-      if (code.att.length) { keys.classList.add("err"); keys.textContent = "⚠ Write a question about the picture"; }
-      return;
-    }
-    const text = [typed, ...code.att.map((a) => a.line)].join("\n"), att = code.att;
-    code.input.value = ""; code.att = []; drawAttached(code);
-    const r = await fetch("/api/code/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: code.project, thread: code.thread, text }) })
-      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
-    keys.classList.toggle("err", !r.ok);
-    keys.textContent = r.ok ? "Enter to send · Shift+Enter for a new line" : `⚠ ${r.error}`;
-    if (!r.ok) { code.input.value ||= typed; code.att = att; drawAttached(code); return; }
-    if (r.id !== code.thread) { code.thread = r.id; code.version = -1; }
-    else if (!code.snap?.live) code.version = -1; // resumed: a new session, read from the start
-    loadThreads(); pollCode(); loadWorkspace();
-  };
-  code.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
-  const attach = async (files) => {
-    const keys = document.querySelector("#code-ask .chat-keys");
-    for (const f of files) {
-      if (!f.type.startsWith("image/")) continue;
-      // A new question has no id yet: its pictures are kept under a shared one.
-      const r = await fetch(`/api/attach?id=${encodeURIComponent(code.thread || "ask-new")}&name=${encodeURIComponent(f.name || "image.png")}`,
-        { method: "POST", headers: { "Content-Type": f.type }, body: f }).then((x) => x.json()).catch(() => ({ ok: false, error: "the picture did not upload" }));
-      keys.classList.toggle("err", r.ok === false);
-      if (r.ok === false) { keys.textContent = `⚠ ${r.error}`; continue; }
-      keys.textContent = "Enter to send · Shift+Enter for a new line";
-      if (!code?.att) return;
-      code.att.push({ line: r.line, url: r.url, name: f.name || "image" });
-      drawAttached(code);
-    }
-  };
-  const file = document.querySelector("#code-ask input[type=file]");
-  document.querySelector("#code-ask .chat-attach").onclick = () => file.click();
-  file.onchange = () => { attach([...file.files]); file.value = ""; };
-  code.input.onpaste = (e) => {
-    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
-    if (files.length) { e.preventDefault(); attach(files); }
-  };
-  document.querySelector("#code-ask .chat-att").onclick = (e) => {
-    const x = e.target.closest("[data-unattach]");
-    if (x) { code.att.splice(+x.dataset.unattach, 1); drawAttached(code); }
-  };
-  document.querySelector("#code-ask .chat-send").onclick = send;
-  document.querySelector("#code-ask .chat-stop").onclick = () => fetch(`/api/code/stop?id=${encodeURIComponent(code.thread)}`, { method: "POST" });
-  $("ca-task").onclick = toTask;
-  code.list.onclick = (e) => {
-    const tk = e.target.closest("[data-ticket]");
-    if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
-    const pb = e.target.closest("[data-plan-block]");
-    if (pb) { const p = code.plans?.[pb.dataset.planBlock]; if (p) openPlanXfer(p.plan, p.title, { ...planSource(code), thread: code.thread, doneKey: planKey(code.thread, +pb.dataset.planBlock), draftTitle: p.title || planTitle(p.plan) }); return; }
-    const made = e.target.closest("[data-task]");
-    if (made) { e.preventDefault(); code = null; select(made.dataset.task); return; }
-    const madeChat = e.target.closest("[data-chat]");
-    if (madeChat) { e.preventDefault(); code = null; openFreeChat(madeChat.dataset.chat); return; }
-    if (e.target.closest("[data-open-ticket]")) { openMade(code.ticket); return; }
-    if (e.target.closest("[data-ca-delete]")) { removeQuestion(code.thread); return; }
-    // The agent's question: an option, or your own words.
-    if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(code.thread)}`, pollCode)) return;
-    const src = e.target.closest("[data-src]");
-    if (src) { e.preventDefault(); openSource(src.dataset.src, +src.dataset.line, +(src.dataset.end || src.dataset.line)); return; }
-    if (stepClick(e, code, renderCode)) return;
-    const t = e.target.closest("[data-toggle]");
-    if (t) { if (!code.flip.delete(t.dataset.toggle)) code.flip.add(t.dataset.toggle); renderCode(); }
-  };
-  $("ca-threads").onclick = async (e) => {
-    const b = e.target.closest("[data-thread]");
-    if (code.selecting) {
-      if (b) pickThread(b.dataset.thread, e.shiftKey);
-      return;
-    }
-    const x = e.target.closest("[data-ca-remove]");
-    if (x) { e.stopPropagation(); removeQuestion(x.dataset.caRemove); return; }
-    if (b) openThread(b.dataset.thread);
-  };
-  // Several questions at once: "Select" gives the rows checkboxes, one confirm deletes the chosen.
-  $("ca-select").onclick = () => selectMode(true);
-  $("ca-cancel").onclick = () => selectMode(false);
-  $("ca-selbar").onclick = (e) => {
-    const b = e.target.closest("[data-sel]");
-    if (!b) return;
-    const v = code;
-    if (b.dataset.sel === "all") {
-      const all = v.threads ?? [];
-      v.sel = v.sel.size === all.length ? new Set() : new Set(all.map((t) => t.id));
-      drawThreads();
-    } else if (b.dataset.sel === "delete") removeQuestions([...v.sel]);
-  };
-  code.timer = setInterval(pollCode, 1000);
-  if (codeStart === "new") { loadThreads(); openThread(""); } else openLatest();
-  loadWorkspace();
-}
+// The header button: the latest chat, or the history with the field of a new one when there is none.
+$("code-btn").onclick = async () => {
+  const r = await getJSON("/api/chats");
+  openFreeChat(r.chats?.[0]?.id ?? "");
+};
 
 // A chat without a task: a conversation with the agent in a project, as in a task's chat (modes, permissions, plan,
 // pictures), in the chat's own worktree on its own branch from main. The first message makes the worktree and
-// starts the agent; the chats are listed on the left, «×» removes one with its worktree (its branch stays).
+// starts the agent; the chats and the questions are listed on the left, «×» removes one (a chat with its worktree, its
+// branch stays).
 let freeChat = null; // the open chat's id, "" a new one; null: the view is closed
-let freeChats = [], fcListed = null; // the chats on the left, and for which open chat they were last read
+let freeChats = [], fcListed = null; // the history on the left, and for which open chat it was last read
+let fcReady = false, fcLoaded = false, fcProjects = []; // the view has its projects; the history has been read; the projects with a clone
+const fcSel = { on: false, ids: new Set(), last: null }; // «Select»: several rows at once
 const FC_SUB = "A conversation with the agent without a task. In a project, each chat gets its own worktree on a new branch from the base branch, prepared like a task's; the agent works as in a task's chat: it changes the code, commits and can open an MR, asking as the mode says. A chat without a project works in a separate empty folder, with no repository.";
+const ASK_SUB = "Read-only agent in a separate worktree on main: it reads, searches and runs tests and builds, but can't change files or the repository. It can turn a remark or an idea into a ticket draft.";
+// The mode of a new chat, remembered.
+const chatMode = () => { try { return localStorage.getItem("mako-chat-mode") === "ask" ? "ask" : "work"; } catch { return "work"; } };
 function openFreeChat(id = "") {
   selected = null; statsOpen = false; newOpen = "chat"; digest = null; freeChat = id;
   history.replaceState(null, "", `#${id || "chat"}`);
@@ -2263,45 +2110,79 @@ function openFreeChat(id = "") {
 $("new-chat").onclick = () => openFreeChat("");
 
 async function showFreeChat() {
-  closeChat(); fcListed = null;
+  closeChat(); stopQuestion(); fcListed = null; fcReady = false; fcLoaded = false;
+  fcSel.on = false; fcSel.ids = new Set(); fcSel.last = null;
   $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button><div class="code-ask" id="free-chat">
-    <div class="ca-head"><h1>Chat</h1>
-      <select id="fc-project" aria-label="Project"></select></div>
+    <div class="ca-head"><h1>Chats</h1>
+      <select id="fc-project" aria-label="Project"></select>
+      <select id="ca-model" aria-label="Model" title="The agent model for Ask, for all projects" hidden></select></div>
     <p class="muted ca-sub" id="fc-sub">${FC_SUB}</p>
     <div class="ca-body">
-      <aside class="ca-history"><div class="ca-h">Chats</div><div id="fc-list"></div></aside>
+      <aside class="ca-history"><div class="ca-h"><span>Chats</span><button type="button" class="ghost ca-sel-btn" id="fc-select" hidden>Select</button><button type="button" class="ghost ca-sel-btn" id="fc-cancel" hidden>Cancel</button></div><div class="ca-selbar" id="fc-selbar" hidden></div><div id="fc-list"></div></aside>
       <div class="fc-slot" id="fc-slot"></div>
+      <div class="ca-file" id="ca-file" hidden></div>
     </div></div>`;
-  $("back").onclick = () => { newOpen = false; freeChat = null; closeChat(); history.replaceState(null, "", location.pathname); render(); };
-  const projects = await getJSON("/api/code/projects").then((r) => r.projects ?? []);
+  $("back").onclick = () => { newOpen = false; freeChat = null; closeChat(); stopQuestion(); history.replaceState(null, "", location.pathname); render(); };
+  const [projects, models] = await Promise.all([getJSON("/api/code/projects").then((r) => r.projects ?? []), getJSON("/api/code/models")]);
   if (!$("free-chat")) return;
+  fcProjects = projects;
   let saved = ""; try { saved = localStorage.getItem("mako-chat-project") || ""; } catch {}
   const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
   let loose = false; try { loose = localStorage.getItem("mako-chat-project") === ""; } catch {} // "" is a chosen "No project"
   $("fc-project").innerHTML = `<option value="" ${loose ? "selected" : ""}>No project</option>` + projects.map((p) => `<option value="${esc(p.key)}" ${!loose && p.key === start?.key ? "selected" : ""}>${esc(p.name)}</option>`).join("");
   $("fc-project").onchange = (e) => { try { localStorage.setItem("mako-chat-project", e.target.value); } catch {} };
-  $("fc-list").onclick = async (e) => {
-    const x = e.target.closest("[data-fc-remove]");
-    if (x) {
-      e.stopPropagation();
-      const c = freeChats.find((c) => c.id === x.dataset.fcRemove);
-      if (!(await askConfirm(c?.project === "" ? `Delete the chat "${c?.title ?? ""}" and its folder? Everything in the folder will be lost.` : `Delete the chat "${c?.title ?? ""}" and its worktree? Uncommitted changes in it will be lost; the branch ${c?.branch ?? ""} stays.`, { ok: "Delete", danger: true }))) return;
-      const r = await fetch(`/api/chats/remove?id=${encodeURIComponent(x.dataset.fcRemove)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
-      if (!r.ok) alert(r.error || "Failed");
-      if (x.dataset.fcRemove === freeChat) openFreeChat(""); else loadFreeChats();
-      return;
-    }
+  const names = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+  $("ca-model").innerHTML = (models.models ?? [models.current || "haiku"]).map((m) => `<option value="${esc(m)}" ${m === models.current ? "selected" : ""}>${esc(names[m] ?? m)}</option>`).join("");
+  $("ca-model").onchange = async (e) => {
+    const r = await fetch("/api/code/model", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: e.target.value }) })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    if (r.ok) toast(`Model: ${names[e.target.value] ?? e.target.value} — from the next message`); else toast(`⚠ ${r.error}`, true);
+  };
+  $("fc-list").onclick = (e) => {
     const b = e.target.closest("[data-fc]");
+    if (fcSel.on) { if (b) pickChat(b.dataset.fc, e.shiftKey); return; }
+    const x = e.target.closest("[data-fc-remove]");
+    if (x) { e.stopPropagation(); removeChats([x.dataset.fcRemove]); return; }
     if (b) openFreeChat(b.dataset.fc);
   };
+  // Several at once: "Select" gives the rows checkboxes, one confirm deletes the chosen.
+  $("fc-select").onclick = () => selectChats(true);
+  $("fc-cancel").onclick = () => selectChats(false);
+  $("fc-selbar").onclick = (e) => {
+    const b = e.target.closest("[data-sel]");
+    if (!b) return;
+    if (b.dataset.sel === "all") {
+      fcSel.ids = fcSel.ids.size === freeChats.length ? new Set() : new Set(freeChats.map((c) => c.id));
+      drawFreeChats();
+    } else if (b.dataset.sel === "delete") removeChats([...fcSel.ids]);
+  };
+  fcReady = true;
   mountFreeChat();
 }
 
-// The open chat in the middle: the task's chat for it, or the field of a new one.
+// What the header says: the chat's folder and branch, or what Ask is.
+function fcSub() {
+  const cur = freeChats.find((c) => c.id === freeChat);
+  if (isAsk(freeChat)) return ASK_SUB;
+  if (cur) return cur.project === "" ? cur.dir : `${cur.dir} · ${cur.branch}`;
+  return freeChat === "" && chatMode() === "ask" ? ASK_SUB : FC_SUB;
+}
+// The header follows the open chat: Ask has a model to pick; an open question has its project already.
+function fcHead() {
+  if (!$("free-chat")) return;
+  $("ca-model").hidden = !(isAsk(freeChat) || (freeChat === "" && chatMode() === "ask"));
+  $("fc-project").hidden = isAsk(freeChat);
+  $("fc-sub").textContent = fcSub();
+}
+
+// The open chat in the middle: the task's chat for it, the view of a question, or the field of a new one.
 function mountFreeChat() {
   const slot = $("fc-slot");
-  if (!slot) return;
+  if (!slot || !fcReady) return;
   if (fcListed !== freeChat) loadFreeChats();
+  fcHead();
+  if (isAsk(freeChat)) { mountQuestion(freeChat); return; }
+  stopQuestion();
   if (freeChat) {
     if (cv?.id === freeChat && cv.el.parentElement === slot) return;
     const v = chatFor(freeChat);
@@ -2311,9 +2192,11 @@ function mountFreeChat() {
   }
   if ($("fc-new-box")) return;
   closeChat();
-  slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty">Write what to do or ask: the first message starts the agent. In a project it first creates the chat's worktree and branch; with no project the agent works in an empty folder.</div></div></div>
-    <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
-      <textarea rows="2" aria-label="Message to the agent" placeholder="E.g.: try out a faster cache for the board; explain how the update works. Paste a screenshot with ⌘V"></textarea>
+  slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty" id="fc-empty"></div></div></div>
+    <div class="chat-foot"><div class="chat-box composer">
+      <div class="seg fc-mode" role="group" aria-label="Mode"><button type="button" data-fc-mode="work">${esc(t("b.modeWork"))}</button><button type="button" data-fc-mode="ask">${esc(t("b.modeAsk"))}</button></div>
+      <div class="chat-att" hidden></div>
+      <textarea rows="2"></textarea>
       <div class="chat-row"><span class="spacer"></span>
         <input type="file" accept="image/*" multiple hidden>
         <button type="button" class="icon chat-attach" title="Attach a picture (or paste it with ⌘V)" aria-label="Attach a picture">${ICON.clip}</button>
@@ -2324,12 +2207,35 @@ function mountFreeChat() {
   // The pictures attached: a new chat has no id yet, so they are kept under the shared one, as a new question's are.
   const box = { el: $("fc-new-box"), input, att: [], loading: 0 };
   const lock = () => { btn.disabled = box.sending || box.loading > 0; };
+  // The mode: Ask needs a project (no "No project"), and the field says what each mode does.
+  const apply = () => {
+    const ask = chatMode() === "ask", sel = $("fc-project");
+    for (const b of slot.querySelectorAll("[data-fc-mode]")) { const on = (b.dataset.fcMode === "ask") === ask; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
+    sel.querySelector('option[value=""]').disabled = ask;
+    if (ask && sel.value === "") sel.value = sel.options[1]?.value ?? "";
+    if (!ask) { // back to Work: the project picked there
+      let saved = null; try { saved = localStorage.getItem("mako-chat-project"); } catch {}
+      if (saved !== null && [...sel.options].some((o) => o.value === saved)) sel.value = saved;
+    }
+    const noClone = ask && !fcProjects.length;
+    $("fc-empty").textContent = noClone ? "There are no project clones on this Mac. A clone appears when Mako takes a task of the project, or set a path to it in the settings."
+      : ask ? "Ask a question about the project's code: the agent will find the answer and show the places in the code."
+      : "Write what to do or ask: the first message starts the agent. In a project it first creates the chat's worktree and branch; with no project the agent works in an empty folder.";
+    input.placeholder = ask ? "E.g.: where do we handle payments? how does the update work? Paste a screenshot with ⌘V"
+      : "E.g.: try out a faster cache for the board; explain how the update works. Paste a screenshot with ⌘V";
+    input.setAttribute("aria-label", ask ? "Question about the code" : "Message to the agent");
+    input.disabled = noClone;
+    fcHead();
+  };
   const send = async () => {
-    const text = [input.value.trim(), ...box.att.map((a) => a.line)].filter(Boolean).join("\n"), project = $("fc-project")?.value ?? "";
+    const ask = chatMode() === "ask", typed = input.value.trim();
+    const text = [typed, ...box.att.map((a) => a.line)].filter(Boolean).join("\n"), project = $("fc-project")?.value ?? "";
     if (!text || box.loading || box.sending) return;
+    if (ask && !typed) { keys.hidden = false; keys.classList.add("err"); keys.textContent = "⚠ Write a question about the picture"; return; }
+    if (ask && !project) { keys.hidden = false; keys.classList.add("err"); keys.textContent = "⚠ Pick a project: Ask reads its code"; return; }
     box.sending = true; input.disabled = clip.disabled = true; lock();
-    keys.hidden = false; keys.classList.remove("err"); keys.textContent = project ? "Creating the worktree…" : "Starting the agent…";
-    const r = await fetch("/api/chats/new", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project, text }) })
+    keys.hidden = false; keys.classList.remove("err"); keys.textContent = ask || !project ? "Starting the agent…" : "Creating the worktree…";
+    const r = await fetch(ask ? "/api/code/ask" : "/api/chats/new", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(ask ? { project, thread: "", text } : { project, text }) })
       .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
     box.sending = false; input.disabled = clip.disabled = false; lock();
     if (!r.ok) { keys.classList.add("err"); keys.textContent = `⚠ ${r.error}`; return; }
@@ -2349,6 +2255,12 @@ function mountFreeChat() {
       drawAttached(box);
     }
   };
+  slot.querySelector(".fc-mode").onclick = (e) => {
+    const b = e.target.closest("[data-fc-mode]");
+    if (!b) return;
+    try { localStorage.setItem("mako-chat-mode", b.dataset.fcMode); } catch {}
+    apply();
+  };
   input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   btn.onclick = send;
   clip.onclick = () => file.click();
@@ -2361,6 +2273,7 @@ function mountFreeChat() {
     const x = e.target.closest("[data-unattach]");
     if (x) { box.att.splice(+x.dataset.unattach, 1); drawAttached(box); }
   };
+  apply();
 }
 
 async function loadFreeChats() {
@@ -2368,18 +2281,199 @@ async function loadFreeChats() {
   const r = await getJSON("/api/chats");
   if (!$("fc-list")) return;
   freeChats = r.chats ?? [];
-  const cur = freeChats.find((c) => c.id === freeChat);
-  $("fc-sub").textContent = cur ? (cur.project === "" ? cur.dir : `${cur.dir} · ${cur.branch}`) : FC_SUB;
-  $("fc-list").innerHTML = freeChats.length ? freeChats.map((c) => `<div class="ca-thread fc-item ${c.id === freeChat ? "on" : ""}" role="button" tabindex="0" data-fc="${esc(c.id)}" title="${esc(c.title)}">
-      <span class="ca-line"><span class="ca-title">${esc(c.title)}</span></span><span class="muted">${esc(projectName(c.project))} · ${esc(ago(new Date(c.at).toISOString()))}</span>
-      <button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="${c.project === "" ? "Delete the chat and its folder" : "Delete the chat and its worktree"}" aria-label="Delete the chat">×</button></div>`).join("")
-    : `<div class="muted ca-none">No chats yet.</div>`;
+  fcLoaded = true;
+  fcHead();
+  drawFreeChats();
+  // The question was not in the list when it was opened (a reload on its link): now it can be shown. A mark
+  // that came (or went) with the list: the banner and the draft cards follow.
+  if (isAsk(freeChat) && code?.thread !== freeChat) mountFreeChat();
+  else if (code && (freeChats.find((c) => c.id === code.thread)?.ticket ?? "") !== (code.ticket ?? "")) renderCode();
 }
 const projectName = (key) => key === "" ? "No project" : [...($("fc-project")?.options ?? [])].find((o) => o.value === key)?.textContent ?? key.split("/").slice(1).join("/");
+
+function drawFreeChats() {
+  if (!$("fc-list")) return;
+  if (fcSel.on) { // the rows that are gone from the list are not chosen
+    const ids = new Set(freeChats.map((c) => c.id));
+    for (const id of fcSel.ids) if (!ids.has(id)) fcSel.ids.delete(id);
+  }
+  $("fc-select").hidden = fcSel.on || !freeChats.length;
+  $("fc-cancel").hidden = !fcSel.on;
+  $("fc-selbar").hidden = !fcSel.on;
+  if (fcSel.on) {
+    $("fc-selbar").innerHTML = `<button type="button" class="ghost" data-sel="all">${fcSel.ids.size === freeChats.length ? "Clear" : "Select all"}</button>
+      <button type="button" class="danger" data-sel="delete" ${fcSel.ids.size ? "" : "disabled"}>${fcSel.ids.size ? `Delete (${fcSel.ids.size})` : "Delete"}</button>`;
+  }
+  $("fc-list").innerHTML = freeChats.length ? freeChats.map((c) => {
+    const ask = c.kind === "ask", picked = fcSel.on && fcSel.ids.has(c.id);
+    return `<div class="ca-thread fc-item ${c.id === freeChat ? "on" : ""}${c.ticket ? " done" : ""}${picked ? " sel" : ""}" role="button" tabindex="0" data-fc="${esc(c.id)}" title="${esc(c.title)}${c.ticket ? ` — done, ${c.ticket.startsWith("chat-") ? "chat" : "task"} ${esc(c.ticket)}` : ""}">
+      ${fcSel.on ? `<input type="checkbox" class="ca-check" tabindex="-1" aria-label="Select" ${picked ? "checked" : ""}>` : ""}<span class="ca-line">${ask ? `<span class="fc-kind" title="Question about code, read-only">Ask</span>` : ""}${c.ticket ? `<span class="ca-ok" role="img" aria-label="Done">✓</span>` : ""}<span class="ca-title">${esc(c.title)}</span></span><span class="muted">${esc(projectName(c.project))} · ${esc(ago(new Date(c.at).toISOString()))}</span>
+      ${fcSel.on ? "" : `<button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="${ask ? "Delete the question" : c.project === "" ? "Delete the chat and its folder" : "Delete the chat and its worktree"}" aria-label="${ask ? "Delete the question" : "Delete the chat"}">×</button>`}</div>`;
+  }).join("") : `<div class="muted ca-none">No chats yet.</div>`;
+}
+
+function selectChats(on) {
+  fcSel.on = on; fcSel.ids = new Set(); fcSel.last = null;
+  drawFreeChats();
+}
+
+// A click on a row in the selection mode; with Shift, the rows between it and the last chosen one.
+function pickChat(id, range) {
+  if (range && fcSel.last && fcSel.last !== id) {
+    const a = freeChats.findIndex((c) => c.id === fcSel.last), b = freeChats.findIndex((c) => c.id === id);
+    if (a >= 0 && b >= 0) {
+      const on = fcSel.ids.has(fcSel.last);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) on ? fcSel.ids.add(freeChats[i].id) : fcSel.ids.delete(freeChats[i].id);
+      fcSel.last = id;
+      drawFreeChats();
+      return;
+    }
+  }
+  if (!fcSel.ids.delete(id)) fcSel.ids.add(id);
+  fcSel.last = id;
+  drawFreeChats();
+}
+
+// «×», «Select → Delete» and "Delete question" in a done question: one confirm, then each goes by its kind (the server
+// tells a question from a chat by its id): the agents stop; a chat loses its worktree, its branch stays.
+async function removeChats(ids) {
+  const items = ids.map((id) => freeChats.find((c) => c.id === id)).filter(Boolean);
+  if (!items.length) return;
+  const asks = items.filter((c) => c.kind === "ask"), chats = items.length - asks.length, one = items[0];
+  let ask;
+  if (items.length === 1) {
+    ask = one.kind === "ask" ? `Delete the question "${one.title}" from the history?`
+      : one.project === "" ? `Delete the chat "${one.title}" and its folder? Everything in the folder will be lost.`
+      : `Delete the chat "${one.title}" and its worktree? Uncommitted changes in it will be lost; the branch ${one.branch ?? ""} stays.`;
+  } else {
+    const what = [chats && `${chats} ${plural(chats, "chat", "chats")}`, asks.length && `${asks.length} ${plural(asks.length, "question", "questions")}`].filter(Boolean).join(" and ");
+    ask = `Delete ${what}? Agents that are still working will be stopped.${chats ? " A chat loses its worktree (or its folder) with the uncommitted changes in it; its branch stays." : ""}`;
+  }
+  if (!(await askConfirm(ask, { ok: "Delete", danger: true }))) return;
+  let failed = "";
+  for (const c of items) {
+    const r = await fetch(`/api/chats/remove?id=${encodeURIComponent(c.id)}`, { method: "POST" }).then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    if (!r.ok && !failed) failed = r.error || "Failed";
+  }
+  if (failed) alert(failed);
+  fcSel.on = false; fcSel.ids = new Set(); fcSel.last = null;
+  if (items.some((c) => c.id === freeChat)) openFreeChat(""); else loadFreeChats();
+}
+
+// A question about code in the middle: its conversation, the agent's file:line places with the file beside it, the ticket
+// and plan blocks. One thread; the project is the question's own.
+function mountQuestion(id) {
+  const slot = $("fc-slot");
+  if (code?.thread === id && slot.contains(code.el)) return;
+  closeChat(); stopQuestion();
+  const q = freeChats.find((c) => c.id === id);
+  if (!q) {
+    slot.innerHTML = `<div class="files-empty">${fcLoaded ? "No such question: it was deleted." : "Loading…"}</div>`;
+    return;
+  }
+  const el = document.createElement("div");
+  el.className = "chat ca-chat";
+  el.innerHTML = `<div class="chat-list" role="log" aria-live="polite"></div>
+    <div class="chat-foot"><div class="chat-box composer"><div class="chat-att" hidden></div>
+      <textarea rows="2" aria-label="Question about the code" placeholder="Ask more. Paste a screenshot with ⌘V"></textarea>
+      <div class="chat-row"><span class="spacer"></span>
+        <input type="file" accept="image/*" multiple hidden>
+        <button type="button" class="icon chat-attach" title="Attach a picture (or paste it with ⌘V)" aria-label="Attach a picture">${ICON.clip}</button>
+        <button type="button" class="icon chat-stop" title="Interrupt" aria-label="Interrupt" hidden>${ICON.stop}</button>
+        <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.push}</button></div></div>
+      <div class="chat-hint"><span class="chat-keys">Enter to send · Shift+Enter for a new line</span><span class="spacer"></span>
+        <button type="button" class="ghost" id="ca-task" hidden title="The question and answer will become the description of a new task">Make a task</button>
+        <div class="ca-ws" id="ca-ws"></div></div></div>`;
+  slot.replaceChildren(el);
+  $("ca-file").hidden = true;
+  const v = (code = { project: q.project, thread: id, version: -1, snap: null, flip: new Set(), code: true, att: [], el, list: el.querySelector(".chat-list"), input: el.querySelector("textarea") });
+  const keys = el.querySelector(".chat-keys"), idle = "Enter to send · Shift+Enter for a new line";
+  $("ca-ws").onclick = async (e) => {
+    const b = e.target.closest("[data-ws]");
+    if (!b) return;
+    const what = b.dataset.ws, ws = v.ws;
+    // Both stop the agents of this project's questions first: the code is not changed under their feet.
+    const stops = "An agent currently answering a question of this project will stop and its answer will be cut off; the next message continues the conversation.";
+    if (what === "reset" && !(await askConfirm(`Discard ${ws?.dirty || ""} unsaved changes in the worktree and update it from ${ws?.base || "main"}? The changes will be lost.\n\n${stops}`, { ok: "Discard", danger: true }))) return;
+    if (what === "remove" && !(await askConfirm(`Delete the worktree for questions${ws?.dirty ? ` along with ${ws.dirty} unsaved changes` : ""}? It will reappear with the next question.\n\n${stops}`, { ok: "Delete", danger: true }))) return;
+    b.disabled = true;
+    const r = await fetch(`/api/code/workspace/${what}?project=${encodeURIComponent(v.project)}`, { method: "POST" })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    if (!r.ok) alert(r.error || "Failed");
+    loadWorkspace();
+  };
+  // The pictures attached go with the question as lines naming their files: the agent reads them from there.
+  const send = async () => {
+    const typed = v.input.value.trim();
+    if (!typed) {
+      if (v.att.length) { keys.classList.add("err"); keys.textContent = "⚠ Write a question about the picture"; }
+      return;
+    }
+    const text = [typed, ...v.att.map((a) => a.line)].join("\n"), att = v.att;
+    v.input.value = ""; v.att = []; drawAttached(v);
+    const r = await fetch("/api/code/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: v.project, thread: v.thread, text }) })
+      .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+    keys.classList.toggle("err", !r.ok);
+    keys.textContent = r.ok ? idle : `⚠ ${r.error}`;
+    if (!r.ok) { v.input.value ||= typed; v.att = att; drawAttached(v); return; }
+    if (!v.snap?.live) v.version = -1; // resumed: a new session, read from the start
+    loadFreeChats(); pollCode(); loadWorkspace();
+  };
+  v.input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+  const attach = async (files) => {
+    for (const f of files) {
+      if (!f.type.startsWith("image/")) continue;
+      const r = await fetch(`/api/attach?id=${encodeURIComponent(v.thread)}&name=${encodeURIComponent(f.name || "image.png")}`,
+        { method: "POST", headers: { "Content-Type": f.type }, body: f }).then((x) => x.json()).catch(() => ({ ok: false, error: "the picture did not upload" }));
+      keys.classList.toggle("err", r.ok === false);
+      if (r.ok === false) { keys.textContent = `⚠ ${r.error}`; continue; }
+      keys.textContent = idle;
+      if (code !== v) return;
+      v.att.push({ line: r.line, url: r.url, name: f.name || "image" });
+      drawAttached(v);
+    }
+  };
+  const file = el.querySelector("input[type=file]");
+  el.querySelector(".chat-attach").onclick = () => file.click();
+  file.onchange = () => { attach([...file.files]); file.value = ""; };
+  v.input.onpaste = (e) => {
+    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+    if (files.length) { e.preventDefault(); attach(files); }
+  };
+  el.querySelector(".chat-att").onclick = (e) => {
+    const x = e.target.closest("[data-unattach]");
+    if (x) { v.att.splice(+x.dataset.unattach, 1); drawAttached(v); }
+  };
+  el.querySelector(".chat-send").onclick = send;
+  el.querySelector(".chat-stop").onclick = () => fetch(`/api/code/stop?id=${encodeURIComponent(v.thread)}`, { method: "POST" });
+  $("ca-task").onclick = toTask;
+  v.list.onclick = (e) => {
+    const tk = e.target.closest("[data-ticket]");
+    if (tk) { const d = v.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
+    const pb = e.target.closest("[data-plan-block]");
+    if (pb) { const p = v.plans?.[pb.dataset.planBlock]; if (p) openPlanXfer(p.plan, p.title, { ...planSource(v), thread: v.thread, doneKey: planKey(v.thread, +pb.dataset.planBlock), draftTitle: p.title || planTitle(p.plan) }); return; }
+    const made = e.target.closest("[data-task]");
+    if (made) { e.preventDefault(); stopQuestion(); select(made.dataset.task); return; }
+    const madeChat = e.target.closest("[data-chat]");
+    if (madeChat) { e.preventDefault(); stopQuestion(); openFreeChat(madeChat.dataset.chat); return; }
+    if (e.target.closest("[data-open-ticket]")) { openMade(v.ticket); return; }
+    if (e.target.closest("[data-ca-delete]")) { removeChats([v.thread]); return; }
+    // The agent's question: an option, or your own words.
+    if (answerClick(e, `/api/code/answer?id=${encodeURIComponent(v.thread)}`, pollCode)) return;
+    const src = e.target.closest("[data-src]");
+    if (src) { e.preventDefault(); openSource(src.dataset.src, +src.dataset.line, +(src.dataset.end || src.dataset.line)); return; }
+    if (stepClick(e, v, renderCode)) return;
+    const tg = e.target.closest("[data-toggle]");
+    if (tg) { if (!v.flip.delete(tg.dataset.toggle)) v.flip.add(tg.dataset.toggle); renderCode(); }
+  };
+  v.timer = setInterval(pollCode, 1000);
+  renderCode(); pollCode(); loadWorkspace();
+}
 
 // The shared worktree, bottom right: its branch, and a warning when something changed it, with "Reset and update".
 async function loadWorkspace() {
   const v = code;
+  if (!v) return;
   const ws = await getJSON(`/api/code/workspace?project=${encodeURIComponent(v.project)}`);
   if (v !== code || !$("ca-ws")) return;
   v.ws = ws.error ? null : ws;
@@ -2430,8 +2524,8 @@ function ticketCard(d, i, thread) {
 // "Create ticket": the agent's draft goes to the new task form over the chat, to be edited, given a tracker and created.
 // The chat stays open; once the task exists it is marked done (see openTicketDialog).
 function toTicket(d, i) {
-  const p = code.projects.find((x) => x.key === code.project);
-  openTicketDialog({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From "Code questions" on the Mako board._`, tracker: p?.tracker, project: p?.project });
+  const p = fcProjects.find((x) => x.key === code.project);
+  openTicketDialog({ source: ticketSource(code.thread, i), draftTitle: d.title, title: d.title.slice(0, 250), desc: `${d.description.trim()}\n\n_From an Ask chat on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
 // The Ask chat is done: it keeps the id of the task or the chat it led to (shown in the history and above the chat).
@@ -2440,10 +2534,10 @@ async function markCodeDone(v, thread, id) {
     .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
   await load();
   if (v !== code) return r;
-  const t = v.threads?.find((x) => x.id === thread);
+  const t = freeChats.find((x) => x.id === thread);
   if (r.ok && t) t.ticket = id;
   if (v.thread === thread) renderCode();
-  loadThreads();
+  loadFreeChats();
   return r;
 }
 
@@ -2465,11 +2559,11 @@ function openTicketDialog(draft) {
 // The task made from the chat: the board goes to it, only on a click.
 function openMade(id) {
   if (!id) return;
-  code = null;
+  stopQuestion();
   if (id.startsWith("chat-")) openFreeChat(id); else select(id);
 }
 
-// The plan the agent proposes in Code questions: a fenced mako-plan block of JSON {title, plan}, handled like the ticket.
+// The plan the agent proposes in an Ask chat: a fenced mako-plan block of JSON {title, plan}, handled like the ticket.
 const PLAN_BLOCK = /```mako-plan[^\n]*\n([\s\S]*?)\n\s*```/;
 function planOf(text) {
   const m = text.match(PLAN_BLOCK);
@@ -2496,8 +2590,8 @@ const planMessage = (plan, title, from) => `Execute this plan${(title || planTit
 // Where the plan of the open view comes from: its words, the project (tracker and name) and the id to leave out.
 function planSource(v) {
   if (v.code) {
-    const p = code.projects.find((x) => x.key === code.project);
-    return { from: `"Code questions" on the Mako board`, tracker: p?.tracker, project: p?.project, key: code.project, id: "" };
+    const p = fcProjects.find((x) => x.key === code.project);
+    return { from: `an Ask chat on the Mako board`, tracker: p?.tracker, project: p?.project, key: code.project, id: "" };
   }
   if (v.id.startsWith("chat-")) {
     const c = freeChats.find((x) => x.id === v.id);
@@ -2516,7 +2610,7 @@ const planXferBtn = (it) => data?.remote || !(it.input?.plan ?? "").trim() ? "" 
 
 async function openPlanXfer(plan, title, src) {
   const dlg = $("plan-xfer-dlg"), box = $("plan-xfer-box");
-  const v = src.thread ? code : null; // started from Code questions: it stays open and is marked done
+  const v = src.thread ? code : null; // started from an Ask chat: it stays open and is marked done
   const close = () => { dlg.close(); box.innerHTML = ""; };
   // Sent from Ask: the chat stays, done, with the id of where the plan went.
   const sentFromAsk = async (id, what) => {
@@ -2566,14 +2660,14 @@ async function openPlanXfer(plan, title, src) {
       const r = await post("/api/chats/new", { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: $("px-project").value, text: planMessage(plan, title, src.from), fromPlan: true }) });
       if (!r.ok) { draw("chat", r.error || "Could not start the chat"); return; }
       if (v) return sentFromAsk(r.id, "a new chat");
-      close(); code = null; openFreeChat(r.id);
+      close(); stopQuestion(); openFreeChat(r.id);
       return;
     }
     const id = b.dataset.pxTo;
     const r = await post(`/api/say?id=${encodeURIComponent(id)}&plan=1`, { body: planMessage(plan, title, src.from) });
     if (!r.ok) { draw("existing", r.error || "Could not send the plan"); return; }
     if (v) return sentFromAsk(id, id.startsWith("chat-") ? "the chat" : `task ${id}`);
-    close(); code = null;
+    close(); stopQuestion();
     if (id.startsWith("chat-")) openFreeChat(id); else select(id);
   };
   draw("");
@@ -2584,140 +2678,41 @@ async function openPlanXfer(plan, title, src) {
 function openPlanTask(draft) {
   const dlg = $("ca-ticket-dlg"), box = $("ca-ticket-form");
   const close = () => { dlg.close(); box.innerHTML = ""; };
-  taskForm(box, { draft, onCancel: close, onCreated: async (res) => { close(); await load(); code = null; select(res.id); } });
+  taskForm(box, { draft, onCancel: close, onCreated: async (res) => { close(); await load(); stopQuestion(); select(res.id); } });
   dlg.onclose = () => { box.innerHTML = ""; };
   dlg.showModal();
   $("nt-title").focus();
 }
 
-// "×" in the history and "Delete question" in a done chat: the question goes, with its agent and pictures.
-async function removeQuestion(id) {
-  const v = code;
-  const t = v.threads?.find((t) => t.id === id);
-  if (!(await askConfirm(`Delete the question "${t?.title ?? ""}" from the history?`, { ok: "Delete", danger: true }))) return;
-  const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
-  if (!r.ok) alert(r.error || "Failed");
-  if (v !== code) return;
-  if (id === v.thread) openLatest(); else loadThreads();
-}
-
-// «Delete selected»: one confirm for all, the agents still answering stop. The open question gone: the history.
-async function removeQuestions(ids) {
-  const v = code;
-  if (!ids.length) return;
-  if (!(await askConfirm(`Delete ${ids.length} ${ids.length === 1 ? "question" : "questions"} from the history? Agents that are still answering will be stopped.`, { ok: "Delete", danger: true }))) return;
-  const r = await fetch("/api/code/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) })
-    .then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
-  if (!r.ok) alert(r.error || "Failed");
-  if (v !== code) return;
-  v.selecting = false; v.sel = new Set(); v.selLast = null;
-  if (ids.includes(v.thread)) openLatest(); else loadThreads();
-}
-
-function selectMode(on) {
-  const v = code;
-  v.selecting = on; v.sel = new Set(); v.selLast = null;
-  drawThreads();
-}
-
-// A click on a row in the selection mode; with Shift, the rows between it and the last chosen one.
-function pickThread(id, range) {
-  const v = code, list = v.threads ?? [];
-  if (range && v.selLast && v.selLast !== id) {
-    const a = list.findIndex((t) => t.id === v.selLast), b = list.findIndex((t) => t.id === id);
-    if (a >= 0 && b >= 0) {
-      const on = v.sel.has(v.selLast);
-      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) on ? v.sel.add(list[i].id) : v.sel.delete(list[i].id);
-      v.selLast = id;
-      drawThreads();
-      return;
-    }
-  }
-  if (!v.sel.delete(id)) v.sel.add(id);
-  v.selLast = id;
-  drawThreads();
-}
-
-// The project's latest question, to go on with; "+ → Question about code" starts another.
-// With no questions at all there is nothing to write into: a hint to use "+" shows instead of the composer.
-async function openLatest() {
-  const v = code;
-  await loadThreads();
-  if (v !== code) return;
-  const id = v.threads?.[0]?.id ?? "";
-  openThread(id);
-  v.history = !id; renderCode();
-}
-
-function openThread(id) {
-  code.history = false;
-  code.thread = id; code.version = -1; code.snap = null; code.flip = new Set();
-  $("ca-file").hidden = true;
-  renderCode(); loadThreads(); pollCode();
-}
-
-async function loadThreads() {
-  const v = code;
-  const r = await getJSON(`/api/code/threads?project=${encodeURIComponent(v.project)}`);
-  if (v !== code || !$("ca-threads")) return;
-  v.threads = r.threads ?? [];
-  drawThreads();
-  // The thread's mark came (or went) with the list: the banner and the draft cards follow.
-  if ((v.threads.find((t) => t.id === v.thread)?.ticket ?? "") !== (v.ticket ?? "")) renderCode();
-}
-
-function drawThreads() {
-  const v = code;
-  if (!$("ca-threads")) return;
-  if (v.selecting) { // the questions that are gone from the list are not chosen
-    const ids = new Set(v.threads.map((t) => t.id));
-    for (const id of v.sel) if (!ids.has(id)) v.sel.delete(id);
-  }
-  $("ca-select").hidden = v.selecting || !v.threads.length;
-  $("ca-cancel").hidden = !v.selecting;
-  $("ca-selbar").hidden = !v.selecting;
-  if (v.selecting) {
-    $("ca-selbar").innerHTML = `<button type="button" class="ghost" data-sel="all">${v.sel.size === v.threads.length ? "Clear" : "Select all"}</button>
-      <button type="button" class="danger" data-sel="delete" ${v.sel.size ? "" : "disabled"}>${v.sel.size ? `Delete (${v.sel.size})` : "Delete"}</button>`;
-  }
-  $("ca-threads").innerHTML = v.threads.length ? v.threads.map((t) => `<div class="ca-thread fc-item ${t.id === v.thread ? "on" : ""}${t.ticket ? " done" : ""}${v.selecting && v.sel.has(t.id) ? " sel" : ""}" role="button" tabindex="0" data-thread="${esc(t.id)}" title="${esc(t.title)}${t.ticket ? ` — done, ${t.ticket.startsWith("chat-") ? "chat" : "task"} ${esc(t.ticket)}` : ""}">
-      ${v.selecting ? `<input type="checkbox" class="ca-check" tabindex="-1" aria-label="Select the question" ${v.sel.has(t.id) ? "checked" : ""}>` : ""}<span class="ca-line">${t.ticket ? `<span class="ca-ok" role="img" aria-label="Done">✓</span>` : ""}<span class="ca-title">${esc(t.title)}</span></span><span class="muted">${esc(ago(new Date(t.at).toISOString()))}</span>
-      ${v.selecting ? "" : `<button type="button" class="icon fc-remove" data-ca-remove="${esc(t.id)}" title="Delete the question" aria-label="Delete the question">×</button>`}</div>`).join("")
-    : `<div class="muted ca-none">There have been no questions about this project yet.</div>`;
-}
-
 async function pollCode() {
   const v = code;
   if (!v) return;
-  if (!$("code-ask")) { clearInterval(v.timer); if (code === v) code = null; return; }
-  if (!v.thread) return;
+  if (!v.el.isConnected) { stopQuestion(); return; }
   const s = await getJSON(`/api/chat?id=${encodeURIComponent(v.thread)}&v=${v.version}`);
   if (v !== code || s.same || s.error) return;
   const ended = v.snap?.state === "working" && s.state !== "working";
   v.snap = s; v.version = s.version;
   renderCode();
-  if (ended) loadThreads();
+  if (ended) loadFreeChats();
 }
 
 function renderCode() {
-  const v = code, s = v.snap;
-  if (!v.list.isConnected) return;
+  const v = code, s = v?.snap;
+  if (!v || !v.list.isConnected) return;
   const atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
   const items = s?.items ?? [];
   v.drafts = {}; v.plans = {};
-  v.ticket = v.threads?.find((t) => t.id === v.thread)?.ticket ?? "";
+  v.ticket = freeChats.find((c) => c.id === v.thread)?.ticket ?? "";
   const toChat = v.ticket.startsWith("chat-");
   const done = v.ticket ? `<div class="ca-done"><span>✓ Chat is done: ${toChat ? "the plan was sent to chat" : "task"} <b>${esc(v.ticket)}</b>${toChat ? "" : " was created"}. You can still ask more here.</span><span class="spacer"></span>
     <button type="button" data-open-ticket>${toChat ? "Open chat" : "Open task"}</button><button type="button" data-ca-delete>Delete question</button></div>` : "";
   v.list.innerHTML = `<div class="chat-col">${done}${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, plans: v.plans, snap: s, ticket: v.ticket }) ||
-      `<div class="files-empty">${v.thread ? "Loading the conversation…" : v.history ? "No questions yet. Ask a new question with +" : "Ask a question about the project's code: the agent will find the answer and show the places in the code."}</div>`}
+      `<div class="files-empty">Loading the conversation…</div>`}
     ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}</div>`;
   linkSources(v.list);
   if (atEnd || v.version <= 1) v.list.scrollTop = v.list.scrollHeight;
-  document.querySelector("#code-ask .chat-foot").hidden = !!v.history;
-  document.querySelector("#code-ask .chat-stop").hidden = s?.state !== "working";
+  v.el.querySelector(".chat-stop").hidden = s?.state !== "working";
   $("ca-task").hidden = !items.some((it) => it.kind === "text");
-  for (const b of document.querySelectorAll("#ca-threads .ca-thread")) b.classList.toggle("on", b.dataset.thread === v.thread);
 }
 
 // file:line in the agent's answers (path:12 or path:12-20): links that open the file beside the chat.
@@ -2761,13 +2756,13 @@ async function openSource(path, line, end) {
 
 // "Make a task": the question and the answers become the description of a new task in this project.
 function toTask() {
-  const items = code.snap?.items ?? [], p = code.projects.find((x) => x.key === code.project);
+  const items = code.snap?.items ?? [], p = fcProjects.find((x) => x.key === code.project);
   const questions = items.filter((it) => it.kind === "user");
-  const title = (code.threads?.find((t) => t.id === code.thread)?.title || questions[0]?.text || "").split("\n")[0].slice(0, 250);
+  const title = (freeChats.find((t) => t.id === code.thread)?.title || questions[0]?.text || "").split("\n")[0].slice(0, 250);
   // The agent's ticket draft is not part of the answer: "Create ticket" is its way to a task.
   const desc = items.filter((it) => it.kind === "user" || it.kind === "text")
     .map((it) => it.kind === "user" ? `**Question:** ${it.text}` : ticketOf(it.text).text.trim()).filter(Boolean).join("\n\n");
-  openTicketDialog({ title, desc: `${desc}\n\n_From "Code questions" on the Mako board._`, tracker: p?.tracker, project: p?.project });
+  openTicketDialog({ title, desc: `${desc}\n\n_From an Ask chat on the Mako board._`, tracker: p?.tracker, project: p?.project });
 }
 
 // A pasted screenshot goes to the tracker; a placeholder stands in the text until its link comes back.
@@ -3554,9 +3549,8 @@ function renderDetail() {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     // The form keeps what is typed: the board re-renders every few seconds.
     if (newOpen === "chat") { $("detail").classList.add("ws"); if (!$("free-chat")) showFreeChat(); else mountFreeChat(); return; }
-    closeChat(); // a chat without a task left open
-    if (newOpen === "code") { $("detail").classList.add("ws"); if (!$("code-ask")) showCode(); }
-    else if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (!$("new-form")) showNewTask();
+    closeChat(); stopQuestion(); // a chat without a task left open
+    if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (!$("new-form")) showNewTask();
     return;
   }
   if (!r) {
@@ -5080,9 +5074,9 @@ const digestHash = () => { const h = decodeURIComponent(location.hash.slice(1));
 const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
-else if (location.hash === "#code") newOpen = "code";
-// #chat: a new chat without a task; #chat-<id>: that chat.
-else if (location.hash === "#chat" || location.hash.startsWith("#chat-")) { newOpen = "chat"; freeChat = location.hash.slice(1) === "chat" ? "" : location.hash.slice(1); }
+// #chat: a new chat without a task; #chat-<id>: that chat; #ask-<id>: that question about code. (#code, the old page of the
+// questions, is the new chat now.)
+else if (location.hash === "#code" || location.hash === "#chat" || location.hash.startsWith("#chat-") || location.hash.startsWith("#ask-")) { newOpen = "chat"; freeChat = ["#code", "#chat"].includes(location.hash) ? "" : location.hash.slice(1); }
 // #stats: straight to "Stats".
 else if (location.hash === "#stats") statsOpen = true;
 // #stats:cost: straight to a tab of "Stats".
@@ -5099,7 +5093,7 @@ window.addEventListener("hashchange", () => {
   if (since) return loadDigest(since);
   const id = decodeURIComponent(location.hash.slice(1));
   if (id === "new") return openNewTask();
-  if (id === "chat" || id.startsWith("chat-")) return openFreeChat(id === "chat" ? "" : id);
+  if (id === "code" || id === "chat" || id.startsWith("chat-") || id.startsWith("ask-")) return openFreeChat(id === "chat" || id === "code" ? "" : id);
   if (id && id !== selected) select(id);
 });
 // Back at the board: look at once, so what happened meanwhile shows without waiting for the next poll.
