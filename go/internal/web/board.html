@@ -251,11 +251,12 @@ function startingHTML(r) {
 // Images in it (screenshots for the MR, Mako's own ones, the tracker's), Markdown (![alt](url)) or HTML (<img src="…">), shown as images.
 const MD_IMG = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)[^>]*>|!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/api\/screenshots\/[^\s)]+)(?:\s+"[^"]*")?\)/gi;
 // Links: Markdown ([text](url)) and bare URLs.
-const MD_LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>"')]+/g;
+const MD_LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>"'`)]+/g;
 const pic = (src, alt) => `<a href="${esc(src)}" target="_blank" rel="noopener"><img class="pic" src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></a>`;
 function md(text) {
   const links = (x) => esc(x).replace(MD_LINK, (u, label, href) => `<a href="${href ?? u}" target="_blank" rel="noopener">${label ?? u}</a>`);
-  const plain = (x) => links(x).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  // Inline code first: what is in backticks is never searched for links, so a URL there cannot swallow the closing </code>.
+  const plain = (x) => x.split(/`([^`]+)`/).map((s, i) => i % 2 ? `<code>${esc(s)}</code>` : links(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")).join("");
   const inline = (x) => {
     let out = "", at = 0;
     for (const m of x.matchAll(MD_IMG)) {
