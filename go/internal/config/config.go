@@ -394,7 +394,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		break
 	}
 	if err := CheckModel(c.CodeModel); err != nil {
-		return nil, fmt.Errorf("\"Ask about the code\": %w", err)
+		return nil, fmt.Errorf("\"Code questions\": %w", err)
 	}
 	morning, err := clock(orStr(strings.TrimSpace(raw.Notifications.MorningDigest), DefaultMorningDigest))
 	if err != nil {
