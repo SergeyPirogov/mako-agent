@@ -1605,7 +1605,8 @@ section.ws .task-pane h1 { font-size: 19px; white-space: normal; margin: 6px 0 4
 .d-meta .bad { color: var(--err); }
 .d-head .actions > button svg { vertical-align: -3px; margin-right: 4px; }
 /* The head's buttons are one height, whatever they are made of (the menus' own buttons are not in the list). */
-.d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary) { height: 32px; padding-block: 0; }
+.d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary),
+.ws-bar .actions > :is(button, a.btn), .ws-bar .actions > details > summary, .ws-bar .actions > .takesplit > :is(button, details > summary) { height: 32px; padding-block: 0; }
 /* Merge on the task card: an outline in the ready-to-merge green (the same as the badge and the MR tab icon), lighter than a primary button. */
 .d-head .actions > button.merge-go { background: transparent; border-color: var(--ok); color: var(--ok); font-weight: 400; }
 .d-head .actions > button.merge-go:hover { background: color-mix(in srgb, var(--ok) 10%, transparent); }
