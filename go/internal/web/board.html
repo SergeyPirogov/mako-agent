@@ -3514,7 +3514,7 @@ function metaLine(r) {
 }
 
 const openMR = (r, cls = "") => r.prUrl ? `<a class="btn ${cls}" href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))}${ICON.external}</a>` : "";
-// The main action, as a button the card's handlers already know (data-a, data-ask, data-merge), and the one next
+// The main action, as a button the card's handlers already know (data-a, data-merge), and the one next
 // to it when the state has a pair (Start + Snooze, Merge + Open MR).
 function primaryHTML(r) {
   const b = (a, label, cls = "", x = "", title = "") => `<button class="${cls}" data-a="${a}" data-x="${x}"${title ? ` title="${esc(title)}"` : ""}>${label}</button>`;
@@ -3526,11 +3526,8 @@ function primaryHTML(r) {
     case "stop": return b("stop", `${ICON.stop}Stop`, "", "", "Stop the agent");
     case "resume": return b("resume", `${ICON.play}Resume`, "primary", "", "Continue the conversation");
     case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
-    // Once the agent has been asked, only the MR link is left, as the main button.
-    case "fix-conflicts": return isAsked(r.id, "conflicts") ? openMR(r, "primary")
-      : `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>` + openMR(r);
-    case "fix-ci": return isAsked(r.id, "ci") ? openMR(r, "primary")
-      : `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>` + openMR(r);
+    // The fix buttons are in the "What blocks the merge" block, under their rows (blockersHTML); the header has the MR.
+    case "fix-conflicts": case "fix-ci": return openMR(r, "primary");
     case "merge": return `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
     // CI still running, or the agent is in Orca: the MR is where to look.
     case "open-mr": return openMR(r, "primary");
@@ -3648,13 +3645,20 @@ function nowHTML(r, card, bar) {
 // An MR waiting for the merge: what holds it up, on top.
 function blockersHTML(r) {
   const c = review?.review, details = [];
+  // A fix button under its row, the block's full width: only Mako's own running agent hears it (as in card.go's
+  // "fix-*"); a stopped one is resumed from the header. Once pressed it stays a disabled check (isAsked).
+  const live = r.executor === "terminal" && r.worktree && r.live;
+  const askBtn = (kind, label, title) => !live ? ""
+    : isAsked(r.id, kind) ? `<div class="mr-actions"><button type="button" class="primary" disabled title="Already passed to the agent">${ICON.check}Passed to the agent</button></div>`
+    : `<div class="mr-actions"><button type="button" class="primary" data-ask="${kind}" title="${esc(title)}">${label}</button></div>`;
   if (c?.conflicts || r.baseConflict?.files?.length) {
     const files = r.baseConflict?.files ?? [];
     details.push(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
-      + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : ""));
+      + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : "")
+      + askBtn("conflicts", "Resolve conflicts", "The agent will rebase on the main branch, resolve the conflicts and push"));
   }
-  if (c?.ci === "failed" && c.failed?.length) details.push(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>`);
-  if (c?.threads?.length) details.push(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>`);
+  if (c?.ci === "failed" && c.failed?.length) details.push(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>` + askBtn("ci", "Fix CI", "The agent will look at the failed jobs, fix them and push"));
+  if (c?.threads?.length) details.push(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>` + askBtn("comments", "Fix comments", "The agent will fix the review comments and push"));
   // The bold reason repeats the details (“CI failed”, “the MR has conflicts”), so it is shown only when there
   // are no details yet (the review is not loaded) or when it says what they do not: the agent's state.
   const lines = [];
