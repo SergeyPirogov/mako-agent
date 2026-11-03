@@ -98,8 +98,17 @@ func TestPairingThroughAnEvilRelay(t *testing.T) {
 	if err != nil || !bytes.Equal(reply.Nonce, nonce) || reply.ID == "" {
 		t.Fatalf("reply %v %+v", err, reply)
 	}
-	if res := post(f); res.StatusCode != 401 {
-		t.Fatalf("the same pairing frame twice: %d", res.StatusCode)
+	// The reply got lost and the phone sends the same bytes again: the same reply, not a second device.
+	res = post(f)
+	var again relay.Sealed
+	json.NewDecoder(res.Body).Decode(&again)
+	if res.StatusCode != 200 || !bytes.Equal(again.C, sealed.C) || len(phones.Devices()) != 1 {
+		t.Fatalf("the same pairing frame again: %d, %d devices", res.StatusCode, len(phones.Devices()))
+	}
+	// Another frame for the used code pairs nothing.
+	other, _ := relay.SealPair(k, macID, code, relay.PairRequest{Name: "iPad", Nonce: nonce})
+	if res := post(other); res.StatusCode != 401 {
+		t.Fatalf("a used code paired again: %d", res.StatusCode)
 	}
 	// The Mac keeps the device with its keys: the phone's first frame opens.
 	in, err := phones.Opener(reply.ID)
@@ -145,7 +154,8 @@ func TestPairingTheOldWayStillWorks(t *testing.T) {
 	if err != nil || res.StatusCode != 200 || len(res.Cookies()) == 0 {
 		t.Fatalf("old pairing: %v %d", err, res.StatusCode)
 	}
-	if !strings.Contains(pairPage, `get("code")`) || strings.Contains(pairPage, `get("k")`) {
-		t.Fatal("the pair page must send the code and never touch the secret")
+	// Whatever the page does with the secret (#475), POST /pair carries the code alone.
+	if !strings.Contains(pairPage, `body: "code=" + encodeURIComponent(code)}`) {
+		t.Fatal("the pair page must send the code alone")
 	}
 }

@@ -134,8 +134,8 @@ const pairPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><me
 <script>
 (function () {
   // The fragment also carries k, the secret the device's end-to-end keys come from. It is never sent, to Mako
-  // neither: only the phone's encrypted client derives keys from it. Until that client is here, this page pairs
-  // the old way, with the code alone.
+  // neither: only the phone's encrypted client derives keys from it. Until that client is here (#475: it reads k
+  // here and keeps the keys in IndexedDB), this page pairs the old way, with the code alone.
   var code = new URLSearchParams(location.hash.slice(1)).get("code") || "";
   history.replaceState(null, "", "/pair");
   function fail(text) {

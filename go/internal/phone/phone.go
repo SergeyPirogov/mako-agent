@@ -3,6 +3,7 @@
 package phone
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -46,10 +47,15 @@ type Device struct {
 	RecvN  uint64 `json:"recvN,omitempty"`
 }
 
-// pending is a QR code not used yet: until when it works, and the secret the device's keys come from.
+// pending is a QR code: until when it works, and the secret the device's keys come from. Once an end-to-end
+// pairing used it, it keeps the frame and its reply till then: the same bytes again (the reply was lost on the
+// way) get the same reply, anything else nothing.
 type pending struct {
 	until  time.Time
 	secret []byte
+	used   *relay.Sealed // the pairing frame that used the code
+	reply  *relay.Sealed
+	device string
 }
 
 type stored struct {
@@ -64,12 +70,16 @@ type Phones struct {
 	file    string
 	data    stored
 	pairing map[string]pending // one-time codes from the QR, valid for 10 minutes
+	// One Sealer and one Opener per device, whatever number of connections it has: two of them would hand out
+	// the same counters (a nonce reused under the key) or take the same frame twice.
+	sealers map[string]*relay.Sealer
+	openers map[string]*relay.Opener
 	// Send delivers a push; tests replace it.
 	Send func(ctx context.Context, msg []byte, sub *webpush.Subscription, o *webpush.Options) (*http.Response, error)
 }
 
 func Open(stateDir string) (*Phones, error) {
-	p := &Phones{file: filepath.Join(stateDir, "phones.json"), pairing: map[string]pending{}, Send: webpush.SendNotificationWithContext}
+	p := &Phones{file: filepath.Join(stateDir, "phones.json"), pairing: map[string]pending{}, sealers: map[string]*relay.Sealer{}, openers: map[string]*relay.Opener{}, Send: webpush.SendNotificationWithContext}
 	if data, err := os.ReadFile(p.file); err == nil {
 		if err := json.Unmarshal(data, &p.data); err != nil {
 			return nil, fmt.Errorf("phones.json: %w", err)
@@ -164,14 +174,13 @@ var errExpired = errors.New("code expired: open \"Phone\" in the Mako settings o
 // keysLocked: the device keys of a QR code still valid.
 func (p *Phones) keysLocked(code string) (relay.Keys, error) {
 	pend, ok := p.pairing[code]
-	if !ok || time.Now().After(pend.until) {
+	if !ok || pend.used != nil || time.Now().After(pend.until) {
 		return relay.Keys{}, errExpired
 	}
 	return relay.DeriveKeys(pend.secret, []byte(code))
 }
 
-func (p *Phones) addLocked(code, name, origin string, k relay.Keys) (*Device, error) {
-	delete(p.pairing, code)
+func (p *Phones) addLocked(name, origin string, k relay.Keys) (*Device, error) {
 	now := time.Now().UnixMilli()
 	d := &Device{ID: random(6), Name: name, Token: random(32), Created: now, LastSeen: now, Origin: origin,
 		KeyP2M: k.P2M, KeyM2P: k.M2P}
@@ -188,15 +197,31 @@ func (p *Phones) Pair(code, name, origin string) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	return p.addLocked(code, name, origin, k)
+	delete(p.pairing, code)
+	return p.addLocked(name, origin, k)
 }
 
 // PairSealed pairs from the phone's sealed pairing frame (its code in f.I) and seals the reply. A frame that does
 // not decrypt leaves the code valid, so a relay slipping in garbage cannot spoil the pairing. name is used when
 // the phone sends none.
+//
+// The device's Token stays on the Mac: the phone is not given it, and through the relay it does not need it. There
+// the device proves itself by its frames opening with its keys (docs/relay-e2e.md, «Як це лягає на guard»); the
+// Token only names it inside the Mac.
 func (p *Phones) PairSealed(f relay.Sealed, name, origin string) (*Device, relay.Sealed, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if pend, ok := p.pairing[f.I]; ok && pend.used != nil && time.Now().Before(pend.until) {
+		if f.V == pend.used.V && f.T == pend.used.T && f.N == pend.used.N && f.D == pend.used.D && bytes.Equal(f.C, pend.used.C) {
+			for _, d := range p.data.Devices {
+				if d.ID == pend.device {
+					c := *d
+					return &c, *pend.reply, nil
+				}
+			}
+		}
+		return nil, relay.Sealed{}, errExpired
+	}
 	k, err := p.keysLocked(f.I)
 	if err != nil {
 		return nil, relay.Sealed{}, err
@@ -212,12 +237,21 @@ func (p *Phones) PairSealed(f relay.Sealed, name, origin string) (*Device, relay
 			name = string(r[:40])
 		}
 	}
-	d, err := p.addLocked(f.I, name, origin, k)
+	d, err := p.addLocked(name, origin, k)
 	if err != nil {
 		return nil, relay.Sealed{}, err
 	}
+	// Sealed once per code: the reply's counter 2 under K_pair is never used again.
 	reply, err := relay.SealPairReply(k, mac, f.I, relay.PairReply{ID: d.ID, Nonce: req.Nonce})
-	return d, reply, err
+	if err != nil {
+		return nil, relay.Sealed{}, err
+	}
+	pend := p.pairing[f.I]
+	used := f
+	used.C = bytes.Clone(f.C)
+	pend.used, pend.reply, pend.device, pend.secret = &used, &reply, d.ID, nil
+	p.pairing[f.I] = pend
+	return d, reply, nil
 }
 
 var errNoKeys = errors.New("the phone has no end-to-end keys: pair it again")
@@ -234,7 +268,8 @@ func (p *Phones) byIDLocked(id string) (*Device, error) {
 	return nil, errors.New("device removed")
 }
 
-// Sealer seals the Mac's frames to the device id. The counters it reserves are written to phones.json first.
+// Sealer seals the Mac's frames to the device id: the same one for every connection of the device. The counters
+// it reserves are written to phones.json first.
 func (p *Phones) Sealer(id string) (*relay.Sealer, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -242,22 +277,32 @@ func (p *Phones) Sealer(id string) (*relay.Sealer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return relay.NewSealer(d.KeyM2P, relay.M2P, relay.MacID(d.Origin), d.ID, d.SendN, func(upto uint64) error {
+	if s := p.sealers[id]; s != nil {
+		return s, nil
+	}
+	s, err := relay.NewSealer(d.KeyM2P, relay.M2P, relay.MacID(d.Origin), d.ID, d.SendN, func(from, upto uint64) error {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		d, err := p.byIDLocked(id)
 		if err != nil {
 			return err
 		}
-		if upto > d.SendN {
-			d.SendN = upto
+		if d.SendN != from {
+			return errors.New("the device's counters were taken elsewhere: reconnect the phone")
 		}
+		d.SendN = upto
 		return p.saveLocked()
 	})
+	if err != nil {
+		return nil, err
+	}
+	p.sealers[id] = s
+	return s, nil
 }
 
-// Opener opens the device's frames to the Mac. Each accepted counter is written to phones.json before the frame
-// goes on, and a removed device's frames stop opening.
+// Opener opens the device's frames to the Mac: the same one for every connection of the device. Each accepted
+// counter is written to phones.json before the frame goes on, and one not above what is stored is refused there
+// too; a removed device's frames stop opening.
 func (p *Phones) Opener(id string) (*relay.Opener, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -265,18 +310,27 @@ func (p *Phones) Opener(id string) (*relay.Opener, error) {
 	if err != nil {
 		return nil, err
 	}
-	return relay.NewOpener(d.KeyP2M, relay.P2M, relay.MacID(d.Origin), d.ID, d.RecvN, func(n uint64) error {
+	if o := p.openers[id]; o != nil {
+		return o, nil
+	}
+	o, err := relay.NewOpener(d.KeyP2M, relay.P2M, relay.MacID(d.Origin), d.ID, d.RecvN, func(n uint64) error {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		d, err := p.byIDLocked(id)
 		if err != nil {
 			return err
 		}
-		if n > d.RecvN {
-			d.RecvN = n
+		if n <= d.RecvN {
+			return relay.ErrReplay
 		}
+		d.RecvN = n
 		return p.saveLocked()
 	})
+	if err != nil {
+		return nil, err
+	}
+	p.openers[id] = o
+	return o, nil
 }
 
 // ByToken: the paired device with this token, nil when there is none.
@@ -323,6 +377,8 @@ func (p *Phones) Remove(id string) {
 		}
 	}
 	p.data.Devices = kept
+	delete(p.sealers, id)
+	delete(p.openers, id)
 	p.saveLocked()
 }
 

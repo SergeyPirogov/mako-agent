@@ -159,8 +159,17 @@ func TestPairSealed(t *testing.T) {
 	if err != nil || got.ID != d.ID || !bytes.Equal(got.Nonce, nonce) {
 		t.Fatalf("reply %v %+v", err, got)
 	}
-	if _, _, err := p.PairSealed(f, "iPhone", origin); err == nil {
+	// The same bytes again (the reply was lost): the same device and reply. Another frame for the code: nothing.
+	d2, reply2, err := p.PairSealed(f, "iPhone", origin)
+	if err != nil || d2.ID != d.ID || !bytes.Equal(reply2.C, reply.C) || len(p.Devices()) != 1 {
+		t.Fatalf("a repeated pairing frame: %v", err)
+	}
+	other, _ := relay.SealPair(k, relay.MacID(origin), code, relay.PairRequest{Nonce: nonce})
+	if _, _, err := p.PairSealed(other, "iPhone", origin); err == nil {
 		t.Fatal("a pairing code worked twice")
+	}
+	if _, err := p.Pair(code, "iPhone", origin); err == nil {
+		t.Fatal("a used code paired the old way")
 	}
 }
 
@@ -213,5 +222,38 @@ func TestCountersSurviveARestart(t *testing.T) {
 	}
 	if _, err := again.Opener(d.ID); err == nil {
 		t.Fatal("a removed device still has keys")
+	}
+}
+
+// Every connection of a device shares one Sealer and one Opener: two would hand out the same counters (a reused
+// nonce) or take the same frame twice.
+func TestOneSessionPerDevice(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := Open(dir)
+	const origin = "https://abc.relay.example.com"
+	code, secret := p.NewPairingKey()
+	raw, _ := base64.RawURLEncoding.DecodeString(secret)
+	k, _ := relay.DeriveKeys(raw, []byte(code))
+	d, _ := p.Pair(code, "iPhone", origin)
+
+	a, _ := p.Sealer(d.ID)
+	b, _ := p.Sealer(d.ID)
+	seen := map[uint64]bool{}
+	for _, s := range []*relay.Sealer{a, b, a, b} {
+		f, _ := s.Seal("res", "1", nil)
+		if seen[f.N] {
+			t.Fatalf("counter %d twice across two connections", f.N)
+		}
+		seen[f.N] = true
+	}
+	phoneOut, _ := relay.NewSealer(k.P2M, relay.P2M, relay.MacID(origin), d.ID, 0, nil)
+	f, _ := phoneOut.Seal("req", "1", nil)
+	in1, _ := p.Opener(d.ID)
+	in2, _ := p.Opener(d.ID)
+	if _, err := in1.Open(f); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in2.Open(f); !errors.Is(err, relay.ErrReplay) {
+		t.Fatalf("a frame replayed into another connection: %v", err)
 	}
 }

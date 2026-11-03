@@ -168,13 +168,14 @@ type Sealer struct {
 	mac, dev string
 	n        uint64 // the last counter used
 	reserved uint64 // the counters up to it are written down
-	reserve  func(upto uint64) error
+	reserve  func(from, upto uint64) error
 }
 
 // NewSealer continues after from: the highest counter reserved before (0 for a new device), so nothing a previous
-// run might have used is used again. reserve writes a new bound down before the counters under it are used; nil
-// keeps them only in memory (tests, the phone side).
-func NewSealer(key []byte, dir Dir, mac, dev string, from uint64, reserve func(upto uint64) error) (*Sealer, error) {
+// run might have used is used again. reserve moves the written-down bound from the old one to upto before the
+// counters under it are used, and must refuse when the stored bound is no longer from: then another Sealer took
+// those counters, and sealing with them would reuse a nonce. nil keeps them only in memory (tests, the phone side).
+func NewSealer(key []byte, dir Dir, mac, dev string, from uint64, reserve func(from, upto uint64) error) (*Sealer, error) {
 	a, err := newAEAD(key)
 	if err != nil {
 		return nil, err
@@ -193,7 +194,7 @@ func (s *Sealer) Seal(t, i string, payload []byte) (Sealed, error) {
 	if next > s.reserved {
 		upto := s.n + reserveAhead
 		if s.reserve != nil {
-			if err := s.reserve(upto); err != nil {
+			if err := s.reserve(s.reserved, upto); err != nil {
 				return Sealed{}, err
 			}
 		}

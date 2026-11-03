@@ -149,7 +149,13 @@ func TestReflectionIsRefused(t *testing.T) {
 func TestNoncesDoNotRepeat(t *testing.T) {
 	k := keys(t, "c")
 	var stored uint64
-	reserve := func(upto uint64) error { stored = upto; return nil }
+	reserve := func(from, upto uint64) error {
+		if from != stored {
+			return errors.New("another sealer took the counters")
+		}
+		stored = upto
+		return nil
+	}
 	seen := map[uint64]bool{}
 	s, _ := NewSealer(k.M2P, M2P, mac, "dev1", 0, reserve)
 	for range 2500 {
@@ -176,7 +182,7 @@ func TestNoncesDoNotRepeat(t *testing.T) {
 		}
 	}
 	// A failed reservation seals nothing.
-	s, _ = NewSealer(k.M2P, M2P, mac, "dev1", stored, func(uint64) error { return errors.New("disk full") })
+	s, _ = NewSealer(k.M2P, M2P, mac, "dev1", stored, func(uint64, uint64) error { return errors.New("disk full") })
 	if _, err := s.Seal("res", "1", nil); err == nil {
 		t.Fatal("sealed without writing the counter down")
 	}
