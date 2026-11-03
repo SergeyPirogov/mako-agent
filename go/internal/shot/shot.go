@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 )
 
 // FindChrome: $CHROME, then the usual Chrome, Chromium, Edge and Brave installs and names on PATH.
@@ -77,7 +78,7 @@ func Capture(ctx context.Context, chrome, url, out string, width, height int, wa
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait+60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
+	cmd := proc.Command(ctx, chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
 		"--no-default-browser-check", "--user-data-dir="+profile, fmt.Sprintf("--window-size=%d,%d", window, height),
 		fmt.Sprintf("--virtual-time-budget=%d", wait.Milliseconds()), "--screenshot="+out, page)
 	msg, err := cmd.CombinedOutput()
@@ -214,7 +215,7 @@ func FreePort() (int, error) {
 
 // Build compiles Mako from its module into bin.
 func Build(ctx context.Context, module, bin string) error {
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/mako")
+	cmd := proc.Command(ctx, "go", "build", "-o", bin, "./cmd/mako")
 	cmd.Dir = module
 	if msg, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("build of Mako from %s: %v\n%s", module, err, tail(string(msg), 2000))

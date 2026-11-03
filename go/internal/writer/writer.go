@@ -22,6 +22,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
+	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 )
 
 const maxDiff = 30_000
@@ -131,16 +132,23 @@ func readOutput(r io.Reader) *output {
 }
 
 // run runs a `claude -p` and reads what it prints as it goes.
+// The output goes through a pipe of Mako's own, not cmd.StdoutPipe: Wait then gives up (after proc.WaitDelay) on the
+// output a stray descendant still holds, where reading StdoutPipe would wait for it forever.
 func run(cmd *exec.Cmd) (*output, error) {
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
+	r, w := io.Pipe()
+	cmd.Stdout = w
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	o := readOutput(stdout)
-	return o, cmd.Wait()
+	read := make(chan *output, 1)
+	go func() {
+		o := readOutput(r)
+		io.Copy(io.Discard, r) // what the reader left, so that the command does not block on it
+		read <- o
+	}()
+	err := cmd.Wait()
+	w.Close()
+	return <-read, err
 }
 
 // answer: the text of `claude -p`'s result, telling its spend to the context's WithSpend; output that is not that
@@ -203,7 +211,7 @@ func AskModel(ctx context.Context, dir string, route core.Route, prompt string, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, append(askArgs(route), streamArgs...)...)
+	cmd := proc.Command(ctx, path, append(askArgs(route), streamArgs...)...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stderr strings.Builder
@@ -418,10 +426,10 @@ func AgentReview(ctx context.Context, worktree, baseBranch string, t core.Task, 
 	args = append(args, ReviewerTools...)
 	// After the tools: --allowedTools takes several values.
 	args = append(args, modelArgs(route)...)
-	cmd := exec.CommandContext(ctx, path, args...)
+	cmd := proc.Command(ctx, path, args...)
 	cmd.Dir = worktree
 	cmd.Stdin = strings.NewReader(prompt)
-	cmd.Env = append(os.Environ(), "MAKO_REVIEWER=1")
+	cmd.Env = append(cmd.Env, "MAKO_REVIEWER=1")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := run(cmd)

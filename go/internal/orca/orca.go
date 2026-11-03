@@ -16,6 +16,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 )
 
 // Job is one hand-off.
@@ -238,7 +239,7 @@ func appRunning() bool {
 func run(ctx context.Context, command, dir string, args ...string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := proc.Command(ctx, command, args...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil

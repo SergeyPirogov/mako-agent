@@ -21,6 +21,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
+	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
 
@@ -441,7 +442,7 @@ func (d *Dispatcher) runSetup(ctx context.Context, id, worktree, setup string) *
 	defer os.Remove(f.Name())
 	defer f.Close()
 	cmd := exec.Command("/bin/sh", "-c", setup)
-	cmd.Dir, cmd.Env = worktree, append(term.CleanEnv(os.Environ()), d.agentEnv(id)...)
+	cmd.Dir, cmd.Env = worktree, append(proc.CleanEnv(os.Environ()), d.agentEnv(id)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout, cmd.Stderr = f, f
 	err = cmd.Start()

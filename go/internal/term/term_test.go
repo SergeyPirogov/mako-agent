@@ -1,7 +1,10 @@
 package term
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -103,9 +106,43 @@ func TestPlainTail(t *testing.T) {
 	}
 }
 
-func TestCleanEnv(t *testing.T) {
-	got := cleanEnv([]string{"PATH=/bin", "CLAUDE_CODE_CHILD_SESSION=1", "CLAUDECODE=1", "CLAUDE_CONFIG_DIR=/c"})
-	if strings.Join(got, " ") != "PATH=/bin CLAUDE_CONFIG_DIR=/c" {
-		t.Fatal(got)
+// An agent that ignores the hang-up, with a descendant in a process group of its own that holds the terminal,
+// leaves the live ones after Stop.
+func TestStopStubbornAgent(t *testing.T) {
+	defer func(g time.Duration) { stopGrace = g }(stopGrace)
+	stopGrace = 200 * time.Millisecond
+	s, err := Start(Options{ID: "a#1", Worktree: t.TempDir(), Command: "/bin/sh",
+		Args: []string{"-c", `trap "" HUP; set -m; sleep 30 & echo "pid=$!"; sleep 30`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	past, events := waitFor(t, s, "pid=")
+	if events != nil {
+		s.Unsubscribe(events)
+	}
+	m := regexp.MustCompile(`pid=(\d+)`).FindStringSubmatch(past)
+	for m == nil {
+		time.Sleep(20 * time.Millisecond)
+		m = regexp.MustCompile(`pid=(\d+)`).FindStringSubmatch(s.Output(1000))
+	}
+	pid, _ := strconv.Atoi(m[1])
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+
+	mgr := NewManager(t.TempDir())
+	mgr.Put(s)
+	if mgr.Live() != 1 {
+		t.Fatal("not live")
+	}
+	s.Stop()
+	for end := time.Now().Add(2 * time.Second); mgr.Live() != 0; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatalf("still live after Stop: %+v", s.State())
+		}
+	}
+	if syscall.Kill(pid, 0) != nil {
+		t.Fatal("the descendant is gone: the test checks nothing")
+	}
+	if s.State().State != "exited" {
+		t.Fatalf("state %+v", s.State())
 	}
 }
