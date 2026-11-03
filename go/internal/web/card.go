@@ -307,8 +307,12 @@ func checksOf(ci, rev stageView) stageView {
 		c = "CI running"
 	case "fail":
 		c = "CI failed"
-		if ci.Note == "conflicts" {
+		switch ci.Note {
+		case "conflicts":
 			c = "MR conflicts"
+		case "checks failed":
+			// the local checks before the MR failed, not CI
+			c = "checks failed"
 		}
 	case "skip":
 		c = "CI skipped"
