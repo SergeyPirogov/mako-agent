@@ -1192,6 +1192,14 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .chat-ctx.full { color: var(--warn); font-weight: 600; }
 .chat-keys { margin-left: auto; }
 .chat-stop[hidden], .chat-send[hidden] { display: none; }
+.notice.why-failed { white-space: normal; display: grid; gap: 6px; }
+.notice.why-failed > div:last-child { white-space: pre-wrap; }
+.why-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.chk-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.chk-h .muted { margin-left: auto; font-size: 12.5px; }
+.chk-mk.ok { color: var(--ok); }
+.chk-mk.bad { color: var(--err); }
+.chk-a { display: flex; justify-content: flex-end; }
 details.journal { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 10px 16px; }
 details.journal summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); list-style-position: inside; }
 details.journal .log { margin-top: 8px; }
