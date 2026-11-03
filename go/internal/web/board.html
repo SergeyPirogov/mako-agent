@@ -207,7 +207,7 @@ const state = (r) => {
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
 // The MR was checked and can be merged now: CI green, no conflicts or threads, the reviewer idle and its advice (if any) followed.
-const readyToMerge = (r) => state(r) === "review" && !!r.mergeReady && !["running", "notes", "fixing"].includes(r.reviewStep) && !!(r.agentReviews?.length || !adviseReview(r));
+const readyToMerge = (r) => state(r) === "review" && !!r.mergeReady && !["running", "notes", "fixing"].includes(r.reviewStep) && !assessing(r) && !!(r.agentReviews?.length || !adviseReview(r));
 // What the card says under its title: where the task is, in words ([text, class: "warn" or "err" or "", tooltip]).
 const cardStatus = (r) => {
   if (r.status === "cancelled") return ["cancelled", ""];
@@ -1191,7 +1191,7 @@ let itab = "changes", itabPicked = false, tabPicked = false;
 const ciRunning = (ci) => ["running", "pending", "created", "preparing", "waiting_for_resource", "scheduled"].includes(ci);
 // The reviewer agent is reading the branch or the agent is fixing its remarks: the MR is not ready to merge yet.
 // Also when the reviewer's blockers wait for Fix (r.reviewBlocks).
-const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing" || !!r.reviewBlocks;
+const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing" || !!r.reviewBlocks || assessing(r);
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
@@ -1357,6 +1357,7 @@ function mrCard(r, term) {
   const merge = c?.state === "open" && !waitCI ? icon("data-merge", reviewing ? "The reviewer agent is reviewing the branch: merge once it finishes"
     : fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
     : r.reviewBlocks ? "The reviewer left blockers: fix them before the merge"
+    : assessing(r) ? "The agent is judging whether a review is needed: merge once it decides"
     : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
     "merge", c.mergeable && !held ? "ready" : "", !c.mergeable || held) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
@@ -1400,6 +1401,9 @@ const reviewFixBtn = (blocks = false) => `<button type="button" class="${blocks 
 const suggestFixBtn = () => `<button type="button" class="ghost" data-a="reviewfix" title="Pass the reviewer's suggestions to the agent: optional, the merge is not blocked">Fix suggestions</button>`;
 // The agent's advice from its assessment of the finished task: true (do a review), false (not needed), null (none
 // yet). An older assessment without it goes by the risk: 4–5 of 5 advise one.
+// The agent is still judging the task (a judgement that started over 5 minutes ago and never ended is stale, not
+// holding anything): the twin of the Go assessing.
+const assessing = (r) => r.assessment?.state === "running" && Date.now() - skew - Date.parse(r.assessment.at) < 5 * 60e3;
 function adviseReview(r) {
   const a = r.assessment;
   if (a?.state !== "done") return null;
@@ -1436,7 +1440,7 @@ function reviewSection(r) {
   const why = need !== null ? adviceText(r, need) : "";
   const check = checkText(r);
   let ai = "", you = "", note = "";
-  if (a?.state === "running") ai = row("run", "The agent is judging whether a review is needed…");
+  if (assessing(r)) ai = row("run", "The agent is judging whether a review is needed…");
   else if (need === true && !ran) { ai = adviceBlock("talk", "AI review advised", why, ready ? reviewBtn("Run AI review", "primary") + skipBtn() : "", "ask"); note = "advised"; }
   else if (need === false && !ran) ai = adviceBlock("ok", "No AI review needed", why, ready ? reviewBtn("Run anyway") : "", "past");
   if (check) {

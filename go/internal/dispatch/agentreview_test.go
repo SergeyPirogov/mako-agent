@@ -352,6 +352,17 @@ func TestReviewRetry(t *testing.T) {
 	d.mu.Lock()
 	delete(d.reviewing, id) // for the cleanup's settle
 	d.mu.Unlock()
+
+	// Nor while the agent is still judging whether a review is needed; a judgement that never ended does not hold it.
+	d.Store.Update(id, func(r *core.Record) { r.Assessment = &core.Assessment{At: now(), State: "running"} })
+	if err := d.MergeReview(context.Background(), id); err == nil || !strings.Contains(err.Error(), "still judging") {
+		t.Fatalf("merge during an assessment: %v", err)
+	}
+	longAgo := time.Now().Add(-6 * time.Minute).UTC().Format(time.RFC3339Nano)
+	d.Store.Update(id, func(r *core.Record) { r.Assessment = &core.Assessment{At: longAgo, State: "running"} })
+	if err := d.MergeReview(context.Background(), id); err != nil && strings.Contains(err.Error(), "still judging") {
+		t.Fatalf("merge held by a stale assessment: %v", err)
+	}
 }
 
 // «Пропустити»: the round is kept as skipped, «Робити» can still start one, and it goes in its place.
