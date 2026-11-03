@@ -66,7 +66,7 @@ func TestCheckSkipsMergeCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := u.Status()
-	if s.Count != 3 || strings.Join(s.Titles, ",") != "third,owner/repo#7: feature work,second" {
+	if s.Count != 3 || strings.Join(s.Titles, ",") != "owner/repo#7: feature work,third,second" {
 		t.Fatalf("status = %+v", s)
 	}
 	if want := "https://github.com/owner/repo/compare/" + built + "...main"; s.Compare != want {
