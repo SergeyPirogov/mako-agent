@@ -17,6 +17,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
+	"github.com/SergeyPirogov/mako-agent/go/internal/relay"
 )
 
 //go:embed icons/*.png
@@ -132,6 +133,9 @@ const pairPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><me
 <h1 id="t" style="font-size:20px">Connecting…</h1><p id="m" style="color:var(--mute)"></p></div>
 <script>
 (function () {
+  // The fragment also carries k, the secret the device's end-to-end keys come from. It is never sent, to Mako
+  // neither: only the phone's encrypted client derives keys from it. Until that client is here, this page pairs
+  // the old way, with the code alone.
   var code = new URLSearchParams(location.hash.slice(1)).get("code") || "";
   history.replaceState(null, "", "/pair");
   function fail(text) {
@@ -199,8 +203,9 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 			},
 		})
 	})
-	// The code rides in the link's #fragment, which a browser never sends: no history, server log or proxy
-	// log (tailscale serve) sees it. This page hands it to POST /pair and clears it from the address bar.
+	// The code and the secret ride in the link's #fragment, which a browser never sends: no history, server log or
+	// proxy log (tailscale serve, the relay) sees them. This page hands the code to POST /pair and clears both from
+	// the address bar.
 	mux.HandleFunc("GET /pair", func(w http.ResponseWriter, r *http.Request) {
 		if s.Phones == nil {
 			http.NotFound(w, r)
@@ -214,6 +219,22 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /pair", func(w http.ResponseWriter, r *http.Request) {
 		if s.Phones == nil || !sameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		// End to end: the phone sends a sealed pairing frame (JSON, version 1) and gets its device sealed back,
+		// with no cookie the relay could read. Without it, the old way: the code in a form, the cookie in the reply.
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			var f relay.Sealed
+			if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&f); err != nil || f.V != relay.Version || f.T != relay.TypePair {
+				http.Error(w, "bad pairing request", http.StatusBadRequest)
+				return
+			}
+			_, reply, err := s.Phones.PairSealed(f, phone.DeviceName(r.UserAgent()), requestOrigin(r))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+			writeJSON(w, reply)
 			return
 		}
 		d, err := s.Phones.Pair(r.PostFormValue("code"), phone.DeviceName(r.UserAgent()), requestOrigin(r))
@@ -299,7 +320,8 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 				err = fmt.Errorf("first open Mako for the phone through Tailscale")
 				break
 			}
-			link := "https://" + t.Host + "/pair#code=" + url.QueryEscape(s.Phones.NewPairing())
+			code, secret := s.Phones.NewPairingKey()
+			link := "https://" + t.Host + "/pair#code=" + url.QueryEscape(code) + "&k=" + url.QueryEscape(secret)
 			png, qerr := qrcode.Encode(link, qrcode.Medium, 512)
 			if qerr != nil {
 				err = qerr

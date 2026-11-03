@@ -1,8 +1,11 @@
 package phone
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -11,6 +14,8 @@ import (
 	"testing"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/relay"
 )
 
 func TestPairing(t *testing.T) {
@@ -104,5 +109,109 @@ func TestOldPhonesFileIsTailscale(t *testing.T) {
 	again, _ := Open(dir)
 	if got := again.Devices(); len(got) != 1 || got[0].Origin != "https://relay.example.com" {
 		t.Fatalf("origin not kept: %+v", got)
+	}
+}
+
+// The device keeps the keys derived from the QR's secret, the same ones the phone derives from the link.
+func TestPairingKeepsTheKeys(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := Open(dir)
+	code, secret := p.NewPairingKey()
+	raw, err := base64.RawURLEncoding.DecodeString(secret)
+	if err != nil || len(raw) != 32 {
+		t.Fatalf("secret %q: %v", secret, err)
+	}
+	want, _ := relay.DeriveKeys(raw, []byte(code))
+	d, err := p.Pair(code, "iPhone", "https://abc.relay.example.com")
+	if err != nil || !bytes.Equal(d.KeyP2M, want.P2M) || !bytes.Equal(d.KeyM2P, want.M2P) {
+		t.Fatalf("keys not kept: %v", err)
+	}
+	again, _ := Open(dir)
+	if list := again.Devices(); len(list) != 1 || list[0].KeyP2M != nil || list[0].KeyM2P != nil {
+		t.Fatalf("the devices list must not carry keys: %+v", list)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "phones.json"))
+	if strings.Contains(string(data), secret) || strings.Contains(string(data), code) {
+		t.Fatal("the secret or the one-time code is kept once paired")
+	}
+}
+
+func TestPairSealed(t *testing.T) {
+	p, _ := Open(t.TempDir())
+	const origin = "https://abc.relay.example.com"
+	code, secret := p.NewPairingKey()
+	raw, _ := base64.RawURLEncoding.DecodeString(secret)
+	k, _ := relay.DeriveKeys(raw, []byte(code))
+	nonce := bytes.Repeat([]byte{9}, 16)
+	f, _ := relay.SealPair(k, relay.MacID(origin), code, relay.PairRequest{Name: "Serhii's iPhone", Nonce: nonce})
+	// A changed frame does not pair and does not burn the code.
+	bad := f
+	bad.C = bytes.Clone(f.C)
+	bad.C[0] ^= 1
+	if _, _, err := p.PairSealed(bad, "iPhone", origin); err == nil {
+		t.Fatal("a changed frame paired")
+	}
+	d, reply, err := p.PairSealed(f, "iPhone", origin)
+	if err != nil || d.Name != "Serhii's iPhone" || !bytes.Equal(d.KeyP2M, k.P2M) {
+		t.Fatalf("%v %+v", err, d)
+	}
+	got, err := relay.OpenPairReply(k, relay.MacID(origin), code, reply)
+	if err != nil || got.ID != d.ID || !bytes.Equal(got.Nonce, nonce) {
+		t.Fatalf("reply %v %+v", err, got)
+	}
+	if _, _, err := p.PairSealed(f, "iPhone", origin); err == nil {
+		t.Fatal("a pairing code worked twice")
+	}
+}
+
+// The counters live in phones.json: after a restart the Mac neither reuses a nonce nor takes an old frame again,
+// and a removed device's frames stop.
+func TestCountersSurviveARestart(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := Open(dir)
+	const origin = "https://abc.relay.example.com"
+	code, secret := p.NewPairingKey()
+	raw, _ := base64.RawURLEncoding.DecodeString(secret)
+	k, _ := relay.DeriveKeys(raw, []byte(code))
+	d, _ := p.Pair(code, "iPhone", origin)
+
+	phoneOut, _ := relay.NewSealer(k.P2M, relay.P2M, relay.MacID(origin), d.ID, 0, nil)
+	f1, _ := phoneOut.Seal("req", "1", []byte("a"))
+	in, err := p.Opener(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := in.Open(f1); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := p.Sealer(d.ID)
+	used := map[uint64]bool{}
+	for range 3 {
+		r, _ := out.Seal("res", "1", nil)
+		used[r.N] = true
+	}
+
+	again, _ := Open(dir)
+	in, _ = again.Opener(d.ID)
+	if _, err := in.Open(f1); !errors.Is(err, relay.ErrReplay) {
+		t.Fatalf("an old frame after a restart: %v", err)
+	}
+	out, _ = again.Sealer(d.ID)
+	phoneIn, _ := relay.NewOpener(k.M2P, relay.M2P, relay.MacID(origin), d.ID, 3, nil)
+	r, err := out.Seal("res", "2", []byte("b"))
+	if err != nil || used[r.N] {
+		t.Fatalf("counter %d after a restart: %v", r.N, err)
+	}
+	if _, err := phoneIn.Open(r); err != nil {
+		t.Fatalf("the phone refused the Mac's frame: %v", err)
+	}
+
+	again.Remove(d.ID)
+	f2, _ := phoneOut.Seal("req", "2", nil)
+	if _, err := in.Open(f2); err == nil {
+		t.Fatal("a removed device's frame went through")
+	}
+	if _, err := again.Opener(d.ID); err == nil {
+		t.Fatal("a removed device still has keys")
 	}
 }
