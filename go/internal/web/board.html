@@ -3542,6 +3542,19 @@ const STAGE_MARK = {
 };
 const STAGE_WORD = { done: "done", now: "current", fail: "failed", skip: "skipped", todo: "not yet" };
 const stageOpen = {};
+// On a phone the strip scrolls sideways: it keeps where it was scrolled to over the board's reloads, and the first time a
+// task is shown it opens on the stage the work is at (the current or the failed one), not on «Estimate».
+// A stage that moved on (plan → work → checks) brings the strip to the new current stage again.
+const stripScroll = {};
+function revealStage(strip, id) {
+  if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+  const saved = stripScroll[id];
+  if (saved && saved.at === strip.dataset.at) { strip.scrollLeft = saved.left; return; }
+  const cur = strip.querySelector(".st.now, .st.fail");
+  if (!cur) return;
+  strip.scrollLeft = cur.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft - (strip.clientWidth - cur.offsetWidth) / 2;
+  stripScroll[id] = { left: strip.scrollLeft, at: strip.dataset.at };
+}
 function stripHTML(r, card) {
   const ss = r.card?.stages;
   if (!ss?.length) return "";
@@ -3559,7 +3572,7 @@ function stripHTML(r, card) {
     return `<button type="button" class="st ${s.state}${open === s.key ? " open" : ""}" data-stage="${s.key}" aria-expanded="${open === s.key}" title="${STAGE_LABEL[s.key]}: ${STAGE_WORD[s.state]}${esc(`${s.route ? ` · ${s.route}` : ""}${s.why ? ` — ${s.why}` : ""}`)}">
       <span class="row"><span class="c">${STAGE_MARK[s.state] ?? ""}</span><b>${STAGE_LABEL[s.key]}</b><span class="tr"></span></span><small>${sub}</small></button>`;
   }).join("");
-  return `<div class="stage-strip" role="group" aria-label="Stages">${cells}</div>${open ? `<div class="stage-more">${stageMore(r, open, card) || `<div class="muted">Nothing here yet.</div>`}</div>` : ""}`;
+  return `<div class="stage-strip" role="group" aria-label="Stages" data-id="${esc(r.id)}" data-at="${ss.map((s) => (s.state === "now" || s.state === "fail" ? s.key : "")).join("")}">${cells}</div>${open ? `<div class="stage-more">${stageMore(r, open, card) || `<div class="muted">Nothing here yet.</div>`}</div>` : ""}`;
 }
 // What a stage holds: the estimate, the reviewer's rounds, the checks and the MR's CI, the time and the cost.
 function stageMore(r, key, card) {
@@ -3795,7 +3808,11 @@ function renderDetail() {
   const answering = document.activeElement?.dataset?.qa != null && { qa: document.activeElement.dataset.qa, at: [document.activeElement.selectionStart, document.activeElement.selectionEnd] };
   // An open menu ("⋯", Snooze, model) stays open: the board re-renders every few seconds.
   const openMenus = [...$("detail").querySelectorAll("details.menu")].map((m) => m.open);
+  const strip0 = $("detail").querySelector(".stage-strip");
+  // Only the strip of the task being redrawn, and only while it scrolls (on a wide screen scrollLeft is 0 and says nothing).
+  if (strip0 && strip0.dataset.id === r.id && strip0.scrollWidth > strip0.clientWidth) stripScroll[r.id] = { left: strip0.scrollLeft, at: strip0.dataset.at };
   $("detail").innerHTML = shown = html;
+  revealStage($("detail").querySelector(".stage-strip"), r.id);
   $("detail").querySelectorAll("details.menu").forEach((m, i) => { if (openMenus[i]) m.open = true; });
   bindAnswers(r, answering);
   const tp2 = $("detail").querySelector(".task-pane");
