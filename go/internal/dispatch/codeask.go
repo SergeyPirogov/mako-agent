@@ -162,6 +162,18 @@ func (d *Dispatcher) CodeThreads(project string) []CodeThread {
 	return out
 }
 
+// AllCodeThreads: the questions of every project, the latest first.
+func (d *Dispatcher) AllCodeThreads() []CodeThread {
+	d.questionsMu.Lock()
+	all := d.readThreads()
+	d.questionsMu.Unlock()
+	if all == nil {
+		all = []CodeThread{}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].At > all[j].At })
+	return all
+}
+
 func (d *Dispatcher) thread(id string) (CodeThread, bool) {
 	d.questionsMu.Lock()
 	defer d.questionsMu.Unlock()

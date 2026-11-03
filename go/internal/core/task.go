@@ -255,6 +255,40 @@ type Retro struct {
 	Error string `json:"error,omitempty"`
 }
 
+// NavRetro is the navigation retro of a repository: how the agents of its last merged tasks found their way
+// around it (from their transcripts), and what would make it easier for the next ones.
+type NavRetro struct {
+	TrackerID string `json:"trackerId"`
+	Project   string `json:"project"`
+	Repo      string `json:"repo"`
+	At        string `json:"at"`
+	// State: "running", "done" or "failed".
+	State string `json:"state"`
+	Error string `json:"error,omitempty"`
+	// Tasks: the tasks whose transcripts were read; Skipped: those without one.
+	Tasks       []string        `json:"tasks,omitempty"`
+	Skipped     []string        `json:"skipped,omitempty"`
+	Suggestions []NavSuggestion `json:"suggestions,omitempty"`
+}
+
+// Kinds of a navigation retro's suggestion.
+const (
+	NavClaudeMD = "claude_md" // a line or a map for CLAUDE.md
+	NavStaleDoc = "stale_doc" // what of the docs is out of date
+	NavRefactor = "refactor"  // a change to the code, such as splitting a file
+)
+
+// NavSuggestion is one thing the navigation retro suggests, with what in the transcripts shows it.
+type NavSuggestion struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Evidence string `json:"evidence"`
+	Rule     string `json:"rule"`
+	// Done: what became of it: "saved" (in CLAUDE.md), "task:<id>" (a task made of it), "no"; "" while open.
+	Done string `json:"done,omitempty"`
+}
+
 // SelfCheck is your «Check it yourself» tick: when, and the branch's HEAD you looked at.
 type SelfCheck struct {
 	At     string `json:"at"`
@@ -377,7 +411,8 @@ type Lesson struct {
 	From string `json:"from"` // what you wrote, clipped
 }
 
-// SavedLesson is a rule that went into a repo's CLAUDE.md, for the project's settings.
+// SavedLesson is a rule that went into a repo's CLAUDE.md, for the project's settings; or, with a State, one
+// Mako drew from the reviewer's remarks that repeat across the repo's tasks.
 type SavedLesson struct {
 	TrackerID string `json:"trackerId"`
 	Project   string `json:"project"`
@@ -387,7 +422,28 @@ type SavedLesson struct {
 	Branch    string `json:"branch"` // where it was committed
 	Commit    string `json:"commit"`
 	At        string `json:"at"`
+	// Section: "navigation" for a rule of the navigation retro (under its own heading), "" for a review lesson.
+	Section string `json:"section,omitempty"`
+	// ID: the offer's id, for the board's answer; "" for the lessons saved from a task.
+	ID string `json:"id,omitempty"`
+	// State: "" saved; LessonOffered (waits for your answer), LessonDeclined (you said no), LessonNone (the
+	// model found no rule in the remarks): neither of the last two is offered again.
+	State string `json:"state,omitempty"`
+	// Source: "reviewer" for a lesson drawn from the reviewer's remarks.
+	Source string `json:"source,omitempty"`
+	// Key: the words the group of remarks shares; a new group much like it is the same one.
+	Key string `json:"key,omitempty"`
+	// Tasks: the tasks the remarks were made on; Examples: a few of them, clipped.
+	Tasks    []string `json:"tasks,omitempty"`
+	Examples []string `json:"examples,omitempty"`
 }
+
+// The states of a lesson drawn from the reviewer's remarks.
+const (
+	LessonOffered  = "offered"
+	LessonDeclined = "declined"
+	LessonNone     = "none"
+)
 
 // TrackerState is what happened to the issue's status at the last step, shown on the board.
 type TrackerState struct {

@@ -62,6 +62,66 @@ func TestFreeChatRoutes(t *testing.T) {
 	}
 }
 
+// «Chats» lists the chats and the questions about code in one list, the latest first, with their kind; «×» removes
+// either kind.
+func TestChatsListWithQuestions(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	state := t.TempDir()
+	d := dispatch.New(&config.Config{StateDir: state}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	os.WriteFile(filepath.Join(state, "chats.json"), []byte(`[
+	  {"id":"chat-a","project":"","title":"chat old","at":10},
+	  {"id":"chat-b","project":"","title":"chat new","at":30}]`), 0o600)
+	os.WriteFile(filepath.Join(state, "questions.json"), []byte(`[
+	  {"id":"ask-a","project":"t/p/r","title":"ask mid","at":20,"ticket":"T-1"},
+	  {"id":"ask-b","project":"t/q/r","title":"ask first","at":40}]`), 0o600)
+
+	list := func() []map[string]any {
+		t.Helper()
+		res, err := http.Get(srv.URL + "/api/chats")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out struct{ Chats []map[string]any }
+		json.NewDecoder(res.Body).Decode(&out)
+		return out.Chats
+	}
+	ids := func() string {
+		var b strings.Builder
+		for _, c := range list() {
+			b.WriteString(c["kind"].(string) + ":" + c["id"].(string) + " ")
+		}
+		return strings.TrimSpace(b.String())
+	}
+	if got := ids(); got != "ask:ask-b chat:chat-b ask:ask-a chat:chat-a" {
+		t.Fatalf("list %q", got)
+	}
+	if c := list()[2]; c["ticket"] != "T-1" || c["project"] != "t/p/r" || c["title"] != "ask mid" || c["at"] != float64(20) {
+		t.Fatalf("ask line %v", c)
+	}
+	remove := func(id string) map[string]any {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/chats/remove?id="+id, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return out
+	}
+	if out := remove("ask-a"); out["ok"] != true {
+		t.Fatalf("remove ask %v", out)
+	}
+	if out := remove("ask-a"); out["ok"] != false {
+		t.Fatalf("removed twice %v", out)
+	}
+	if got := ids(); got != "ask:ask-b chat:chat-b chat:chat-a" {
+		t.Fatalf("after removing a question %q", got)
+	}
+}
+
 // The plan of a chat without a task: sent back and approved in the chat itself; no task is made of the chat.
 func TestFreeChatPlan(t *testing.T) {
 	store, _ := state.Open(t.TempDir())

@@ -145,6 +145,8 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .proj-head .chev { flex: none; color: var(--faint); transition: transform .15s; }
 .proj.folded .proj-head .chev { transform: rotate(-90deg); }
 .proj-head b { font-weight: 600; white-space: nowrap; }
+.proj-head .lesson-badge { flex: none; padding: 0 4px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+.proj-head .lesson-badge:hover { background: var(--hover); outline: 1px solid var(--line, var(--faint)); }
 .proj-head .p-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--faint); }
 .proj-head .p-sum { color: var(--mute); }
 .proj-head .n { margin-left: auto; flex: none; color: var(--faint); font-weight: 500; }
@@ -167,8 +169,9 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .item:active { transform: none; }
 .item.sel { background: var(--sel); border-left-color: var(--accent); }
 .item .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: normal; line-height: 18px; }
-.item .m { display: flex; gap: 6px; align-items: center; height: 16px; font-size: 11.5px; color: var(--mute); min-width: 0; }
+.item .m { display: flex; gap: 6px; align-items: center; height: 16px; font-size: 11.5px; color: var(--mute); min-width: 0; overflow: hidden; }
 .item .m > * { flex: none; white-space: nowrap; }
+.item .m > :is(.prio, .kind, .size) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .item .m > .say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .item .m > .say.warn { color: var(--warn); font-weight: 600; }
 .item .m > .say.err { color: var(--err); }
@@ -278,6 +281,20 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .scard.flush .snote, .scard.flush .pad { padding: 10px 18px; }
 .scard-h { display: flex; align-items: center; gap: 8px; min-height: 26px; }
 .scard-h h2 { margin: 0; font-size: 15px; font-weight: 650; flex: 1; }
+/* "Navigation" (#482): the navigation retro's suggestions. */
+.nav-sug { display: flex; flex-direction: column; gap: 6px; padding: 12px 0 2px; border-top: 1px solid var(--line); }
+.nav-sug.done { opacity: .6; }
+.nav-sug-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.nav-kind { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--mute); white-space: nowrap; }
+.nav-kind.k-claude_md { color: var(--accent); border-color: var(--accent); }
+.nav-kind.k-stale_doc { color: var(--warn); border-color: var(--warn); }
+.nav-ev { font-size: 13px; color: var(--mute); }
+.nav-rule { font-size: 13.5px; white-space: pre-wrap; }
+.nav-rule-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px; padding: 6px 8px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+.nav-act { display: flex; gap: 8px; }
+.nav-done { font-size: 12.5px; color: var(--mute); }
+.nav-err { color: var(--err); font-size: 13px; }
 .scard-h .aside { font-size: 12.5px; color: var(--mute); text-align: right; }
 .snote { font-size: 12.5px; color: var(--mute); }
 .swarn { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 8px; font-size: 13px;
@@ -625,6 +642,12 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .mr-adv { flex: 1; min-width: 0; padding: 5px 0; line-height: 20px; overflow-wrap: anywhere; }
 .mr-adv b { display: block; font-weight: 600; color: var(--fg); }
 .mr-why { display: block; margin-top: 1px; font-size: 12px; line-height: 17px; color: var(--mute); }
+.rp-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.rp { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.rp.fixed { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--card)); }
+.rp.partial { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, var(--card)); }
+.rp.not { color: var(--err); background: color-mix(in srgb, var(--err) 12%, var(--card)); }
+.rp.none { color: var(--mute); background: var(--hover); }
 .mr-advice.past { min-height: 0; margin-top: 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .mr-advice.past .mr-adv { padding: 0; }
 .mr-advice.past .mr-adv b { font-size: 12px; font-weight: 500; color: var(--mute); }
@@ -1361,6 +1384,9 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .fc-item:hover .fc-remove, .fc-item.on .fc-remove, .fc-remove:focus-visible { opacity: 1; }
 .fc-remove:hover { color: var(--fg); }
 #fc-sub { overflow-wrap: anywhere; }
+/* A question about code among the chats: its mark. The mode of a new chat above its field. */
+.fc-kind { flex: none; padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: 10.5px; font-weight: 600; line-height: 16px; }
+.fc-mode { align-self: flex-start; margin: 0 0 6px; }
 .ca-chat .chat-hint #ca-task { height: 24px; font-size: 12px; }
 .ca-chat .chat-hint #ca-task[hidden] { display: none; }
 .src-link { font-family: var(--mono); }
@@ -1477,11 +1503,12 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 /* Merge in the dialog: an outline in the ready-to-merge green, like .merge-go on the task card. */
 .confirm-a button.success { background: transparent; border-color: var(--ok); color: var(--ok); font-weight: 600; }
 .confirm-a button.success:hover { background: color-mix(in srgb, var(--ok) 10%, transparent); opacity: 1; }
-/* Our own focus ring instead of the browser's blue one (theme.js focuses the OK button, so Enter confirms). */
+/* Our own focus ring instead of the browser's blue one (theme.js focuses the OK button, so Enter confirms).
+   The ring shows only after a key is pressed in the dialog (.kbd), not when it was opened with the mouse. */
 .confirm-a button:focus { outline: none; }
-.confirm-a button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
-.confirm-a button.success:focus-visible { outline-color: color-mix(in srgb, var(--ok) 45%, transparent); }
-.confirm-a button.danger:focus-visible { outline-color: color-mix(in srgb, var(--err) 45%, transparent); }
+.confirm-dlg.kbd .confirm-a button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+.confirm-dlg.kbd .confirm-a button.success:focus-visible { outline-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.confirm-dlg.kbd .confirm-a button.danger:focus-visible { outline-color: color-mix(in srgb, var(--err) 45%, transparent); }
 /* The task tab: the facts as chips, then a card per part of the task. */
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
 .tchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px;
@@ -1609,6 +1636,8 @@ section.ws .task-pane h1 { font-size: 19px; white-space: normal; margin: 6px 0 4
 .d-meta code { font: 12px var(--mono); overflow-wrap: anywhere; }
 .d-meta .icon { width: 22px; height: 22px; border: 0; background: none; color: var(--faint); }
 .d-meta .bad { color: var(--err); }
+.d-meta > .labels { flex-wrap: wrap; gap: 4px; }
+.d-meta .lbl { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; background: var(--hover); border: 1px solid var(--line); color: var(--mute); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
 .d-head .actions > button svg { vertical-align: -3px; margin-right: 4px; }
 /* The head's buttons are one height, whatever they are made of (the menus' own buttons are not in the list). */
 .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary),

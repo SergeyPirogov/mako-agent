@@ -78,6 +78,7 @@ type stateReply struct {
 	LimitPct       int                        `json:"limitPausePct"`       // the threshold of the settings, 0: none
 	Remote         bool                       `json:"remote"`              // the page is open on a phone
 	Stats          core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
+	NavRetros      []dispatch.NavRetroState   `json:"navRetros,omitempty"` // the navigation retros of the stats' project
 	Update         *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
 	Release        *update.Release            `json:"release,omitempty"`   // a newer release to download; not on a phone
 	Restart        restartView                `json:"restart"`
@@ -88,6 +89,8 @@ type stateReply struct {
 		Active bool `json:"active"`
 	} `json:"awake"`
 	Faults []dispatch.Fault `json:"faults"` // Mako's own errors, the newest first
+	// LessonOffers: the lessons from the reviewer's remarks waiting for an answer in the settings, by project.
+	LessonOffers map[string]int `json:"lessonOffers,omitempty"`
 	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
 	Digest *core.Digest `json:"digest,omitempty"`
 }
@@ -232,8 +235,10 @@ func (s *Server) Handler() http.Handler {
 		reply.Models = core.Models
 		// project: the statistics of one project only (none: all of them).
 		reply.Stats = core.SummarizePriced(core.OfProject(all, r.URL.Query().Get("project")), time.Now(), since, s.D.Config().Prices)
+		reply.NavRetros = s.D.NavRetros(r.URL.Query().Get("project"))
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
+		reply.LessonOffers = s.D.LessonOffers()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
@@ -438,6 +443,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, s.makoInfo(err))
 	})
 	s.createRoutes(mux)
+	s.navRoutes(mux)
 	s.codeRoutes(mux)
 	s.chatRoutes(mux)
 	// Mako's own errors: «На аналіз» opens an issue with them in Mako's repository, «Очистити» forgets them.
