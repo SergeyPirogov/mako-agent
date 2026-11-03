@@ -1,91 +1,110 @@
 {
+  "agentLanguage": "uk",
+  "stateDir": ".mako",
+  "projectsDir": "~/mako/projects",
   "pollIntervalSec": 60,
   "wipLimit": 2,
+  "wipAuto": false,
   "limitPausePct": 85,
-  "maxConcurrent": 2,
-  "taskTimeoutMin": 45,
-  "handoffCheckMin": 5,
-  "stateDir": ".mako",
+  "archiveAfterDays": 2,
+  "keepAwake": true,
   "branchPattern": "{type}/{id}-{title}",
   "notifications": {
     "enabled": true,
     "autoTake": false,
     "autoTakeOnly": "all",
     "snoozeMin": 60,
+    "inboxPort": 7777,
     "morningDigest": "09:00",
     "awayHours": 4,
-    "timeoutSec": 600,
-    "inboxPort": 7777
-  },
-  "agentReview": {
-    "enabled": false,
-    "maxRounds": 1,
-    "when": "always"
-  },
-  "executors": {
-    "terminal": {
-      "type": "terminal",
-      "command": "claude"
-    },
-    "claude": {
-      "type": "claude-headless",
-      "command": "claude",
-      "args": [
-        "--permission-mode",
-        "acceptEdits",
-        "--allowedTools",
-        "Bash(git:*) Bash(npm:*) Bash(npx:*) Bash(node:*) Bash(pnpm:*) Bash(yarn:*) Bash(bun:*) Read Edit Write Glob Grep",
-        "--max-turns",
-        "80"
-      ]
-    },
-    "orca": {
-      "type": "orca",
-      "agent": "claude",
-      "setup": "inherit"
-    },
-    "codex": {
-      "type": "command",
-      "label": "Codex",
-      "mode": "managed",
-      "command": "codex",
-      "args": [
-        "exec",
-        "--full-auto",
-        "{prompt}"
-      ]
-    },
-    "tmux": {
-      "type": "command",
-      "label": "tmux",
-      "mode": "handoff",
-      "command": "tmux",
-      "args": [
-        "new-window",
-        "-n",
-        "{slug}",
-        "-c",
-        "{worktree}",
-        "claude",
-        "{prompt}"
-      ]
+    "events": {
+      "newTask": true
     }
   },
-  "defaultExecutor": "terminal",
+  "comments": {
+    "onStart": {
+      "en": "Took the task. Branch {branch}. I'll open an MR once it's ready.",
+      "uk": "Взяв задачу в роботу. Гілка {branch}. Як буде готово, відкрию MR."
+    },
+    "onReview": {
+      "en": "Opened an MR: {mr}",
+      "uk": "Відкрив MR: {mr}"
+    }
+  },
+  "estimate": {
+    "enabled": true,
+    "useModel": true
+  },
+  "codeAsk": {
+    "model": "haiku"
+  },
+  "agentReview": {
+    "model": "",
+    "comments": "mr",
+    "lessonTasks": 3,
+    "lessonDays": 90
+  },
   "routes": {
     "mode": "balanced",
+    "table": {
+      "work": {
+        "big": { "model": "opus", "effort": "high" }
+      }
+    },
     "prices": {
       "opus": { "input": 4, "output": 20, "cacheRead": 0.2, "cacheCreate": 8 }
     }
   },
+  "executors": {
+    "terminal": {
+      "type": "terminal",
+      "command": "claude",
+      "permissionMode": "auto",
+      "allowedTools": ["Bash(git:*)", "Bash(npm:*)", "WebFetch"],
+      "setupCommand": "",
+      "view": "chat",
+      "autoFix": false,
+      "autoRebase": "rebase",
+      "rebaseEveryMin": 30,
+      "planFirst": "never",
+      "checkTimeoutSec": 600,
+      "checkAttempts": 3
+    },
+    "orca": {
+      "type": "orca",
+      "command": "orca",
+      "agent": "claude",
+      "setup": "inherit",
+      "linkIssue": true,
+      "instructions": {
+        "en": "Open an MR into {baseBranch} when the work on {taskId} is done.",
+        "uk": "Коли роботу над {taskId} буде завершено, відкрий MR у {baseBranch}."
+      },
+      "mrBy": "agent",
+      "summaryComment": false,
+      "extraArgs": []
+    }
+  },
+  "defaultExecutor": "terminal",
   "trackers": [
     {
       "type": "jira",
+      "id": "jira",
+      "baseUrl": "https://acme.atlassian.net",
       "jql": "assignee = currentUser() AND labels = claude-agent AND statusCategory = \"To Do\" ORDER BY priority DESC",
+      "labels": {
+        "trigger": null
+      },
+      "assignee": "",
+      "allProjects": false,
+      "assignOnTake": true,
+      "skipOthersTasks": true,
+      "paused": false,
       "transitions": {
         "onStart": "In Progress",
         "onSuccess": "In Review",
-        "onFailure": null
+        "onFailure": null,
+        "onMerged": "Done"
       },
       "projects": {
         "PROJ": {
@@ -93,27 +112,16 @@
           "repos": {
             "backend": {
               "repoPath": "/Users/me/code/backend",
+              "cloneUrl": "git@github.com:acme/backend.git",
               "baseBranch": "main",
-              "match": {
-                "components": [
-                  "Backend",
-                  "API"
-                ]
-              },
-              "extraInstructions": "Run `npm test` before committing."
+              "setup": "npm install",
+              "branchPattern": "{type}/{id}-{title}",
+              "checks": ["npm run lint", "npm test"],
+              "routeMode": "quality"
             },
             "web": {
               "repoPath": "/Users/me/code/web",
-              "baseBranch": "main",
-              "match": {
-                "components": [
-                  "Frontend"
-                ],
-                "labels": [
-                  "ui"
-                ]
-              },
-              "executor": "orca"
+              "baseBranch": "main"
             }
           }
         }
@@ -121,9 +129,12 @@
     },
     {
       "type": "github",
+      "id": "github",
+      "apiUrl": "https://api.github.com",
       "labels": {
         "trigger": "claude-agent"
       },
+      "reviewRequests": true,
       "projects": {
         "my-org/web": {
           "repoPath": "/Users/me/code/web",
@@ -133,10 +144,12 @@
     },
     {
       "type": "gitlab",
+      "id": "gitlab",
       "baseUrl": "https://gitlab.com",
       "labels": {
         "trigger": "claude-agent"
       },
+      "reviewRequests": true,
       "projects": {
         "my-group/mobile-app": {
           "repoPath": "/Users/me/code/mobile-app",
