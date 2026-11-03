@@ -644,6 +644,8 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .mr-adv-a button { height: 28px; padding: 0 12px; font-size: 12.5px; border-radius: 7px; }
 .mr-adv-a button.ghost { border-color: transparent; background: none; color: var(--mute); }
 .mr-adv-a button.ghost:hover { color: var(--fg); background: var(--hover); }
+/* Fix with the agent: an action, not a quiet link: keeps the ghost button's border. */
+.mr-adv-a button.ghost.fix { border-color: var(--line); color: var(--fg); }
 .chk { flex: none; width: 18px; height: 18px; margin-top: 1px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   border: 1.5px solid color-mix(in srgb, var(--warn) 70%, var(--line)); border-radius: 5px; background: var(--card); color: #fff; }
 .chk:hover { border-color: var(--warn); background: var(--card); }
