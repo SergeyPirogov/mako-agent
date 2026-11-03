@@ -34,6 +34,12 @@ body { display: block; }
 .qr li { margin: 4px 0; }
 .device { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .device:last-of-type { border-bottom: 0; }
+.badge.warn { background: color-mix(in srgb, var(--warn) 16%, var(--card)); color: var(--warn); }
+.wt { align-items: flex-start; }
+.wt-pick { padding-top: 2px; }
+.wt-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wt-path span { cursor: copy; font-family: ui-monospace, monospace; font-size: 12px; }
+.wt-path a { margin-left: 8px; }
 .add-big { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .add-big button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 16px; text-align: left; border-radius: 12px; }
 .add-big span { color: var(--mute); font-size: 12.5px; }
@@ -700,9 +706,47 @@ function show(id) {
   window.scrollTo(0, 0);
 }
 
-// The agents' worktrees: how much each project's take, and “Remove merged”.
+// The agents' worktrees: what each one holds, and removing the chosen ones.
 let diskNote = "";
+const picked = new Set(); // pickKey of the ticked worktrees; they stay ticked while the list is redrawn
+// A JSON array, so that it goes through an HTML attribute and back whatever the names hold.
+const pickKey = (repo, path) => JSON.stringify([repo, path]);
 const size = (b) => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} ${t("s.gb")}` : b >= 1 << 20 ? `${Math.round(b / (1 << 20))} ${t("s.mb")}` : `${Math.round(b / 1024)} ${t("s.kb")}`;
+const diskAgo = (iso) => {
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (m < 1) return t("s.d.agoNow");
+  if (m < 60) return t("s.d.agoMin", { n: m });
+  if (m < 1440) return t("s.d.agoHour", { n: Math.round(m / 60) });
+  return t("s.d.agoDay", { n: Math.round(m / 1440) });
+};
+function worktreeRow(u, w) {
+  const bad = (x) => `<span class="badge bad">${x}</span>`, warn = (x) => `<span class="badge warn">${x}</span>`;
+  const badges = [
+    w.dirty > 0 && bad(t("s.d.dirty", { n: w.dirty })),
+    w.unpushed > 0 && bad(t("s.d.unpushed", { n: w.unpushed })),
+    !w.hasRemote && !w.detached && !w.prunable && w.branch && warn(t("s.d.noRemote")),
+    w.agentBusy && bad(t("s.d.busy")),
+    w.detached && warn(t("s.d.detached")),
+    w.locked && warn(t("s.d.locked")),
+    w.prunable && warn(t("s.d.prunable")),
+  ].filter(Boolean).join(" ");
+  const task = w.task
+    ? [esc(w.task), w.taskStatus && esc(w.taskStatus), w.reviewState && esc(w.reviewState), w.executor && esc(w.executor), w.cleanable && t("s.d.mergedOrArchived")].filter(Boolean).join(" · ")
+    : t("s.d.notMako");
+  const git = [
+    w.branch && (w.ahead || w.behind) ? t("s.d.behindBase", { ahead: w.ahead, behind: w.behind, base: esc(u.base || "main") }) : "",
+    w.lastCommit ? t("s.d.commit", { when: diskAgo(w.lastCommit) }) + (w.lastCommitTitle ? ` — ${esc(w.lastCommitTitle)}` : "") : "",
+    w.modifiedAt ? t("s.d.changedFiles", { when: diskAgo(w.modifiedAt) }) : "",
+  ].filter(Boolean).join(" · ");
+  const k = pickKey(u.repo, w.path);
+  return `<div class="device wt"><label class="wt-pick"><input type="checkbox" data-pick="${esc(k)}" ${picked.has(k) ? "checked" : ""}></label>
+    <div class="wt-body"><div><code>${esc(w.branch || w.path.split("/").pop())}</code> ${badges}</div>
+      <div class="muted">${task}</div>
+      ${git ? `<div class="muted">${git}</div>` : ""}
+      <div class="muted wt-path"><span data-copy="${esc(w.path)}" title="${t("s.d.copy")}">${esc(w.path)}</span>
+        <a href="#" data-open="${esc(k)}">${t("s.d.finder")}</a></div></div>
+    <span class="muted">${size(w.bytes)}</span></div>`;
+}
 async function renderDisk(msg = "") {
   const box = $("disk");
   if (!box.innerHTML) box.innerHTML = `<div class="card muted">${t("s.d.counting")}</div>`;
@@ -713,16 +757,78 @@ async function renderDisk(msg = "") {
     box.innerHTML = `<div class="card bad">${t("s.noAnswer")}</div>`;
     return;
   }
+  const bytesOf = new Map(list.flatMap((u) => u.worktrees.map((w) => [pickKey(u.repo, w.path), w.bytes])));
+  for (const k of [...picked]) if (!bytesOf.has(k)) picked.delete(k); // gone since
   const total = list.reduce((n, u) => n + u.bytes, 0), cleanable = list.reduce((n, u) => n + u.cleanable, 0);
   const freed = list.reduce((n, u) => n + u.cleanableBytes, 0);
   diskNote = total ? size(total) : "";
-  const projects = list.length ? list.map((u) => `<div class="card"><div class="card-head"><b>${esc(u.repo)}</b><span class="muted">${u.worktrees.length} worktree · ${size(u.bytes)}</span></div>
-      ${u.worktrees.map((w) => `<div class="device"><div><code>${esc(w.branch || w.path.split("/").pop())}</code>
-        <div class="muted">${w.task ? esc(w.task) + (w.cleanable ? " · " + t("s.d.mergedOrArchived") : "") : t("s.d.notMako")}</div></div><span class="muted">${size(w.bytes)}</span></div>`).join("")}</div>`).join("")
+  const projects = list.length ? list.map((u) => `<div class="card"><div class="card-head"><label><input type="checkbox" data-all="${esc(u.repo)}"> <b>${esc(u.repo)}</b></label><span class="muted">${u.worktrees.length} worktree · ${size(u.bytes)}</span></div>
+      ${u.worktrees.map((w) => worktreeRow(u, w)).join("")}</div>`).join("")
     : `<div class="card muted">${t("s.d.none")}</div>`;
   box.innerHTML = `<div class="card"><div class="row" style="margin-top:0"><b>${t("s.d.total", { size: size(total) })}</b><span class="spacer"></span>
+      <button id="disk-remove" class="danger" disabled></button>
       <button class="primary" id="disk-clean" ${cleanable ? "" : "disabled"}>${t("s.d.clean")}${cleanable ? ` (${cleanable}, ${size(freed)})` : ""}</button></div>
       ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}</div>${projects}`;
+
+  const sync = () => {
+    const n = picked.size, bytes = [...picked].reduce((s, k) => s + (bytesOf.get(k) || 0), 0);
+    $("disk-remove").disabled = !n;
+    $("disk-remove").textContent = t("s.d.removeSel") + (n ? ` (${n}, ${size(bytes)})` : "");
+    for (const all of box.querySelectorAll("[data-all]")) {
+      const u = list.find((x) => x.repo === all.dataset.all);
+      const c = u.worktrees.filter((w) => picked.has(pickKey(u.repo, w.path))).length;
+      all.checked = c > 0 && c === u.worktrees.length;
+      all.indeterminate = c > 0 && c < u.worktrees.length;
+      all.title = t("s.d.selectAll");
+    }
+  };
+  for (const c of box.querySelectorAll("[data-pick]")) c.onchange = () => { c.checked ? picked.add(c.dataset.pick) : picked.delete(c.dataset.pick); sync(); };
+  for (const all of box.querySelectorAll("[data-all]")) all.onchange = () => {
+    const u = list.find((x) => x.repo === all.dataset.all);
+    for (const w of u.worktrees) all.checked ? picked.add(pickKey(u.repo, w.path)) : picked.delete(pickKey(u.repo, w.path));
+    for (const c of box.querySelectorAll("[data-pick]")) c.checked = picked.has(c.dataset.pick);
+    sync();
+  };
+  for (const el of box.querySelectorAll("[data-copy]")) el.onclick = () => navigator.clipboard?.writeText(el.dataset.copy);
+  for (const a of box.querySelectorAll("[data-open]")) a.onclick = async (e) => {
+    e.preventDefault();
+    const [repo, path] = JSON.parse(a.dataset.open);
+    try {
+      await fetch("/api/settings/worktrees/open", { method: "POST", body: JSON.stringify({ repo, path }) });
+    } catch {}
+  };
+  sync();
+
+  $("disk-remove").onclick = async () => {
+    const items = [...picked].map((k) => { const [repo, path] = JSON.parse(k); return { repo, path }; });
+    const bytes = [...picked].reduce((s, k) => s + (bytesOf.get(k) || 0), 0);
+    if (!confirm(t("s.d.confirm", { n: items.length, size: size(bytes) }))) return;
+    const post = async (items, force) => (await fetch("/api/settings/worktrees/remove", { method: "POST", body: JSON.stringify({ items, force }) })).json();
+    $("disk-remove").disabled = true;
+    $("disk-remove").textContent = t("s.d.cleaning");
+    let r, kept = [], errors = [], removed = 0, branches = 0;
+    try {
+      r = await post(items, false);
+      removed += r.removed; branches += r.branches; errors = r.errors || [];
+      if (r.kept?.length) {
+        // Their changes would go with them: ask again.
+        const rows = r.kept.map((k) => `${k.path} (${t("s.d.dirty", { n: k.dirty })}, ${t("s.d.unpushed", { n: k.unpushed })})`).join("\n");
+        if (confirm(t("s.d.confirmForce", { list: rows }))) {
+          const f = await post(r.kept.map((k) => ({ repo: items.find((i) => i.path === k.path)?.repo, path: k.path })), true);
+          removed += f.removed; branches += f.branches; errors = errors.concat(f.errors || []);
+        } else {
+          kept = r.kept;
+        }
+      }
+    } catch {
+      renderDisk(t("s.noAnswer"));
+      return;
+    }
+    picked.clear();
+    for (const k of kept) picked.add(pickKey(items.find((i) => i.path === k.path)?.repo, k.path));
+    renderDisk(t("s.d.removed", { removed, branches }) + (kept.length ? t("s.d.keptList", { n: kept.length }) : "") +
+      (errors.length ? t("s.d.errorList", { list: errors.map((e) => `${e.path.split("/").pop()}: ${e.error}`).join("; ") }) : ""));
+  };
   $("disk-clean").onclick = async () => {
     $("disk-clean").disabled = true;
     $("disk-clean").textContent = t("s.d.cleaning");
