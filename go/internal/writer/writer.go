@@ -628,6 +628,71 @@ func ParseRetro(answer string) (core.Retro, error) {
 	return r, nil
 }
 
+// NavRetroTimeout: how long the navigation retro's model may take.
+const NavRetroTimeout = 4 * time.Minute
+
+// NavRetro: what would make the repository easier to find one's way around for the next agents, from the digest of
+// how the agents of its last tasks searched it (navstat.Digest) and its CLAUDE.md now. Each suggestion is a line for
+// CLAUDE.md, a doc out of date, or a change to the code, with the evidence in the digest; in Mako's language.
+func NavRetro(ctx context.Context, dir string, route core.Route, digest, claudeMD string) ([]core.NavSuggestion, error) {
+	prompt := strings.Join([]string{
+		"Below is a digest of how coding agents found their way around this repository in its last merged tasks, read from",
+		"their session transcripts: how many searches they made before their first edit, the files they read in many tasks",
+		"or again and again, the searches that found nothing, the docs they read before editing other files, the big files",
+		"they read whole. Find where the agents took too long to find what they needed, or relied on out-of-date docs, and",
+		"suggest concrete changes that would make the repository easier to navigate for the next agents. At most 8, the",
+		"most useful first. Each one is one of these kinds:",
+		"- claude_md: a line or a short map for the repository's CLAUDE.md (where a thing lives, which file to start from,",
+		"  what not to read whole); its rule is the text to add, at most 300 characters, specific enough to follow alone;",
+		"- stale_doc: what in the documentation is out of date or misleads; its rule says what to fix;",
+		"- refactor: a change to the code that would make it easier to find one's way (split a big file, rename, move);",
+		"  its rule says what to change.",
+		`evidence: what in the digest shows it, with the numbers ("in 7 of 10 tasks the agent searched … in board.html,`,
+		`12 searches before its first edit on average"). Base everything only on the digest; do not invent files or`,
+		"numbers. Do not suggest what CLAUDE.md below already says. Write title, evidence and rule in " + lang() + ";",
+		"paths, names and commands stay as they are.",
+		"Answer with JSON only, no code fences, in this shape:",
+		`{"suggestions":[{"kind":"claude_md","title":"...","evidence":"...","rule":"..."}]}`,
+		"", "Digest:", clipTo(digest, 16000),
+		"", "CLAUDE.md now:", orNone(clipTo(claudeMD, 8000)),
+	}, "\n")
+	return askParsed(func() (string, error) { return AskModel(ctx, dir, route, prompt, NavRetroTimeout) }, ParseNavRetro)
+}
+
+// ParseNavRetro reads the JSON NavRetro asks for; a suggestion of a kind it does not know, or without a title or a
+// rule, is left out, and an answer with none left is an error.
+func ParseNavRetro(answer string) ([]core.NavSuggestion, error) {
+	raw, err := jsonObject(answer, "suggestions")
+	if err != nil {
+		return nil, err
+	}
+	var in struct {
+		Suggestions []struct {
+			Kind, Title, Evidence, Rule string
+		}
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, fmt.Errorf("%w: %v", errNotJSON, err)
+	}
+	var out []core.NavSuggestion
+	for _, s := range in.Suggestions {
+		kind := strings.ToLower(strings.TrimSpace(s.Kind))
+		title, rule := strings.TrimSpace(s.Title), strings.TrimSpace(s.Rule)
+		if !slices.Contains([]string{core.NavClaudeMD, core.NavStaleDoc, core.NavRefactor}, kind) || title == "" || rule == "" {
+			continue
+		}
+		out = append(out, core.NavSuggestion{ID: fmt.Sprint(len(out) + 1), Kind: kind, Title: clipTo(title, 400),
+			Evidence: clipTo(strings.TrimSpace(s.Evidence), 2000), Rule: clipTo(rule, 2000)})
+		if len(out) == 8 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("the navigation retro is empty")
+	}
+	return out, nil
+}
+
 // RepoOutline: the repository's layout for an estimate, without its code: the folders with how many files each
 // holds, and the start of README.md and CLAUDE.md; "" when dir is no git repository.
 func RepoOutline(ctx context.Context, dir string) string {

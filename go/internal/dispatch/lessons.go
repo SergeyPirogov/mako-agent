@@ -98,7 +98,7 @@ func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error 
 			return err
 		}
 		branch = branchOf(r)
-		if hash, err = commitLesson(ctx, wt, rule, msg); err != nil {
+		if hash, err = commitLesson(ctx, wt, LessonsHeading, rule, msg); err != nil {
 			return err
 		}
 		d.Log(id, fmt.Sprintf("lesson written to CLAUDE.md on branch %s (goes into the MR with the next push): %s", branch, rule))
@@ -110,7 +110,7 @@ func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error 
 		if branch == "" {
 			branch = gitx.DetectBaseBranch(repo.Path)
 		}
-		if hash, err = lessonToBase(ctx, repo.Path, branch, rule, msg); err != nil {
+		if hash, err = lessonToBase(ctx, repo.Path, branch, LessonsHeading, rule, msg); err != nil {
 			return err
 		}
 		d.Log(id, fmt.Sprintf("lesson written to CLAUDE.md and pushed to %s: %s", branch, rule))
@@ -122,9 +122,9 @@ func (d *Dispatcher) SaveLesson(ctx context.Context, id, to, rule string) error 
 		Branch: branch, Commit: hash, At: now()})
 }
 
-// lessonToBase commits the rule on top of origin's base branch in a worktree of its own (the clone's checkout
-// is left as it is) and pushes it there.
-func lessonToBase(ctx context.Context, repoPath, base, rule, msg string) (string, error) {
+// lessonToBase commits the rule, under heading, on top of origin's base branch in a worktree of its own (the clone's
+// checkout is left as it is) and pushes it there.
+func lessonToBase(ctx context.Context, repoPath, base, heading, rule, msg string) (string, error) {
 	if _, err := gitx.Run(ctx, repoPath, "fetch", "origin", base); err != nil {
 		return "", err
 	}
@@ -138,7 +138,7 @@ func lessonToBase(ctx context.Context, repoPath, base, rule, msg string) (string
 		return "", err
 	}
 	defer gitx.Run(context.WithoutCancel(ctx), repoPath, "worktree", "remove", "--force", wt)
-	hash, err := commitLesson(ctx, wt, rule, msg)
+	hash, err := commitLesson(ctx, wt, heading, rule, msg)
 	if err != nil {
 		return "", err
 	}
@@ -148,15 +148,15 @@ func lessonToBase(ctx context.Context, repoPath, base, rule, msg string) (string
 	return hash, nil
 }
 
-// commitLesson adds the rule to CLAUDE.md at the worktree's root and commits that file alone: what else is
-// staged there stays staged.
-func commitLesson(ctx context.Context, wt, rule, msg string) (string, error) {
+// commitLesson adds the rule under heading to CLAUDE.md at the worktree's root and commits that file alone: what
+// else is staged there stays staged.
+func commitLesson(ctx context.Context, wt, heading, rule, msg string) (string, error) {
 	path := filepath.Join(wt, "CLAUDE.md")
 	md, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(AddRule(string(md), rule)), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(AddRuleUnder(string(md), heading, rule)), 0o644); err != nil {
 		return "", err
 	}
 	if _, err := gitx.Run(ctx, wt, "add", "--", "CLAUDE.md"); err != nil {
@@ -170,17 +170,20 @@ func commitLesson(ctx context.Context, wt, rule, msg string) (string, error) {
 }
 
 // AddRule puts the rule last in CLAUDE.md's lessons section, making the section at the end when there is none.
-func AddRule(md, rule string) string {
+func AddRule(md, rule string) string { return AddRuleUnder(md, LessonsHeading, rule) }
+
+// AddRuleUnder puts the rule last in CLAUDE.md's section under heading ("## Review lessons", "## Navigation"),
+// making the section at the end when there is none.
+func AddRuleUnder(md, heading, rule string) string {
 	item := "- " + rule
 	body := strings.TrimRight(md, "\n")
-	heading := LessonsHeading
 	if strings.TrimSpace(body) == "" {
 		return heading + "\n\n" + item + "\n"
 	}
 	lines := strings.Split(body, "\n")
 	at := -1
 	for i, l := range lines {
-		if l = strings.TrimSpace(l); l == LessonsHeading || l == LegacyLessonsHeading {
+		if l = strings.TrimSpace(l); l == heading || heading == LessonsHeading && l == LegacyLessonsHeading {
 			at = i
 			break
 		}

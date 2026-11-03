@@ -2788,18 +2788,26 @@ async function uploadImage(area, t, file, busy, fail) {
 function statsHTML(s) {
   const period = segs("stats-days", [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"], ["", "All time"]], statsDays, "Statistics period");
   const projects = statsProjects();
+  // The navigation retro is a project's: with none picked, it is the one of the task merged last.
+  if (statsTab === "navigation" && !statsProject && projects.length) {
+    const last = (data?.records || []).filter((r) => r.reviewState === "merged" && projectOf(r)).sort((a, b) => (b.mergedAt || "").localeCompare(a.mergedAt || ""))[0];
+    statsProject = last ? projectOf(last) : projects[0];
+    try { localStorage.setItem("mako-stats-project", statsProject); } catch {}
+    setTimeout(load);
+  }
   const pick = projects.length > 1 || statsProject ? `<label class="stats-project"><span>Project</span><select id="stats-project" aria-label="Project">`
     + `<option value="">All projects</option>${projects.map((p) => `<option value="${esc(p)}"${p === statsProject ? " selected" : ""}>${esc(p)}</option>`).join("")}</select></label>` : "";
   const head = `<div class="stats-head"><h1>Stats</h1>${period}${pick}</div>`;
   const tabs = `<nav class="stats-tabs" role="tablist" aria-label="Stats">${STATS_TABS.map(([k, l]) =>
     `<button type="button" role="tab" data-tab="${k}" aria-selected="${k === statsTab}" class="${k === statsTab ? "on" : ""}">${l}</button>`).join("")}</nav>`;
+  if (statsTab === "navigation") return `<div class="stats">${head}${tabs}${navTab()}</div>`;
   if (!s?.taken && !statsDays && !statsProject) return `<div class="empty">Pick a task on the left. Statistics will appear once the agent takes its first task.</div>`;
   if (!s?.taken) return `<div class="stats">${head}${tabs}<div class="text muted">The agent took no tasks in this period</div></div>`;
   const tab = { time: timeTab, cost: costTab, quality: qualityTab, context: contextTab }[statsTab] || overviewTab;
   return `<div class="stats">${head}${tabs}${tab(s)}</div>`;
 }
 
-const STATS_TABS = [["overview", "Overview"], ["time", "Time"], ["cost", "Cost"], ["quality", "Quality"], ["context", "Context"]];
+const STATS_TABS = [["overview", "Overview"], ["time", "Time"], ["cost", "Cost"], ["quality", "Quality"], ["context", "Context"], ["navigation", "Navigation"]];
 const INFO_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>`;
 const money = (x) => `$${(x || 0).toFixed(2)}`;
 const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
@@ -3205,8 +3213,96 @@ function heavyCard(c) {
   return scard("Heaviest", hs.map(row).join(""), segs("heavy-by", [["files", "Files"], ["commands", "Commands"]], by, "Heaviest"), "grow");
 }
 
+// "Navigation" (#482): the navigation retro of each repository of the project. Mako reads the transcripts of its last
+// merged tasks (where the agents searched long, read the same files again, searched in vain, read docs before
+// editing elsewhere) and the model suggests changes: a line for CLAUDE.md is saved under "## Navigation", a doc out
+// of date or a change to the code becomes a task.
+const NAV_KINDS = { claude_md: "CLAUDE.md", stale_doc: "Out-of-date doc", refactor: "Refactor" };
+// The lines being edited, by "key|id": the stats re-render every few seconds.
+const navEdit = {};
+function navTab() {
+  if (!statsProject) return `<div class="text muted">Pick a project above: the navigation retro reads the agents' transcripts of the last merged tasks of its repository.</div>`;
+  const rs = data?.navRetros || [];
+  if (!rs.length) return `<div class="text muted">${esc(statsProject)} has no merged tasks yet: the navigation retro reads the agents' transcripts of the merged ones.</div>`;
+  return rs.map((x) => navCard(x, rs.length > 1)).join("");
+}
+function navCard(x, several) {
+  const running = x.state === "running";
+  const btn = `<button type="button" class="${x.state === "done" ? "ghost" : "primary"}" data-nav-run="${esc(x.key)}"${running ? " disabled" : ""}>${running ? "Running…" : x.state ? "Run again" : "Navigation retro"}</button>`;
+  const title = `Navigation retro${several ? ` · ${esc(x.repo)}` : ""}`;
+  const about = `Mako reads the agents' transcripts of the last ${x.merged} merged ${plural(x.merged, "task", "tasks")} of ${esc(x.repo)}: where they searched long before their first edit, read the same files again, searched in vain or relied on docs, and suggests what would make the repository easier to navigate.`;
+  let body;
+  if (running) body = `<div class="muted">Reading the transcripts and asking the model… it takes a few minutes.</div>`;
+  else if (x.state === "failed") body = `<div class="nav-err">The retro failed: ${esc(x.error)}</div><div class="muted">${about}</div>`;
+  else if (x.state === "done") {
+    const read = x.tasks?.length || 0, skipped = x.skipped?.length || 0;
+    const when = new Date(x.at).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    body = `<div class="muted">Read ${read} ${plural(read, "task", "tasks")}${skipped ? ` · ${skipped} skipped: no transcript (${x.skipped.map(esc).join(", ")})` : ""} · ${when}</div>`
+      + (x.suggestions || []).map((g) => navSuggestion(x, g)).join("");
+  } else body = `<div class="muted">${about}</div>`;
+  return scard(title, body, btn, "nav-retro");
+}
+function navSuggestion(x, g) {
+  const k = `${x.key}|${g.id}`, open = !g.done;
+  let foot = "";
+  if (g.done === "saved") foot = `<div class="nav-done">Saved to CLAUDE.md</div>`;
+  else if (g.done === "no") foot = `<div class="nav-done">Dismissed</div>`;
+  else if (g.done?.startsWith("task:")) foot = `<div class="nav-done">Task <a href="#${esc(g.done.slice(5))}" data-nav-open="${esc(g.done.slice(5))}">${esc(g.done.slice(5))}</a></div>`;
+  else if (g.kind === "claude_md") foot = `<textarea class="nav-rule-input" rows="2" data-nav-rule="${esc(k)}" aria-label="The line for CLAUDE.md">${esc(navEdit[k] ?? g.rule)}</textarea>
+    <div class="nav-act"><button type="button" class="primary" data-nav-save="${esc(k)}">Save to CLAUDE.md</button><button type="button" class="ghost" data-nav-no="${esc(k)}">No</button></div>`;
+  else foot = `<div class="nav-rule">${esc(g.rule)}</div>
+    <div class="nav-act"><button type="button" class="primary" data-nav-task="${esc(k)}">Create task</button><button type="button" class="ghost" data-nav-no="${esc(k)}">No</button></div>`;
+  return `<div class="nav-sug${open ? "" : " done"}"><div class="nav-sug-h"><span class="nav-kind k-${esc(g.kind)}">${NAV_KINDS[g.kind] || esc(g.kind)}</span><b>${esc(g.title)}</b></div>`
+    + (g.evidence ? `<div class="nav-ev">${esc(g.evidence)}</div>` : "") + foot + `</div>`;
+}
+async function navPost(path, body) {
+  const res = await fetch(path, { method: "POST", body: body ?? "" }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+  if (res.ok === false) toast(res.error, true);
+  return res;
+}
+function bindNav() {
+  const d = $("detail"), split = (k) => { const i = k.lastIndexOf("|"); return [k.slice(0, i), k.slice(i + 1)]; };
+  const find = (k) => { const [key, id] = split(k); const x = (data?.navRetros || []).find((r) => r.key === key); return [x, x?.suggestions?.find((g) => g.id === id), key, id]; };
+  for (const b of d.querySelectorAll("[data-nav-run]")) b.onclick = async () => {
+    b.disabled = true;
+    await navPost(`/api/navretro?key=${encodeURIComponent(b.dataset.navRun)}`);
+    await load();
+  };
+  for (const a of d.querySelectorAll("[data-nav-rule]")) a.oninput = () => (navEdit[a.dataset.navRule] = a.value);
+  for (const b of d.querySelectorAll("[data-nav-save]")) b.onclick = async () => {
+    const k = b.dataset.navSave, [, g, key, id] = find(k);
+    b.disabled = true;
+    const res = await navPost(`/api/navretro/save?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}`, navEdit[k] ?? g?.rule);
+    if (res.ok) { delete navEdit[k]; toast("Saved to CLAUDE.md and pushed to the base branch"); }
+    await load();
+  };
+  for (const b of d.querySelectorAll("[data-nav-no]")) b.onclick = async () => {
+    const [key, id] = split(b.dataset.navNo);
+    await navPost(`/api/navretro/mark?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}&to=no`);
+    await load();
+  };
+  for (const b of d.querySelectorAll("[data-nav-task]")) b.onclick = () => {
+    const [x, g, key, id] = find(b.dataset.navTask);
+    if (!x || !g) return;
+    const desc = `${g.rule}\n\n## Why\n${g.evidence || ""}\n\n_From the navigation retro of ${x.repo}: the agents' transcripts of its last merged tasks._`;
+    const dlg = $("ca-ticket-dlg"), box = $("ca-ticket-form");
+    const close = () => { dlg.close(); box.innerHTML = ""; };
+    taskForm(box, { draft: { title: g.title, desc, tracker: x.trackerId, project: x.project }, onCancel: close, onCreated: async (res) => {
+      close();
+      await navPost(`/api/navretro/mark?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}&to=${encodeURIComponent("task:" + res.id)}`);
+      toast(`Task ${res.id} created`);
+      await load();
+    } });
+    dlg.onclose = () => { box.innerHTML = ""; };
+    dlg.showModal();
+    $("nt-title").focus();
+  };
+  for (const a of d.querySelectorAll("[data-nav-open]")) a.onclick = (e) => { e.preventDefault(); statsOpen = false; select(a.dataset.navOpen); };
+}
+
 // The controls of "Stats": the period, the project, the tabs, the cuts and the "Needs attention" rows.
 function bindStats() {
+  bindNav();
   const d = $("detail");
   for (const b of d.querySelectorAll("#stats-days button")) b.onclick = () => {
     statsDays = b.dataset.v;
@@ -3560,6 +3656,8 @@ function renderDetail() {
     closeTerminal(); closeChat(); shown = ""; $("detail").classList.remove("ws");
     // The period's list is open: the next refresh would close it.
     if (document.activeElement?.id === "stats-project") return;
+    // A navigation retro's line being edited keeps its cursor.
+    if (document.activeElement?.dataset?.navRule != null) return;
     $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Tasks</button>` : "") + statsHTML(data.stats) + faultsHTML(data.faults);
     if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
     bindStats();

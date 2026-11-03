@@ -278,6 +278,20 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .scard.flush .snote, .scard.flush .pad { padding: 10px 18px; }
 .scard-h { display: flex; align-items: center; gap: 8px; min-height: 26px; }
 .scard-h h2 { margin: 0; font-size: 15px; font-weight: 650; flex: 1; }
+/* "Navigation" (#482): the navigation retro's suggestions. */
+.nav-sug { display: flex; flex-direction: column; gap: 6px; padding: 12px 0 2px; border-top: 1px solid var(--line); }
+.nav-sug.done { opacity: .6; }
+.nav-sug-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.nav-kind { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--mute); white-space: nowrap; }
+.nav-kind.k-claude_md { color: var(--accent); border-color: var(--accent); }
+.nav-kind.k-stale_doc { color: var(--warn); border-color: var(--warn); }
+.nav-ev { font-size: 13px; color: var(--mute); }
+.nav-rule { font-size: 13.5px; white-space: pre-wrap; }
+.nav-rule-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px; padding: 6px 8px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+.nav-act { display: flex; gap: 8px; }
+.nav-done { font-size: 12.5px; color: var(--mute); }
+.nav-err { color: var(--err); font-size: 13px; }
 .scard-h .aside { font-size: 12.5px; color: var(--mute); text-align: right; }
 .snote { font-size: 12.5px; color: var(--mute); }
 .swarn { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 8px; font-size: 13px;

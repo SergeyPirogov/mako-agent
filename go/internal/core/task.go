@@ -255,6 +255,40 @@ type Retro struct {
 	Error string `json:"error,omitempty"`
 }
 
+// NavRetro is the navigation retro of a repository: how the agents of its last merged tasks found their way
+// around it (from their transcripts), and what would make it easier for the next ones.
+type NavRetro struct {
+	TrackerID string `json:"trackerId"`
+	Project   string `json:"project"`
+	Repo      string `json:"repo"`
+	At        string `json:"at"`
+	// State: "running", "done" or "failed".
+	State string `json:"state"`
+	Error string `json:"error,omitempty"`
+	// Tasks: the tasks whose transcripts were read; Skipped: those without one.
+	Tasks       []string        `json:"tasks,omitempty"`
+	Skipped     []string        `json:"skipped,omitempty"`
+	Suggestions []NavSuggestion `json:"suggestions,omitempty"`
+}
+
+// Kinds of a navigation retro's suggestion.
+const (
+	NavClaudeMD = "claude_md" // a line or a map for CLAUDE.md
+	NavStaleDoc = "stale_doc" // what of the docs is out of date
+	NavRefactor = "refactor"  // a change to the code, such as splitting a file
+)
+
+// NavSuggestion is one thing the navigation retro suggests, with what in the transcripts shows it.
+type NavSuggestion struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Evidence string `json:"evidence"`
+	Rule     string `json:"rule"`
+	// Done: what became of it: "saved" (in CLAUDE.md), "task:<id>" (a task made of it), "no"; "" while open.
+	Done string `json:"done,omitempty"`
+}
+
 // SelfCheck is your «Check it yourself» tick: when, and the branch's HEAD you looked at.
 type SelfCheck struct {
 	At     string `json:"at"`
@@ -387,6 +421,8 @@ type SavedLesson struct {
 	Branch    string `json:"branch"` // where it was committed
 	Commit    string `json:"commit"`
 	At        string `json:"at"`
+	// Section: "navigation" for a rule of the navigation retro (under its own heading), "" for a review lesson.
+	Section string `json:"section,omitempty"`
 }
 
 // TrackerState is what happened to the issue's status at the last step, shown on the board.
