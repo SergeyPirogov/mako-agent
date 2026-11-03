@@ -315,6 +315,8 @@ var webStrings = map[string]string{
 	"s.mako.download":     "Download",
 
 	// Disk space.
+	"s.d.count.one":        "{n} worktree",
+	"s.d.count.many":       "{n} worktrees",
 	"s.d.counting":         "Counting…",
 	"s.d.mergedOrArchived": "merged or archived",
 	"s.d.notMako":          "not a Mako task",

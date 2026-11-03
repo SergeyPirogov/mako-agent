@@ -36,8 +36,14 @@ body { display: block; }
 .device:last-of-type { border-bottom: 0; }
 .badge.warn { background: color-mix(in srgb, var(--warn) 16%, var(--card)); color: var(--warn); }
 .wt { align-items: flex-start; }
+.device.wt { padding: 10px 0; }
 .wt-pick { padding-top: 2px; }
 .wt-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wt-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wt-title code { font-size: 13px; font-weight: 600; color: var(--fg); }
+.wt-meta { font-size: 12.5px; line-height: 1.4; margin-top: 2px; }
+.wt-git { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-size { white-space: nowrap; font-size: 12.5px; padding-top: 2px; }
 .wt-path span { cursor: copy; font-family: ui-monospace, monospace; font-size: 12px; }
 .wt-path a { margin-left: 8px; }
 .busy [data-open] { pointer-events: none; opacity: .5; }
@@ -742,24 +748,24 @@ function worktreeRow(u, w) {
     w.detached && warn(t("s.d.detached")),
     w.locked && warn(t("s.d.locked")),
     w.prunable && warn(t("s.d.prunable")),
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join("");
   const task = w.task
     ? [esc(w.task), w.taskStatus && esc(w.taskStatus), w.reviewState && esc(w.reviewState), w.executor && esc(w.executor), w.cleanable && t("s.d.mergedOrArchived")].filter(Boolean).join(" · ")
     : t("s.d.notMako");
   const git = [
     w.branch && (w.ahead || w.behind) ? t("s.d.behindBase", { ahead: w.ahead, behind: w.behind, base: esc(u.base || "main") }) : "",
-    w.lastCommit ? t("s.d.commit", { when: diskAgo(w.lastCommit) }) + (w.lastCommitTitle ? ` — ${esc(w.lastCommitTitle)}` : "") : "",
+    w.lastCommit ? t("s.d.commit", { when: diskAgo(w.lastCommit) }) + (w.lastCommitTitle ? ` — <span class="wt-commit" title="${esc(w.lastCommitTitle)}">${esc(w.lastCommitTitle)}</span>` : "") : "",
     w.modifiedAt ? t("s.d.changedFiles", { when: diskAgo(w.modifiedAt) }) : "",
   ].filter(Boolean).join(" · ");
   const k = pickKey(u.repo, w.path);
   return `<div class="device wt" data-row="${esc(k)}"><label class="wt-pick"><input type="checkbox" data-pick="${esc(k)}" ${picked.has(k) ? "checked" : ""}></label>
-    <div class="wt-body"><div><code>${esc(w.branch || w.path.split("/").pop())}</code> ${badges}</div>
-      <div class="muted">${task}</div>
-      ${git ? `<div class="muted">${git}</div>` : ""}
-      <div class="muted wt-path"><span data-copy="${esc(w.path)}" title="${t("s.d.copy")}">${esc(w.path)}</span>
+    <div class="wt-body"><div class="wt-title"><code>${esc(w.branch || w.path.split("/").pop())}</code>${badges}</div>
+      <div class="muted wt-meta">${task}</div>
+      ${git ? `<div class="muted wt-meta wt-git">${git}</div>` : ""}
+      <div class="muted wt-meta wt-path"><span data-copy="${esc(w.path)}" title="${t("s.d.copy")}">${esc(w.path)}</span>
         <a href="#" data-open="${esc(k)}">${t("s.d.finder")}</a></div>
       <div class="muted wt-state"></div></div>
-    <span class="muted">${size(w.bytes)}</span></div>`;
+    <span class="muted wt-size">${size(w.bytes)}</span></div>`;
 }
 // While the worktrees are being removed the choice must not change: renderDisk redraws the list and lifts this.
 function lockDisk(on) {
@@ -781,7 +787,7 @@ async function renderDisk(msg = "") {
   const total = list.reduce((n, u) => n + u.bytes, 0), cleanable = list.reduce((n, u) => n + u.cleanable, 0);
   const freed = list.reduce((n, u) => n + u.cleanableBytes, 0);
   diskNote = total ? size(total) : "";
-  const projects = list.length ? list.map((u) => `<div class="card"><div class="card-head"><label><input type="checkbox" data-all="${esc(u.repo)}"> <b>${esc(u.repo)}</b></label><span class="muted">${u.worktrees.length} worktree · ${size(u.bytes)}</span></div>
+  const projects = list.length ? list.map((u) => `<div class="card"><div class="card-head"><label><input type="checkbox" data-all="${esc(u.repo)}"> <b>${esc(u.repo)}</b></label><span class="muted">${plural(u.worktrees.length, "s.d.count")} · ${size(u.bytes)}</span></div>
       ${u.worktrees.map((w) => worktreeRow(u, w)).join("")}</div>`).join("")
     : `<div class="card muted">${t("s.d.none")}</div>`;
   box.innerHTML = `<div class="card"><div class="row" style="margin-top:0"><b>${t("s.d.total", { size: size(total) })}</b><span class="spacer"></span>
