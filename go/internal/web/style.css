@@ -132,7 +132,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .group.merge, .group.merge:hover { color: var(--ok); }
 .group.merge .ck { flex: none; }
 .group.merge .n { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); font-weight: 600; padding: 1px 7px; border-radius: 8px; }
-.sub.merge { color: var(--ok); font-weight: 600; }
+.sub.merge { color: var(--ok); font-weight: 600; padding-left: 12px; }
 .proj-head .p-sum .ok { color: var(--ok); font-weight: 600; }
 /* By project: a group per project; its heading folds it, folded it says what is in it. */
 .proj { padding-bottom: 6px; }
