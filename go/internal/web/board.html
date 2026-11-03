@@ -636,8 +636,9 @@ const shortProject = (p) => p.split("/").pop();
 const PROJECT_HUES = ["#2f6fde", "#2f9e5b", "#c27c0e", "#7b61d9", "#d14343", "#0f8b8d"];
 const projectDot = (p, cls = "p-dot") => `<i class="${cls}" style="background:${PROJECT_HUES[Math.max(0, liveProjects.indexOf(p)) % PROJECT_HUES.length]}"></i>`;
 const showTrackerMark = () => (data?.trackers || []).length > 1;
-// A task's row: its title (two lines at most); a line with the dot, the number, the badges and the time; and, when it
-// needs room, the status on a line of its own. The number is the short one (#333, PROJ-12), the full id is in the tooltip.
+// A task's row: its title (two lines at most); a meta line with the dot, the number, the badges and the time; a line of
+// chips (priority, kind, estimate) when there are any; and, when it needs room, the status on a line of its own.
+// The number is the short one (#333, PROJ-12), the full id is in the tooltip.
 const shortId = (id) => id.replace(/^.*(?=#\d+$)/, "");
 // The row shows a status with a capital first letter (cap); the strings stay as they are: "agent stopped" is checked on them.
 function taskRow(r) {
@@ -647,10 +648,13 @@ function taskRow(r) {
   // A calm short status ("the agent works") stays in the meta line, so such a card is compact. A warn/err one, a long
   // one, or one next to the review/checks badges has no room there: it gets a line of its own, up to two lines long.
   const merge = groupOf(r) === "merge"; // the group heading already says "Ready to merge"
-  const own = !merge && (!!tone || say.length > 14 || !!badges);
+  // A plain status that only repeats the column's name, which already is the group heading, says nothing: leave it out.
+  const redundant = groupBy !== "project" && !tone && say0 === LABEL[r.column];
+  const own = !merge && !redundant && (!!tone || say.length > 14 || !!badges);
+  const tags = `${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}`;
   return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""} ${merge ? "merge" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
     <span class="t">${esc(r.task.title)}</span>
-    <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}<span class="num" title="${esc(r.id)}">${esc(shortId(r.id))}</span>${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}${own || merge ? "" : `<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>`}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${badges}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span>${own ? `<span class="st2 ${tone}" title="${esc(why)}">${esc(say)}</span>` : ""}</button>`;
+    <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}<span class="num" title="${esc(r.id)}">${esc(shortId(r.id))}</span>${own || merge || redundant ? "" : `<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>`}${badges}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span>${tags ? `<span class="tags">${tags}</span>` : ""}${own ? `<span class="st2 ${tone}" title="${esc(why)}">${esc(say)}</span>` : ""}</button>`;
 }
 // The order inside a group: MRs to review first; the tasks of an agent that waits for you first; "New": the clear and small ones first, the not estimated last.
 const attnRank = (r) => ATTENTION[agentOf(r)?.state] ?? 9;
