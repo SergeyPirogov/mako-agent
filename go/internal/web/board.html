@@ -165,6 +165,7 @@ const ago = (iso) => {
 const agoShort = (iso) => ago(iso).replace(/ ago$/, "");
 const ICON = {
   chevron: `<svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`,
+  check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>`,
   doc: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>`,
   push: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>`,
   external: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>`,
@@ -1226,7 +1227,22 @@ function prioTone(p) {
 }
 const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}" title="Priority: ${esc(t.priority)}">${esc(t.priority)}</span>` : "";
 // ✨: the agent in the terminal does it; only while it runs.
-const fixBtn = (live, kind, label) => live ? `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>` : "";
+// A pressed ✨ stays a disabled check for ASK_HOLD, through the redraws the polling brings; the key is "<task>:<kind>".
+const asked = new Map(), ASK_HOLD = 120000;
+function isAsked(id, kind) {
+  const t = asked.get(`${id}:${kind}`);
+  if (t === undefined) return false;
+  if (Date.now() - t < ASK_HOLD) return true;
+  asked.delete(`${id}:${kind}`);
+  return false;
+}
+function markAsked(id, kind) {
+  asked.set(`${id}:${kind}`, Date.now());
+  setTimeout(() => { if (workOf === id) renderDetail(); }, ASK_HOLD + 100);
+}
+const fixBtn = (id, live, kind, label) => !live ? ""
+  : isAsked(id, kind) ? `<button type="button" class="fix-btn sent" disabled title="Already passed to the agent" aria-label="Already passed to the agent">${ICON.check}</button>`
+  : `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>`;
 const commits = (n) => `${n} ${plural(n, "commit", "commits")}`;
 
 // The branch's name for the panel: the prefix ("feature/") muted, a line may break only after "/" and "-".
@@ -1248,9 +1264,9 @@ function branchCard(r, term) {
   else {
     // [icon, text, button]; when all are fine they share one line.
     const st = [];
-    if (b.behind) st.push(["idle", `${commits(b.behind)} behind ${b.base}`, fixBtn(live, "rebase", `The agent will update the branch from ${b.base}`)]);
+    if (b.behind) st.push(["idle", `${commits(b.behind)} behind ${b.base}`, fixBtn(r.id, live, "rebase", `The agent will update the branch from ${b.base}`)]);
     else st.push(["ok", `Up to date with ${b.base}`, ""]);
-    if (b.unpushed) st.push(["run", `${commits(b.unpushed)} not pushed`, fixBtn(live, "push", "The agent will push the branch")]);
+    if (b.unpushed) st.push(["run", `${commits(b.unpushed)} not pushed`, fixBtn(r.id, live, "push", "The agent will push the branch")]);
     else if (b.pushed) st.push(["ok", "Everything is pushed", ""]);
     if (b.dirty) st.push(["idle", `${b.dirty} ${plural(b.dirty, "file", "files")} not committed`, ""]);
     rows = st.every((x) => x[0] === "ok") ? row("ok", st.map((x) => x[1]).join(" · ")) : st.map((x) => row(x[0], x[1], "", x[2])).join("");
@@ -1294,7 +1310,7 @@ function mrCard(r, term) {
   const num = r.prUrl?.match(/\/(?:merge_requests|pull)\/(\d+)/)?.[1];
   const state = c?.state ?? (r.reviewState || (r.prUrl ? "open" : ""));
   const waitCI = r.status === "handed-off" && !!r.prUrl && state === "open" && (!c || ciRunning(c.ci));
-  const fix = (kind, label) => fixBtn(live, kind, label);
+  const fix = (kind, label) => fixBtn(r.id, live, kind, label);
   let rows = "";
   if (!r.prUrl) rows = `<div class="muted mr-none">None yet: the agent opens the MR when it finishes</div>`;
   else if (review?.error) rows = `<div class="mr-none mr-err">${esc(review.error)}</div>`;
@@ -1324,8 +1340,9 @@ function mrCard(r, term) {
   // The MR's own actions sit in its header, as icons: open it, update it, merge it.
   const icon = (attr, label, name, cls = "", disabled = false) =>
     `<button type="button" class="icon ${cls}" ${attr} title="${esc(label)}" aria-label="${esc(label)}" ${disabled ? "disabled" : ""}>${ICON[name]}</button>`;
-  const open = live && !r.prUrl ? icon(`data-ask="open"`, "Open MR: the agent commits, pushes and opens it", "pr") : "";
-  const update = live && r.prUrl && state === "open" ? icon(`data-ask="push"`, "Update MR: the agent commits and pushes what it has done", "push") : "";
+  const ask = (kind, label, name) => isAsked(r.id, kind) ? icon(`data-ask="${kind}"`, "Already passed to the agent", "check", "sent", true) : icon(`data-ask="${kind}"`, label, name);
+  const open = live && !r.prUrl ? ask("open", "Open MR: the agent commits, pushes and opens it", "pr") : "";
+  const update = live && r.prUrl && state === "open" ? ask("push", "Update MR: the agent commits and pushes what it has done", "push") : "";
   const reviewing = r.reviewStep === "running", fixing = r.reviewStep === "fixing", held = mergeHeld(r);
   const merge = c?.state === "open" && !waitCI ? icon("data-merge", reviewing ? "The reviewer agent is reviewing the branch: merge once it finishes"
     : fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
@@ -1743,7 +1760,7 @@ async function mrAction(id, action, kind = "") {
   const failed = res.ok === false || !!res.error;
   const note = failed ? `⚠ ${res.error}` : "";
   // Success is a toast only: the card header already shows the merged/closed state, so no note under the card.
-  if (failed) { if (action === "ask") toast(note, true); }
+  if (failed) { if (action === "ask") { asked.delete(`${id}:${kind}`); toast(note, true); } }
   else toast({ merge: "MR merged", close: "MR closed without merging" }[action] ?? "✨ Passed to the agent");
   // The answer may come once another task is open (a merged task leaves the list): the note is this task's only.
   if (workOf !== id) return;
@@ -3297,8 +3314,10 @@ function primaryHTML(r) {
     case "stop": return b("stop", `${ICON.stop}Stop`, "", "", "Stop the agent");
     case "resume": return b("resume", `${ICON.play}Resume`, "primary", "", "Continue the conversation");
     case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
-    case "fix-conflicts": return `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>` + openMR(r);
-    case "fix-ci": return `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>` + openMR(r);
+    case "fix-conflicts": return (isAsked(r.id, "conflicts") ? `<button class="primary" disabled title="Already passed to the agent">Passed to the agent…</button>`
+      : `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>`) + openMR(r);
+    case "fix-ci": return (isAsked(r.id, "ci") ? `<button class="primary" disabled title="Already passed to the agent">Passed to the agent…</button>`
+      : `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>`) + openMR(r);
     case "merge": return `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
     // CI still running, or the agent is in Orca: the MR is where to look.
     case "open-mr": return openMR(r, "primary");
@@ -3745,7 +3764,7 @@ function renderDetail() {
     try { localStorage.setItem("mako-diff", diffMode); } catch {}
     renderDetail();
   };
-  for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; btn.classList.add("busy"); mrAction(r.id, "ask", btn.dataset.ask); };
+  for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; btn.classList.add("busy"); markAsked(r.id, btn.dataset.ask); mrAction(r.id, "ask", btn.dataset.ask); };
   for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = async () => {
     if (await askConfirm("Merge the MR? The task branch will be deleted and the task will get its final status.", { ok: "Merge" })) { btn.disabled = true; mrAction(r.id, "merge"); }
   };
