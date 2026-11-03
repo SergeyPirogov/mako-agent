@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -352,17 +353,34 @@ func TestReviewRetry(t *testing.T) {
 	d.mu.Lock()
 	delete(d.reviewing, id) // for the cleanup's settle
 	d.mu.Unlock()
+}
 
-	// Nor while the agent is still judging whether a review is needed; a judgement that never ended does not hold it.
-	d.Store.Update(id, func(r *core.Record) { r.Assessment = &core.Assessment{At: now(), State: "running"} })
-	if err := d.MergeReview(context.Background(), id); err == nil || !strings.Contains(err.Error(), "still judging") {
+// The MR is not merged while the agent is still judging whether a review is needed; a judgement that started over
+// 5 minutes ago and never ended does not hold it.
+func TestMergeReviewWaitsForAssessment(t *testing.T) {
+	d, _, id, _, _, _ := reviewSetup(t)
+	ctx := context.Background()
+	d.Store.Update(id, func(r *core.Record) {
+		r.PRURL = "https://github.com/o/r/pull/1"
+		r.Assessment = &core.Assessment{At: now(), State: "running"}
+	})
+	if err := d.MergeReview(ctx, id); err == nil || !strings.Contains(err.Error(), "still judging") {
 		t.Fatalf("merge during an assessment: %v", err)
 	}
+	// The verdict is in: the merge goes on past the check, to the tracker.
+	d.Store.Update(id, func(r *core.Record) { r.Assessment = &core.Assessment{At: now(), State: "done"} })
+	doneErr := d.MergeReview(ctx, id)
+	// A stale judgement is no different from a finished one.
 	longAgo := time.Now().Add(-6 * time.Minute).UTC().Format(time.RFC3339Nano)
 	d.Store.Update(id, func(r *core.Record) { r.Assessment = &core.Assessment{At: longAgo, State: "running"} })
-	if err := d.MergeReview(context.Background(), id); err != nil && strings.Contains(err.Error(), "still judging") {
-		t.Fatalf("merge held by a stale assessment: %v", err)
+	staleErr := d.MergeReview(ctx, id)
+	if staleErr != nil && strings.Contains(staleErr.Error(), "still judging") {
+		t.Fatalf("merge held by a stale assessment: %v", staleErr)
 	}
+	if fmt.Sprint(staleErr) != fmt.Sprint(doneErr) {
+		t.Fatalf("a stale judgement is treated unlike a finished one: %v vs %v", staleErr, doneErr)
+	}
+	t.Logf("past the check: %v", staleErr)
 }
 
 // «Пропустити»: the round is kept as skipped, «Робити» can still start one, and it goes in its place.
