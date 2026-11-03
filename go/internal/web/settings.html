@@ -365,8 +365,8 @@ function renderTrackers() {
         e.target.disabled = false;
       }
     };
-    card.querySelector("[data-del]").onclick = () => {
-      if (!confirm(t("s.tr.deleteAsk", { name: NAMES[tk.type] }))) return;
+    card.querySelector("[data-del]").onclick = async () => {
+      if (!(await askConfirm(t("s.tr.deleteAsk", { name: NAMES[tk.type] }), { ok: t("s.confirm.delete"), danger: true }))) return;
       cfg.trackers.splice(i, 1);
       changed();
       show(cfg.trackers.length ? "tracker:0" : "add");
@@ -815,7 +815,7 @@ async function renderDisk(msg = "") {
   $("disk-remove").onclick = async () => {
     const items = [...picked].map((k) => { const [repo, path] = JSON.parse(k); return { repo, path }; });
     const bytes = [...picked].reduce((s, k) => s + (bytesOf.get(k) || 0), 0);
-    if (!confirm(t("s.d.confirm", { n: items.length, size: size(bytes) }))) return;
+    if (!(await askConfirm(t("s.d.confirm", { n: items.length, size: size(bytes) }), { ok: t("s.confirm.remove"), danger: true }))) return;
     lockDisk(true);
     const post = async (items, force) => (await fetch("/api/settings/worktrees/remove", { method: "POST", body: JSON.stringify({ items, force }) })).json();
     const rowOf = (item) => [...box.querySelectorAll("[data-row]")].find((r) => r.dataset.row === pickKey(item.repo, item.path));
@@ -859,7 +859,7 @@ async function renderDisk(msg = "") {
     if (keptItems.length) {
       // Their changes would go with them: ask again.
       const rows = keptItems.map(({ k }) => `${k.path} (${t("s.d.dirty", { n: k.dirty })}, ${t("s.d.unpushed", { n: k.unpushed })})`).join("\n");
-      if (confirm(t("s.d.confirmForce", { list: rows }))) {
+      if (await askConfirm(t("s.d.confirmForce", { list: rows }), { ok: t("s.confirm.remove"), danger: true })) {
         await run(keptItems.map((x) => x.item), true);
       } else {
         kept = keptItems;
@@ -943,7 +943,7 @@ async function renderPhone(qr) {
     b.onclick = async () => {
       const action = b.dataset.p;
       if (action === "refresh") return renderPhone();
-      if (action === "remove" && !confirm(t("s.p.removeAsk"))) return;
+      if (action === "remove" && !(await askConfirm(t("s.p.removeAsk"), { ok: t("s.confirm.disconnect"), danger: true }))) return;
       b.disabled = true;
       const query = b.dataset.id ? `?id=${encodeURIComponent(b.dataset.id)}` : b.dataset.public ? "?public=1" : "";
       if (action === "serve" || action === "unserve") b.textContent = t("s.p.wait");

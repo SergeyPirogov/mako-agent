@@ -52,20 +52,20 @@ static NSString *L(NSString *key) {
 - (void)webView:(WKWebView *)wv runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))done {
 	NSAlert *alert = [NSAlert new];
 	alert.messageText = message;
-	[alert addButtonWithTitle:@"OK"];
+	[alert addButtonWithTitle:L(@"menu.ok")];
 	[alert beginSheetModalForWindow:makoWindow completionHandler:^(NSModalResponse r) { done(); }];
 }
 - (void)webView:(WKWebView *)wv runJavaScriptConfirmPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(BOOL))done {
 	NSAlert *alert = [NSAlert new];
 	alert.messageText = message;
-	[alert addButtonWithTitle:@"OK"];
+	[alert addButtonWithTitle:L(@"menu.ok")];
 	[alert addButtonWithTitle:L(@"menu.cancel")];
 	[alert beginSheetModalForWindow:makoWindow completionHandler:^(NSModalResponse r) { done(r == NSAlertFirstButtonReturn); }];
 }
 - (void)webView:(WKWebView *)wv runJavaScriptTextInputPanelWithPrompt:(NSString *)prompt defaultText:(NSString *)text initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(NSString *))done {
 	NSAlert *alert = [NSAlert new];
 	alert.messageText = prompt;
-	[alert addButtonWithTitle:@"OK"];
+	[alert addButtonWithTitle:L(@"menu.ok")];
 	[alert addButtonWithTitle:L(@"menu.cancel")];
 	NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
 	field.stringValue = text ?: @"";
@@ -335,7 +335,6 @@ import "C"
 
 import (
 	"encoding/json"
-	"strings"
 	"unsafe"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
@@ -385,13 +384,7 @@ func Notify(n notify.Notice) bool {
 
 // Relocalize gives the window's menu and dialogs the words of Mako's language now.
 func Relocalize() {
-	words := map[string]string{}
-	for k, v := range i18n.WebStrings() {
-		if strings.HasPrefix(k, "menu.") || k == "tray.quit" {
-			words[k] = v
-		}
-	}
-	data, _ := json.Marshal(words)
+	data, _ := json.Marshal(i18n.Keys("menu.", "tray.quit"))
 	s := C.CString(string(data))
 	defer C.free(unsafe.Pointer(s))
 	C.makoSetWords(s)

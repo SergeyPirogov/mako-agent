@@ -1452,6 +1452,14 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 #redo textarea { resize: vertical; }
 #redo textarea:focus, #redo input:focus { outline: none; border-color: var(--accent); }
 .redo-a { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12px; }
+/* Mako's own confirmation (askConfirm in theme.js) */
+.confirm-dlg { width: 420px; max-width: calc(100vw - 32px); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); }
+.confirm-dlg::backdrop { background: rgb(0 0 0 / .35); }
+.confirm-box { padding: 18px 20px; }
+.confirm-dlg p { margin: 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.confirm-a { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.confirm-a button.danger { color: #fff; background: var(--err); border-color: var(--err); font-weight: 600; }
+.confirm-a button.danger:hover { opacity: .9; background: var(--err); }
 /* The task tab: the facts as chips, then a card per part of the task. */
 .tchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 16px; }
 .tchip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 999px;

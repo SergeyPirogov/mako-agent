@@ -1,4 +1,4 @@
-// Shared by the board and the settings: the words (English only) and the theme button in the header.
+// Shared by the board and the settings: the words (English only), the confirmation dialog and the theme button in the header.
 
 // I18N: the pages' words (GET /api/i18n); t picks one, {name} filled from vars.
 let I18N = {};
@@ -20,6 +20,40 @@ async function loadI18n() {
   for (const el of document.querySelectorAll("[data-t-ph]")) el.placeholder = t(el.dataset.tPh);
   window.dispatchEvent(new Event("mako-i18n"));
   return LANG;
+}
+
+// askConfirm: Mako's own confirmation instead of the window's confirm(): resolves true on OK, false on Cancel, Esc
+// or a click outside. Focus starts on OK (on Cancel when danger, so a stray Enter does not destroy anything); a
+// destructive OK is red. {ok, cancel} are the buttons' labels.
+function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.cancel"), danger = false } = {}) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement("dialog");
+    dlg.className = "confirm-dlg";
+    dlg.setAttribute("aria-label", message);
+    const text = document.createElement("p");
+    text.textContent = message;
+    const actions = document.createElement("div");
+    actions.className = "confirm-a";
+    const okBtn = document.createElement("button"), noBtn = document.createElement("button");
+    okBtn.type = noBtn.type = "button";
+    okBtn.textContent = ok; noBtn.textContent = cancel;
+    okBtn.className = danger ? "danger" : "primary";
+    // The buttons and a click outside answer at once; Esc closes the dialog, and that is a cancel.
+    let done = false;
+    const answer = (yes) => { if (done) return; done = true; resolve(yes); dlg.remove(); };
+    okBtn.onclick = () => answer(true);
+    noBtn.onclick = () => answer(false);
+    actions.append(noBtn, okBtn);
+    const box = document.createElement("div");
+    box.className = "confirm-box";
+    box.append(text, actions);
+    dlg.append(box);
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) answer(false); });
+    dlg.addEventListener("close", () => answer(false));
+    document.body.append(dlg);
+    dlg.showModal();
+    (danger ? noBtn : okBtn).focus();
+  });
 }
 
 (() => {

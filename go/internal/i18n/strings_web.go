@@ -8,6 +8,9 @@ var webStrings = map[string]string{
 	"theme.light": "Theme: light",
 	"theme.dark":  "Theme: dark",
 
+	"b.confirm.ok":     "OK",
+	"b.confirm.cancel": "Cancel",
+
 	// The settings page.
 	"s.title":           "Settings",
 	"s.toBoard":         "← Board",
@@ -76,6 +79,9 @@ var webStrings = map[string]string{
 	"s.tr.pauseHint":          "Don't look for new tasks in this tracker, e.g. when the VPN is off. Other trackers are searched; tasks already taken go on",
 	"s.tr.check":              "Check the connection",
 	"s.tr.delete":             "Delete",
+	"s.confirm.delete":        "Delete",
+	"s.confirm.remove":        "Remove",
+	"s.confirm.disconnect":    "Disconnect",
 	"s.tr.deleteAsk":          "Delete the tracker {name}?",
 	"s.tr.connected":          "✓ Connected: {me}",
 	"s.tr.paused":             "Paused",

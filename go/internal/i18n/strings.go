@@ -94,6 +94,7 @@ var goStrings = map[string][2]string{
 	"menu.close":     {"Close", "Закрити"},
 	"menu.minimize":  {"Minimize", "Згорнути"},
 	"menu.cancel":    {"Cancel", "Скасувати"},
+	"menu.ok":        {"OK", "OK"},
 
 	// The issue, the merge request, the commits.
 	"comment.summary":          {"What was done:", "Що зроблено:"},
