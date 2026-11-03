@@ -438,7 +438,7 @@ func (s *Server) Handler() http.Handler {
 		case s.Release != nil:
 			err = s.Release.Check(ctx)
 		default:
-			err = errors.New("Updates are unavailable: dev build")
+			err = errors.New("updates are unavailable: dev build")
 		}
 		writeJSON(w, s.makoInfo(err))
 	})

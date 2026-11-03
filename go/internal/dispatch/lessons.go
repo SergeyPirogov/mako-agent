@@ -62,7 +62,7 @@ func (d *Dispatcher) suggestLesson(id, message string) {
 	if err != nil || rule == "" {
 		return
 	}
-	d.Store.Update(id, func(r *core.Record) { r.Lesson = &core.Lesson{Rule: rule, From: clipText(message, 300)} })
+	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Lesson = &core.Lesson{Rule: rule, From: clipText(message, 300)} })
 	d.Log(id, "Mako suggests a lesson for CLAUDE.md: "+rule)
 }
 

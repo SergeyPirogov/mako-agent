@@ -409,7 +409,7 @@ func (d *Dispatcher) pushes(r core.Record) bool { return d.Config().Orca.MRBy !=
 // setReview puts the round in the task's record: in place of its «running» or «skipped» one, or of one that
 // failed on the same commit, or as a new one.
 func (d *Dispatcher) setReview(id string, a core.AgentReview) {
-	d.Store.Update(id, func(r *core.Record) {
+	d.Store.UpdateIfExists(id, func(r *core.Record) {
 		if replaces(r.AgentReviews, a.Commit) {
 			// A new slice, not a write in place: the copies Store.Get gave out share the old one.
 			n := len(r.AgentReviews)

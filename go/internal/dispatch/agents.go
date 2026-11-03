@@ -303,7 +303,7 @@ func (d *Dispatcher) summarize(ctx context.Context, r core.Record, baseBranch, r
 		d.Fault(r.ID, "summary not written", err)
 		return
 	}
-	d.Store.Update(r.ID, func(r *core.Record) { r.Summary = text })
+	d.Store.UpdateIfExists(r.ID, func(r *core.Record) { r.Summary = text })
 	d.Log(r.ID, "agent work summary written")
 	if !o.SummaryComment {
 		return

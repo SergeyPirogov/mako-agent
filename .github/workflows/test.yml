@@ -1,5 +1,4 @@
-# Formatting, vet, staticcheck, govulncheck and the tests on every push to main and every pull request.
-# A pull request cannot merge until these pass (branch protection on main).
+# Format, vet, staticcheck, govulncheck and the race-checked tests on every push and pull request.
 name: Test
 
 on:
@@ -10,8 +9,9 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request makes the older run pointless.
 concurrency:
-  group: test-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,34 +21,30 @@ jobs:
       run:
         working-directory: go
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
-      - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
-      - name: staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
-      - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - name: tests with the race detector
-        run: go test -race ./...
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: go test -race ./...
 
-  # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them, for both architectures.
+  # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them.
   go-mac:
     runs-on: macos-15
     defaults:
       run:
         working-directory: go
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
       - run: go vet ./...
-      - run: go test ./...
-      - run: CGO_ENABLED=1 GOARCH=arm64 go build -o /dev/null ./cmd/mako
+      - run: go test -race ./...
       - run: CGO_ENABLED=1 GOARCH=amd64 go build -o /dev/null ./cmd/mako
+      - run: go build -o mako ./cmd/mako && ls -la mako

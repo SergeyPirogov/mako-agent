@@ -79,6 +79,7 @@ type Record struct {
 	Repo           string        `json:"repo,omitempty"`
 	Executor       string        `json:"executor,omitempty"`
 	UpdatedAt      string        `json:"updatedAt"`
+	CreatedAt      string        `json:"createdAt,omitempty"` // when Mako first saw the task
 	SnoozedUntil   int64         `json:"snoozedUntil,omitempty"`
 	PostponedByYou bool          `json:"postponedByYou,omitempty"`
 	StartedAt      string        `json:"startedAt,omitempty"`

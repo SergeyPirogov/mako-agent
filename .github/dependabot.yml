@@ -1,3 +1,4 @@
+# Weekly updates of the Go modules and of the pinned GitHub Actions.
 version: 2
 updates:
   - package-ecosystem: gomod
@@ -5,9 +6,12 @@ updates:
     schedule:
       interval: weekly
     groups:
-      go-deps:
-        patterns: ["*"]
+      golang-x:
+        patterns: ["golang.org/x/*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

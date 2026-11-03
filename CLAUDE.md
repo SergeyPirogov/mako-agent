@@ -3,7 +3,7 @@
 Mako — застосунок для Mac на Go (один бінарник): бере задачі з GitLab/GitHub/Jira, запускає Claude Code у worktree і веде
 задачу до мерджу. Код у `go/`, дошка — `go/internal/web` (`board.html`, `settings.html`, `style.css`), логіка — `go/internal/dispatch`,
 трекери — `go/internal/trackers`, агент — `go/internal/chat` і `go/internal/term`. Опис кожної частини: `docs/features.md`,
-запуск і збірка: `docs/development.md`.
+запуск і збірка: `docs/development.md`, як ми працюємо з задачами й PR: `CONTRIBUTING.md`.
 
 `main` — це продакшен: Mako оновлює себе з нього. Тому в `main` потрапляє лише те, що перевірено.
 
@@ -12,7 +12,10 @@ Mako — застосунок для Mac на Go (один бінарник): б
 Обовʼязково, без винятків:
 
 ```sh
-cd go && gofmt -l . && go vet ./... && go test -race ./...
+cd go
+gofmt -l . && go vet ./... && go test -race ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 ```
 
 Усе має бути зелене і `gofmt -l` порожній. Якщо щось не проходить і це не твоя зміна — скажи в MR, не обходь.
@@ -25,7 +28,7 @@ cd go && gofmt -l . && go vet ./... && go test -race ./...
 - **Дошка і налаштування** (`go/internal/web/*.html`, `style.css`, `theme.js`): скріншоти «до» і «після» через
   `mako screenshot -name before -rev origin/main` і `mako screenshot -name after` (сторінка `-page /`, `/settings` або
   `/#<id задачі>`). Перевір обидві теми й ширину телефона (`-size 390x844`), якщо зміна зачіпає список, картку або шапку.
-  Нові тексти на сторінках — через ключі в `go/internal/i18n/strings_web.go`; тест `TestPagesUseKnownKeys` ловить ключ,
+  Нові тексти на сторінках — через ключі в `go/internal/i18n/strings_web.go`; тест `TestEveryKeyUsedExists` ловить ключ,
   якого нема.
 - **`state.json`, `mako.config.json`, `.env`, `phones.json`**: старі файли мають читатись далі. Зміна формату —
   з міграцією і тестом на старий формат. Нове поле в конфігу — також у `mako.config.example.json` і в `/settings`.
@@ -45,5 +48,10 @@ cd go && gofmt -l . && go vet ./... && go test -race ./...
 
 ## Перевірки CI
 
-`gofmt`, `go vet`, `staticcheck` (конфіг `go/staticcheck.conf`), `govulncheck`, `go test -race` на Ubuntu; тести й збірка
-cgo для arm64 і amd64 на macOS; перевірка опису MR. Усі мають бути зеленими до мерджу.
+`gofmt`, `go vet`, `staticcheck`, `govulncheck`, `go test -race` на Ubuntu; тести й збірка cgo для обох архітектур на
+macOS; перевірка опису MR (`pr-check.yml`). Усі мають бути зеленими до мерджу. Розділ «Review lessons» нижче пише сам
+Mako з ваших правок агенту: не редагуй його руками.
+
+## Review lessons
+
+- Кожна нова чи змінена поведінка (маршрут, гілка, ключ перекладу, виправлення помилки) має мати тест у тому ж PR, зокрема на обробку помилок. Якщо для цього шаблону чи фронтенду тестів немає, опишіть ручну перевірку в описі PR.

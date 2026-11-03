@@ -167,10 +167,7 @@ func (d *Dispatcher) replyToReview(id string, threads []trackers.Thread) {
 // spending: ctx whose Claude Code calls add what they cost to the task's phase.
 func (d *Dispatcher) spending(ctx context.Context, id, phase string) context.Context {
 	return writer.WithSpend(ctx, func(s writer.Spend) {
-		if _, ok := d.Store.Get(id); !ok { // gone meanwhile: Update would make it again
-			return
-		}
-		d.Store.Update(id, func(r *core.Record) {
+		d.Store.UpdateIfExists(id, func(r *core.Record) { // gone meanwhile: Update would make it again
 			r.AddSpend(phase, s.USD, s.Usage)
 			if phase == core.PhaseWork { // Mako's notes on the work (summary, MR text): not the agent's context
 				return

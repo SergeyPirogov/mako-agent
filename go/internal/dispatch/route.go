@@ -82,7 +82,7 @@ func (d *Dispatcher) routeOf(r core.Record, phase string) core.Route {
 
 // noteRoute keeps the route a phase of the task runs with, for the card and the stats.
 func (d *Dispatcher) noteRoute(id, phase string, route core.Route) {
-	d.Store.Update(id, func(r *core.Record) { r.SetRoute(phase, route) })
+	d.Store.UpdateIfExists(id, func(r *core.Record) { r.SetRoute(phase, route) })
 }
 
 // runRoute: the route a one-shot run of the task's phase starts with, kept in its metrics.

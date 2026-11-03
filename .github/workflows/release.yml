@@ -14,21 +14,27 @@ jobs:
   mac:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
-      - run: test -z "$(gofmt -l .)" && go vet ./... && go test ./...
+      - run: test -z "$(gofmt -l .)"
         working-directory: go
-      - run: go/packaging/mac/build-app.sh ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-      - uses: softprops/action-gh-release@v2
+      - run: go vet ./...
+        working-directory: go
+      - run: go test ./...
+        working-directory: go
+      # SOURCE empty: the runner's checkout is not a clone on the user's Mac, so the binary must not name it.
+      - run: SOURCE= go/packaging/mac/build-app.sh ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: go/dist/*.zip
-      - uses: actions/upload-artifact@v4
+          generate_release_notes: true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           name: Mako-mac

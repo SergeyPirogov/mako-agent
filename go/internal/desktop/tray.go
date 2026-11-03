@@ -5,9 +5,11 @@ package desktop
 import (
 	"context"
 	_ "embed"
+	"log"
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/systray"
@@ -31,17 +33,55 @@ func Available() bool {
 	return runtime.GOOS != "linux" || os.Getenv("DBUS_SESSION_BUS_ADDRESS") != ""
 }
 
-// Run shows the menu and runs Mako until «Вийти» or ctx ends. It must be called on the main goroutine.
+// startTimeout: how long Run waits for App.Start to return after the menu is gone.
+const startTimeout = 5 * time.Second
+
+// quitHook is what a quit asked for by the system (⌘Q, Quit in the Dock) does: end Run the usual way.
+var quitHook atomic.Pointer[context.CancelFunc]
+
+// requestQuit ends Run as «Вийти» does. AppKit would otherwise exit the process at once, with the agents running.
+func requestQuit() {
+	if f := quitHook.Load(); f != nil {
+		(*f)()
+	}
+}
+
+// waitStart waits for App.Start to return, so nothing is stopped while it still writes the state; false when it
+// did not in time.
+func waitStart(running *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		running.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// Run shows the menu and runs Mako until «Вийти», a quit from the system or ctx ends; it returns once App.Start has
+// returned (or startTimeout passed). It must be called on the main goroutine.
 func Run(ctx context.Context, app App) {
 	ctx, cancel := context.WithCancel(ctx)
+	quitHook.Store(&cancel)
+	defer quitHook.Store(nil)
 	go func() {
 		<-ctx.Done()
 		systray.Quit()
 	}()
-	systray.Run(func() { ready(ctx, cancel, app) }, cancel)
+	var running sync.WaitGroup
+	running.Add(1)
+	systray.Run(func() { ready(ctx, cancel, app, &running) }, cancel)
+	cancel()
+	if !waitStart(&running, startTimeout) {
+		log.Printf("quit: Mako's loop did not stop in %s", startTimeout)
+	}
 }
 
-func ready(ctx context.Context, quit context.CancelFunc, app App) {
+func ready(ctx context.Context, quit context.CancelFunc, app App, running *sync.WaitGroup) {
 	normal, attention := trayIcon, trayAttention
 	if runtime.GOOS == "darwin" {
 		normal, attention = macIcon, macAttention
@@ -51,6 +91,7 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 	if HasWindow() {
 		OnReopen(app.BoardURL)
 		NotificationsOn(app.BoardURL)
+		InterceptQuit()
 	}
 
 	headline := systray.AddMenuItem("Mako", "")
@@ -155,7 +196,10 @@ func ready(ctx context.Context, quit context.CancelFunc, app App) {
 	}
 	refresh()
 
-	go app.Start(ctx)
+	go func() {
+		defer running.Done()
+		app.Start(ctx)
+	}()
 	go func() {
 		tick := time.NewTicker(2 * time.Second)
 		defer tick.Stop()

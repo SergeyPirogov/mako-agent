@@ -47,7 +47,7 @@ func FindChrome() (string, error) {
 			return p, nil
 		}
 	}
-	return "", errors.New("Chrome or Chromium not found: install it or set the path in CHROME")
+	return "", errors.New("no Chrome or Chromium found: install it or set the path in CHROME")
 }
 
 // Capture photographs url with headless Chrome into out (PNG), the window width×height; wait is how long the
@@ -85,7 +85,7 @@ func Capture(ctx context.Context, chrome, url, out string, width, height int, wa
 		if err == nil {
 			err = statErr
 		}
-		return fmt.Errorf("Chrome did not take a screenshot: %v\n%s", err, tail(string(msg), 800))
+		return fmt.Errorf("no screenshot from Chrome: %v\n%s", err, tail(string(msg), 800))
 	}
 	if window != width {
 		return crop(out, width, height)
@@ -251,7 +251,7 @@ func Serve(ctx context.Context, bin, home string, port int) (stop func(), err er
 			if strings.Contains(msg, "flag provided but not defined") {
 				return nil, errors.New("this version of Mako cannot run read-only (-readonly) yet: cannot take the \"before\" screenshot from it")
 			}
-			return nil, fmt.Errorf("Mako failed to start:\n%s", tail(msg, 2000))
+			return nil, fmt.Errorf("the Mako under test failed to start:\n%s", tail(msg, 2000))
 		case <-ctx.Done():
 			stop()
 			return nil, ctx.Err()
@@ -266,7 +266,7 @@ func Serve(ctx context.Context, bin, home string, port int) (stop func(), err er
 		time.Sleep(200 * time.Millisecond)
 	}
 	stop()
-	return nil, fmt.Errorf("Mako did not respond within 30 s:\n%s", tail(out.String(), 2000))
+	return nil, fmt.Errorf("no answer from Mako within 30 s:\n%s", tail(out.String(), 2000))
 }
 
 func tail(s string, n int) string {

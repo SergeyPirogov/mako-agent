@@ -1,16 +1,16 @@
 :root {
   color-scheme: light dark;
-  --bg: #fbfbfa; --card: #fff; --fg: #1c1d1f; --mute: #6f7277; --faint: #9a9da2; --line: #e7e7e4; --hover: #f3f3f1;
+  --bg: #fbfbfa; --card: #fff; --fg: #1c1d1f; --mute: #6f7277; --faint: #71747a; --line: #e7e7e4; --hover: #f3f3f1;
   --accent: #2f6fde; --ok: #2f9e5b; --warn: #c27c0e; --err: #d14343; --purple: #7b61d9;
   --primary: #1c1d1f; --primary-fg: #fff; --sel: #eef3fd;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #6c6f75; --line: #26282c; --hover: #1d1f22;
+  :root:not([data-theme="light"]) { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #8a8d93; --line: #26282c; --hover: #1d1f22;
     --accent: #6b9bff; --ok: #4cc27f; --warn: #e5a23b; --err: #f07070; --purple: #a493f5; --primary: #e9e9ea; --primary-fg: #111214; --sel: #1b2333; color-scheme: dark; }
 }
-:root[data-theme="dark"] { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #6c6f75; --line: #26282c; --hover: #1d1f22;
+:root[data-theme="dark"] { --bg: #111214; --card: #17181b; --fg: #e9e9ea; --mute: #9b9ea4; --faint: #8a8d93; --line: #26282c; --hover: #1d1f22;
   --accent: #6b9bff; --ok: #4cc27f; --warn: #e5a23b; --err: #f07070; --purple: #a493f5; --primary: #e9e9ea; --primary-fg: #111214; --sel: #1b2333; color-scheme: dark; }
 :root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; }
@@ -47,7 +47,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .wip { color: var(--mute); font-size: 13px; white-space: nowrap; flex: none; }
 .wip b { color: var(--fg); }
 .wip.full b { color: var(--warn); }
-.wip .sl { display: none; }
+.wip .sl, .wip .ws { display: none; }
 .waiting-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
   background: color-mix(in srgb, var(--warn) 14%, var(--card)); color: var(--warn); white-space: nowrap; }
 .waiting-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
@@ -171,8 +171,13 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .item .t { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: normal; line-height: 18px; }
 .item .m { display: flex; gap: 6px; align-items: center; height: 16px; font-size: 11.5px; color: var(--mute); min-width: 0; overflow: hidden; }
 .item .m > * { flex: none; white-space: nowrap; }
-.item .m > :is(.prio, .kind, .size) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.item .m > .say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.item .tags { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 11.5px; min-width: 0; }
+.item .tags > * { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* The short status stays whole; when the line is tight, the labels beside it shrink (#515). */
+.item:not(.rq) .m > .say { flex: none; }
+/* A review request's line is «ref · author»: long, so it is the one to shrink. */
+.item.rq .m > .say { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.item .m > :is(.checks, .remarks, .reviewed, .updated) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .item .m > .say.warn { color: var(--warn); font-weight: 600; }
 .item .m > .say.err { color: var(--err); }
 .item .m > .say.ok { color: var(--ok); font-weight: 600; }
@@ -266,7 +271,7 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .metrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .metric { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); min-width: 0; }
 .metric-l { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--mute); }
-.metric > b { font-size: 28px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.metric > b { overflow-wrap: anywhere; font-size: 28px; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .metrics.three .metric > b { font-size: 20px; }
 .metric > b .muted { font-size: 13px; font-weight: 400; }
 .metric small { font-size: 12.5px; color: var(--mute); }
@@ -397,6 +402,7 @@ a.link-row:hover { background: var(--hover); }
 @media (max-width: 1000px) {
   .srow { flex-direction: column; }
   .srow > .scard.needs { flex: none; }
+  .metrics, .metrics.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 /* On a phone: the period under the title, the tabs scroll, the key numbers 2×2, "Needs attention" right under them. */
 @media (max-width: 760px) {
@@ -1204,10 +1210,10 @@ details.journal .log { margin-top: 8px; }
    per screen, touch targets of 44 px, clear of the notch and the home indicator. */
 @media (max-width: 760px) {
   .actions :is(button, a.btn, details.menu > summary) { padding: 10px 14px; }
-  /* The header: 🦈, «2/5», the limits as numbers, the icons. */
+  /* The header: 🦈, «Orca 2/5», the limits as numbers, the icons. */
   header { gap: 4px; height: calc(48px + env(safe-area-inset-top)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(4px, env(safe-area-inset-right)); }
   .logo-t, .wip .w, #restart-note { display: none; }
-  .wip .sl { display: inline; }
+  .wip .sl, .wip .ws { display: inline; }
   .logo .ver { font-size: 10px; }
   .wip { font-size: 13px; margin-left: 4px; }
   /* Nothing in the header may push it past the screen: iOS would widen the page and drop the phone layout. */
@@ -1582,7 +1588,7 @@ a.tchip:hover { text-decoration: none; background: var(--hover); }
 @media (max-width: 640px) { .score { grid-template-columns: 110px auto 34px; } .score .score-why { grid-column: 1 / -1; } }
 
 .prio { font-weight: 600; }
-.item .m > .prio { padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 15px; border: 1px solid var(--line); }
+.item .tags > .prio { padding: 0 6px; border-radius: 999px; font-size: 10.5px; line-height: 15px; border: 1px solid var(--line); }
 .prio.hot { color: var(--err); }
 .prio.high { color: var(--warn); }
 .prio.low, .prio.mid { color: var(--mute); }
@@ -1740,8 +1746,17 @@ details.desc .r { flex: none; color: var(--accent) !important; }
   .d-head .actions { flex-wrap: wrap; }
   .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary) { height: 44px; padding-block: 0; }
   details.more > summary.icon { width: 44px; }
-  .stage-strip { overflow-x: auto; scrollbar-width: none; }
-  .stage-strip .st { flex: none; min-width: 108px; }
+  /* The strip scrolls sideways: every stage keeps its own width (its status wraps, it is not cut), the stages snap, and the
+     shadow at an edge (and the card's colour covering it at the very end) says there is more on that side. */
+  .stage-strip { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: 6px; overscroll-behavior-x: contain;
+    background:
+      linear-gradient(to right, var(--card) 30%, transparent) left center / 36px 100% no-repeat local,
+      linear-gradient(to left, var(--card) 30%, transparent) right center / 36px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--fg) 28%, transparent), transparent) left center / 12px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--fg) 28%, transparent), transparent) right center / 12px 100% no-repeat scroll,
+      var(--card); }
+  .stage-strip::-webkit-scrollbar { display: none; }
+  .stage-strip .st, .stage-strip .st:last-child { flex: none; width: 138px; max-width: none; min-width: 0; padding: 10px 6px 10px 12px; scroll-snap-align: start; }
   .rec-line .rec-why { flex-basis: 100%; }
 }
 .ws-bar .actions > button svg { vertical-align: -3px; margin-right: 4px; }
