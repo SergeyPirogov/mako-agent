@@ -876,3 +876,23 @@ func TestBoardFixWording(t *testing.T) {
 		}
 	}
 }
+
+// The board's small layout and empty-state rules (#515). The page has no browser tests, so these hold the
+// source of each rule: a change that drops one fails here, and the manual check is in the MR.
+func TestBoardEmptyStates(t *testing.T) {
+	css, page := string(style), string(board)
+	for name, c := range map[string]struct{ in, want string }{
+		"a short status keeps its width":    {css, ".item:not(.rq) .m > .say { flex: none; }"},
+		"the labels beside it shrink":       {css, ".item .m > :is(.checks, .remarks, .reviewed, .updated) { flex: 0 1 auto; min-width: 0;"},
+		"no second Resume in the chat":      {page, `card?.primary === "resume"`},
+		"the hints wait for a conversation": {page, `s.state === "waiting" || !s.items.length`},
+		"no empty project select in Ask":    {page, `chatMode() === "ask" && !fcProjects.length);`},
+	} {
+		if !strings.Contains(c.in, c.want) {
+			t.Errorf("%s: %q is missing", name, c.want)
+		}
+	}
+	if strings.Contains(css, ".item .m > .say { flex:") {
+		t.Error("a status rule for every row: a review row's long text needs its own")
+	}
+}

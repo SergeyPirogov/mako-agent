@@ -346,6 +346,7 @@ async function load() {
   if (data.digest) return openDigest(data.digest);
   await Promise.all([loadCard(), loadWork()]);
   render();
+  if (cv) drawChatResume(cv);
 }
 
 // The digest takes the place of the open card; its links open the tasks.
@@ -2191,7 +2192,8 @@ function fcSub() {
 function fcHead() {
   if (!$("free-chat")) return;
   $("ca-model").hidden = !(isAsk(freeChat) || (freeChat === "" && chatMode() === "ask"));
-  $("fc-project").hidden = isAsk(freeChat);
+  // Ask needs a project: with no clones the select would be empty, and the empty state says why (#515).
+  $("fc-project").hidden = isAsk(freeChat) || (freeChat === "" && chatMode() === "ask" && !fcProjects.length);
   $("fc-sub").textContent = fcSub();
 }
 
@@ -4376,7 +4378,7 @@ function renderChat(v) {
   st.querySelector(".st-more").innerHTML = more.filter(Boolean).map((x, i) => `${i || stText ? " · " : ""}${x}`).join("");
   drawSend(v);
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
-  v.el.querySelector(".chat-resume").hidden = s.live || s.asleep;
+  drawChatResume(v);
   drawNextActions(v);
   drawDock(v, asked);
   v.el.querySelector(".chat-foot").hidden = !!asked && v.writeFor !== asked.id;
@@ -4391,6 +4393,15 @@ function renderChat(v) {
   drawCtxWarn(v, live, share);
   ctx.innerHTML = !s.context ? "" : `<span>Context</span>${s.window ? `<span class="meter" aria-hidden="true"><i style="width:${Math.min(100, Math.round(share * 100))}%"></i></span>` : ""}<span>${kTok(s.context)}${s.window ? ` / ${kTok(s.window)}` : ""}</span>`;
   v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent reads it after the current step…" : "What next?";
+}
+// «Continue conversation» in the middle of the chat, for an agent stopped some other way. The task's header already
+// offers «Resume» as its main action, so then the chat does not put a second one (#515). Also redrawn when the
+// board's records refresh, as the header's action can change while the chat's snapshot does not.
+function drawChatResume(v) {
+  const s = v.snap, box = v.el.querySelector(".chat-resume");
+  if (!s || !box) return;
+  const headResume = data?.records.find((x) => x.id === v.id)?.card?.primary === "resume";
+  box.hidden = s.live || s.asleep || headResume;
 }
 // What to do after the agent's turn, by the state of the task: its last test run, its branch, its MR. The first is
 // the main one. While the agent works there are none.
@@ -4414,7 +4425,8 @@ function nextActions(v) {
 function drawNextActions(v) {
   const box = v.el.querySelector(".chat-quick"), s = v.snap;
   if (!box || !s) return;
-  box.hidden = s.state === "working" || s.state === "waiting";
+  // The hints follow the conversation: an empty chat has nothing to build on (#515).
+  box.hidden = s.state === "working" || s.state === "waiting" || !s.items.length;
   if (box.hidden) return;
   box.innerHTML = nextActions(v).map((a, i) => {
     const cls = `chip${i === 0 && !a.href ? " pri" : ""}`;
