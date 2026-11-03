@@ -3,6 +3,7 @@ package writer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -50,6 +51,46 @@ func TestParseAssessment(t *testing.T) {
 		if _, err := ParseAssessment(bad); err == nil {
 			t.Errorf("ParseAssessment(%q) passed", bad)
 		}
+	}
+}
+
+// Words with braces before the answer, or an object the model broke off, do not hide the answer after it.
+func TestParseAssessmentAmongBraces(t *testing.T) {
+	full := `{"clarity":{"score":4,"why":"ok"},"complexity":{"score":2,"why":"x"},"completeness":{"score":5,"why":"y"},"risk":{"score":1,"why":"z"},"size":"small","missing":""}`
+	for name, answer := range map[string]string{
+		"braces in words": "Я оцінив {задачу} так:\n" + full,
+		"broken first":    `{"clarity" calc} ` + "\n" + full,
+		"words after":     full + "\nУ {дужках} ще слова",
+	} {
+		a, err := ParseAssessment(answer)
+		if err != nil || a.Clarity.Value != 4 || a.Size != "small" {
+			t.Errorf("%s: %+v, %v", name, a, err)
+		}
+	}
+	_, err := ParseAssessment(`{"clarity" calc}`)
+	if !errors.Is(err, errNotJSON) {
+		t.Errorf("error %v is not errNotJSON", err)
+	}
+}
+
+func TestAskParsedAsksAgainOnce(t *testing.T) {
+	good := `{"clarity":{"score":4,"why":"ok"},"complexity":{"score":2},"completeness":{"score":5},"risk":{"score":1}}`
+	answers := []string{`{"clarity" calc}`, good}
+	asked := 0
+	ask := func() (string, error) { asked++; return answers[asked-1], nil }
+	a, err := askParsed(ask, ParseAssessment)
+	if err != nil || asked != 2 || a.Clarity.Value != 4 {
+		t.Fatalf("asked %d: %+v, %v", asked, a, err)
+	}
+	// A score out of range is the model's verdict, not a slip: no second question.
+	asked, answers = 0, []string{`{"clarity":{"score":9}}`, good}
+	if _, err := askParsed(ask, ParseAssessment); err == nil || asked != 1 {
+		t.Fatalf("asked %d: %v", asked, err)
+	}
+	// Two slips in a row are an error.
+	asked, answers = 0, []string{"ні", "ні"}
+	if _, err := askParsed(ask, ParseAssessment); err == nil || asked != 2 {
+		t.Fatalf("asked %d: %v", asked, err)
 	}
 }
 

@@ -269,7 +269,7 @@ func (d *Dispatcher) FixReview(id string) error {
 		return errors.New("reviewer remarks can only be sent to Mako agents that are in progress or in an open MR")
 	}
 	if !exists(r.Worktree) {
-		return errors.New("agent worktree was deleted: nobody to send the remarks to")
+		return fmt.Errorf("%w: nobody to send the remarks to", worktreeGone(r.Worktree))
 	}
 	if !d.agentIdle(id) {
 		return errors.New("the agent is still working: send the remarks when it finishes")

@@ -103,6 +103,22 @@ func TestFaultsDropExternal(t *testing.T) {
 	}
 }
 
+// A worktree removed from under the task is the disk's state, not Mako's error: it is journaled, not kept.
+func TestFaultsSkipWorktreeGone(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Fault("grp/app#1", "the agent was not asked for a report on the comments", worktreeGone("/tmp/gone"))
+	if fs := d.Faults(); len(fs) != 0 {
+		t.Fatalf("kept %+v", fs)
+	}
+	if err := worktreeGone("/tmp/gone"); !strings.Contains(err.Error(), "/tmp/gone") {
+		t.Errorf("the message lost the path: %v", err)
+	}
+	d.Fault("grp/app#1", "MR not checked", errors.New("boom"))
+	if fs := d.Faults(); len(fs) != 1 {
+		t.Fatalf("an ordinary error is kept: %+v", fs)
+	}
+}
+
 func TestPlural(t *testing.T) {
 	for n, want := range map[int]string{1: "kind", 2: "kinds", 5: "kinds", 11: "kinds", 12: "kinds", 21: "kind", 23: "kinds"} {
 		if got := plural(n, "kind", "kinds", "kinds"); got != want {

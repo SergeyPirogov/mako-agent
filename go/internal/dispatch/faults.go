@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,12 +49,22 @@ func faultKey(what, msg string) string {
 	return what + "\x00" + faultDigits.ReplaceAllString(clipText(msg, 200), "#")
 }
 
-// Fault journals a failed step and keeps it among Mako's errors. A failure of the network or the service, or
-// of a setting (an unknown assignee), is only journaled: there is nothing in Mako for an agent to fix.
+// errWorktreeGone: the agent's worktree was removed (by you, or by the cleanup after the merge) before something
+// needed it. That is the state of the disk, not a failure of Mako.
+var errWorktreeGone = errors.New("the agent's worktree was deleted")
+
+// worktreeGone: errWorktreeGone with the worktree it is about.
+func worktreeGone(path string) error {
+	return fmt.Errorf("worktree %s was deleted: %w", path, errWorktreeGone)
+}
+
+// Fault journals a failed step and keeps it among Mako's errors. A failure of the network or the service, of a
+// setting (an unknown assignee), or of a worktree removed from under the task, is only journaled: there is
+// nothing in Mako for an agent to fix.
 func (d *Dispatcher) Fault(id, what string, err error) {
 	msg := strings.TrimSpace(err.Error())
 	d.Log(id, what+": "+msg)
-	if transientErr(err) || badAssignee(err) {
+	if transientErr(err) || badAssignee(err) || errors.Is(err, errWorktreeGone) {
 		return
 	}
 	d.faultsMu.Lock()
