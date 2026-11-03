@@ -237,7 +237,7 @@ echo "$more" > more.json
 	if err := d.Say(r.ID, "Ще раз тести"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return len(b) > 0 }, "the agent was not resumed")
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return strings.HasSuffix(string(b), "\n") }, "the agent was not resumed")
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Ще раз тести") {
 		t.Fatalf("resumed with %s", b)
 	}
@@ -302,7 +302,7 @@ sleep 2
 	if err := d.Say(r.ID, "Після простою"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return len(b) > 0 }, "the message was lost")
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return strings.HasSuffix(string(b), "\n") }, "the message was lost")
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), "Після простою") {
 		t.Fatalf("resumed with %s", b)
 	}
@@ -355,7 +355,7 @@ cat > /dev/null
 	if d.Chats.Get(r.ID) == first || first.Running() {
 		t.Fatal("the old agent still runs")
 	}
-	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return len(b) > 0 }, "no prompt for the new conversation")
+	waitFor(t, func() bool { b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); return strings.HasSuffix(string(b), "\n") }, "no prompt for the new conversation")
 	if b, _ := os.ReadFile(filepath.Join(r.Worktree, "prompt.json")); !strings.Contains(string(b), i18n.TA("agent.fresh", r.Branch)) {
 		t.Fatalf("prompt %s", b)
 	}
