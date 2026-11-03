@@ -15,6 +15,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
 func TestSeen(t *testing.T) {
@@ -687,5 +688,52 @@ func TestSelfCheck(t *testing.T) {
 	}
 	if err := d.SelfCheck("nope", true); err == nil {
 		t.Fatal("a tick on a task that does not exist")
+	}
+}
+
+// ReviewBlocks: blockers the agent has not got yet hold the merge; passed on, ran out of rounds or only advice, not.
+func TestReviewBlocks(t *testing.T) {
+	d := &Dispatcher{}
+	for name, c := range map[string]struct {
+		round core.AgentReview
+		want  bool
+	}{
+		"notes, not sent":   {core.AgentReview{State: "notes"}, true},
+		"notes, sent":       {core.AgentReview{State: "notes", Sent: true}, false},
+		"notes, escalated":  {core.AgentReview{State: "notes", Escalated: true}, false},
+		"clean with advice": {core.AgentReview{State: "clean", Remarks: []core.Remark{{Weight: "should"}}}, false},
+		"running":           {core.AgentReview{State: "running"}, false},
+		"failed":            {core.AgentReview{State: "failed"}, false},
+	} {
+		if got := d.ReviewBlocks(core.Record{AgentReviews: []core.AgentReview{c.round}}); got != c.want {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+	if d.ReviewBlocks(core.Record{}) {
+		t.Error("no rounds block nothing")
+	}
+}
+
+// The MR is not merged, and not ready to merge, while the reviewer's blockers wait for «Виправити».
+func TestMergeReviewBlockers(t *testing.T) {
+	d, _, id, _, _, _ := reviewSetup(t)
+	d.Store.Update(id, func(r *core.Record) {
+		r.PRURL = "https://github.com/o/r/pull/1"
+		r.AgentReviews = []core.AgentReview{{At: now(), Commit: "abc", State: "notes", Remarks: []core.Remark{{ID: "R1", Weight: "must"}}}}
+	})
+	err := d.MergeReview(context.Background(), id)
+	if err == nil || !strings.Contains(err.Error(), "left blockers") {
+		t.Fatalf("merge with blockers: %v", err)
+	}
+	r, _ := d.Store.Get(id)
+	d.reviews = map[string]reviewLook{id: {at: time.Now(), check: &trackers.ReviewCheck{State: "open", CI: "success", Mergeable: true}}}
+	if d.MergeReady(r) {
+		t.Fatal("blockers: the MR is not ready")
+	}
+	// The same record without the blockers is ready: the check above is not vacuous.
+	r.AgentReviews = markSent(r.AgentReviews, true)
+	r.Status = core.Done
+	if !d.MergeReady(r) {
+		t.Fatalf("blockers passed on: the MR is ready (column %q)", r.Column(0))
 	}
 }

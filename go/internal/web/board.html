@@ -1190,11 +1190,12 @@ let itab = "changes", itabPicked = false, tabPicked = false;
 // The JS twin of trackers.CIRunning: the pipeline has not finished yet.
 const ciRunning = (ci) => ["running", "pending", "created", "preparing", "waiting_for_resource", "scheduled"].includes(ci);
 // The reviewer agent is reading the branch or the agent is fixing its remarks: the MR is not ready to merge yet.
-const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing";
+// Also when the reviewer's blockers wait for Fix (r.reviewBlocks).
+const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing" || !!r.reviewBlocks;
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
-    : !c ? ["", ""] : c.ci === "failed" || c.conflicts ? ["!", "bad"] : c.threads.length ? [String(c.threads.length), "warn"]
+    : !c ? ["", ""] : c.ci === "failed" || c.conflicts || r.reviewBlocks ? ["!", "bad"] : c.threads.length ? [String(c.threads.length), "warn"]
     : ["running", "pending", "created"].includes(c.ci) || mergeHeld(r) ? ["⟳", "run"] : c.mergeable ? ["✓", "ok"] : ["", ""];
   const nCommits = commitLog ? `${commitLog.commits.length}${commitLog.more ? "+" : ""}` : String(cs.length);
   const tabs = [["changes", "Changes", [String(nFiles), ""]], ["commits", "Commits", [nCommits, ""]], ["mr", "MR", mrBadge]];
@@ -1355,6 +1356,7 @@ function mrCard(r, term) {
   const reviewing = r.reviewStep === "running", fixing = r.reviewStep === "fixing", held = mergeHeld(r);
   const merge = c?.state === "open" && !waitCI ? icon("data-merge", reviewing ? "The reviewer agent is reviewing the branch: merge once it finishes"
     : fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
+    : r.reviewBlocks ? "The reviewer left blockers: fix them before the merge"
     : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
     "merge", c.mergeable && !held ? "ready" : "", !c.mergeable || held) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
@@ -1394,7 +1396,7 @@ const skippedText = (a) => `AI review skipped${a.reason ? `: ${a.reason}` : ""}`
 const reviewBtn = (label, cls = "ghost", title = "The reviewer agent will read the task and the branch diff and leave remarks in the task; you pass them to the agent with the Fix button") =>
   `<button type="button" class="${cls}" data-a="agentreview" title="${esc(title)}">${label}</button>`;
 const skipBtn = () => `<button type="button" class="ghost" data-a="reviewskip" title="No review needed: the reviewer will not run until you change your mind">Skip</button>`;
-const reviewFixBtn = () => `<button type="button" class="ghost" data-a="reviewfix" title="Pass the reviewer's remarks to the agent: it fixes them, and you can run the review again">Fix</button>`;
+const reviewFixBtn = (blocks = false) => `<button type="button" class="${blocks ? "primary" : "ghost"}" data-a="reviewfix" title="${blocks ? "Required: the reviewer left blockers, the merge waits for the fix" : "Pass the reviewer's remarks to the agent: it fixes them, and you can run the review again"}">Fix</button>`;
 const suggestFixBtn = () => `<button type="button" class="ghost" data-a="reviewfix" title="Pass the reviewer's suggestions to the agent: optional, the merge is not blocked">Fix suggestions</button>`;
 // The agent's advice from its assessment of the finished task: true (do a review), false (not needed), null (none
 // yet). An older assessment without it goes by the risk: 4–5 of 5 advise one.
@@ -1459,7 +1461,7 @@ function reviewerRow(r, need) {
     case "failed": return row("bad", REVIEW_STATE.failed[1], "", ready ? reviewBtn("Try again") : "");
     case "notes": {
       const n = last.remarks?.length, split = n ? remarksSplit(last) : "", what = n ? `${n} ${plural(n, "remark", "remarks")}` + (split ? `: ${split}` : "") : "remarks";
-      if (step === "notes") return rowHTML("talk", `The reviewer left ${what}` + (last.escalated ? esc(". The rounds are over: the decision is yours") : ""), reviewFixBtn());
+      if (step === "notes") return rowHTML("talk", `The reviewer left ${what}` + (last.escalated ? esc(". The rounds are over: the decision is yours") : ""), reviewFixBtn(r.reviewBlocks));
       if (!last.sent) return rowHTML("talk", `The reviewer left ${what}${esc(". You pass them to the agent when it finishes")}`);
       if (step === "fixing") return row("run", "The agent is fixing the reviewer's remarks", "");
       const tally = replyTally(last);
@@ -3457,6 +3459,10 @@ function blockersHTML(r) {
     lines.push(`<div><b>${esc(why)}</b></div>`);
   }
   lines.push(...details);
+  if (r.reviewBlocks) {
+    const n = (r.agentReviews?.at(-1)?.remarks ?? []).filter((m) => m.weight === "must").length;
+    lines.push(`<div>${n ? `${n} ${plural(n, "blocker", "blockers")}` : "Blockers"} from the AI reviewer: press Fix</div>`);
+  }
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
   return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
 }

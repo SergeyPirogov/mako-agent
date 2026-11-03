@@ -366,6 +366,13 @@ func (d *Dispatcher) ReviewStep(r core.Record) string {
 	return "ready"
 }
 
+// ReviewBlocks: the reviewer's last round left blockers (remarks of weight «must») that nobody handed to the
+// agent yet: the merge waits for «Виправити». Not when the rounds ran out (Escalated): the decision is a person's.
+func (d *Dispatcher) ReviewBlocks(r core.Record) bool {
+	last := lastReview(r)
+	return last.State == "notes" && !last.Sent && !last.Escalated
+}
+
 // branchLook: the worktree's HEAD and whether its branch is ready for a review, as last looked at.
 type branchLook struct {
 	at    time.Time
