@@ -161,3 +161,43 @@ func TestCardSkippedStageReasons(t *testing.T) {
 		t.Errorf("failed estimate: %+v", s)
 	}
 }
+
+// The Checks stage after a reviewer's round with remarks: «fixed» once the agent answered them, «fixing remarks» while
+// it works, «N remarks» before «Виправити», «review running» only while the reviewer reads.
+func TestCardChecksAfterRemarks(t *testing.T) {
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	mr := core.Record{Executor: "terminal", Worktree: "/wt", Status: core.Done, PRURL: "https://github.com/o/r/pull/1",
+		StartedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}
+	remarks := []core.Remark{{}, {}}
+	cases := []struct {
+		name         string
+		reviews      []core.AgentReview
+		step         string
+		state, merge string
+		note         string // in the Checks note's review line
+		not          string // and not there
+	}{
+		{"answered", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t"}}, "", "done", "now", "review ✓ fixed", "running"},
+		{"answered, two rounds", []core.AgentReview{{State: "clean"}, {State: "notes", Sent: true, ReplyAt: "t"}}, "", "done", "now", "review ✓ 2 rounds, fixed", "running"},
+		{"unverified", []core.AgentReview{{State: "notes", Sent: true, ReplyAt: "t", Unverified: true}}, "", "fail", "now", "unverified", "running"},
+		{"being fixed", []core.AgentReview{{State: "notes", Sent: true}}, "fixing", "now", "todo", "fixing remarks", "review running"},
+		{"not sent", []core.AgentReview{{State: "notes", Remarks: remarks}}, "notes", "now", "todo", "2 remarks", "review running"},
+		{"running", []core.AgentReview{{State: "running"}}, "running", "now", "todo", "review running", ""},
+	}
+	for _, c := range cases {
+		r := mr
+		r.AgentReviews = c.reviews
+		v := recordView{Record: r, Column: "review", ReviewStep: c.step}
+		got := map[string]stageView{}
+		for _, s := range stagesOf(v, now) {
+			got[s.Key] = s
+		}
+		ch, m := got["checks"], got["merge"]
+		if ch.State != c.state || m.State != c.merge {
+			t.Errorf("%s: checks %q merge %q, want %q %q", c.name, ch.State, m.State, c.state, c.merge)
+		}
+		if !strings.Contains(ch.Note, c.note) || c.not != "" && strings.Contains(ch.Note, c.not) {
+			t.Errorf("%s: note %q, want %q without %q", c.name, ch.Note, c.note, c.not)
+		}
+	}
+}
