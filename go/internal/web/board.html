@@ -1479,14 +1479,14 @@ function summaryHTML(text) {
 const mrName = (url) => { const m = url.match(/\/pull\/(\d+)/) || url.match(/merge_requests\/(\d+)/); return m ? (url.includes("/pull/") ? `PR #${m[1]}` : `MR !${m[1]}`) : "MR"; };
 const initials = (name) => name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "?";
 // The reviewer in the list: ✓ for a clean last round, ⏳ for remarks that wait for "Fix", 👤 when the rounds
-// ran out and the decision is yours.
+// ran out and the decision is yours; before the reviewer ran, the text badge "AI review advised".
 function reviewBadge(r) {
-  return reviewerBadge(r) || checkBadge(r);
+  return reviewerBadge(r) || advisedBadge(r);
 }
-// 👀 for the advice to look yourself that is not ticked at the branch's latest commit.
-function checkBadge(r) {
-  if (!r.reviewStep || !checkText(r) || selfState(r) === "done") return "";
-  return `<span class="remarks" title="${selfState(r) === "stale" ? "You checked it before new commits: look again" : "The agent advises you to look at the changes yourself"}">👀 check</span>`;
+// The agent advises an AI review and none has run (or been skipped) yet: shown at any status of the task.
+function advisedBadge(r) {
+  if (!r.reviewStep || r.agentReviews?.length || adviseReview(r) !== true) return "";
+  return `<span class="remarks" title="${esc(ADVISE + (r.assessment.review?.why ? ": " + r.assessment.review.why : ""))}">AI review advised</span>`;
 }
 function reviewerBadge(r) {
   const last = r.agentReviews?.at(-1);
