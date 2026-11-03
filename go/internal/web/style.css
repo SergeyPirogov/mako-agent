@@ -123,6 +123,12 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .group .n { color: var(--faint); margin-left: auto; font-weight: 500; }
 .group .chev { flex: none; transition: transform .15s; }
 .group.folded .chev { transform: rotate(-90deg); }
+/* "Ready to merge": green, so the MRs a person can merge now do not get lost. */
+.group.merge, .group.merge:hover { color: var(--ok); }
+.group.merge .ck { flex: none; }
+.group.merge .n { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); font-weight: 600; padding: 1px 7px; border-radius: 8px; }
+.sub.merge { color: var(--ok); font-weight: 600; }
+.proj-head .p-sum .ok { color: var(--ok); font-weight: 600; }
 /* By project: a group per project; its heading folds it, folded it says what is in it. */
 .proj { padding-bottom: 6px; }
 .proj + .proj { border-top: 1px solid var(--line); }
@@ -149,6 +155,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .sub { display: flex; align-items: center; gap: 6px; height: 24px; padding: 4px 12px 0 26px; font-size: 11.5px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item { display: flex; flex-direction: column; justify-content: center; gap: 4px; width: 100%; min-height: 0; text-align: left; border: 0; border-radius: 0;
   background: none; padding: 7px 12px 8px 10px; border-left: 2px solid transparent; }
+.item.merge { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 6%, var(--card)); }
 .item:hover { background: var(--hover); }
 .item:active { transform: none; }
 .item.sel { background: var(--sel); border-left-color: var(--accent); }

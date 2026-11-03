@@ -89,7 +89,7 @@
 // The columns, the tasks' states and the agent's notes, in Mako's language: made again when it changes.
 let COLUMNS = [], LABEL = {}, AGENT_NOTE = {};
 function boardWords() {
-  COLUMNS = ["doing", "blocked", "review", "forme", "new", "failed", "later", "done"].map((c) => [c, t("b.col." + c)]);
+  COLUMNS = ["doing", "blocked", "review", "merge", "forme", "new", "failed", "later", "done"].map((c) => [c, t("b.col." + c)]);
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   LABEL = Object.fromEntries(["new", "later", "queued", "starting", "doing", "review", "done", "failed",
     "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"].map((k) => [k, t("b.label." + k)]));
@@ -192,7 +192,8 @@ const ICON = {
 };
 const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "Bug" : "Task"}</span>`;
 // The list group a task sits in: a held-up task under "Blocked", a postponed one under "Snoozed".
-const groupOf = (r) => (r.blocked ? "blocked" : state(r) === "later" ? "later" : r.column);
+// An MR that can be merged gets a group of its own under "In review".
+const groupOf = (r) => (r.blocked ? "blocked" : state(r) === "later" ? "later" : !r.error && r.status !== "cancelled" && readyToMerge(r) ? "merge" : r.column);
 const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
 // In Orca, the agent's own state says more than "in Orca".
 const state = (r) => {
@@ -204,6 +205,8 @@ const state = (r) => {
   if (r.column === "doing" && r.prUrl && r.status === "handed-off" && (!a || a.state === "done" || a.state === "idle")) return "ci";
   return a && LABEL["ag-" + a.state] ? "ag-" + a.state : r.column;
 };
+// The MR was checked and can be merged now: CI green, no conflicts or threads, the reviewer idle and its advice (if any) followed.
+const readyToMerge = (r) => state(r) === "review" && !!r.mergeReady && !["running", "notes", "fixing"].includes(r.reviewStep) && !!(r.agentReviews?.length || !adviseReview(r));
 // What the card says under its title: where the task is, in words ([text, class: "warn" or "err" or "", tooltip]).
 const cardStatus = (r) => {
   if (r.status === "cancelled") return ["cancelled", ""];
@@ -219,8 +222,7 @@ const cardStatus = (r) => {
   // Left in "New" by auto-take: why, in the row ("large", "description has questions").
   if (r.column === "new" && r.autoSkip) return [r.autoSkip, "", `Not taken automatically:  ${r.autoSkip}`];
   if (st === "review" && r.ciWait) return ["MR · CI running", "warn", "MR is open, CI is still running: it goes to review when CI passes"];
-  // The MR was checked and can be merged now: CI green, no conflicts or threads, the reviewer idle and its advice (if any) followed.
-  if (st === "review" && r.mergeReady && !["running", "notes", "fixing"].includes(r.reviewStep) && (r.agentReviews?.length || !adviseReview(r)))
+  if (readyToMerge(r))
     return ["ready to merge", "ok", "CI passed, no conflicts or open threads: the MR can be merged"];
   if (st === "review") return !r.agentReviews?.length && adviseReview(r) ? ["MR in review · AI review advised", "warn", ADVISE + (r.assessment.review?.why ? `: ${r.assessment.review.why}` : "")] : ["MR in review", ""];
   if (st === "starting") return [LABEL[st], "", `Starting: ${startStep(r)?.label ?? "preparing the start"}`];
@@ -620,7 +622,7 @@ function taskRow(r) {
   // A calm short status ("the agent works") stays in the meta line, so such a card is compact. A warn/err one, a long
   // one, or one next to the review/checks badges has no room there: it gets a line of its own, up to two lines long.
   const own = !!tone || say.length > 14 || !!badges;
-  return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
+  return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""} ${groupOf(r) === "merge" ? "merge" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
     <span class="t">${esc(r.task.title)}</span>
     <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}<span class="num" title="${esc(r.id)}">${esc(shortId(r.id))}</span>${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}${own ? "" : `<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>`}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}${badges}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span>${own ? `<span class="st2 ${tone}" title="${esc(why)}">${esc(say)}</span>` : ""}</button>`;
 }
@@ -637,7 +639,7 @@ function listByStatus(entries, showAll) {
     const items = entries.filter((e) => e.g === col).sort((a, b) => entryRank(a) - entryRank(b));
     if (!items.length) continue;
     const fold = !showAll && !!folded[col];
-    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${title}<span class="n">${items.length}</span></button>`;
+    html += `<div class="group-box"><button class="group${fold ? " folded" : ""}${col === "merge" ? " merge" : ""}" data-col="${col}" aria-expanded="${!fold}">${ICON.chevron}${col === "merge" ? `<span class="ck">✓</span>` : ""}${title}<span class="n">${items.length}</span></button>`;
     if (!fold) {
       const ps = [...new Set(items.map((e) => e.p))].sort(byProjectOrder);
       if (ps.length < 2) html += items.map((e) => e.html).join("");
@@ -649,7 +651,7 @@ function listByStatus(entries, showAll) {
 }
 
 // By project: a group per project, its tasks in the order of the work; "Postponed" and "Done" each a folded line of its own.
-const QUIET = ["later", "done"], SUMMARY = { doing: "at work", blocked: "blocked", review: "in review", forme: "to review", new: "new", failed: "not done" };
+const QUIET = ["later", "done"], SUMMARY = { doing: "at work", blocked: "blocked", review: "in review", merge: "ready to merge", forme: "to review", new: "new", failed: "not done" };
 function listByProject(entries, showAll) {
   const by = new Map();
   for (const e of entries) by.set(e.p, [...(by.get(e.p) || []), e]);
@@ -662,12 +664,15 @@ function listByProject(entries, showAll) {
     const all = by.get(p).sort((a, b) => order.indexOf(a.g) - order.indexOf(b.g) || entryRank(a) - entryRank(b));
     const active = all.filter((e) => !QUIET.includes(e.g)), isFolded = foldedProjects.has(p) && !showAll;
     const count = (g) => all.filter((e) => e.g === g).length;
-    const summary = order.filter((g) => SUMMARY[g] && count(g)).map((g) => `${count(g)} ${SUMMARY[g]}`).join(" · ") || "nothing in work";
+    const summary = order.filter((g) => SUMMARY[g] && count(g)).map((g) => g === "merge" ? `<span class="ok">${count(g)} ${SUMMARY[g]}</span>` : esc(`${count(g)} ${SUMMARY[g]}`)).join(" · ") || "nothing in work";
     const dir = p.split("/").slice(0, -1).join("/");
     html += `<div class="group-box proj${isFolded ? " folded" : ""}"><button class="proj-head" data-proj="${esc(p)}" aria-expanded="${!isFolded}" title="${esc(p)}">${ICON.chevron}${projectDot(p)}<b>${esc(shortProject(p))}</b>`
-      + `<span class="${isFolded ? "p-sum" : "p-path"}">${esc(isFolded ? summary : dir)}</span><span class="n">${all.length}</span></button>`;
+      + `<span class="${isFolded ? "p-sum" : "p-path"}">${isFolded ? summary : esc(dir)}</span><span class="n">${all.length}</span></button>`;
     if (!isFolded) {
-      html += active.map((e) => e.html).join("") || `<div class="p-none">${t("b.nothingInWork")}</div>`;
+      // Ready to merge first, under a small green heading: the next action for a person.
+      const ready = active.filter((e) => e.g === "merge"), rest = active.filter((e) => e.g !== "merge");
+      if (ready.length) html += `<div class="sub merge">✓ ${COLUMNS.find(([c]) => c === "merge")[1]}</div>` + ready.map((e) => e.html).join("");
+      html += rest.map((e) => e.html).join("") || (ready.length ? "" : `<div class="p-none">${t("b.nothingInWork")}</div>`);
       for (const g of QUIET) {
         const rs = all.filter((e) => e.g === g);
         if (!rs.length) continue;
