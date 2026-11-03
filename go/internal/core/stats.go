@@ -446,11 +446,12 @@ func cancelMark(e string) bool {
 	return e == "Cancelled" || e == "Скасовано" // cyrillic-ok
 }
 
-// trend: an empty day for each day the trend shows, by its local date: the period's, the last 14 for all time.
+// trend: an empty day for each day the trend shows, by its local date: the period's (at least one, so "today"
+// shows today), the last 14 for all time.
 func trend(now, since time.Time) map[string]*Day {
 	n := trendDays
 	if !since.IsZero() {
-		n = min(int(now.Sub(since).Hours()/24+0.5), maxTrendDays)
+		n = max(1, min(int(now.Sub(since).Hours()/24+0.5), maxTrendDays))
 	}
 	days := map[string]*Day{}
 	for i := 0; i < n; i++ {
