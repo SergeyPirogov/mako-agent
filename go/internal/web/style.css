@@ -1628,7 +1628,7 @@ button.link:hover { background: none; text-decoration: underline; }
 /* a line each: what (the model, the state), then the time and the cost, quieter */
 .stage-strip .st small .ln.m { font-size: 11.5px; font-variant-numeric: tabular-nums; color: color-mix(in srgb, var(--mute) 75%, transparent); }
 .stage-strip .st.done .c { background: var(--ok); border-color: var(--ok); }
-.stage-strip .st:last-child { padding-right: 12px; }
+.stage-strip .st:last-child { flex: none; max-width: 22%; padding-right: 12px; }
 /* the track: a line from each step to the next, green as far as the work got */
 .stage-strip .tr { flex: 1; min-width: 10px; height: 2px; border-radius: 1px; background: var(--line); margin-left: 4px; }
 .stage-strip .st:last-child .tr { display: none; }
