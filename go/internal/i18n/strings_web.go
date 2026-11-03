@@ -378,6 +378,8 @@ var webStrings = map[string]string{
 	"s.p.pushOn":         "notifications on",
 	"s.p.pushOff":        "notifications off: press 🔔 in the app",
 	"s.p.disconnect":     "Disconnect",
+	"s.p.viaTailscale":   "Paired through Tailscale: scan the QR code again",
+	"s.p.funnelWarn":     "Mako used to be opened for phones through Tailscale. If you do not need that any more, run <code>tailscale funnel reset &amp;&amp; tailscale serve reset</code> in a terminal: otherwise Mako may still be open through Funnel. Mako changes nothing in your Tailscale account by itself.",
 	"s.p.test":           "Send a test notification",
 	"s.p.noneYet":        "None yet.",
 	"s.p.step1":          "1. Access from the phone",

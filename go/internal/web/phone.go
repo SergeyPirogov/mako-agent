@@ -152,6 +152,19 @@ func setDeviceCookie(w http.ResponseWriter, r *http.Request, token string) {
 	})
 }
 
+// requestOrigin: the address the request was opened at ("https://host"), through `tailscale serve` too.
+func requestOrigin(r *http.Request) string {
+	host := r.Host
+	if fh := r.Header.Get("X-Forwarded-Host"); fh != "" {
+		host = fh
+	}
+	scheme := "http"
+	if r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + host
+}
+
 func (s *Server) phoneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /icons/", func(w http.ResponseWriter, r *http.Request) {
 		data, err := icons.ReadFile(strings.TrimPrefix(r.URL.Path, "/"))
@@ -203,7 +216,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		d, err := s.Phones.Pair(r.PostFormValue("code"), phone.DeviceName(r.UserAgent()))
+		d, err := s.Phones.Pair(r.PostFormValue("code"), phone.DeviceName(r.UserAgent()), requestOrigin(r))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
@@ -253,7 +266,15 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 			return
 		}
 		t := phone.TailscaleState(r.Context(), s.D.Config().Notifications.Port)
-		reply := map[string]any{"tailscale": t, "devices": s.Phones.Devices()}
+		type deviceView struct {
+			phone.Device
+			ViaTailscale bool `json:"viaTailscale"`
+		}
+		devices := []deviceView{}
+		for _, d := range s.Phones.Devices() {
+			devices = append(devices, deviceView{d, d.ViaTailscale()})
+		}
+		reply := map[string]any{"tailscale": t, "devices": devices, "tailscaleLeftovers": s.Phones.HasTailscaleDevices()}
 		if t.Host != "" && t.Serving {
 			reply["url"] = "https://" + t.Host
 		}

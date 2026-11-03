@@ -994,11 +994,13 @@ async function renderPhone(qr) {
     : `<div class="row"><button class="primary" data-p="pairing">${t("s.p.showQr")}</button></div>`;
   const devices = st.devices.length
     ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">${t("s.p.device", { created: new Date(d.created).toLocaleDateString(LANG), seen: new Date(d.lastSeen).toLocaleString(LANG) })}</span>
-        <div class="muted">${t(d.push ? "s.p.pushOn" : "s.p.pushOff")}</div></div>
+        <div class="muted">${t(d.push ? "s.p.pushOn" : "s.p.pushOff")}</div>
+        ${d.viaTailscale ? `<div class="notice-inline">${t("s.p.viaTailscale")}</div>` : ""}</div>
         <button class="ghost danger" data-p="remove" data-id="${esc(d.id)}">${t("s.p.disconnect")}</button></div>`).join("") +
       `<div class="row"><button data-p="test">${t("s.p.test")}</button><span class="msg" id="phone-msg"></span></div>`
     : `<span class="muted">${t("s.p.noneYet")}</span>`;
-  box.innerHTML = `<div class="card"><h3 class="step">${t("s.p.step1")}</h3>${step1}</div>
+  const leftovers = st.tailscaleLeftovers ? `<div class="banner">${t("s.p.funnelWarn")}</div>` : "";
+  box.innerHTML = `${leftovers}<div class="card"><h3 class="step">${t("s.p.step1")}</h3>${step1}</div>
     <div class="card"><h3 class="step">${t("s.p.step2")}</h3>${step2}</div>
     <div class="card"><h3 class="step">${t("s.p.connected")}</h3>${devices}</div>`;
   phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving ? t("s.p.ready") : "";
