@@ -1407,11 +1407,17 @@ function checksHTML(r, card, full = false) {
   }
   if (!k.results?.length) return "";
   const row = (c) => `<div class="tcard-b chk"><div class="chk-h"><span class="chk-mk ${c.ok ? "ok" : "bad"}" aria-hidden="true">${checkMark(c)}</span><code>${esc(c.command)}</code>`
-    + `<span class="muted">${c.ok ? "OK" : c.timedOut ? "timed out" : "failed"}${c.seconds ? ` · ${c.seconds} s` : ""}</span></div>`
+    + `<span class="muted">${c.ok ? "OK" : c.timedOut ? "timed out" : "failed"} · ${c.seconds ? `${c.seconds} s` : "&lt;1 s"}</span></div>`
     + `${!c.ok && c.tail ? `<pre class="code">${esc(c.tail)}</pre>` : ""}</div>`;
   const note = [k.fails ? `attempt ${k.fails}` : "", k.commit ? `<code>${esc(k.commit.slice(0, 8))}</code>` : ""].filter(Boolean).join(" · ");
   const retry = `<div class="tcard-b chk-a"><button type="button" class="primary" data-a="retry">Retry</button></div>`;
   return card("Checks", k.results.map(row).join("") + retry, "checks-card", note);
+}
+
+// The red block of a failed task: why it failed, and a way to the journal when there is one.
+function whyFailedHTML(r, hasJournal) {
+  if (r.status !== "failed") return `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>`;
+  return `<div class="notice why-failed"><div class="why-h"><b>Why it failed</b>${hasJournal ? `<button type="button" class="link" data-journal>Journal →</button>` : ""}</div><div>${linkify(r.error)}</div></div>`;
 }
 
 // The reviewer agent's rounds over the branch: the last one as a line of the MR card, all of them in the task. It
@@ -3734,8 +3740,7 @@ function renderDetail() {
     ${r.status === "queued" && !r.starting ? `<div class="notice later-note">${ICON.clock}Queued${r.queueWhy ? `: ${esc(r.queueWhy)}` : ""}. Mako will start it on its own</div>` : ""}
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Postponed ${untilText(r.snoozedUntil)}: Mako will remind you about the task then</div>` : ""}
     ${r.column === "new" && r.autoSkip ? `<div class="notice auto-skip">Not taken automatically: ${esc(r.autoSkip)}. Take it with the button, or Mako will take it on its own once the estimate fits the settings</div>` : ""}
-    ${r.error && r.status === "failed" ? `<div class="notice why-failed"><div class="why-h"><b>Why it failed</b>${logs.length ? `<button type="button" class="link" data-journal>Journal →</button>` : ""}</div><div>${linkify(r.error)}</div></div>`
-      : r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
+    ${r.error ? whyFailedHTML(r, logs.length > 0) : ""}
     ${r.secrets?.length && !r.archivedAt ? secretsHTML(r) : ""}
     ${r.checks?.attention && r.status === "handed-off" ? `<div class="notice warn">The pre-MR check failed ${r.checks.fails} ${plural(r.checks.fails, "time", "times")} in a row (${esc(checksLine(r.checks))}): the MR is not opened and the agent is no longer asked to fix it. See what broke and continue with the agent; after a new commit Mako will check again.</div>` : ""}
     ${r.checks?.error && !r.prUrl && r.status === "handed-off" ? `<div class="notice">The check passed, but the MR was not opened: ${linkify(r.checks.error)}. Mako will try again.</div>` : ""}

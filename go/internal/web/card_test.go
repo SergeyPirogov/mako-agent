@@ -211,25 +211,23 @@ func TestCardChecksAfterRemarks(t *testing.T) {
 // The Checks stage names what failed: the checks before the MR are not CI.
 func TestChecksStageNote(t *testing.T) {
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	note := func(r core.Record) string {
-		v := recordView{Record: r, Column: r.Column(now.UnixMilli())}
+	note := func(v recordView) string {
+		t.Helper()
 		for _, s := range stagesOf(v, now) {
 			if s.Key == "checks" {
 				return s.Note
 			}
 		}
+		t.Fatal("no checks stage")
 		return ""
 	}
 	local := core.Record{Executor: "terminal", Worktree: "/wt", Status: core.Failed, Error: "checks failed 3 times: go test ./... exit 1",
 		Checks: &core.Checks{State: "failed", Fails: 3}}
-	if n := note(local); !strings.HasPrefix(n, "checks failed\n") || strings.Contains(n, "CI failed") {
-		t.Errorf("failed local checks: note %q", n)
+	if n := note(recordView{Record: local, Column: local.Column(now.UnixMilli())}); !strings.HasPrefix(n, "checks failed\n") {
+		t.Errorf("failed local checks: note %q, want it to start with \"checks failed\"", n)
 	}
 	mr := core.Record{Executor: "terminal", Worktree: "/wt", Status: core.Done, PRURL: "https://github.com/o/r/pull/1"}
-	v := recordView{Record: mr, Column: "review", Blocked: "CI failed"}
-	for _, s := range stagesOf(v, now) {
-		if s.Key == "checks" && !strings.HasPrefix(s.Note, "CI failed\n") {
-			t.Errorf("failed MR CI: note %q", s.Note)
-		}
+	if n := note(recordView{Record: mr, Column: "review", Blocked: "CI failed"}); !strings.HasPrefix(n, "CI failed\n") {
+		t.Errorf("failed MR CI: note %q, want it to start with \"CI failed\"", n)
 	}
 }
