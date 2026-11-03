@@ -191,7 +191,7 @@ const ICON = {
   warn: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg>`,
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
-const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "Bug" : "Task"}</span>`;
+const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "bug" : "task"}</span>`;
 // The list group a task sits in: a held-up task under "Blocked", a postponed one under "Snoozed".
 // An MR that can be merged gets a group of its own under "In review".
 const groupOf = (r) => (r.blocked ? "blocked" : state(r) === "later" ? "later" : !r.error && r.status !== "cancelled" && readyToMerge(r) ? "merge" : r.column);
@@ -1235,7 +1235,7 @@ function prioTone(p) {
   if (/low|trivial|^p3$|^p4$|^[3-5]$/.test(s)) return "low";
   return "mid";
 }
-const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}" title="Priority: ${esc(t.priority)}">${esc(t.priority)}</span>` : "";
+const prioBadge = (t) => t.priority ? `<span class="prio ${prioTone(t.priority)}" title="Priority: ${esc(t.priority)}">${esc(String(t.priority).toLowerCase())}</span>` : "";
 // ✨: the agent in the terminal does it; only while it runs.
 // A pressed ✨ stays a disabled check for ASK_HOLD, through the redraws the polling brings; the key is "<task>:<kind>".
 const asked = new Map(), ASK_HOLD = 120000;
