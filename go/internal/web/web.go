@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -136,6 +137,36 @@ type trackerView struct {
 	Projects []string `json:"projects,omitempty"`
 	// Paused: its search for new tasks is on pause, the other trackers are searched.
 	Paused bool `json:"paused,omitempty"`
+}
+
+// makoInfo: the settings' «Mako» section. Kind: "clone" (built from a clone, updates by commits), "release"
+// (installed from a release) or "dev" (neither can update). Checked is the last look that got an answer; Error
+// is why the last look failed, or err of the look just made.
+type makoInfo struct {
+	OK      bool            `json:"ok"`
+	Error   string          `json:"error,omitempty"`
+	Kind    string          `json:"kind"`
+	Version string          `json:"version"`
+	Checked int64           `json:"checked,omitempty"`
+	Update  *update.Status  `json:"update,omitempty"`
+	Release *update.Release `json:"release,omitempty"` // found even when its banner was hidden
+}
+
+func (s *Server) makoInfo(err error) makoInfo {
+	info := makoInfo{Kind: "dev", Version: s.Version}
+	switch {
+	case s.Update != nil:
+		st := s.Update.Status()
+		info.Kind, info.Update, info.Checked, info.Error = "clone", &st, st.Checked, st.CheckError
+	case s.Release != nil:
+		info.Kind, info.Release = "release", s.Release.Found()
+		info.Checked, info.Error = s.Release.Checked()
+	}
+	if err != nil {
+		info.Error = err.Error()
+	}
+	info.OK = info.Kind != "dev" && info.Error == ""
+	return info
 }
 
 func (s *Server) Handler() http.Handler {
@@ -371,6 +402,33 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, map[string]bool{"ok": true})
+	})
+	// «Mako» in the settings: what is installed and what the last look for an update found (GET), and a look
+	// now (POST); from the Mac only.
+	mux.HandleFunc("GET /api/update/info", func(w http.ResponseWriter, r *http.Request) {
+		if remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		writeJSON(w, s.makoInfo(nil))
+	})
+	mux.HandleFunc("POST /api/update/check", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) || remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
+		defer cancel()
+		var err error
+		switch {
+		case s.Update != nil:
+			err = s.Update.Check(ctx)
+		case s.Release != nil:
+			err = s.Release.Check(ctx)
+		default:
+			err = errors.New("Updates are unavailable: dev build")
+		}
+		writeJSON(w, s.makoInfo(err))
 	})
 	s.createRoutes(mux)
 	s.codeRoutes(mux)

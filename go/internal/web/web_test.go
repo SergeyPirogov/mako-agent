@@ -571,6 +571,125 @@ func TestRelease(t *testing.T) {
 	}
 }
 
+// makoCheck: POST /api/update/check (the Mac's own request unless phone) and the reply.
+func makoCheck(t *testing.T, srv *httptest.Server, phone bool, origin string) (int, makoInfo) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/update/check", nil)
+	req.Header.Set("Origin", origin)
+	if phone {
+		req.Header.Set("X-Forwarded-For", "100.64.0.2")
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var info makoInfo
+	json.NewDecoder(res.Body).Decode(&info)
+	return res.StatusCode, info
+}
+
+func TestUpdateCheckRelease(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	fail := false
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fail {
+			http.Error(w, "limit", http.StatusForbidden)
+			return
+		}
+		w.Write([]byte(`{"tag_name":"v0.4.0","html_url":"https://example.com/r","body":"New"}`))
+	}))
+	defer api.Close()
+	rel := &update.Releases{Current: "0.3.0", API: api.URL, File: filepath.Join(t.TempDir(), "release.json")}
+	srv := httptest.NewServer((&Server{D: d, Version: "0.3.0", Release: rel}).Handler())
+	defer srv.Close()
+
+	code, info := makoCheck(t, srv, false, srv.URL)
+	if code != 200 || !info.OK || info.Kind != "release" || info.Version != "0.3.0" || info.Checked == 0 ||
+		info.Release == nil || info.Release.Version != "0.4.0" || info.Release.URL != "https://example.com/r" {
+		t.Fatalf("check: %d %+v", code, info)
+	}
+	// The release stays in the settings after its banner was hidden.
+	req, _ := http.NewRequest("POST", srv.URL+"/api/release/dismiss?version=0.4.0", nil)
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != 200 {
+		t.Fatalf("dismiss: %d", res.StatusCode)
+	}
+	if _, info = makoCheck(t, srv, false, srv.URL); info.Release == nil || info.Release.Version != "0.4.0" {
+		t.Fatalf("after hiding: %+v", info)
+	}
+	res, _ := http.Get(srv.URL + "/api/update/info")
+	info = makoInfo{}
+	json.NewDecoder(res.Body).Decode(&info)
+	if info.Release == nil || info.Kind != "release" {
+		t.Fatalf("info: %+v", info)
+	}
+	// The look fails: the reason is shown, the release found before stays.
+	fail = true
+	if _, info = makoCheck(t, srv, false, srv.URL); info.OK || info.Error == "" || info.Release == nil {
+		t.Fatalf("failed look: %+v", info)
+	}
+	res, _ = http.Get(srv.URL + "/api/update/info")
+	info = makoInfo{}
+	json.NewDecoder(res.Body).Decode(&info)
+	if info.OK || info.Error == "" {
+		t.Fatalf("info after a failed look: %+v", info)
+	}
+}
+
+func TestUpdateCheckClone(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	// Not a repository: the look fails, and says so.
+	srv := httptest.NewServer((&Server{D: d, Version: "0.3.0-2-gabc", Update: &update.Updater{Source: t.TempDir()}}).Handler())
+	defer srv.Close()
+	code, info := makoCheck(t, srv, false, srv.URL)
+	if code != 200 || info.OK || info.Kind != "clone" || info.Error == "" || info.Update == nil {
+		t.Fatalf("check: %d %+v", code, info)
+	}
+}
+
+func TestUpdateCheckDevBuild(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "dev"}).Handler())
+	defer srv.Close()
+	code, info := makoCheck(t, srv, false, srv.URL)
+	if code != 200 || info.OK || info.Kind != "dev" || info.Version != "dev" || info.Error == "" {
+		t.Fatalf("check: %d %+v", code, info)
+	}
+}
+
+func TestUpdateCheckIsFromTheMacOnly(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	asked := 0
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		w.Write([]byte(`{"tag_name":"v0.4.0","html_url":"https://example.com/r"}`))
+	}))
+	defer api.Close()
+	rel := &update.Releases{Current: "0.3.0", API: api.URL}
+	srv := httptest.NewServer((&Server{D: d, Release: rel}).Handler())
+	defer srv.Close()
+	// A phone is stopped (401 before it is paired, 403 by the handler itself), and GitHub is not asked.
+	if code, _ := makoCheck(t, srv, true, srv.URL); code != http.StatusForbidden && code != http.StatusUnauthorized {
+		t.Fatalf("from a phone: %d", code)
+	}
+	if code, _ := makoCheck(t, srv, false, "https://evil.example"); code != http.StatusForbidden {
+		t.Fatalf("from another site: %d", code)
+	}
+	req, _ := http.NewRequest("GET", srv.URL+"/api/update/info", nil)
+	req.Header.Set("X-Forwarded-For", "100.64.0.2")
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode != http.StatusForbidden && res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("info from a phone: %d", res.StatusCode)
+	}
+	if asked != 0 {
+		t.Fatalf("GitHub was asked %d times", asked)
+	}
+}
+
 func TestUpdateCancelAndNowAreFromTheMacOnly(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)

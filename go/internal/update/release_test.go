@@ -107,3 +107,38 @@ func TestReleaseDismissedUntilTheNextOne(t *testing.T) {
 		t.Fatalf("next release: %+v", got)
 	}
 }
+
+func TestReleaseFoundIgnoresDismissAndKeepsTheCheck(t *testing.T) {
+	srv, _ := releaseAPI(t, "v0.4.0")
+	r := &Releases{Current: "0.3.0", API: srv.URL, File: filepath.Join(t.TempDir(), "release.json")}
+	if at, why := r.Checked(); at != 0 || why != "" {
+		t.Fatalf("before the first look: %d %q", at, why)
+	}
+	r.Check(context.Background())
+	r.Dismiss("0.4.0")
+	if r.Latest() != nil {
+		t.Fatal("banner shown after hiding")
+	}
+	if got := r.Found(); got == nil || got.Version != "0.4.0" || got.URL == "" {
+		t.Fatalf("found %+v", got)
+	}
+	if at, why := r.Checked(); at == 0 || why != "" {
+		t.Fatalf("after a look: %d %q", at, why)
+	}
+	// A failed look says why, keeps the time of the last good one and does not lose the release found.
+	at, _ := r.Checked()
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "limit", http.StatusForbidden)
+	}))
+	defer down.Close()
+	r.API = down.URL
+	if err := r.Check(context.Background()); err == nil {
+		t.Fatal("no error")
+	}
+	if got, why := r.Checked(); got != at || why == "" {
+		t.Fatalf("after a failed look: %d %q", got, why)
+	}
+	if r.Found() == nil {
+		t.Fatal("a failed look lost the release")
+	}
+}

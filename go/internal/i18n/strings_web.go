@@ -293,6 +293,27 @@ var webStrings = map[string]string{
 	"s.n.kind.gone":        "🦈 A task at work was closed or deleted in the tracker",
 	"s.n.kind.limits":      "⏳ The queue paused for the Claude limit and goes on",
 
+	// Mako itself: the version, the check for an update.
+	"s.mako.title":        "Mako",
+	"s.mako.lead":         "Which Mako is running and whether a newer one is out. Mako looks by itself every 30 minutes (built from a clone) or every 6 hours (installed from a release); here you can look now.",
+	"s.mako.version":      "Version {version}",
+	"s.mako.kindClone":    "built from a clone of the repository",
+	"s.mako.kindRelease":  "installed from a release",
+	"s.mako.kindDev":      "dev build",
+	"s.mako.devNote":      "Updates are unavailable: dev build",
+	"s.mako.checked":      "Last checked: {time}",
+	"s.mako.never":        "Not checked yet",
+	"s.mako.check":        "Check for updates",
+	"s.mako.checking":     "Checking…",
+	"s.mako.failed":       "The check failed: {error}",
+	"s.mako.upToDate":     "Mako is up to date",
+	"s.mako.commits.one":  "{n} new commit",
+	"s.mako.commits.many": "{n} new commits",
+	"s.mako.update":       "Update",
+	"s.mako.updating":     "Updating…",
+	"s.mako.available":    "Mako {version} is available",
+	"s.mako.download":     "Download",
+
 	// Disk space.
 	"s.d.counting":         "Counting…",
 	"s.d.mergedOrArchived": "merged or archived",
