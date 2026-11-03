@@ -36,6 +36,12 @@ func (d *Dispatcher) startAssess(id string) error {
 	return nil
 }
 
+// Assessing: the agent is still judging the task (and Mako has not stopped meanwhile): the MR waits for its verdict.
+func Assessing(r core.Record) bool {
+	a := r.Assessment
+	return a != nil && a.State == "running" && !stale(a.At)
+}
+
 // stale: a rating that started long ago and never ended, Mako having stopped meanwhile.
 func stale(at string) bool {
 	t, err := time.Parse(time.RFC3339Nano, at)

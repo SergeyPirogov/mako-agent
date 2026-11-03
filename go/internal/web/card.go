@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 )
 
 // cardView: what the task card shows on top: the main action for the task's state and its stages, from the
@@ -91,7 +92,8 @@ func primaryAction(v recordView) string {
 		case b != "" || v.CIWait != "":
 			return "open-mr"
 		// The reviewer is reading the branch, or the agent is fixing its remarks: the merge waits for them.
-		case v.ReviewStep == "running" || v.ReviewStep == "fixing":
+		// Or the agent is still judging whether a review is needed: the merge waits for its verdict.
+		case v.ReviewStep == "running" || v.ReviewStep == "fixing" || dispatch.Assessing(r):
 			return "open-mr"
 		}
 		return "merge"
