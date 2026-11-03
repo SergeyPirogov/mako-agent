@@ -3090,7 +3090,7 @@ function primaryHTML(r) {
     case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
     case "fix-conflicts": return `<button class="primary" data-ask="conflicts" title="The agent will rebase on the main branch, resolve the conflicts and push">Resolve conflicts</button>` + openMR(r);
     case "fix-ci": return `<button class="primary" data-ask="ci" title="The agent will look at the failed jobs, fix them and push">Fix CI</button>` + openMR(r);
-    case "merge": return `<button class="primary" data-merge>${ICON.merge}Merge</button>` + openMR(r);
+    case "merge": return `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
     // CI still running, or the agent is in Orca: the MR is where to look.
     case "open-mr": return openMR(r, "primary");
     case "retry": return b("retry", "Retry", "primary");
