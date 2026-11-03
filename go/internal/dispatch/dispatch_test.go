@@ -36,6 +36,7 @@ type fakeGitLab struct {
 	notesDown bool             // the tracker fails to give the notes
 	statusSet []string
 	assigned  []any
+	unindexed map[int]bool // open, but the search does not find them yet
 	base      string
 }
 
@@ -81,7 +82,7 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case p == "/api/v4/projects/grp%2Fapp/issues" || r.URL.RawPath == "/api/v4/projects/grp%2Fapp/issues":
 		list := []any{}
 		for _, is := range f.issues {
-			if is["state"] == "opened" {
+			if is["state"] == "opened" && !f.unindexed[is["iid"].(int)] {
 				list = append(list, is)
 			}
 		}

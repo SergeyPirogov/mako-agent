@@ -328,6 +328,8 @@ async function load() {
     if (statsDays) q.set("days", statsDays);
     if (statsProject) q.set("project", statsProject);
     data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`)).json();
+    // A record without a project is not a task (a stray write made it): no group with no name, no row in «needs attention».
+    data.records = (data.records || []).filter((r) => r.task?.project);
     if (data.now) skew = Date.now() - data.now;
     // The words of the page, the first time.
     if (!Object.keys(I18N).length) {

@@ -42,6 +42,15 @@ func Assessing(r core.Record) bool {
 	return a != nil && a.State == "running" && !stale(a.At)
 }
 
+// recent: the record was made less than searchLag ago.
+func recent(at string) bool {
+	t, err := time.Parse(time.RFC3339Nano, at)
+	return err == nil && time.Since(t) < searchLag
+}
+
+// searchLag: how long a tracker's search may take to show a new issue (GitHub's can take minutes).
+var searchLag = 10 * time.Minute // a var for the tests
+
 // stale: a rating that started long ago and never ended, Mako having stopped meanwhile.
 func stale(at string) bool {
 	t, err := time.Parse(time.RFC3339Nano, at)
@@ -69,5 +78,5 @@ func (d *Dispatcher) assess(ctx context.Context, id string) {
 	} else {
 		d.Log(id, "agent assessed the task")
 	}
-	d.Store.Update(id, func(r *core.Record) { r.Assessment = &a })
+	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Assessment = &a }) // not a record made anew if the task left meanwhile
 }

@@ -58,7 +58,7 @@ func (d *Dispatcher) retro(ctx context.Context, id string) {
 	} else {
 		d.Log(id, "the task retro was written")
 	}
-	d.Store.Update(id, func(r *core.Record) { r.Retro = &x })
+	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Retro = &x })
 }
 
 // story: how the task went, as Mako saw it, for the retro.

@@ -127,7 +127,7 @@ func (d *Dispatcher) maybeCheck(id string) {
 	}
 	var fails int
 	var attention bool
-	d.Store.Update(id, func(rec *core.Record) {
+	d.Store.UpdateIfExists(id, func(rec *core.Record) {
 		c := rec.Checks
 		c.At, c.Results, c.State = now(), results, "passed"
 		if passed {
