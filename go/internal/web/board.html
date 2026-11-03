@@ -163,6 +163,36 @@ const ago = (iso) => {
 };
 // The list's narrow row: "4 min" for "4 min ago", the whole of it in the tooltip.
 const agoShort = (iso) => ago(iso).replace(/ ago$/, "");
+// fmt:begin — the one way the board writes a moment and a length of time (a test runs this block in Node).
+// A moment: today only the time, within a week the weekday and the time, later "Nov 3, 11:19" (with the year
+// when it is not this one). date: a Date, a number of ms or an ISO string; today: "now", for tests.
+const fmtWhen = (date, { today = new Date() } = {}) => {
+  const d = new Date(date);
+  if (!date || isNaN(d)) return "";
+  const time = d.toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const days = Math.round((new Date(today).setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 864e5);
+  if (days === 0) return time;
+  if (Math.abs(days) < 7) return `${d.toLocaleDateString(LANG, { weekday: "short" })} ${time}`;
+  const year = d.getFullYear() === new Date(today).getFullYear() ? {} : { year: "numeric" };
+  return `${d.toLocaleDateString(LANG, { month: "short", day: "numeric", ...year })}, ${time}`;
+};
+// A day without a time ("2026-11-03"): "Nov 3", long: "Tue, Nov 3".
+const fmtDay = (iso, long) => new Date(iso + "T12:00:00").toLocaleDateString(LANG, long ? { weekday: "short", month: "short", day: "numeric" } : { month: "short", day: "numeric" });
+// A length of time without its zero parts: "just now", "42 min", "4 h", "3 h 5 min", "2 d". Under fine seconds
+// the seconds are said too ("38 s", "1 min 16 s"); a zero part is left out there as well.
+const fmtDur = (sec, { fine = 0 } = {}) => {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < fine) {
+    const m = Math.floor(sec / 60), r = sec % 60;
+    return m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`;
+  }
+  const m = Math.round(sec / 60), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), min = m % 60;
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min`;
+  if (m < 1440) return min ? `${h} h ${min} min` : `${h} h`;
+  return h ? `${d} d ${h} h` : `${d} d`;
+};
+// fmt:end
 const ICON = {
   chevron: `<svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`,
   check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>`,
@@ -367,11 +397,10 @@ async function loadCard() {
 }
 
 // Claude's usage limits, the account's: how much of each window is used, when it resets in the tooltip (the 5h one also beside the meter).
-// Bare=true is the compact form beside the meter: "12:20" today, "Fri, 12:20" later; otherwise "at 12:20" for prose.
+// Bare=true is the compact form beside the meter: "12:20" today, "Fri 12:20" later; otherwise "at 12:20" for prose.
 const resetTime = (sec, bare) => {
-  const d = new Date(sec * 1000), today = new Date().toDateString() === d.toDateString();
-  const hm = d.toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit" });
-  return today ? (bare ? hm : `at ${hm}`) : d.toLocaleString(LANG, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const d = new Date(sec * 1000), when = fmtWhen(d), today = new Date().toDateString() === d.toDateString();
+  return today && !bare ? `at ${when}` : when;
 };
 function limitsHTML(l) {
   const bad = data.limitPausePct || 85;
@@ -401,7 +430,7 @@ function snoozeDown(ids) {
 function downHTML(failed) {
   failed = failed.filter(([id]) => !snoozed(id));
   if (!failed.length) return "";
-  const since = (iso) => iso ? ` since ${new Date(iso).toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit" })}` : "";
+  const since = (iso) => iso ? ` since ${fmtWhen(iso)}` : "";
   return `<div class="banner down" role="alert">${failed.map(([id, s]) =>
     `<div><b>⚠ ${esc(s.down || id)}</b><span class="muted">${since(s.since)}</span>
       <button data-pause-tracker="${esc(id)}" title="Do not look for new tasks in this tracker until you resume; other trackers are still searched">Pause</button>
@@ -764,7 +793,7 @@ function renderAsk(q) {
   const chip = (body, cls = "", title = "") => `<span class="tchip ${cls}"${title ? ` title="${esc(title)}"` : ""}>${body}</span>`;
   const card = (title, body, note = "") => `<div class="tcard"><div class="tcard-h">${title}${note ? `<span class="r">${note}</span>` : ""}</div>${body}</div>`;
   const chips = [chip(`<span class="k">Author</span>${esc(q.author)}`), chip(sizeHTML(q))];
-  if (q.state === "open") chips.push(chip(`<span class="k">Waiting</span>${esc(ago(q.since).replace(/ ago$/, ""))}`, "", `Since ${new Date(q.since).toLocaleString(LANG)}`));
+  if (q.state === "open") chips.push(chip(`<span class="k">Waiting</span>${esc(ago(q.since).replace(/ ago$/, ""))}`, "", `Since ${fmtWhen(q.since)}`));
   else chips.push(chip(`<span class="dot"></span><span class="v">${esc(DONE_WHY[q.done] ?? "done")}</span>`, "st"));
   if (q.updated) chips.push(chip("updated: new commits", "upd"));
   let ci = "";
@@ -794,7 +823,7 @@ function renderAsk(q) {
     ${card("CI", `<div class="tcard-b">${ci}</div>`)}
     ${card(`Discussions${c?.threads?.length ? ` · ${c.threads.length}` : ""}`, threads)}
     ${card(`Changes${files.length ? ` · ${files.length} ${plural(files.length, "file", "files")}` : ""}`, filesHTML)}
-    ${logs.length ? `<details class="journal"><summary>Journal ·  ${logs.length}</summary><div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString(LANG)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
+    ${logs.length ? `<details class="journal"><summary>Journal ·  ${logs.length}</summary><div class="log">${logs.map((l) => `${fmtWhen(l.at)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   if (html === shown) return;
   $("detail").innerHTML = shown = html;
   $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
@@ -1185,7 +1214,7 @@ function commitGraph(commits) {
       return `<span class="cg-ref ${head ? "head" : ref.startsWith("origin/") ? "remote" : ref.startsWith("tag: ") ? "tag" : ""}" title="${esc(ref)}">${esc(name)}</span>`;
     });
     const open = commitOpen[c.hash];
-    const when = new Date(c.at * 1000).toLocaleString(LANG, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    const when = fmtWhen(c.at * 1000);
     return `<div class="cg-row" title="${esc(c.hash.slice(0, 8))} · ${esc(c.author)} · ${esc(when)}">
         <svg class="cg-lanes" width="${width}" height="${H}" fill="none" stroke-width="1.6" aria-hidden="true">${svg}</svg>
         <button type="button" class="cg-toggle" data-commit="${esc(c.hash)}" aria-label="${open ? "Collapse" : "Expand"} commit">${open ? "▾" : "›"}</button>
@@ -1614,7 +1643,7 @@ function reviewerHTML(r) {
       + (a.replyAt && !a.remarks?.some((m) => m.reply) && a.reply ? `<details><summary class="muted">The agent gave no point-by-point report — what it wrote</summary><div class="summary">${md(a.reply)}</div></details>` : "")
       : a.notes ? `<div class="summary">${md(a.notes)}</div>` : "";
     const human = a.escalated ? `<div class="mr-err">👤 The agent review rounds are over, but the "blocker" remarks are still open: the decision is yours.</div>` : "";
-    const at = new Date(a.at).toLocaleString(LANG, { dateStyle: "medium", timeStyle: "short" });
+    const at = fmtWhen(a.at);
     return `<div class="agent-review ${esc(a.state)}" id="ar-${esc(r.id)}-${i + 1}"><div class="ar-h"><b>Round ${i + 1}</b><span class="ar-s">${esc(text)}</span>`
       + `<span class="ar-m">${at} · <code>${esc(a.commit.slice(0, 8))}</code>${links ? ` · ${links}` : ""}</span></div>
       ${body}${human}${a.error ? `<div class="mr-err">${esc(a.error)}</div>` : ""}</div>`;
@@ -1864,11 +1893,7 @@ function laterMenu() {
   return `<details class="menu"><summary class="btn">${ICON.clock}Snooze</summary>
     <div class="menu-pop">${item("hour", "For an hour")}${item("tomorrow", "Until tomorrow, 9:00")}${item("monday", monday)}</div></details>`;
 }
-const untilText = (ms) => {
-  const d = new Date(ms), t = d.toLocaleTimeString(LANG, { hour: "2-digit", minute: "2-digit" });
-  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 864e5);
-  return days === 0 ? `until ${t}` : days === 1 ? `until tomorrow, ${t}` : `until ${d.toLocaleDateString(LANG, { weekday: "long" })}, ${t}`;
-};
+const untilText = (ms) => `until ${fmtWhen(ms)}`;
 
 function agentBlock(r) {
   const a = agentOf(r);
@@ -2878,7 +2903,7 @@ function trendCard(days) {
   days = days.slice(Math.max(0, Math.min(days.findIndex((d) => d.taken), days.length - 7)));
   const top = Math.max(...days.map((d) => d.taken));
   const peak = days.find((d) => d.taken === top);
-  const date = (d, long) => new Date(d + "T12:00:00").toLocaleDateString(LANG, long ? { weekday: "short", day: "numeric", month: "short" } : { day: "numeric", month: "short" });
+  const date = fmtDay;
   const toggle = `<button type="button" class="link" id="trend-table">${trendTable ? "As a chart" : "As a table"}</button>`;
   const legend = `<div class="legend"><span><i class="merged"></i>Merged</span><span><i class="other"></i>In review or running</span><span><i class="failed"></i>Failed</span><span class="spacer"></span>${toggle}</div>`;
   const aside = `most: ${top} on ${date(peak.date)}`;
@@ -2899,17 +2924,19 @@ function trendCard(days) {
 }
 
 // "Needs attention": what waits for you or went wrong in the period; a row opens those tasks in the list.
+// "for 4 h", and "just now" for the first minute, not "for just now".
+const waitingFor = (sec) => { const t = fmtDur(sec); return t === "just now" ? t : `for ${t}`; };
 function attentionCard(s) {
   const merge = attentionTasks({ kind: "merge" });
   const oldest = Math.min(...merge.map((r) => Date.parse(r.finishedAt || r.updatedAt)).filter((t) => t > 0));
-  const reasons = (s.reasons || []).slice(0, 3).map((x) => `${x.count} ${esc(x.text.length > 40 ? x.text.slice(0, 39) + "…" : x.text)}`).join(" · ");
+  const reasons = (s.reasons || []).slice(0, 3).map((x) => `${esc(x.text.length > 40 ? x.text.slice(0, 39) + "…" : x.text)} ×${x.count}`).join(" · ");
   // The counts are Summarize's, as the other cards show them; only the MRs waiting now are counted here.
   const fix = s.review?.waiting || 0, failed = s.failed || 0, unclear = unclearOf(s);
   const rows = [
     ["fix", fix, "warn", `${plural(fix, "review round waits", "review rounds wait")} for «Fix»`, "the remarks never reached the agent"],
     ["failed", failed, "err", `${plural(failed, "task", "tasks")} failed`, reasons],
     ["unclear", unclear, "", `${plural(unclear, "task", "tasks")} the agent hardly understood`, "description clarity 2/5 or less"],
-    ["merge", merge.length, "", `${plural(merge.length, "MR waits", "MRs wait")} for your merge`, oldest < Infinity ? `for ${durText(Math.max(0, Date.now() - skew - oldest) / 1000)}` : ""],
+    ["merge", merge.length, "", `${plural(merge.length, "MR waits", "MRs wait")} for your merge`, oldest < Infinity ? waitingFor(Math.max(0, Date.now() - skew - oldest) / 1000) : ""],
   ].filter((r) => r[1] > 0);
   const row = ([kind, count, tone, what, note]) => `<a href="#" class="need" data-need="${kind}"><b class="${tone}">${count}</b>`
     + `<span class="what">${what}${note ? `<small>${note}</small>` : ""}</span><span class="go" aria-hidden="true">→</span></a>`;
@@ -2970,7 +2997,7 @@ function openAttention(f) {
 
 // What each stage of a merged task's time takes in.
 // A short time with its seconds while under 10 minutes: 12 s, 1 min 16 s; longer ones as durText.
-const durFine = (sec) => sec < 60 ? `${Math.round(sec)} s` : sec < 600 ? `${Math.floor(sec / 60)} min${Math.round(sec % 60) ? ` ${Math.round(sec % 60)} s` : ""}` : durText(sec);
+const durFine = (sec) => fmtDur(sec, { fine: 600 });
 const STAGE_WHAT = { agent: "estimate, plan, work and the agent review before the MR", you: "a question, a permission, the plan to approve, the agent's turn is over",
   ci: "the MR's checks are running", review: "the MR is green and waits for review and the merge" };
 // Where the time of a merged task goes, on average by stage; short: the legend only, with a link to "Time".
@@ -3111,7 +3138,7 @@ function costDaysCard(days) {
   if (!days?.some((d) => d.cost)) return "";
   days = days.slice(Math.max(0, Math.min(days.findIndex((d) => d.taken), days.length - 7)));
   const top = Math.max(...days.map((d) => d.cost || 0));
-  const date = (d) => new Date(d + "T12:00:00").toLocaleDateString(LANG, { day: "numeric", month: "short" });
+  const date = (d) => fmtDay(d);
   const col = (d, i) => `<div class="day${i > days.length / 2 ? " late" : ""}" tabindex="${d.cost ? 0 : -1}" aria-label="${esc(`${date(d.date)}: ${money(d.cost)}`)}"><div class="bar">${d.cost ? `<i class="cost" style="height:${(d.cost / top) * 100}%"></i>` : ""}</div>`
     + `${d.cost ? `<div class="tip"><b>${date(d.date)}</b> · ${money(d.cost)}<br>${d.taken} taken</div>` : ""}<span>${i === 0 || i === days.length - 1 ? date(d.date) : ""}</span></div>`;
   return scard("Per day", `<div class="trend small">${days.map(col).join("")}</div>`, `most: ${money(top)}`, "grow");
@@ -3250,7 +3277,7 @@ function navCard(x, several) {
   else if (x.state === "failed") body = `<div class="nav-err">The retro failed: ${esc(x.error)}</div><div class="muted">${about}</div>`;
   else if (x.state === "done") {
     const read = x.tasks?.length || 0, skipped = x.skipped?.length || 0;
-    const when = new Date(x.at).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const when = fmtWhen(x.at);
     body = `<div class="muted">Read ${read} ${plural(read, "task", "tasks")}${skipped ? ` · ${skipped} skipped: no transcript (${x.skipped.map(esc).join(", ")})` : ""} · ${when}</div>`
       + (x.suggestions || []).map((g) => navSuggestion(x, g)).join("");
   } else body = `<div class="muted">${about}</div>`;
@@ -3345,14 +3372,14 @@ function bindStats() {
 function faultsHTML(fs) {
   if (!fs?.length) return "";
   const fresh = fs.filter((f) => !f.reported).length;
-  const at = (t) => new Date(t).toLocaleString(LANG, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const at = fmtWhen;
   const link = (u) => /^https?:/.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : esc(u);
-  const row = (f) => `<div class="fault-row${f.reported ? " reported" : ""}"><b class="fault-n" title="${f.count} ${plural(f.count, "time", "times", "times")}">${f.count}×</b>`
+  const row = (f) => `<div class="fault-row${f.reported ? " reported" : ""}"><b class="fault-n" title="${f.count} ${plural(f.count, "time", "times")}">${f.count}×</b>`
     + `<div class="fault-main"><div class="fault-top"><b>${esc(f.what)}</b><span class="muted">${at(f.last)}${f.task ? ` · ${esc(f.task)}` : ""}</span>`
     + (f.reported ? `<span class="badge ok" title="Under analysis">under analysis</span>` : "") + `</div>`
     + `<div class="fault-text" title="${esc(f.error)}">${esc(f.error)}</div>`
     + (f.reported ? `<div class="fault-issue">${link(f.reported)}</div>` : "") + `</div></div>`;
-  const aside = `${fresh ? `${fresh} new · ` : ""}${fs.length} ${plural(fs.length, "kind", "kinds", "kinds")}`;
+  const aside = `${fresh ? `${fresh} new · ` : ""}${fs.length} ${plural(fs.length, "kind", "kinds")}`;
   return `<div class="scard faults"><div class="scard-h"><h2>Mako errors</h2><span class="aside">${aside}</span>
       <span class="actions">${fresh && !data.remote ? `<button id="faults-report"${faultsBusy ? " disabled" : ""} title="Create a task with these errors in the Mako repository, so the agent can sort them out">${faultsBusy ? "Creating the task…" : `Send for analysis: ${fresh}`}</button>` : ""}
       ${data.remote ? "" : `<button class="ghost" id="faults-clear">Clear</button>`}</span></div>
@@ -3388,8 +3415,7 @@ const PHASE_NAMES = { estimate: "estimate", plan: "plan", work: "work", review: 
 
 // A time in seconds, short: 42 min, 3 h 5 min, 2 d 4 h.
 function durText(sec) {
-  const m = Math.round(sec / 60);
-  return m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`;
+  return fmtDur(sec);
 }
 
 // The task's own cycle: where its time went by stage (the current one up to now) and what each phase cost.
@@ -3431,7 +3457,7 @@ const pctText = (x) => `${Math.round(x * 100)}%`;
 
 // "While you were away": what waits for you, the MRs to merge, what failed and got merged, with links to the tasks.
 function digestHTML(d) {
-  const at = (ms) => new Date(ms).toLocaleString(LANG, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const at = fmtWhen;
   const item = (x) => `<li><a href="#${encodeURIComponent(x.id)}"><b>${esc(x.id)}</b> ${esc(x.title)}</a>`
     + (x.new ? ` <span class="digest-new">new</span>` : "")
     + (x.note ? `<div class="muted">${esc(x.note)}</div>` : "")
@@ -3701,7 +3727,7 @@ function renderDetail() {
     ${r.retryNote ? card(`Attempt ${r.attempt || 2}: what to do differently`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
     ${t.comments?.length ? card(`Comments · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="md">${md(c.body)}</div></div></div>`).join("")) : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Journal · ${logs.length} ${plural(logs.length, "entry", "entries")}</summary>
-      <div class="log">${logs.map((l) => `${new Date(l.at).toLocaleTimeString(LANG)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
+      <div class="log">${logs.map((l) => `${fmtWhen(l.at)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   const started = r.column === "doing" && !!r.worktree;
   // A new task opened: a terminal task in progress opens on its terminal, the side card on its changes.
   if (workOf !== r.id) {
@@ -3725,7 +3751,7 @@ function renderDetail() {
     ${r.column === "new" && r.autoSkip ? `<div class="notice auto-skip">Not taken automatically: ${esc(r.autoSkip)}. Take it with the button, or Mako will take it on its own once the estimate fits the settings</div>` : ""}
     ${r.error ? `<div class="notice ${r.status === "cancelled" ? "warn" : ""}">${linkify(r.error)}</div>` : ""}
     ${r.secrets?.length && !r.archivedAt ? secretsHTML(r) : ""}
-    ${r.checks?.attention && r.status === "handed-off" ? `<div class="notice warn">The pre-MR check failed ${r.checks.fails} ${plural(r.checks.fails, "time", "times")} in a row (${esc(checksLine(r.checks))}): the MR is not opened and the agent is no longer asked to fix it. See what broke and continue with the agent; after a new commit Mako will check again.</div>` : ""}
+    ${r.checks?.attention && r.status === "handed-off" ? `<div class="notice warn">The pre-MR check failed${r.checks.fails > 1 ? ` ${r.checks.fails} times in a row` : ""} (${esc(checksLine(r.checks))}): the MR is not opened and the agent is no longer asked to fix it. See what broke and continue with the agent; after a new commit Mako will check again.</div>` : ""}
     ${r.checks?.error && !r.prUrl && r.status === "handed-off" ? `<div class="notice">The check passed, but the MR was not opened: ${linkify(r.checks.error)}. Mako will try again.</div>` : ""}
     ${r.lesson && !r.archivedAt ? lessonHTML(r) : ""}
     ${r.worktreeKept ? `<div class="notice warn kept">The task is finished, but its worktree was not removed: ${r.worktreeKept} ${plural(r.worktreeKept, "uncommitted change or unpushed commit", "uncommitted changes or unpushed commits")}.
@@ -4275,11 +4301,7 @@ function restoreChatScroll(v) {
   v.auto = v.list.scrollTop;
 }
 // How long, said shortly: «38 s», «6 min», «1 h 5 min».
-const dur = (sec) => {
-  sec = Math.max(0, Math.round(sec));
-  return sec >= 3600 ? `${Math.floor(sec / 3600)} h ${Math.floor((sec % 3600) / 60)} min` : sec >= 60 ? `${Math.floor(sec / 60)} min` : `${sec} s`;
-};
-const hhmm = (ms) => (ms ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+const dur = (sec) => fmtDur(sec, { fine: 60 });
 // What runs on: the seconds of the step going on and of the turn, counted between the board's redraws.
 function tickChat(root) {
   for (const e of root.querySelectorAll("[data-since]")) if (+e.dataset.since) e.textContent = (e.dataset.pre ?? "") + dur((Date.now() - +e.dataset.since) / 1000);
@@ -4435,10 +4457,10 @@ function userTurn(t, it, v) {
   // Your notes on an approved plan: shown as the notes, without the words that tell the agent what they are.
   if (t.text?.startsWith(PLAN_NOTES)) {
     return `<div class="msg me"><div class="who">Notes on the approved plan</div><div class="bubble">${linkify(t.text.slice(PLAN_NOTES.length).trim())}</div>
-      ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
+      ${t.at ? `<span class="time">${fmtWhen(t.at)}</span>` : ""}</div>`;
   }
   return `<div class="msg me">${t.text ? `<div class="bubble">${linkify(t.text)}</div>` : ""}${pics ? `<div class="me-pics">${pics}</div>` : ""}
-    ${t.at ? `<span class="time">${hhmm(t.at)}</span>` : ""}</div>`;
+    ${t.at ? `<span class="time">${fmtWhen(t.at)}</span>` : ""}</div>`;
 }
 const SPARK = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.2 7.8L22 12l-7.8 2.2L12 22l-2.2-7.8L2 12l7.8-2.2z"/></svg>`;
 function agentTurn(t, items, v, live, last) {
@@ -4448,7 +4470,7 @@ function agentTurn(t, items, v, live, last) {
   if (sum) blocks += sum;
   if (!blocks) return "";
   return `<div class="turn"><span class="av" aria-hidden="true">${SPARK}</span><div class="turn-b">
-    <div class="turn-h"><b>Claude</b><span class="time">${hhmm(t.at)}${live && t.at ? ` · <span data-since="${t.at}" data-pre="working ">working ${dur((Date.now() - t.at) / 1000)}</span>` : ""}</span></div>
+    <div class="turn-h"><b>Claude</b><span class="time">${fmtWhen(t.at)}${live && t.at ? ` · <span data-since="${t.at}" data-pre="working ">working ${dur((Date.now() - t.at) / 1000)}</span>` : ""}</span></div>
     ${blocks}</div></div>`;
 }
 // A finished turn in five figures: its time, its cost, the files it changed, its last test run, its commits (and, for
