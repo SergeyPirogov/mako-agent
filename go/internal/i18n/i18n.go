@@ -77,6 +77,21 @@ func WebStrings() map[string]string {
 	return out
 }
 
+// Keys: the Go texts whose key starts with one of the prefixes, in the interface's language, by key — for the
+// native window's menu and dialogs, which take their words from Go.
+func Keys(prefixes ...string) map[string]string {
+	out := map[string]string{}
+	for k := range goStrings {
+		for _, p := range prefixes {
+			if strings.HasPrefix(k, p) {
+				out[k] = T(k)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // EnglishName: what the language is called in English, as the agents are asked to write in it.
 func EnglishName(lang string) string {
 	if lang == UK {

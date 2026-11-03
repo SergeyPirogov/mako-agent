@@ -35,6 +35,22 @@ func TestDictionaryComplete(t *testing.T) {
 	}
 }
 
+// The native window gets its menu and dialog words from Keys: the menu.* words and the tray's «Quit».
+func TestKeys(t *testing.T) {
+	w := Keys("menu.", "tray.quit")
+	for _, k := range []string{"menu.edit", "menu.view", "menu.window", "menu.cancel", "menu.ok", "tray.quit"} {
+		if w[k] == "" || w[k] != T(k) {
+			t.Errorf("Keys: %q is %q, T gives %q", k, w[k], T(k))
+		}
+	}
+	if _, ok := w["tray.pause"]; ok {
+		t.Error("Keys: tray.pause is not asked for")
+	}
+	if _, ok := w["b.confirm.ok"]; ok {
+		t.Error("Keys: the pages' words are not the window's")
+	}
+}
+
 func TestT(t *testing.T) {
 	// The interface is English only; In picks the agent's language.
 	if got := T("notify.waiting", "a#1"); got != "✋ a#1: the agent is waiting for you" {

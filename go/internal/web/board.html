@@ -473,7 +473,7 @@ function render() {
   if (ub) ub.onclick = async () => { ub.disabled = true; await fetch("/api/update", { method: "POST" }); await load(); };
   const un = $("update-now");
   if (un) un.onclick = async () => {
-    if (!confirm("Restart Mako now? Running agents will be interrupted.")) return;
+    if (!(await askConfirm("Restart Mako now? Running agents will be interrupted.", { ok: "Restart" }))) return;
     un.disabled = true; await fetch("/api/update/now", { method: "POST" }); await load();
   };
   const uc = $("update-cancel");
@@ -2089,8 +2089,8 @@ async function showCode() {
     const what = b.dataset.ws, ws = code.ws;
     // Both stop the agents of this project's questions first: the code is not changed under their feet.
     const stops = "An agent currently answering a question of this project will stop and its answer will be cut off; the next message continues the conversation.";
-    if (what === "reset" && !confirm(`Discard ${ws?.dirty || ""} unsaved changes in the worktree and update it from ${ws?.base || "main"}? The changes will be lost.\n\n${stops}`)) return;
-    if (what === "remove" && !confirm(`Delete the worktree for questions${ws?.dirty ? ` along with ${ws.dirty} unsaved changes` : ""}? It will reappear with the next question.\n\n${stops}`)) return;
+    if (what === "reset" && !(await askConfirm(`Discard ${ws?.dirty || ""} unsaved changes in the worktree and update it from ${ws?.base || "main"}? The changes will be lost.\n\n${stops}`, { ok: "Discard", danger: true }))) return;
+    if (what === "remove" && !(await askConfirm(`Delete the worktree for questions${ws?.dirty ? ` along with ${ws.dirty} unsaved changes` : ""}? It will reappear with the next question.\n\n${stops}`, { ok: "Delete", danger: true }))) return;
     b.disabled = true;
     const r = await fetch(`/api/code/workspace/${what}?project=${encodeURIComponent(code.project)}`, { method: "POST" })
       .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
@@ -2235,7 +2235,7 @@ async function showFreeChat() {
     if (x) {
       e.stopPropagation();
       const c = freeChats.find((c) => c.id === x.dataset.fcRemove);
-      if (!confirm(`Delete the chat "${c?.title ?? ""}" and its worktree? Uncommitted changes in it will be lost; the branch ${c?.branch ?? ""} stays.`)) return;
+      if (!(await askConfirm(`Delete the chat "${c?.title ?? ""}" and its worktree? Uncommitted changes in it will be lost; the branch ${c?.branch ?? ""} stays.`, { ok: "Delete", danger: true }))) return;
       const r = await fetch(`/api/chats/remove?id=${encodeURIComponent(x.dataset.fcRemove)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
       if (!r.ok) alert(r.error || "Failed");
       if (x.dataset.fcRemove === freeChat) openFreeChat(""); else loadFreeChats();
@@ -2516,7 +2516,7 @@ function openPlanTask(draft) {
 async function removeQuestion(id) {
   const v = code;
   const t = v.threads?.find((t) => t.id === id);
-  if (!confirm(`Delete the question "${t?.title ?? ""}" from the history?`)) return;
+  if (!(await askConfirm(`Delete the question "${t?.title ?? ""}" from the history?`, { ok: "Delete", danger: true }))) return;
   const r = await fetch(`/api/code/remove?id=${encodeURIComponent(id)}`, { method: "POST" }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
   if (!r.ok) alert(r.error || "Failed");
   if (v !== code) return;
@@ -2527,7 +2527,7 @@ async function removeQuestion(id) {
 async function removeQuestions(ids) {
   const v = code;
   if (!ids.length) return;
-  if (!confirm(`Delete ${ids.length} ${ids.length === 1 ? "question" : "questions"} from the history? Agents that are still answering will be stopped.`)) return;
+  if (!(await askConfirm(`Delete ${ids.length} ${ids.length === 1 ? "question" : "questions"} from the history? Agents that are still answering will be stopped.`, { ok: "Delete", danger: true }))) return;
   const r = await fetch("/api/code/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) })
     .then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
   if (!r.ok) alert(r.error || "Failed");
@@ -3174,7 +3174,7 @@ function bindFaults() {
     select(res.id);
   };
   if (clr) clr.onclick = async () => {
-    if (!confirm("Forget all Mako errors?")) return;
+    if (!(await askConfirm("Forget all Mako errors?", { ok: "Forget", danger: true }))) return;
     await fetch("/api/faults/clear", { method: "POST" });
     await load();
   };
@@ -3608,7 +3608,7 @@ function renderDetail() {
     await load();
   };
   for (const btn of $("detail").querySelectorAll("[data-kept]")) btn.onclick = async () => {
-    if (btn.dataset.kept === "clean" && !confirm("Delete the worktree along with uncommitted changes? This cannot be undone.")) return;
+    if (btn.dataset.kept === "clean" && !(await askConfirm("Delete the worktree along with uncommitted changes? This cannot be undone.", { ok: "Delete", danger: true }))) return;
     for (const x of $("detail").querySelectorAll("[data-kept]")) x.disabled = true;
     const res = await fetch(`/api/${btn.dataset.kept}?id=${encodeURIComponent(r.id)}`, { method: "POST" }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
     if (res.ok === false) toast(res.error, true);
@@ -3741,11 +3741,11 @@ function renderDetail() {
     renderDetail();
   };
   for (const btn of $("detail").querySelectorAll("[data-ask]")) btn.onclick = () => { btn.disabled = true; btn.classList.add("busy"); mrAction(r.id, "ask", btn.dataset.ask); };
-  for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = () => {
-    if (confirm("Merge the MR? The task branch will be deleted and the task will get its final status.")) { btn.disabled = true; mrAction(r.id, "merge"); }
+  for (const btn of $("detail").querySelectorAll("[data-merge]")) btn.onclick = async () => {
+    if (await askConfirm("Merge the MR? The task branch will be deleted and the task will get its final status.", { ok: "Merge" })) { btn.disabled = true; mrAction(r.id, "merge"); }
   };
-  for (const btn of $("detail").querySelectorAll("[data-close-mr]")) btn.onclick = () => {
-    if (confirm("Close the MR without merging? The changes stay on the branch and the task gets the status “Not done”.")) { btn.disabled = true; mrAction(r.id, "close"); }
+  for (const btn of $("detail").querySelectorAll("[data-close-mr]")) btn.onclick = async () => {
+    if (await askConfirm("Close the MR without merging? The changes stay on the branch and the task gets the status “Not done”.", { ok: "Close MR" })) { btn.disabled = true; mrAction(r.id, "close"); }
   };
   for (const btn of $("detail").querySelectorAll("[data-dir]")) btn.onclick = () => {
     const d = btn.dataset.dir;
@@ -3759,8 +3759,8 @@ function renderDetail() {
     renderDetail();
     if (!(fileTab in diffs)) loadWork().then(renderDetail);
   };
-  for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = () => {
-    if (btn.dataset.a === "cancel" && r.starting && !confirm("Cancel the launch? Preparation will be stopped and the created worktree removed.")) return;
+  for (const btn of $("detail").querySelectorAll("[data-a]")) btn.onclick = async () => {
+    if (btn.dataset.a === "cancel" && r.starting && !(await askConfirm("Cancel the launch? Preparation will be stopped and the created worktree removed.", { ok: "Cancel launch", cancel: "Keep going" }))) return;
     post(btn.dataset.a, r.id, btn.dataset.x);
   };
   for (const btn of $("detail").querySelectorAll("[data-self]")) btn.onclick = () => {
@@ -3842,8 +3842,8 @@ function bindNotes(r) {
     saveNotes();
     renderDetail();
   };
-  for (const btn of $("detail").querySelectorAll("[data-review-clear]")) btn.onclick = () => {
-    if (!confirm("Delete all draft comments?")) return;
+  for (const btn of $("detail").querySelectorAll("[data-review-clear]")) btn.onclick = async () => {
+    if (!(await askConfirm("Delete all draft comments?", { ok: "Delete", danger: true }))) return;
     notes[r.id] = notesOf(r.id).filter((x) => x.sent);
     saveNotes();
     reviewNote = "";
@@ -3965,10 +3965,10 @@ function chatFor(id) {
     else if (next === "diff") { const f = changesOf.get(id)?.files?.[0]; if (f) openFile(f.path); }
   };
   // The context nearly full: compact the conversation now, or start a new one.
-  el.querySelector(".chat-ctxwarn").onclick = (e) => {
+  el.querySelector(".chat-ctxwarn").onclick = async (e) => {
     if (e.target.closest("[data-compact]")) say("/compact");
     else if (e.target.closest("[data-fresh]")) {
-      if (!confirm("Start a new conversation with the agent? It starts the task over in the same worktree: the work in the branch stays, this conversation's context is dropped.")) return;
+      if (!(await askConfirm("Start a new conversation with the agent? It starts the task over in the same worktree: the work in the branch stays, this conversation's context is dropped.", { ok: "Start new" }))) return;
       fetch(`/api/fresh?id=${encodeURIComponent(id)}`, { method: "POST" }).then((x) => x.json()).catch(() => ({}))
         .then((r) => { warn(r.ok === false ? r.error : ""); v.version = -1; v.atEnd = true; pollChat(); });
     }
@@ -4734,7 +4734,7 @@ function terminalFor(id) {
     if (what === "find") { const box = find.parentElement; box.hidden = !box.hidden; if (box.hidden) closeFind(v); else { find.focus(); find.select(); } }
     else if (what === "smaller" || what === "bigger") { setTermFont(v, termFont + (what === "bigger" ? 1 : -1)); refocus(); }
     else if (what === "app") {
-      if (v.stat?.live && !confirm("Continue this conversation in Terminal.app? Mako's agent stops first: two Claudes on one conversation would each go their own way.")) return;
+      if (v.stat?.live && !(await askConfirm("Continue this conversation in Terminal.app? Mako's agent stops first: two Claudes on one conversation would each go their own way.", { ok: "Continue" }))) return;
       b.disabled = true;
       const res = await fetch(`/api/terminalapp?id=${encodeURIComponent(id)}`, { method: "POST" }).then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
       b.disabled = false;
