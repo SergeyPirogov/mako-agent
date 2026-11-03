@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -229,18 +230,20 @@ func TestWaitingCanBeCancelledOrForced(t *testing.T) {
 			t.Fatalf("state %q (%s), want %q", u.Status().State, u.Status().Error, want)
 		}
 	}
-	newUpdater := func() (*Updater, *bool, *[]string) {
+	// Quit and Restart run on the updater's goroutine: what they record is read atomically.
+	newUpdater := func() (*Updater, *atomic.Bool, *atomic.Int32) {
 		clone, built := repos(t)
 		exe := filepath.Join(t.TempDir(), "mako")
 		os.WriteFile(exe, []byte("old"), 0o755)
-		quit, restarted := false, []string{}
+		var quit atomic.Bool
+		var restarted atomic.Int32
 		return &Updater{Source: clone, Revision: built, Exe: exe,
 			Busy: func() int { return 3 },
-			Quit: func() { quit = true },
+			Quit: func() { quit.Store(true) },
 			Build: func(_ context.Context, _, out string) error {
 				return os.WriteFile(out, []byte("new"), 0o755)
 			},
-			Restart: func(_ int, c []string) error { restarted = c; return nil },
+			Restart: func(_ int, c []string) error { restarted.Store(int32(len(c))); return nil },
 		}, &quit, &restarted
 	}
 
@@ -254,7 +257,7 @@ func TestWaitingCanBeCancelledOrForced(t *testing.T) {
 		t.Fatal("not cancelled")
 	}
 	wait(u, "")
-	if u.Waiting() || *quit {
+	if u.Waiting() || quit.Load() {
 		t.Fatal("cancelled update restarted or still holds")
 	}
 	if b, _ := os.ReadFile(u.Exe); string(b) != "old" {
@@ -272,10 +275,10 @@ func TestWaitingCanBeCancelledOrForced(t *testing.T) {
 	if !u.Force() {
 		t.Fatal("not forced")
 	}
-	for i := 0; i < 500 && !*quit; i++ {
+	for i := 0; i < 500 && !quit.Load(); i++ {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if !*quit || len(*restarted) == 0 {
-		t.Fatalf("no restart: quit %v, %v", *quit, *restarted)
+	if !quit.Load() || restarted.Load() == 0 {
+		t.Fatalf("no restart: quit %v, %d args", quit.Load(), restarted.Load())
 	}
 }

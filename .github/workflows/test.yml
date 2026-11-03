@@ -1,10 +1,18 @@
-# Vet and tests on every push and pull request.
+# Formatting, vet, staticcheck, govulncheck and the tests on every push to main and every pull request.
+# A pull request cannot merge until these pass (branch protection on main).
 name: Test
 
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   go:
@@ -18,11 +26,17 @@ jobs:
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
-      - run: test -z "$(gofmt -l .)"
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
-      - run: go test ./...
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: tests with the race detector
+        run: go test -race ./...
 
-  # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them.
+  # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them, for both architectures.
   go-mac:
     runs-on: macos-15
     defaults:
@@ -36,5 +50,5 @@ jobs:
           cache-dependency-path: go/go.sum
       - run: go vet ./...
       - run: go test ./...
+      - run: CGO_ENABLED=1 GOARCH=arm64 go build -o /dev/null ./cmd/mako
       - run: CGO_ENABLED=1 GOARCH=amd64 go build -o /dev/null ./cmd/mako
-      - run: go build -o mako ./cmd/mako && ls -la mako

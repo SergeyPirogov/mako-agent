@@ -423,6 +423,8 @@ var webStrings = map[string]string{
 	"b.pick":             "Pick a task on the left",
 	"b.openSettings":     "Open the settings →",
 	"b.resume":           "Search paused: resume",
+	"b.poll":             "Check the trackers now",
+	"b.pause":            "Pause: don't look for new tasks",
 	"b.inOrca":           "In Orca",
 	"b.of":               "of",
 	"b.col.later":        "Postponed",

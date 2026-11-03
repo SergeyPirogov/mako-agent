@@ -21,7 +21,7 @@ jobs:
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
-      - run: go test ./...
+      - run: test -z "$(gofmt -l .)" && go vet ./... && go test ./...
         working-directory: go
       - run: go/packaging/mac/build-app.sh ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
       - uses: softprops/action-gh-release@v2

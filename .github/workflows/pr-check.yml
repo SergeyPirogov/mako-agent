@@ -1,0 +1,48 @@
+# A pull request says how it was verified, and one that changes the pages shows them.
+name: PR description
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the sections
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          body=$(gh api "repos/$REPO/pulls/$NUMBER" --jq '.body // ""')
+          files=$(gh api "repos/$REPO/pulls/$NUMBER/files" --paginate --jq '.[].filename')
+          fail=0
+
+          section() { # section <heading>: the text under "## <heading>" up to the next heading
+            printf '%s\n' "$body" | awk -v h="## $1" 'index($0, h) == 1 {on=1; next} /^## / {on=0} on' | sed '/^\s*$/d; /^<!--/d'
+          }
+
+          if [ -z "$(section 'Як перевірено')" ]; then
+            echo "::error::Fill in «## Як перевірено»: the commands run and what was checked by hand, or say it was not."
+            fail=1
+          fi
+
+          if printf '%s\n' "$files" | grep -Eq '^go/internal/web/.*\.(html|css|js)$'; then
+            shots=$(section 'Скріншоти')
+            if ! printf '%s\n' "$shots" | grep -Eq '!\[|<img|не змін(ює|юють) вигляд|не потрібні'; then
+              echo "::error::The pages changed: add before/after pictures under «## Скріншоти» (mako screenshot), or write there that the change does not alter the look and why."
+              fail=1
+            fi
+          fi
+
+          if [ "$fail" = 1 ]; then
+            echo "The template is in .github/pull_request_template.md, the rules in CLAUDE.md."
+            exit 1
+          fi
+          echo "The description is complete."
