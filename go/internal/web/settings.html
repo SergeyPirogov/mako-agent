@@ -742,10 +742,11 @@ function renderNav() {
 }
 function show(id) {
   const ts = cfg.trackers ?? [];
-  // #lessons:<project>, from the board's badge: the project's tracker, scrolled to its lessons.
+  // #lessons:<tracker>|<project>, from the board's badge: the project's tracker, scrolled to its lessons.
   let toLessons = false;
   if (id?.startsWith("lessons:")) {
-    const l = lessons.find((x) => x.project === id.slice(8) && x.state === "offered");
+    const [tid, ...rest] = id.slice(8).split("|");
+    const l = lessons.find((x) => x.trackerId === tid && x.project === rest.join("|") && x.state === "offered");
     const i = l ? ts.findIndex((tk) => (tk.id || tk.type) === l.trackerId) : -1;
     id = i >= 0 ? `tracker:${i}` : "";
     toLessons = i >= 0;

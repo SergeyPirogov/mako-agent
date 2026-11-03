@@ -32,6 +32,9 @@ var LessonFromRemarks = writer.LessonFromRemarks
 // repoLessonEvery: the remarks of a repo are looked at again no sooner than this.
 const repoLessonEvery = time.Hour
 
+// A group this heavy (a «must» remark counts 2, a «should» 1) is a candidate from two tasks already.
+const remarksWeight = 5
+
 // The model is asked about this many groups of a repo at most in one look.
 const repoLessonAsks = 3
 
@@ -200,9 +203,9 @@ func alike(a, b remarkItem) bool {
 	return dice >= 0.2 && a.file != "" && b.file != "" && path.Dir(a.file) == path.Dir(b.file)
 }
 
-// remarkGroups: the groups of remarks much alike from at least minTasks tasks, the heaviest first. Many remarks
-// from fewer tasks do not make one: those are the rounds of one task saying it again, not a habit of the repo. Each group is a remark with the most like it on other tasks, and those: a
-// chain of remarks each a bit like the next does not make one.
+// remarkGroups: the groups of remarks much alike from at least minTasks tasks, or as heavy as remarksWeight
+// (a «must» counts 2, a «should» 1) from two tasks at least, the heaviest first. Each group is a remark with the
+// most like it on other tasks, and those: a chain of remarks each a bit like the next does not make one.
 func remarkGroups(items []remarkItem, minTasks int) []remarkGroup {
 	near := make([][]int, len(items))
 	for i := range items {
@@ -243,7 +246,7 @@ func remarkGroups(items []remarkItem, minTasks int) []remarkGroup {
 				g.weight++
 			}
 		}
-		if len(g.tasks) < minTasks {
+		if len(g.tasks) < minTasks && (len(g.tasks) < 2 || g.weight < remarksWeight) {
 			continue
 		}
 		for _, i := range members {
@@ -285,11 +288,15 @@ func groupKey(items []remarkItem) []string {
 	return key
 }
 
-// knownGroup: a lesson of the repo (offered, saved, declined or found to be none) was drawn from much the same group.
+// knownGroup: a lesson of the repo (offered, saved or declined) was drawn from much the same group, or the model
+// found no rule in it and the group has not grown to twice as many tasks since.
 func knownGroup(g remarkGroup, lessons []core.SavedLesson, same func(core.SavedLesson) bool) bool {
 	key := setOf(g.key)
 	for _, l := range lessons {
-		if l.Key != "" && same(l) && jaccard(key, setOf(strings.Fields(l.Key))) >= 0.5 {
+		if l.Key == "" || !same(l) || jaccard(key, setOf(strings.Fields(l.Key))) < 0.5 {
+			continue
+		}
+		if l.State != core.LessonNone || len(g.tasks) < 2*len(l.Tasks) {
 			return true
 		}
 	}
@@ -445,6 +452,19 @@ func lessonID(parts ...string) string {
 // edited it) to CLAUDE.md on the repo's base branch and pushes it, "no" declines it; either way the group of
 // remarks is not offered again.
 func (d *Dispatcher) AnswerRepoLesson(ctx context.Context, lessonID, to, rule string) error {
+	// One answer at a time per offer: a second «Save» (another tab, a repeated request) does not push twice.
+	d.mu.Lock()
+	busy := d.lessonAnswering[lessonID]
+	d.lessonAnswering[lessonID] = true
+	d.mu.Unlock()
+	if busy {
+		return fmt.Errorf("the lesson is already being saved")
+	}
+	defer func() {
+		d.mu.Lock()
+		delete(d.lessonAnswering, lessonID)
+		d.mu.Unlock()
+	}()
 	var l core.SavedLesson
 	for _, x := range d.Lessons() {
 		if x.ID == lessonID && x.State == core.LessonOffered {
@@ -507,12 +527,13 @@ func (d *Dispatcher) setLesson(id string, change func(*core.SavedLesson)) error 
 	})
 }
 
-// LessonOffers: how many lessons from the reviewer's remarks wait for an answer, by project.
+// LessonOffers: how many lessons from the reviewer's remarks wait for an answer, by "tracker|project": two
+// trackers may have projects of the same name.
 func (d *Dispatcher) LessonOffers() map[string]int {
 	out := map[string]int{}
 	for _, l := range d.Lessons() {
 		if l.State == core.LessonOffered {
-			out[l.Project]++
+			out[l.TrackerID+"|"+l.Project]++
 		}
 	}
 	return out

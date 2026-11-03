@@ -676,6 +676,12 @@ function listByStatus(entries, showAll) {
   return html;
 }
 
+// 💡 on a project's line: a lesson from the reviewer's remarks waits in the settings (keyed by "tracker|project").
+function lessonBadge(p, entries) {
+  const tid = [...new Set(entries.map((e) => e.r?.task?.trackerId).filter(Boolean))].find((x) => data?.lessonOffers?.[`${x}|${p}`]);
+  return tid ? `<span class="lesson-badge" data-lessons-of="${esc(`${tid}|${p}`)}" title="${esc(t("b.lessonOffer"))}">💡</span>` : "";
+}
+
 // By project: a group per project, its tasks in the order of the work; "Postponed" and "Done" each a folded line of its own.
 const QUIET = ["later", "done"], SUMMARY = { doing: "at work", blocked: "blocked", review: "in review", merge: "ready to merge", forme: "to review", new: "new", failed: "not done" };
 function listByProject(entries, showAll) {
@@ -692,7 +698,7 @@ function listByProject(entries, showAll) {
     const count = (g) => all.filter((e) => e.g === g).length;
     const summary = order.filter((g) => SUMMARY[g] && count(g)).map((g) => g === "merge" ? `<span class="ok">${count(g)} ${SUMMARY[g]}</span>` : esc(`${count(g)} ${SUMMARY[g]}`)).join(" · ") || "nothing in work";
     html += `<div class="group-box proj${isFolded ? " folded" : ""}"><button class="proj-head" data-proj="${esc(p)}" aria-expanded="${!isFolded}" title="${esc(p)}">${ICON.chevron}${projectDot(p)}<b>${esc(shortProject(p))}</b>`
-      + (data?.lessonOffers?.[p] ? `<span class="lesson-badge" data-lessons-of="${esc(p)}" title="${esc(t("b.lessonOffer"))}">💡</span>` : "")
+      + lessonBadge(p, all)
       + (isFolded ? `<span class="p-sum">${summary}</span>` : "") + `<span class="n">${all.length}</span></button>`;
     if (!isFolded) {
       // Ready to merge first, under a small green heading: the next action for a person.

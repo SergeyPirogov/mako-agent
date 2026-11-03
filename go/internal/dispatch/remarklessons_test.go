@@ -48,9 +48,32 @@ func TestRemarkGroups(t *testing.T) {
 		t.Fatalf("examples %q", ex)
 	}
 
-	// The threshold is the settings': four tasks asked, three found.
-	if groups := remarkGroups(collectRemarks(records, since), 4); len(groups) != 0 {
-		t.Fatalf("with 4 tasks asked: %+v", groups)
+	// The threshold is the settings': four tasks asked, three found, but as heavy as remarksWeight (three «must»).
+	if groups := remarkGroups(collectRemarks(records, since), 4); len(groups) != 1 {
+		t.Fatalf("with 4 tasks asked, a heavy group: %+v", groups)
+	}
+	// «should» remarks are lighter: three of them from three tasks are not enough for four tasks asked.
+	light := []core.Record{
+		reviewed("grp/app#20", should("a.go", "No test covers the new branch: add a test.")),
+		reviewed("grp/app#21", should("b.go", "No tests cover the new handler; add tests.")),
+		reviewed("grp/app#22", should("c.go", "Add a test: no test covers it.")),
+	}
+	if groups := remarkGroups(collectRemarks(light, since), 4); len(groups) != 0 {
+		t.Fatalf("with 4 tasks asked, a light group: %+v", groups)
+	}
+	if groups := remarkGroups(collectRemarks(light, since), 3); len(groups) != 1 {
+		t.Fatalf("with 3 tasks asked, a light group: %+v", groups)
+	}
+	// Two tasks with heavy remarks make a group; two tasks with light ones do not.
+	two := []core.Record{
+		reviewed("grp/app#30", must("a.go", "No test covers the new branch: add a test."), must("a.go", "Add a test: no test covers the handler.")),
+		reviewed("grp/app#31", must("b.go", "No tests cover the new handler; add tests.")),
+	}
+	if groups := remarkGroups(collectRemarks(two, since), 3); len(groups) != 1 || len(groups[0].tasks) != 2 {
+		t.Fatalf("two tasks, heavy: %+v", groups)
+	}
+	if groups := remarkGroups(collectRemarks(light[:2], since), 3); len(groups) != 0 {
+		t.Fatalf("two tasks, light: %+v", groups)
 	}
 	// Remarks unlike each other make no group.
 	unique := []core.Record{
@@ -101,7 +124,7 @@ func TestSuggestRepoLesson(t *testing.T) {
 	LessonFromRemarks = func(ctx context.Context, dir string, remarks []string, md string) (string, error) {
 		calls++
 		seenMD = md
-		if len(remarks) != 3 || !strings.HasPrefix(remarks[0], "grp/app#") || !strings.Contains(remarks[0], "[must] go/x.go: ") {
+		if len(remarks) < 3 || !strings.HasPrefix(remarks[0], "grp/app#") || !strings.Contains(remarks[0], "[must] go/x.go: ") {
 			t.Errorf("remarks %q", remarks)
 		}
 		return answer, nil
@@ -113,21 +136,32 @@ func TestSuggestRepoLesson(t *testing.T) {
 		d.suggestRepoLesson("grp/app#10")
 	}
 
-	// The model finds no rule: nothing is offered, and the group is not asked about again.
+	const offers = "gitlab|grp/app"
+	// The model finds no rule: nothing is offered, and the group is not asked about again while it stays as big.
 	d.suggestRepoLesson("grp/app#10")
-	if calls != 1 || d.LessonOffers()["grp/app"] != 0 || !strings.Contains(seenMD, "# App") {
+	if calls != 1 || d.LessonOffers()[offers] != 0 || !strings.Contains(seenMD, "# App") {
 		t.Fatalf("calls %d, offers %v, CLAUDE.md %q", calls, d.LessonOffers(), seenMD)
 	}
 	again()
 	if calls != 1 {
 		t.Fatalf("asked again about a group with no rule: %d", calls)
 	}
+	add := func(id int, text string) {
+		r := reviewed(fmt.Sprintf("grp/app#%d", id), must("go/x.go", text))
+		d.Store.Update(r.ID, func(x *core.Record) { *x = r })
+	}
+	add(13, "No test for the new branch, add a test.")
+	add(14, "Add a test: no test covers the new branch.")
+	again()
+	if calls != 1 {
+		t.Fatalf("asked again about a group grown by two tasks: %d", calls)
+	}
 
-	// With the «none» forgotten the model offers a rule; once an hour at most.
-	d.updateLessons(func([]core.SavedLesson) []core.SavedLesson { return nil })
+	// Grown to twice the tasks, the group is asked about again: the model offers a rule; once an hour at most.
+	add(15, "No test covers the new code: add a test.")
 	answer = "Add a test for every new code path."
 	again()
-	if calls != 2 || d.LessonOffers()["grp/app"] != 1 {
+	if calls != 2 || d.LessonOffers()[offers] != 1 {
 		t.Fatalf("calls %d, offers %v", calls, d.LessonOffers())
 	}
 	d.updateLessons(func([]core.SavedLesson) []core.SavedLesson { return nil })
@@ -142,7 +176,7 @@ func TestSuggestRepoLesson(t *testing.T) {
 		t.Fatalf("calls %d, lessons %+v", calls, d.Lessons())
 	}
 	l := d.Lessons()[0]
-	if l.State != core.LessonOffered || l.Repo == "" || len(l.Tasks) != 3 || len(l.Examples) != 3 || l.ID == "" {
+	if l.State != core.LessonOffered || l.Repo == "" || len(l.Tasks) != 6 || len(l.Examples) != 3 || l.ID == "" {
 		t.Fatalf("offer %+v", l)
 	}
 	again()
@@ -152,13 +186,12 @@ func TestSuggestRepoLesson(t *testing.T) {
 	if err := d.AnswerRepoLesson(context.Background(), l.ID, "no", ""); err != nil {
 		t.Fatal(err)
 	}
-	if ls := d.Lessons(); ls[0].State != core.LessonDeclined || d.LessonOffers()["grp/app"] != 0 {
+	if ls := d.Lessons(); ls[0].State != core.LessonDeclined || d.LessonOffers()[offers] != 0 {
 		t.Fatalf("after «Dismiss»: %+v", ls)
 	}
-	r := reviewed("grp/app#13", must("go/y.go", "No test for the new branch, add a test."))
-	d.Store.Update(r.ID, func(x *core.Record) { *x = r })
+	add(16, "No test for the new branch, add a test.")
 	again()
-	if calls != 3 || d.LessonOffers()["grp/app"] != 0 {
+	if calls != 3 || d.LessonOffers()[offers] != 0 {
 		t.Fatalf("a dismissed group came back: calls %d", calls)
 	}
 }
@@ -190,6 +223,16 @@ func TestAnswerRepoLesson(t *testing.T) {
 	if err := d.AnswerRepoLesson(ctx, "nope", "base", "y"); err == nil {
 		t.Fatal("an unknown offer was answered")
 	}
+	// An answer while another one of the offer is being saved (another tab) does nothing.
+	d.mu.Lock()
+	d.lessonAnswering["abc"] = true
+	d.mu.Unlock()
+	if err := d.AnswerRepoLesson(ctx, "abc", "base", "y"); err == nil || !strings.Contains(err.Error(), "already being saved") {
+		t.Fatalf("a second answer at once: %v", err)
+	}
+	d.mu.Lock()
+	delete(d.lessonAnswering, "abc")
+	d.mu.Unlock()
 	if err := d.AnswerRepoLesson(ctx, "abc", "base", "  Add a test for every\n new code path. "); err != nil {
 		t.Fatal(err)
 	}
