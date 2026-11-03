@@ -127,3 +127,37 @@ func TestCardStageMetrics(t *testing.T) {
 		t.Errorf("estimate note %q", s.Note)
 	}
 }
+
+func TestCardSkippedStageReasons(t *testing.T) {
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	stage := func(r core.Record, key string) stageView {
+		for _, s := range stagesOf(recordView{Record: r, Column: "doing"}, now) {
+			if s.Key == key {
+				return s
+			}
+		}
+		t.Fatalf("no stage %q", key)
+		return stageView{}
+	}
+	for _, c := range []struct {
+		name, note, why string
+		r               core.Record
+	}{
+		{"no plan", "from a plan", "The task was made from a written plan", core.Record{Status: core.HandedOff, NoPlan: true}},
+		{"advised", "not picked", "The estimate advised a plan, but «plan first» was not picked", core.Record{Status: core.HandedOff, Estimate: &core.Estimate{State: "done", Size: "big", Plan: true}}},
+		{"not needed", "not needed", "The estimate found no plan needed", core.Record{Status: core.HandedOff, Estimate: &core.Estimate{State: "done", Size: "small"}}},
+		{"not needed, advice", "not needed", "The estimate found no plan needed: a one-line fix", core.Record{Status: core.HandedOff, Estimate: &core.Estimate{State: "done", Size: "small", Advice: "a one-line fix"}}},
+		{"no estimate", "not picked", "No estimate, plan first was not picked", core.Record{Status: core.HandedOff}},
+	} {
+		s := stage(c.r, "plan")
+		if s.State != "skip" || s.Note != c.note || s.Why != c.why {
+			t.Errorf("%s: %+v", c.name, s)
+		}
+	}
+	if s := stage(core.Record{Status: core.HandedOff}, "estimate"); s.State != "skip" || s.Note != "none" || s.Why != "Task was taken before it was estimated" {
+		t.Errorf("no estimate: %+v", s)
+	}
+	if s := stage(core.Record{Status: core.HandedOff, Estimate: &core.Estimate{State: "failed", Error: "timeout"}}, "estimate"); s.State != "skip" || s.Note != "failed" || s.Why != "Estimate failed: timeout" {
+		t.Errorf("failed estimate: %+v", s)
+	}
+}
