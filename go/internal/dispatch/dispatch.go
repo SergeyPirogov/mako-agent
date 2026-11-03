@@ -84,6 +84,8 @@ type Dispatcher struct {
 	reviewing map[string]bool
 	// branches: the tasks' branches as the board's reviewer row last looked at them (lookBranch).
 	branches map[string]branchLook
+	// selfBehind: how many commits the branch got past a «Check it yourself» tick, per task (selfCheckBehind).
+	selfBehind map[string]selfLook
 	// fixing: when «Виправити» handed each task's remarks to its agent, whose report Mako waits for; replying:
 	// the tasks whose report is being read.
 	fixing   map[string]time.Time
@@ -135,7 +137,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]selfLook{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
 		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery,
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
@@ -1157,7 +1159,7 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 		rec.Attempt = max(r.Attempt, 1) + 1
 		rec.PRURL, rec.ReviewState, rec.Worktree, rec.Branch, rec.Gone = "", "", "", "", ""
 		rec.AutoFixed, rec.AutoFixes, rec.BaseConflict = nil, 0, nil
-		rec.AgentReviews, rec.Assessment, rec.Retro = nil, nil, nil
+		rec.AgentReviews, rec.Assessment, rec.SelfCheck, rec.Retro = nil, nil, nil, nil
 	})
 	d.Take(ctx, id)
 }

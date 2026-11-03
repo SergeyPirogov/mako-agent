@@ -150,6 +150,9 @@ type Record struct {
 	// Assessment: how the agent rates the finished task: its description, how hard it was, how much of it is
 	// done and how risky the change is.
 	Assessment *Assessment `json:"assessment,omitempty"`
+	// SelfCheck: you looked at the branch yourself, as the assessment's review advice asks («Check it yourself»);
+	// nil until you tick it. It goes stale when the branch gets commits past SelfCheck.Commit.
+	SelfCheck *SelfCheck `json:"selfCheck,omitempty"`
 	// Retro: the look back at the task once its MR is merged: what went well, what did not, what to do
 	// differently next time.
 	Retro *Retro `json:"retro,omitempty"`
@@ -250,6 +253,12 @@ type Retro struct {
 	Bad   string `json:"bad,omitempty"`  // what went wrong or took longer than it should
 	Next  string `json:"next,omitempty"` // what to do differently next time: in the task's text, for the agent, in review
 	Error string `json:"error,omitempty"`
+}
+
+// SelfCheck is your «Check it yourself» tick: when, and the branch's HEAD you looked at.
+type SelfCheck struct {
+	At     string `json:"at"`
+	Commit string `json:"commit"`
 }
 
 // Assessment is the agent's rating of a finished task, each score from 1 to 5.
