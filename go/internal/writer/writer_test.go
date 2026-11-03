@@ -109,6 +109,28 @@ func TestParseRetro(t *testing.T) {
 	}
 }
 
+func TestParseNavRetro(t *testing.T) {
+	got, err := ParseNavRetro("Ось {не те}:\n```json\n" + `{"suggestions":[
+	  {"kind":"claude_md","title":"Карта дошки","evidence":"у 7 з 10 задач шукали в board.html","rule":"Дошка — go/internal/web/board.html; починай з render()"},
+	  {"kind":"Refactor","title":"Розбити board.html","evidence":"читали цілим 9 разів","rule":"Винести статистику в stats.js"},
+	  {"kind":"poem","title":"x","rule":"y"},
+	  {"kind":"stale_doc","title":"","rule":"без заголовка"},
+	  {"kind":"stale_doc","title":"Без правила","rule":" "}
+	]}` + "\n```")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "1" || got[0].Kind != core.NavClaudeMD || got[1].ID != "2" || got[1].Kind != core.NavRefactor ||
+		got[1].Evidence != "читали цілим 9 разів" || got[0].Rule != "Дошка — go/internal/web/board.html; починай з render()" {
+		t.Fatalf("%+v", got)
+	}
+	for _, bad := range []string{"", "немає", `{"suggestions":[]}`, `{"suggestions":[{"kind":"poem","title":"x","rule":"y"}]}`} {
+		if _, err := ParseNavRetro(bad); err == nil {
+			t.Errorf("ParseNavRetro(%q) passed", bad)
+		}
+	}
+}
+
 func TestParseEstimate(t *testing.T) {
 	e, err := ParseEstimate("Ось:\n" + `{"clarity":{"score":2,"why":"мало"},"questions":["Який трекер?","- Де кнопка?"],"size":"Medium","parts":"web","risk":{"score":3,"why":"налаштування"},"plan":true,"split":true,"model":"gpt","advice":"розбити"}`)
 	if err != nil {

@@ -121,6 +121,7 @@ type Dispatcher struct {
 	absence absence // when the board was last seen, the morning digest last sent
 
 	lessonsMu sync.Mutex // lessons.json
+	navMu     sync.Mutex // navretro.json
 	faultsMu  sync.Mutex // errors.json: Mako's own errors
 
 	// Version and Source: this Mako's version and the clone it is built from ("" when unknown), for the
