@@ -661,8 +661,8 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .mr-sec-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
 .mr-sec-n { margin-left: auto; font-size: 11.5px; color: var(--faint); }
 /* CI: its state on the right of the head, the jobs as plain lines under it. */
-.ci-h { align-items: center; }
-.ci-h .fix-btn { margin: -4px 0 -4px auto; }
+.ci-h { align-items: center; margin-bottom: 6px; }
+.ci-h .fix-btn { margin-left: auto; }
 .ci-h .fix-btn + .ci-st { margin-left: 8px; }
 .ci-st { margin-left: auto; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--mute); }
 .ci-st.ok { color: var(--ok); } .ci-st.bad { color: var(--err); } .ci-st.run { color: var(--accent); }
