@@ -79,6 +79,8 @@
 </dialog>
 <!-- "Create ticket" / "Make a task" in a chat about code: the new-task form over the chat, which stays open. -->
 <dialog id="ca-ticket-dlg" aria-label="New task"><div id="ca-ticket-form"></div></dialog>
+<!-- "Send plan to…" on an agent's plan: a new chat, a new task or a chat that exists. -->
+<dialog id="plan-xfer-dlg" aria-label="Send plan to"><div id="plan-xfer-box"></div></dialog>
 <script src="/theme.js"></script>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
@@ -1896,7 +1898,7 @@ function taskForm(root, { draft, onCreated, onCancel, onBack }) {
     if (!t) return fail("No project to put the task in");
     fail("");
     $("nt-submit").disabled = true; $("nt-submit").textContent = "Creating…";
-    const body = { tracker: t.tracker, project: t.project, title: $("nt-title").value, description: $("nt-desc").value, type: document.querySelector('input[name="nt-type"]:checked').value, take: $("nt-take").checked };
+    const body = { tracker: t.tracker, project: t.project, title: $("nt-title").value, description: $("nt-desc").value, type: document.querySelector('input[name="nt-type"]:checked').value, take: $("nt-take").checked, fromPlan: !!draft?.fromPlan };
     const res = await fetch("/api/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then((r) => r.json()).catch((err) => ({ error: err.message }));
     if (!res.ok) {
@@ -2085,6 +2087,8 @@ async function showCode() {
   code.list.onclick = (e) => {
     const tk = e.target.closest("[data-ticket]");
     if (tk) { const d = code.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
+    const pb = e.target.closest("[data-plan-block]");
+    if (pb) { const p = code.plans?.[pb.dataset.planBlock]; if (p) openPlanXfer(p.plan, p.title, planSource(code)); return; }
     const made = e.target.closest("[data-task]");
     if (made) { e.preventDefault(); code = null; select(made.dataset.task); return; }
     if (e.target.closest("[data-open-ticket]")) { openMade(code.ticket); return; }
@@ -2309,6 +2313,113 @@ function openMade(id) {
   select(id);
 }
 
+// The plan the agent proposes in Ask about code: a fenced mako-plan block of JSON {title, plan}, handled like the ticket.
+const PLAN_BLOCK = /```mako-plan[^\n]*\n([\s\S]*?)\n\s*```/;
+function planOf(text) {
+  const m = text.match(PLAN_BLOCK);
+  if (!m) return { text: text.replace(/```mako-plan[\s\S]*$/, ""), plan: null };
+  let p = null;
+  try { const j = JSON.parse(m[1]); if (j && typeof j.plan === "string" && j.plan.trim()) p = { title: String(j.title ?? "").trim(), plan: j.plan.trim() }; } catch {}
+  return p ? { text: text.replace(m[0], ""), plan: p } : { text, plan: null };
+}
+function planBlockCard(p, i) {
+  return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Plan</span></div>
+    ${p.title ? `<b>${esc(p.title)}</b>` : ""}<div class="md ca-ticket-body">${md(p.plan)}</div>
+    <div class="ca-ticket-foot"><span class="muted">${data?.remote ? "Plans are handed over from the Mac" : "Hand it over to a new or an existing session"}</span><span class="spacer"></span>
+      ${data?.remote ? "" : `<button type="button" class="primary" data-plan-block="${i}">Send plan to…</button>`}</div></div>`;
+}
+
+// «Send plan to…»: the plan's text (not a path to its file) goes to another session; the plan's own session stays as it
+// is. The line "Plan from …" says where it came from.
+const planTitle = (plan) => (plan.split("\n").map((l) => l.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? "").slice(0, 80);
+const planFrom = (from) => `_Plan from ${from}._`;
+// The message to a chat: its first line is the chat's title.
+const planMessage = (plan, title, from) => `Execute this plan${(title || planTitle(plan)) ? `: ${title || planTitle(plan)}` : ""}\n\n${plan.trim()}\n\n${planFrom(from)}`;
+// Where the plan of the open view comes from: its words, the project (tracker and name) and the id to leave out.
+function planSource(v) {
+  if (v.code) {
+    const p = code.projects.find((x) => x.key === code.project);
+    return { from: `"Ask about code" on the Mako board`, tracker: p?.tracker, project: p?.project, key: code.project, id: "" };
+  }
+  if (v.id.startsWith("chat-")) {
+    const c = freeChats.find((x) => x.id === v.id);
+    return { from: `chat "${c?.title || v.id}" (${v.id})`, key: c?.project, id: v.id };
+  }
+  const r = data?.records?.find((x) => x.id === v.id);
+  return { from: `task ${v.id}${r?.task?.title ? ` "${r.task.title}"` : ""}`, tracker: r?.task?.trackerId, project: r?.task?.project, id: v.id };
+}
+// A click on «Send plan to…» on an agent's plan card (v: the chat's view).
+function planXferClick(btn, v) {
+  const it = v.snap?.items?.find((x) => x.id === btn.dataset.planXfer);
+  const plan = it?.input?.plan ?? "";
+  if (plan.trim()) openPlanXfer(plan, "", planSource(v));
+}
+const planXferBtn = (it) => data?.remote || !(it.input?.plan ?? "").trim() ? "" : `<button type="button" class="link" data-plan-xfer="${esc(it.id)}">Send plan to…</button>`;
+
+async function openPlanXfer(plan, title, src) {
+  const dlg = $("plan-xfer-dlg"), box = $("plan-xfer-box");
+  const close = () => { dlg.close(); box.innerHTML = ""; };
+  const [projects, chats] = await Promise.all([getJSON("/api/code/projects").then((r) => r.projects ?? []), getJSON("/api/chats").then((r) => r.chats ?? [])]);
+  const key = src.key || projects.find((x) => x.tracker === src.tracker && x.project === src.project)?.key || projects[0]?.key || "";
+  const post = (url, init) => fetch(url, { method: "POST", ...init }).then((r) => r.json()).catch((err) => ({ ok: false, error: err.message }));
+  const draw = (step, error = "") => {
+    const head = `<h2>Send plan to…</h2><p class="muted px-sub">${esc(planTitle(plan) || "the plan")}</p>`;
+    const foot = (back) => `<div class="px-foot">${back ? `<button type="button" data-px="menu">← Back</button>` : ""}<span class="spacer"></span><button type="button" data-px="cancel">Cancel</button></div>`;
+    const err = `<div class="nt-error" ${error ? "" : "hidden"}>${esc(error)}</div>`;
+    if (step === "chat") {
+      box.innerHTML = `${head}<label class="px-field">Project<select id="px-project">${projects.map((x) => `<option value="${esc(x.key)}" ${x.key === key ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+        <p class="muted px-sub">A new chat in its own worktree: the agent starts carrying the plan out.</p>${err}
+        <div class="px-foot"><button type="button" data-px="menu">← Back</button><span class="spacer"></span><button type="button" data-px="cancel">Cancel</button><button type="button" class="primary" data-px="go-chat" ${projects.length ? "" : "disabled"}>Start chat</button></div>`;
+    } else if (step === "existing") {
+      const tasks = (data?.records ?? []).filter((r) => r.id !== src.id && r.executor === "terminal" && r.worktree && r.column !== "done");
+      const rows = [...chats.filter((c) => c.id !== src.id).map((c) => `<button type="button" class="px-row" data-px-to="${esc(c.id)}"><span>${esc(c.title || c.id)}</span><span class="muted">chat</span></button>`),
+        ...tasks.map((r) => `<button type="button" class="px-row" data-px-to="${esc(r.id)}"><span>${esc(r.task?.title || r.id)}</span><span class="muted">task ${esc(r.id)}</span></button>`)];
+      box.innerHTML = `${head}<div class="px-list">${rows.join("") || `<p class="muted">No other chats with an agent yet.</p>`}</div>${err}${foot(true)}`;
+    } else {
+      box.innerHTML = `${head}<div class="px-opts">
+        <button type="button" data-px="chat"><b>New chat</b><span class="muted">A new agent in the same project carries the plan out</span></button>
+        <button type="button" data-px="task"><b>New task</b><span class="muted">The new-task form, with the plan in the description</span></button>
+        <button type="button" data-px="existing"><b>Existing chat</b><span class="muted">The plan arrives as a message</span></button></div>${foot(false)}`;
+    }
+  };
+  box.onclick = async (e) => {
+    const b = e.target.closest("[data-px],[data-px-to]");
+    if (!b) return;
+    const act = b.dataset.px;
+    if (act === "cancel") return close();
+    if (["menu", "chat", "existing"].includes(act)) return draw(act === "menu" ? "" : act);
+    if (act === "task") {
+      const p = projects.find((x) => x.key === key);
+      close();
+      return openPlanTask({ title: (title || planTitle(plan)).slice(0, 250), desc: `${plan.trim()}\n\n${planFrom(src.from)}`, tracker: p?.tracker ?? src.tracker, project: p?.project ?? src.project, fromPlan: true });
+    }
+    b.disabled = true;
+    if (act === "go-chat") {
+      const r = await post("/api/chats/new", { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: $("px-project").value, text: planMessage(plan, title, src.from), fromPlan: true }) });
+      if (!r.ok) { draw("chat", r.error || "Could not start the chat"); return; }
+      close(); code = null; openFreeChat(r.id);
+      return;
+    }
+    const id = b.dataset.pxTo;
+    const r = await post(`/api/say?id=${encodeURIComponent(id)}&plan=1`, { body: planMessage(plan, title, src.from) });
+    if (!r.ok) { draw("existing", r.error || "Could not send the plan"); return; }
+    close(); code = null;
+    if (id.startsWith("chat-")) openFreeChat(id); else select(id);
+  };
+  draw("");
+  dlg.onclose = () => { box.innerHTML = ""; };
+  dlg.showModal();
+}
+// The new-task form over the chat with the plan in the description: its agent does not plan again.
+function openPlanTask(draft) {
+  const dlg = $("ca-ticket-dlg"), box = $("ca-ticket-form");
+  const close = () => { dlg.close(); box.innerHTML = ""; };
+  taskForm(box, { draft, onCancel: close, onCreated: async (res) => { close(); await load(); code = null; select(res.id); } });
+  dlg.onclose = () => { box.innerHTML = ""; };
+  dlg.showModal();
+  $("nt-title").focus();
+}
+
 // "×" in the history and "Delete question" in a done chat: the question goes, with its agent and pictures.
 async function removeQuestion(id) {
   const v = code;
@@ -2418,11 +2529,11 @@ function renderCode() {
   if (!v.list.isConnected) return;
   const atEnd = v.list.scrollHeight - v.list.scrollTop - v.list.clientHeight < 60;
   const items = s?.items ?? [];
-  v.drafts = {};
+  v.drafts = {}; v.plans = {};
   v.ticket = v.threads?.find((t) => t.id === v.thread)?.ticket ?? "";
   const done = v.ticket ? `<div class="ca-done"><span>✓ Chat is done: task <b>${esc(v.ticket)}</b> was created. You can still ask more here.</span><span class="spacer"></span>
     <button type="button" data-open-ticket>Open task</button><button type="button" data-ca-delete>Delete question</button></div>` : "";
-  v.list.innerHTML = `<div class="chat-col">${done}${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, snap: s, ticket: v.ticket }) ||
+  v.list.innerHTML = `<div class="chat-col">${done}${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, plans: v.plans, snap: s, ticket: v.ticket }) ||
       `<div class="files-empty">${v.thread ? "Loading the conversation…" : "Ask a question about the project's code: the agent will find the answer and show the places in the code."}</div>`}
     ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}</div>`;
   linkSources(v.list);
@@ -3783,6 +3894,8 @@ function chatFor(id) {
     if (answerClick(e, `/api/answer?id=${encodeURIComponent(id)}`, pollChat)) return;
     // The plan in the conversation: a click on a step opens a note on it.
     if (planNoteClick(e, v)) return;
+    const px = e.target.closest("[data-plan-xfer]");
+    if (px) { planXferClick(px, v); return; }
     permitClick(e, id);
   };
   v.list.onkeydown = (e) => {
@@ -4125,9 +4238,10 @@ function chatItem(it, i, v) {
     case "text": {
       // The turn says who speaks: the text goes on under its name.
       if (!v.drafts) return `<div class="msg"><div class="md">${md(it.text)}</div></div>`;
-      const t = ticketOf(it.text);
+      const pl = planOf(it.text), t = ticketOf(pl.text);
       if (t.draft) v.drafts[i] = t.draft;
-      return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i, v.id) : ""}</div>`;
+      if (pl.plan && v.plans) v.plans[i] = pl.plan;
+      return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i, v.id) : ""}${pl.plan ? planBlockCard(pl.plan, i) : ""}</div>`;
     }
     case "tool": {
       const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
@@ -4182,12 +4296,13 @@ function planCard(it, v) {
     const what = { approved: "✓ Plan approved", allowed: "✓ Plan approved", revised: "↺ Plan sent back for changes", denied: "✗ Plan rejected", cancelled: "✗ Plan not answered: the agent stopped asking" }[it.status] ?? it.status;
     return `<div class="plan-card done ${esc(it.status)}"><button type="button" class="plan-h" data-toggle="${esc(key)}"><b>${what}</b>
         ${it.text ? `<span class="muted">${esc(it.text.split("\n")[0].slice(0, 120))}</span>` : ""}<span class="muted tw">${shown ? "▾" : "▸"}</span></button>
-      ${shown ? `<div class="md plan-body">${md(plan)}</div>` : ""}</div>`;
+      ${shown ? `<div class="md plan-body">${md(plan)}</div>` : ""}
+      ${planXferBtn(it) ? `<div class="plan-xfer">${planXferBtn(it)}</div>` : ""}</div>`;
   }
   if (v.code) return `<div class="plan-card"><div class="md plan-body">${md(plan)}</div></div>`;
   // Waiting to be approved: a document of numbered steps; a click on a step opens a note on it.
   const doc = v.snap?.plan, steps = doc?.steps ?? [], n = v.notes ?? { steps: {} };
-  if (!steps.length) return `<div class="plan-doc"><div class="plan-doc-h"><b>Plan</b><span class="muted">nothing changed yet</span></div><div class="md plan-doc-md">${md(plan)}</div></div>`;
+  if (!steps.length) return `<div class="plan-doc"><div class="plan-doc-h"><b>Plan</b><span class="muted">nothing changed yet</span>${planXferBtn(it)}</div><div class="md plan-doc-md">${md(plan)}</div></div>`;
   const stepHTML = (st) => {
     const note = n.steps[st.n], editing = n.open === st.n;
     return `<div class="pl-step${note ? " noted" : ""}${editing ? " editing" : ""}">
@@ -4198,7 +4313,7 @@ function planCard(it, v) {
         : note ? `<div class="pl-note"><b>You:</b><span>${esc(note)}</span><button type="button" class="link" data-note-remove="${st.n}">Remove</button></div>` : ""}</div>`;
   };
   return `<div class="plan-doc" data-plan="${esc(it.id)}"><div class="plan-doc-h"><b>Plan · ${steps.length} ${plural(steps.length, "step", "steps")}</b>
-      <span class="muted">${doc.files ? `${doc.files} ${plural(doc.files, "file", "files")} · ` : ""}nothing changed yet</span></div>
+      <span class="muted">${doc.files ? `${doc.files} ${plural(doc.files, "file", "files")} · ` : ""}nothing changed yet</span>${planXferBtn(it)}</div>
     ${doc.intro ? `<div class="md pl-intro">${md(doc.intro)}</div>` : ""}
     ${steps.map(stepHTML).join("")}
     ${doc.outro ? `<div class="md pl-outro">${md(doc.outro)}</div>` : ""}

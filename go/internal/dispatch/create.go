@@ -57,6 +57,12 @@ func (d *Dispatcher) creator(trackerID string) (trackers.Tracker, trackers.Creat
 // CreateTask opens the issue in the tracker, assigned to me, and puts it on the board at once (taken, with
 // take); it returns the task's id.
 func (d *Dispatcher) CreateTask(ctx context.Context, trackerID string, n trackers.NewIssue, take bool) (string, error) {
+	return d.CreateTaskWith(ctx, trackerID, n, take, false)
+}
+
+// CreateTaskWith is CreateTask for a task made from a plan (noPlan): its description already holds the plan, so the
+// agent does not start in plan mode again.
+func (d *Dispatcher) CreateTaskWith(ctx context.Context, trackerID string, n trackers.NewIssue, take, noPlan bool) (string, error) {
 	n.Title, n.Project = strings.TrimSpace(n.Title), strings.TrimSpace(n.Project)
 	if n.Title == "" {
 		return "", fmt.Errorf("enter a task title")
@@ -73,7 +79,7 @@ func (d *Dispatcher) CreateTask(ctx context.Context, trackerID string, n tracker
 		return "", err
 	}
 	d.ensureProject(t, task.Project)
-	d.Store.Update(task.ID, func(r *core.Record) { r.Task, r.Status = task, core.Snoozed })
+	d.Store.Update(task.ID, func(r *core.Record) { r.Task, r.Status, r.NoPlan = task, core.Snoozed, noPlan })
 	d.Log(task.ID, "created from the board: "+task.Title)
 	if take {
 		d.Take(ctx, task.ID)

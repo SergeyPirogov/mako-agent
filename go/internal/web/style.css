@@ -1668,3 +1668,21 @@ details.desc .r { flex: none; color: var(--accent) !important; }
 }
 .ws-bar .actions > button svg { vertical-align: -3px; margin-right: 4px; }
 .ws-bar .actions { align-items: center; }
+/* «Send plan to…» on an agent's plan */
+.plan-doc-h .link, .plan-xfer .link { flex: none; border: 0; background: none; padding: 0; height: auto; color: var(--accent); font-size: 12.5px; }
+#plan-xfer-dlg .nt-error { margin-top: 8px; color: var(--err); font-size: 12.5px; overflow-wrap: anywhere; }
+#plan-xfer-dlg .nt-error[hidden] { display: none; }
+.plan-xfer { padding: 0 14px 10px; }
+.plan-card.done .plan-xfer { padding-top: 2px; }
+#plan-xfer-dlg { width: 460px; max-width: calc(100vw - 32px); padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--fg); }
+#plan-xfer-dlg::backdrop { background: rgb(0 0 0 / .35); }
+#plan-xfer-dlg h2 { margin: 0 0 2px; font-size: 16px; }
+.px-sub { margin: 2px 0 12px; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.px-opts, .px-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
+.px-opts button, .px-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; height: auto; padding: 9px 12px; text-align: left; }
+.px-row { flex-direction: row; justify-content: space-between; align-items: center; gap: 12px; }
+.px-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.px-opts .muted, .px-row .muted { font-size: 12px; flex: none; }
+.px-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.px-foot { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.px-foot button { height: 28px; padding: 0 12px; font-size: 12.5px; }

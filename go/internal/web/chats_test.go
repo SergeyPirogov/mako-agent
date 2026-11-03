@@ -13,6 +13,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 )
 
@@ -160,4 +161,70 @@ func planStatus(s chat.Snapshot, req, status string) bool {
 		}
 	}
 	return false
+}
+
+// A plan handed over to another session is from the Mac only; the phone still starts and answers chats of its own.
+func TestPlanHandoverIsFromTheMacOnly(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	phones, _ := phone.Open(t.TempDir())
+	srv := httptest.NewServer((&Server{D: d, Version: "test", Phones: phones}).Handler())
+	defer srv.Close()
+	// A paired phone: through `tailscale serve`, with the device's cookie.
+	pair, _ := http.NewRequest("POST", srv.URL+"/pair", strings.NewReader("code="+phones.NewPairing()))
+	pair.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	pair.Header.Set("X-Forwarded-For", "100.64.0.2")
+	pair.Header.Set("X-Forwarded-Proto", "https")
+	res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(pair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var device *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == deviceCookie {
+			device = c
+		}
+	}
+	if device == nil {
+		t.Fatalf("the phone did not pair: %d", res.StatusCode)
+	}
+	post := func(path, body string, phone bool) (int, map[string]any) {
+		req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Origin", srv.URL)
+		if phone {
+			req.Header.Set("X-Forwarded-For", "100.64.0.2")
+			req.AddCookie(device)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	plan := "Execute this plan: Cache\n\n1. Add it\n\n_Plan from task grp/app#3._"
+	body, _ := json.Marshal(map[string]any{"project": "nope", "text": plan, "fromPlan": true})
+	// From the Mac the text reaches NewChat (this project has no clone, so it answers with that).
+	if code, out := post("/api/chats/new", string(body), false); code != 200 || out["ok"] != false || !strings.Contains(out["error"].(string), "no clone") {
+		t.Fatalf("new from the Mac %d %v", code, out)
+	}
+	cases := []struct{ path, body string }{
+		{"/api/chats/new", string(body)},
+		{"/api/create", `{"tracker":"t","project":"grp/app","title":"Cache","description":"1. Add it","fromPlan":true}`},
+		{"/api/say?id=chat-abc&plan=1", plan},
+	}
+	for _, c := range cases {
+		if code, _ := post(c.path, c.body, true); code != http.StatusForbidden {
+			t.Errorf("%s from a phone: %d", c.path, code)
+		}
+	}
+	// Without the plan the phone's requests are as before: not refused (the chat does not exist, so ok is false).
+	if code, out := post("/api/say?id=chat-abc", "Привіт", true); code == http.StatusForbidden {
+		t.Errorf("a phone's message to a chat: %d %v", code, out)
+	}
+	plain, _ := json.Marshal(map[string]any{"project": "nope", "text": "Привіт"})
+	if code, _ := post("/api/chats/new", string(plain), true); code == http.StatusForbidden {
+		t.Errorf("a phone's new chat: %d", code)
+	}
 }
