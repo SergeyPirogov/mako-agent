@@ -43,6 +43,11 @@ func (d *Dispatcher) Review(ctx context.Context, id string) (*trackers.ReviewChe
 	d.mu.Lock()
 	d.reviews[id] = reviewLook{at: time.Now(), check: c, err: err}
 	d.mu.Unlock()
+	// The MR is open and CI has passed, but the task still waits for CI: wake the loop, so that CheckHandoffs moves
+	// it on now and not at the next poll.
+	if r.Status == core.HandedOff && err == nil && c != nil && c.State == "open" && !trackers.CIRunning(c.CI) {
+		d.Wake()
+	}
 	return c, err
 }
 
