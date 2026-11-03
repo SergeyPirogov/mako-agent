@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -118,6 +119,7 @@ type Session struct {
 	mu        sync.Mutex
 	writeMu   sync.Mutex
 	cmd       *exec.Cmd
+	pid       int // cmd.Process.Pid once started; Stop reads it instead of cmd.Process, which Start writes
 	stdin     io.WriteCloser
 	items     []Item
 	version   int
@@ -189,8 +191,19 @@ func (s *Session) run() {
 	cmd.Dir = s.Worktree
 	cmd.Env = append(environ(), s.o.Env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	stdin, _ := cmd.StdinPipe()
-	stdout, _ := cmd.StdoutPipe()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		s.add(Item{Kind: "error", Text: "agent failed to start: " + err.Error()})
+		s.end()
+		return
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		stdin.Close()
+		s.add(Item{Kind: "error", Text: "agent failed to start: " + err.Error()})
+		s.end()
+		return
+	}
 	var stderr strings.Builder
 	cmd.Stderr = &limitWriter{w: &stderr, n: 4000}
 	s.mu.Lock()
@@ -209,6 +222,7 @@ func (s *Session) run() {
 	// Stop may have come between taking the flag above and Start: it found no process to kill then.
 	s.mu.Lock()
 	stopped = s.stopping
+	s.pid = cmd.Process.Pid
 	s.mu.Unlock()
 	if stopped {
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
@@ -219,16 +233,20 @@ func (s *Session) run() {
 	} else {
 		s.setState("done")
 	}
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 1<<20), 64<<20)
-	for sc.Scan() {
-		s.handle(sc.Bytes())
-	}
-	err := cmd.Wait()
+	scanErr := s.scan(stdout)
 	s.mu.Lock()
 	stopping := s.stopping
 	s.mu.Unlock()
-	if err != nil && !stopping {
+	if scanErr != nil && !stopping {
+		// The stream is lost (a line over the limit): nobody reads claude any more, so end it, and keep emptying
+		// the pipe so it cannot block on a full one, which would hang Wait for good.
+		s.add(Item{Kind: "error", Text: "agent output unreadable: " + scanErr.Error()})
+		cmd.WaitDelay = 5 * time.Second
+		go io.Copy(io.Discard, stdout)
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	err = cmd.Wait()
+	if err != nil && !stopping && scanErr == nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
@@ -236,6 +254,19 @@ func (s *Session) run() {
 		s.add(Item{Kind: "error", Text: "agent exited: " + tail(msg, 600)})
 	}
 	s.end()
+}
+
+// maxLine is the longest line of claude's output (a big tool result) the session reads.
+var maxLine = 64 << 20
+
+// scan hands each line of r to handle; it returns why it stopped early, nil at the end of r.
+func (s *Session) scan(r io.Reader) error {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 1<<20), maxLine)
+	for sc.Scan() {
+		s.handle(sc.Bytes())
+	}
+	return sc.Err()
 }
 
 func (s *Session) end() {
@@ -266,10 +297,8 @@ func (s *Session) replay(path string) {
 		return
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1<<20), 64<<20)
-	for sc.Scan() {
-		s.handle(sc.Bytes())
+	if err := s.scan(f); err != nil {
+		log.Printf("chat: replay of %s stopped, the history is cut: %v", path, err)
 	}
 	s.mu.Lock()
 	for i := range s.items { // a tool the transcript left without a result did not finish then
@@ -951,18 +980,18 @@ func (s *Session) Stop() {
 	if s.idle != nil {
 		s.idle.Stop()
 	}
-	cmd, w := s.cmd, s.stdin
+	pid, w := s.pid, s.stdin
 	s.mu.Unlock()
 	if w != nil {
 		w.Close()
 	}
-	if cmd == nil || cmd.Process == nil {
+	if pid == 0 { // not started yet: run kills it when it sees stopping
 		return
 	}
 	go func() {
 		time.Sleep(3 * time.Second)
 		if s.Running() {
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			syscall.Kill(-pid, syscall.SIGKILL)
 		}
 	}()
 }

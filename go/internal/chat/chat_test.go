@@ -481,3 +481,63 @@ func TestReplayTurnUsage(t *testing.T) {
 		t.Fatalf("turn %+v, model %q, context %d", snap.TurnUsage, snap.TurnModel, snap.Context)
 	}
 }
+
+// A line over the limit used to leave the pipe undrained: claude blocked on it and the session hung in
+// «working». Now the session ends with an error.
+func TestOversizeLineEndsSession(t *testing.T) {
+	old := maxLine
+	maxLine = 1 << 20
+	defer func() { maxLine = old }()
+	bin := filepath.Join(t.TempDir(), "claude")
+	// A line of 3 MB, then more output than a pipe holds, and a process that would not exit by itself.
+	os.WriteFile(bin, []byte(`#!/bin/sh
+read init
+head -c 3000000 /dev/zero | tr '\0' 'x'
+echo
+head -c 1000000 /dev/zero | tr '\0' 'y'
+sleep 60
+`), 0o755)
+	s := Start(Options{ID: "a#9", Worktree: t.TempDir(), Command: bin, Prompt: "Go"})
+	defer s.Stop()
+	select {
+	case <-s.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatalf("the session hangs: %+v", s.Snapshot())
+	}
+	var failed bool
+	for _, it := range s.Snapshot().Items {
+		failed = failed || (it.Kind == "error" && strings.Contains(it.Text, "unreadable"))
+	}
+	if !failed {
+		t.Fatalf("no error item: %+v", s.Snapshot().Items)
+	}
+}
+
+// A transcript with a line over the limit is cut at it, not read past it; the lines before it stay.
+func TestReplayOversizeLine(t *testing.T) {
+	old := maxLine
+	maxLine = 1 << 20
+	defer func() { maxLine = old }()
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	os.WriteFile(path, []byte(`{"type":"user","message":{"content":"First"}}
+{"type":"user","message":{"content":"`+strings.Repeat("x", 2<<20)+`"}}
+{"type":"user","message":{"content":"Third"}}
+`), 0o600)
+	snap := ReplayIn("x", "", path)
+	if len(snap.Items) != 1 {
+		t.Fatalf("items %+v", snap.Items)
+	}
+}
+
+// Stop right after Start reads the process while Start may still be writing it: run with -race.
+func TestStopRightAfterStart(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte("#!/bin/sh\nsleep 60\n"), 0o755)
+	s := Start(Options{ID: "a#10", Worktree: t.TempDir(), Command: bin, Prompt: "Go"})
+	s.Stop()
+	select {
+	case <-s.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("the session did not end after Stop")
+	}
+}
