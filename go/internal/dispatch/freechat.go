@@ -134,9 +134,12 @@ func chatRepo(p CodeProject) *config.Repo {
 	return &repo
 }
 
-// NewChat opens a chat without a task in the project with its first message and returns its id at once. With no
-// project (""), the chat gets an empty folder of its own and the agent starts at once. Otherwise: its worktree on a new branch from the base branch, prepared as a task's is, and then the agent come in the background
-// (prepareFree), the conversation shows the steps meanwhile.
+// NewChat opens a chat without a task with its first message and returns its id at once.
+//
+// With no project (""), the chat gets an empty folder of its own and the agent starts at once.
+//
+// In a project, the chat gets a worktree on a new branch from the base branch, prepared as a task's is. The agent
+// comes in the background (prepareFree); the conversation shows the steps meanwhile.
 func (d *Dispatcher) NewChat(project, text string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -344,6 +347,9 @@ func (d *Dispatcher) resumeFree(id, text string) error {
 		return errors.New(c.Error)
 	}
 	if c.Dir == "" || !exists(c.Dir) {
+		if c.Loose() {
+			return errors.New("the chat's folder " + c.Dir + " was deleted")
+		}
 		return errors.New("the chat's worktree " + c.Dir + " was deleted")
 	}
 	return d.startKept(id, text, nil)
@@ -369,8 +375,9 @@ func (d *Dispatcher) FreeChatSnapshot(id string) (chat.Snapshot, bool) {
 }
 
 // RemoveFreeChat: «×» — the chat's agent stops and its worktree goes, uncommitted changes and all; its branch
-// stays, with what was committed on it. A chat with no project loses its whole folder. A chat whose worktree is still being made is removed too: what was made
-// for it goes once it is (prepareFree).
+// stays, with what was committed on it.
+// A chat with no project loses its whole folder.
+// A chat whose worktree is still being made is removed too: what was made for it goes once it is (prepareFree).
 func (d *Dispatcher) RemoveFreeChat(id string) error {
 	freeMu.Lock()
 	defer freeMu.Unlock()

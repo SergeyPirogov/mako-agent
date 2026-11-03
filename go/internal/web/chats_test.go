@@ -53,6 +53,10 @@ func TestFreeChatRoutes(t *testing.T) {
 	if _, out := post("/api/chats/new", `{"project":"nope","text":"Привіт"}`); out["ok"] != false {
 		t.Fatalf("new %v", out)
 	}
+	// A plan handed over to a new chat needs a project; without one no chat is made.
+	if _, out := post("/api/chats/new", `{"project":"","text":"План","fromPlan":true}`); out["ok"] != false || out["error"] != "choose a project" || len(d.FreeChats()) != 0 {
+		t.Fatalf("new from a plan with no project %v %+v", out, d.FreeChats())
+	}
 	if _, out := post("/api/chats/remove?id=chat-abc", ""); out["ok"] != false {
 		t.Fatalf("remove %v", out)
 	}

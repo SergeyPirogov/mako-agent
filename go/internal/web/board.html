@@ -2271,10 +2271,9 @@ async function showFreeChat() {
   if (!$("free-chat")) return;
   let saved = ""; try { saved = localStorage.getItem("mako-chat-project") || ""; } catch {}
   const start = projects.find((p) => p.key === saved) ?? projects.find((p) => p.project === project) ?? projects[0];
-  let savedNone = false; try { savedNone = localStorage.getItem("mako-chat-project") === "-"; } catch {}
-  const loose = savedNone || !projects.length;
+  let loose = false; try { loose = localStorage.getItem("mako-chat-project") === ""; } catch {} // "" is a chosen "No project"
   $("fc-project").innerHTML = `<option value="" ${loose ? "selected" : ""}>No project</option>` + projects.map((p) => `<option value="${esc(p.key)}" ${!loose && p.key === start?.key ? "selected" : ""}>${esc(p.name)}</option>`).join("");
-  $("fc-project").onchange = (e) => { try { localStorage.setItem("mako-chat-project", e.target.value || "-"); } catch {} };
+  $("fc-project").onchange = (e) => { try { localStorage.setItem("mako-chat-project", e.target.value); } catch {} };
   $("fc-list").onclick = async (e) => {
     const x = e.target.closest("[data-fc-remove]");
     if (x) {
@@ -2306,7 +2305,7 @@ function mountFreeChat() {
   }
   if ($("fc-new-box")) return;
   closeChat();
-  slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty">Write what to do or ask: the first message creates the chat's worktree and branch and starts the agent. Without a project it just starts the agent in an empty folder.</div></div></div>
+  slot.innerHTML = `<div class="chat" id="fc-new-box"><div class="chat-list"><div class="chat-col"><div class="files-empty">Write what to do or ask: the first message starts the agent. In a project it first creates the chat's worktree and branch; with no project the agent works in an empty folder.</div></div></div>
     <div class="chat-foot"><div class="chat-box"><textarea rows="2" aria-label="Message to the agent" placeholder="E.g.: try out a faster cache for the board; explain how the update works"></textarea>
       <button type="button" class="chat-send" title="Send (Enter)" aria-label="Send">${ICON.up}</button></div>
       <div class="chat-keys" hidden></div></div></div>`;
@@ -2335,7 +2334,7 @@ async function loadFreeChats() {
   $("fc-sub").textContent = cur ? (cur.project === "" ? cur.dir : `${cur.dir} · ${cur.branch}`) : FC_SUB;
   $("fc-list").innerHTML = freeChats.length ? freeChats.map((c) => `<div class="ca-thread fc-item ${c.id === freeChat ? "on" : ""}" role="button" tabindex="0" data-fc="${esc(c.id)}" title="${esc(c.title)}">
       <span class="ca-line"><span class="ca-title">${esc(c.title)}</span></span><span class="muted">${esc(projectName(c.project))} · ${esc(ago(new Date(c.at).toISOString()))}</span>
-      <button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="Delete the chat and its worktree" aria-label="Delete the chat">×</button></div>`).join("")
+      <button type="button" class="icon fc-remove" data-fc-remove="${esc(c.id)}" title="${c.project === "" ? "Delete the chat and its folder" : "Delete the chat and its worktree"}" aria-label="Delete the chat">×</button></div>`).join("")
     : `<div class="muted ca-none">No chats yet.</div>`;
 }
 const projectName = (key) => key === "" ? "No project" : [...($("fc-project")?.options ?? [])].find((o) => o.value === key)?.textContent ?? key.split("/").slice(1).join("/");
