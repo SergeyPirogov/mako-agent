@@ -196,7 +196,7 @@ var webStrings = map[string]string{
 	"s.o.permEdits":           "edits files without asking",
 	"s.o.permDefault":         "asks about everything",
 	"s.o.permBypass":          "asks nothing",
-	"s.o.permHint":            "Not chosen: auto, but «edits files without asking» while new tasks go to work by themselves or the agent fixes its MRs by itself. With either of them on, Mako also asks you before the agent pushes or opens an MR",
+	"s.o.permHint":            "Not chosen: auto. While new tasks go to work by themselves or the agent fixes its MRs by itself, Mako also asks you before the agent pushes or opens an MR",
 	"s.o.tools":               "Commands without asking",
 	"s.o.toolsHint":           "One a line, in Claude Code's format. For the «ask about everything» or «edits without asking» mode",
 	"s.o.plan":                "Start with a plan",
