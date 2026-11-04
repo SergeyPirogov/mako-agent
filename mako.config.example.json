@@ -138,7 +138,21 @@
       "projects": {
         "my-org/web": {
           "repoPath": "/Users/me/code/web",
-          "baseBranch": "main"
+          "baseBranch": "main",
+          "watch": {
+            "ci": true,
+            "security": true,
+            "autoTake": false,
+            "maxCost": 5
+          },
+          "routines": [
+            {
+              "cron": "0 9 * * 1",
+              "title": "Update dependencies",
+              "body": "Update the outdated dependencies, run the tests, open an MR.",
+              "autoTake": true
+            }
+          ]
         }
       }
     },

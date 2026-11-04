@@ -167,4 +167,12 @@ var goStrings = map[string][2]string{
 	"agent.checkTimedOut":     {"ran out of time (%d s)", "не вклалась у час (%d с)"},
 	"agent.checkTail":         {"`%s` %s, the last lines:", "`%s` %s, останні рядки:"},
 	"agent.checksFix":         {"Fix the cause (not the check itself), run it yourself and commit. Don't push and don't open an MR: when you end your turn, Mako checks again and opens the MR.", "Виправ причину (не саму перевірку), прожени її сам і закоміть. Не пушить і не відкривай MR: коли закінчиш хід, Mako перевірить ще раз і відкриє MR."},
+	// The watch of the projects' default branches and routines: the tasks Mako writes itself.
+	"watch.ciTitle":       {"CI on %s failed: %s", "CI на %s упав: %s"},
+	"watch.ciBody":        {"The CI of the default branch `%s` went red after a green run.\n\n- Pipeline: %s\n- Job: [%s](%s)\n- First error: `%s`\n\nThe end of the job's log:\n\n```\n%s\n```\n\nFind the cause, fix it on a branch and open an MR.\n\n_Written by Mako, which watches the default branch._", "CI default-гілки `%s` став червоним після зеленого.\n\n- Pipeline: %s\n- Джоб: [%s](%s)\n- Перша помилка: `%s`\n\nХвіст логу джоба:\n\n```\n%s\n```\n\nЗнайди причину, виправ її на гілці й відкрий MR.\n\n_Створено Mako: він стежить за default-гілкою._"},
+	"watch.vulnTitleOne":  {"Update dependencies: %d vulnerability", "Оновити залежності: %d вразливість"},
+	"watch.vulnTitleFew":  {"Update dependencies: %d vulnerabilities", "Оновити залежності: %d вразливості"},
+	"watch.vulnTitleMany": {"Update dependencies: %d vulnerabilities", "Оновити залежності: %d вразливостей"},
+	"watch.vulnBody":      {"The project has open security alerts (%d):\n\n%s\n\nUpdate the dependencies to the versions that fix them, run the tests and open an MR.\n\n_Written by Mako, which watches the project's security alerts._", "У проєкті відкриті security-алерти (%d):\n\n%s\n\nОнови залежності до версій, що їх виправляють, прожени тести й відкрий MR.\n\n_Створено Mako: він стежить за security-алертами проєкту._"},
+	"watch.routineNote":   {"_Written by Mako by the schedule `%s`._", "_Створено Mako за розкладом `%s`._"},
 }

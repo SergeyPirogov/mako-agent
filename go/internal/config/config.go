@@ -233,6 +233,31 @@ type Project struct {
 	Repos map[string]*Repo
 	// Default repo when a project has several; with one it is that one.
 	Default string
+	// Watch: what of the project's default branch Mako keeps an eye on, making a task when it goes wrong.
+	Watch Watch
+	// Routines: the tasks Mako writes in the project by a schedule.
+	Routines []Routine
+}
+
+// Watch: the project's default branch's CI and its security alerts, each making a task assigned to me when they
+// go wrong; AutoTake takes those tasks at once. MaxCost: the most Mako's agent may spend on a task the watch or a
+// routine wrote, USD; it is never off.
+type Watch struct {
+	CI       bool
+	Security bool
+	AutoTake bool
+	MaxCost  float64
+}
+
+// DefaultWatchMaxCost: the ceiling of a task Mako wrote itself when the config sets none, USD.
+const DefaultWatchMaxCost = 5.0
+
+// Routine: a task Mako writes by Cron, when the last one with its title is closed.
+type Routine struct {
+	Cron     core.Cron
+	Title    string
+	Body     string
+	AutoTake bool
 }
 
 type Repo struct {
@@ -517,6 +542,28 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 			return nil, fmt.Errorf("project %s: %w", key, err)
 		}
 		project := &Project{Key: key, Repos: map[string]*Repo{}, Default: p.Default}
+		project.Watch.MaxCost = DefaultWatchMaxCost
+		if p.Watch != nil {
+			project.Watch = Watch{CI: p.Watch.CI, Security: p.Watch.Security, AutoTake: p.Watch.AutoTake, MaxCost: DefaultWatchMaxCost}
+			if p.Watch.MaxCost != nil && *p.Watch.MaxCost > 0 {
+				project.Watch.MaxCost = *p.Watch.MaxCost
+			}
+			if (p.Watch.CI || p.Watch.Security) && len(p.Repos) > 1 {
+				// The CI and the alerts are a repository's: with several, the project's key names none of them.
+				return nil, fmt.Errorf("project %s: watching the CI and the security alerts needs a project with one repository; set it on that repository's own project", key)
+			}
+		}
+		for i, r := range p.Routines {
+			cron, err := core.ParseCron(r.Cron)
+			if err != nil {
+				return nil, fmt.Errorf("project %s: routine %d: %w", key, i+1, err)
+			}
+			title := strings.TrimSpace(r.Title)
+			if title == "" {
+				return nil, fmt.Errorf("project %s: routine %d: the title is missing", key, i+1)
+			}
+			project.Routines = append(project.Routines, Routine{Cron: cron, Title: title, Body: strings.TrimSpace(r.Body), AutoTake: r.AutoTake})
+		}
 		repos := p.Repos
 		several := len(repos) > 1
 		if len(repos) == 0 {
@@ -808,8 +855,24 @@ type rawTracker struct {
 }
 
 type rawProject struct {
-	Default string             `json:"default"`
-	Repos   map[string]rawRepo `json:"repos"`
+	Default  string             `json:"default"`
+	Repos    map[string]rawRepo `json:"repos"`
+	Watch    *rawWatch          `json:"watch"`
+	Routines []rawRoutine       `json:"routines"`
+}
+
+type rawWatch struct {
+	CI       bool     `json:"ci"`
+	Security bool     `json:"security"`
+	AutoTake bool     `json:"autoTake"`
+	MaxCost  *float64 `json:"maxCost"`
+}
+
+type rawRoutine struct {
+	Cron     string `json:"cron"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	AutoTake bool   `json:"autoTake"`
 }
 
 type rawRepo struct {

@@ -491,6 +491,7 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
   background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
 .kind.fix { background: color-mix(in srgb, var(--err) 14%, var(--card)); color: var(--err); }
 .kind.rq { background: color-mix(in srgb, var(--purple) 14%, var(--card)); color: var(--purple); }
+.kind.mako { background: color-mix(in srgb, var(--mute) 16%, var(--card)); color: var(--fg); }
 /* «Рев'ю для мене»: others' MRs where I am a reviewer */
 .mr-size { font: 11px var(--mono); white-space: nowrap; }
 .mr-size .add { color: var(--ok); }

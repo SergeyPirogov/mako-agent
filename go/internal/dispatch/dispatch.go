@@ -4,6 +4,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -125,6 +126,8 @@ type Dispatcher struct {
 	// Hold: why no new agent may start now ("" none): Mako waits to update itself. Set by main.
 	Hold    func() string
 	absence absence // when the board was last seen, the morning digest last sent
+	// watch: what the watch of the projects' default branches and routines remembers (watch.go).
+	watch watchState
 
 	lessonsMu sync.Mutex // lessons.json
 	navMu     sync.Mutex // navretro.json
@@ -289,10 +292,11 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// Tick is one round: new tasks, branches to check before their MR, hand-offs that got an MR, merges, where the
+// Tick is one round: new tasks, the tasks the watched projects need, branches to check before their MR, hand-offs that got an MR, merges, where the
 // tasks' time goes, MRs to fix, issues closed meanwhile, the archive.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	d.Poll(ctx)
+	d.Watch(ctx, time.Now())
 	d.CheckGates()
 	d.CheckHandoffs(ctx)
 	d.CheckMerges(ctx)
@@ -672,6 +676,10 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 			}
 		})
 		notify.Inform(notify.Stopped, i18n.T(map[string]string{"orca": "notify.notHandedOrca", terminalExecutor: "notify.notHandedAgent"}[executor], id), err.Error(), d.BoardURL)
+	}
+	if over := ceilingSpent(r); over != "" {
+		fail(errors.New(over))
+		return
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {

@@ -224,6 +224,8 @@ const ICON = {
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
 const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "bug" : "task"}</span>`;
+// «by Mako»: a task Mako wrote itself, watching the project (#527): its default branch's CI, its alerts, a routine.
+const byMako = (r) => r.createdBy ? `<span class="kind mako" title="${esc({ ci: t("b.byMakoCi"), security: t("b.byMakoSecurity"), routine: t("b.byMakoRoutine") }[r.createdBy] ?? "")}">${t("b.byMako")}</span>` : "";
 // The list group a task sits in: a held-up task under "Blocked", a postponed one under "Snoozed".
 // An MR that can be merged gets a group of its own under "In review".
 const groupOf = (r) => (r.blocked ? "blocked" : state(r) === "later" ? "later" : !r.error && r.status !== "cancelled" && readyToMerge(r) ? "merge" : r.column);
@@ -687,7 +689,7 @@ function taskRow(r) {
   // A plain status that only repeats the column's name, which already is the group heading, says nothing: leave it out.
   const redundant = groupBy !== "project" && !tone && say0 === LABEL[r.column];
   const own = !merge && !redundant && (!!tone || say.length > 14 || !!badges);
-  const tags = `${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}`;
+  const tags = `${prioBadge(r.task)}${byMako(r)}${r.type === "fix" ? kind(r) : ""}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}`;
   return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""} ${merge ? "merge" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
     <span class="t">${esc(r.task.title)}</span>
     <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}<span class="num" title="${esc(r.id)}">${esc(shortId(r.id))}</span>${own || merge || redundant ? "" : `<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>`}${badges}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span>${tags ? `<span class="tags">${tags}</span>` : ""}${own ? `<span class="st2 ${tone}" title="${esc(why)}">${esc(say)}</span>` : ""}</button>`;
@@ -3519,7 +3521,7 @@ function headHTML(r, title = true) {
   const t = r.task, st = state(r), [text, cls, tip] = cardStatus(r);
   return `<div class="d-head">
       <div class="d-main">
-        <div class="d-id">${trackerIcon(t)}${r.type === "fix" ? kind(r) : ""}<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span class="s ${st} ${cls}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(text)}</span></div>
+        <div class="d-id">${trackerIcon(t)}${byMako(r)}${r.type === "fix" ? kind(r) : ""}<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span class="s ${st} ${cls}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(text)}</span></div>
         ${title ? `<h1>${esc(t.title)}</h1>${metaLine(r)}` : ""}
       </div>
       <div class="actions">${primaryHTML(r)}${moreMenu(r)}</div>
