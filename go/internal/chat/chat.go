@@ -184,7 +184,7 @@ func Start(o Options) *Session {
 	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode, lineMax: maxLine, idleAfter: IdleAfter,
 		ended: make(chan struct{})}
 	if s.mode == "" {
-		s.mode = "default"
+		s.mode = "auto" // a chat with no mode chosen: Claude decides what is safe, as everywhere in Mako
 	}
 	if o.Prompt != "" && o.History == "" {
 		s.items = append(s.items, Item{Kind: "user", Text: o.Prompt})
@@ -337,7 +337,7 @@ func Replay(id, path string) Snapshot { return ReplayIn(id, "", path) }
 
 // ReplayIn is Replay for a conversation held in worktree: its steps name the files relative to it.
 func ReplayIn(id, worktree, path string) Snapshot {
-	s := &Session{ID: id, Worktree: worktree, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}, lineMax: maxLine, idleAfter: IdleAfter}
+	s := &Session{ID: id, Worktree: worktree, state: "exited", exited: true, asleep: true, mode: "auto", pending: map[string]json.RawMessage{}, lineMax: maxLine, idleAfter: IdleAfter}
 	s.replay(path)
 	snap := s.Snapshot()
 	snap.Version = len(snap.Items) // the same file, the same version: the board redraws only what changed

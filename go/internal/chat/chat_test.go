@@ -26,6 +26,7 @@ func eventually(t *testing.T, ok func() bool, why func() string) {
 
 // A stand-in for claude: the same JSON lines, one turn with a permission, then it waits for more.
 const fakeClaude = `#!/bin/sh
+echo "$@" > args.txt
 read init
 read msg
 echo '{"type":"system","subtype":"init","session_id":"s-1","model":"claude-opus-5-5"}'
@@ -85,8 +86,12 @@ func TestChat(t *testing.T) {
 	if session != "s-1" || limits.FiveHour == nil || limits.FiveHour.Used != 0.3 || limits.Week.ResetsAt != 200 {
 		t.Fatalf("session %q limits %+v", session, limits)
 	}
-	if snap.Model != "claude-opus-5-5" || snap.Context != 100002 || snap.Window != 1000000 || snap.Mode != "default" {
+	if snap.Model != "claude-opus-5-5" || snap.Context != 100002 || snap.Window != 1000000 || snap.Mode != "auto" {
 		t.Fatalf("model %q context %d/%d mode %q", snap.Model, snap.Context, snap.Window, snap.Mode)
+	}
+	// No mode chosen: the agent runs in auto, not asking before every step.
+	if b, _ := os.ReadFile(filepath.Join(dir, "args.txt")); !strings.Contains(string(b), "--permission-mode auto") {
+		t.Errorf("claude ran with %q, want --permission-mode auto", b)
 	}
 	if err := s.Send("Далі"); err != nil {
 		t.Fatal(err)
@@ -479,6 +484,9 @@ func TestReplayTurnUsage(t *testing.T) {
 	snap := ReplayIn("x", "", path)
 	if snap.TurnUsage != (core.Usage{Input: 5, CacheRead: 1000, Output: 20}) || snap.TurnModel != "claude-opus-4-1" || snap.Context != 1005 {
 		t.Fatalf("turn %+v, model %q, context %d", snap.TurnUsage, snap.TurnModel, snap.Context)
+	}
+	if snap.Mode != "auto" { // an asleep chat shows the mode it resumes in, not «Ask»
+		t.Errorf("mode %q, want auto", snap.Mode)
 	}
 }
 

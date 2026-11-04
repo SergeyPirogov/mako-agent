@@ -658,7 +658,7 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 // watchTerminals updates the agents in Mako's terminal right away: their hooks report every change.
 func (d *Dispatcher) watchTerminals(now time.Time) {
 	for _, r := range d.Store.All() {
-		if r.Status == core.HandedOff && onTerminal(r) {
+		if onTerminal(r) && d.agentWatched(r) {
 			d.setAgent(r, d.lookTerminal(r, now), now)
 		}
 		// The view switch asked for during the turn: now that it has ended.
