@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,6 +22,8 @@ type Jira struct {
 	headers   map[string]string
 	mu        sync.Mutex
 	accountID string
+	// comments: the long issues' comments as the last FetchMine read them, by key.
+	comments map[string]commentMemo
 }
 
 func NewJira(t *config.Tracker, email, token string) (*Jira, error) {
@@ -68,6 +73,7 @@ type jiraIssue struct {
 	Key    string `json:"key"`
 	Fields struct {
 		Summary     string          `json:"summary"`
+		Updated     string          `json:"updated"`
 		Description json.RawMessage `json:"description"`
 		IssueType   struct {
 			Name string `json:"name"`
@@ -85,19 +91,44 @@ type jiraIssue struct {
 		Assignee *struct {
 			AccountID string `json:"accountId"`
 		} `json:"assignee"`
-		Reporter *jiraUser `json:"reporter"`
-		Comment  struct {
-			Comments []struct {
-				Body   json.RawMessage `json:"body"`
-				Author jiraUser        `json:"author"`
-			} `json:"comments"`
-		} `json:"comment"`
-		Status struct {
+		Reporter *jiraUser    `json:"reporter"`
+		Comment  jiraComments `json:"comment"`
+		Status   struct {
 			StatusCategory struct {
 				Key string `json:"key"`
 			} `json:"statusCategory"`
 		} `json:"status"`
 	} `json:"fields"`
+}
+
+// jiraComment: one comment, its text in Atlassian's document format.
+type jiraComment struct {
+	Body   json.RawMessage `json:"body"`
+	Author jiraUser        `json:"author"`
+}
+
+// jiraComments: a page of an issue's comments; Total is how many the issue has, the page may hold fewer.
+type jiraComments struct {
+	Comments []jiraComment `json:"comments"`
+	Total    int           `json:"total"`
+}
+
+// moreComments reads the comments that did not fit the search's embedded page: the issue's comment list, page by
+// page by startAt, in the order they were written.
+func (j *Jira) moreComments(ctx context.Context, key string, have []jiraComment, total int) ([]jiraComment, error) {
+	all := slices.Clone(have)
+	for page := 0; len(all) < total && page < maxPages; page++ {
+		var res jiraComments
+		q := url.Values{"startAt": {strconv.Itoa(len(all))}, "maxResults": {strconv.Itoa(perPage)}, "orderBy": {"created"}}
+		if err := j.do(ctx, "GET", "/rest/api/3/issue/"+key+"/comment?"+q.Encode(), nil, &res); err != nil {
+			return nil, err
+		}
+		if len(res.Comments) == 0 {
+			break
+		}
+		all = append(all, res.Comments...)
+	}
+	return all, nil
 }
 
 // jiraUser: an issue's reporter or a comment's author.
@@ -118,7 +149,7 @@ func (u *jiraUser) member(me string, assignees []string) bool {
 const jiraMax = ListMax
 
 // jiraFields: what a task is made of.
-var jiraFields = []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}
+var jiraFields = []string{"summary", "updated", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}
 
 // pages reads up to max issues of a query with the given fields, a page after a page by nextPageToken, and stops
 // after the page for which done says so (nil: reads to the end).
@@ -165,10 +196,22 @@ func (j *Jira) contains(ctx context.Context, jql, key string) (bool, error) {
 
 // search reads up to max tasks of a query.
 func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, error) {
+	tasks, _, err := j.searchMemo(ctx, jql, max)
+	return tasks, err
+}
+
+// searchMemo is search that also returns the comments it had to fetch beyond the search's page, by issue key:
+// kept while the issue's updated and its number of comments stay the same, so a poll does not read the rest of
+// a long thread again.
+func (j *Jira) searchMemo(ctx context.Context, jql string, max int) ([]core.Task, map[string]commentMemo, error) {
 	issues, err := j.pages(ctx, jql, max, jiraFields, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	j.mu.Lock()
+	old := j.comments
+	j.mu.Unlock()
+	memos := map[string]commentMemo{}
 	tasks := []core.Task{}
 	for _, is := range issues {
 		t := core.Task{
@@ -194,12 +237,28 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 			t.Author = is.Fields.Reporter.DisplayName
 			t.AuthorMember = is.Fields.Reporter.member(me, t.Assignees)
 		}
-		for _, c := range is.Fields.Comment.Comments {
-			t.Comments = append(t.Comments, core.Comment{Author: c.Author.DisplayName, Body: strings.TrimSpace(adfToText(c.Body)), Member: c.Author.member(me, t.Assignees)})
+		comments, total := is.Fields.Comment.Comments, is.Fields.Comment.Total
+		if m := old[is.Key]; total > len(comments) && m.holds(is.Fields.Updated, total) {
+			t.Comments, memos[is.Key] = slices.Clone(m.comments), m
+		} else {
+			fetched := false
+			if total > len(comments) {
+				if all, err := j.moreComments(ctx, is.Key, comments, total); err == nil {
+					comments, fetched = all, true
+				} else {
+					t.CommentsUnread = true
+				}
+			}
+			for _, c := range comments {
+				t.Comments = append(t.Comments, core.Comment{Author: c.Author.DisplayName, Body: strings.TrimSpace(adfToText(c.Body)), Member: c.Author.member(me, t.Assignees)})
+			}
+			if fetched && len(comments) == total {
+				memos[is.Key] = commentMemo{updated: is.Fields.Updated, count: total, comments: t.Comments}
+			}
 		}
 		tasks = append(tasks, t)
 	}
-	return tasks, nil
+	return tasks, memos, nil
 }
 
 func (j *Jira) FetchMine(ctx context.Context) ([]core.Task, error) {
@@ -207,7 +266,14 @@ func (j *Jira) FetchMine(ctx context.Context) ([]core.Task, error) {
 	if strings.TrimSpace(jql) == "" {
 		jql = `assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`
 	}
-	return j.search(ctx, jql, jiraMax)
+	tasks, memos, err := j.searchMemo(ctx, jql, jiraMax)
+	if err != nil {
+		return nil, err
+	}
+	j.mu.Lock()
+	j.comments = memos
+	j.mu.Unlock()
+	return tasks, nil
 }
 
 func (j *Jira) AssignToMe(ctx context.Context, t core.Task) error {
