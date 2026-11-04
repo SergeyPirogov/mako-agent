@@ -465,11 +465,17 @@ function wireLessons(wrap) {
   };
 }
 
-// routeModeTip: the route a medium task's work gets under a project's mode ("" or none: the global one), to see
-// what the project's mode changes against the global one.
+// routeModeTip: the route a medium task's work gets under a project's mode ("" or none: the global one), and, when the
+// project's mode is its own and differs, the global one's: to see what the project's mode changes.
 function routeModeTip(mode) {
-  const m = mode || cfg.routes?.mode || "balanced";
-  return t("s.pr.routeModeTip", { route: routeText(effectiveRoute("work", "medium", m)) }) + (m === "balanced" ? "" : ` (${t("s.r.mode." + m)})`);
+  const global = cfg.routes?.mode || "balanced", own = mode || global;
+  const route = (m) => routeText(effectiveRoute("work", "medium", m));
+  const tip = t("s.pr.routeModeTip", { route: route(own), mode: t("s.r.mode." + own) });
+  return own === global ? tip : tip + t("s.pr.routeModeVs", { route: route(global), mode: t("s.r.mode." + global) });
+}
+// The tips of the projects' mode selects follow the table and the global mode, which they depend on.
+function paintRouteModeTips() {
+  for (const sel of document.querySelectorAll('select[data-f="routeMode"]')) sel.title = routeModeTip(sel.value);
 }
 
 function projectsTable(tk) {
@@ -752,7 +758,9 @@ function effectiveRoute(phase, size, mode, rc = routeChoices) {
   const def = rc.defaults[phase]?.[size] ?? {}, own = cfg.routes?.table?.[phase]?.[size] ?? {};
   return stepRoute({ model: own.model ?? def.model, effort: own.effort ?? def.effort }, rc.shifts?.[mode] ?? 0, rc);
 }
-const routeText = (r) => [r.model, r.effort].filter(Boolean).join(" · ");
+function routeText(r) {
+  return [r.model, r.effort].filter(Boolean).join(" · ");
+}
 
 // The routes: the model and the effort of each phase by the task's size. Only what differs from the defaults is
 // kept in the config.
@@ -795,6 +803,7 @@ function renderRoutes() {
       el.textContent = shown ? t("s.r.effective", { route: routeText(effectiveRoute(p, s, mode, rc)) }) : "";
       el.title = shown ? t("s.r.effectiveHint") : "";
     }
+    paintRouteModeTips();
   };
   box.append(wrap);
   paintEffective();

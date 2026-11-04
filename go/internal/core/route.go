@@ -58,17 +58,21 @@ type Route struct {
 // Escalated: the route was lifted above its own (BaseModel, BaseEffort).
 func (r Route) Escalated() bool { return r.BaseModel != "" || r.BaseEffort != "" }
 
-// Label: "opus · high", "" for none; "opus · high (quality)" when the mode moved the route.
+// Label: "opus · high", "" for none.
 func (r Route) Label() string {
-	var label string
 	switch {
 	case r.Model != "" && r.Effort != "":
-		label = r.Model + " · " + r.Effort
+		return r.Model + " · " + r.Effort
 	case r.Model != "":
-		label = r.Model
-	default:
-		label = r.Effort
+		return r.Model
 	}
+	return r.Effort
+}
+
+// LabelWithMode: Label, and "opus · high (quality)" when the mode moved the route; for the card, where the mode is
+// not told otherwise. The logs keep Label: the route's Why there already names the mode.
+func (r Route) LabelWithMode() string {
+	label := r.Label()
 	if label != "" && ModeShift(r.Mode) != 0 {
 		label += " (" + r.Mode + ")"
 	}

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -260,22 +261,42 @@ func TestLessonRuleIsTextarea(t *testing.T) {
 	}
 }
 
-// The effective routes the settings show under the table (stepRoute in settings.html) are the ones core.Step gives a
-// started task: every model and effort, in every mode, moved the same way. The page's function is run with node
-// (skipped when there is none), with the ladders and shifts /api/settings sends.
-func TestSettingsEffectiveRoutes(t *testing.T) {
+// jsFunc: the source of the page's top-level function name, up to its closing brace at the line start.
+func jsFunc(t *testing.T, page, name string) string {
+	t.Helper()
+	start := strings.Index(page, "function "+name+"(")
+	if start < 0 {
+		t.Fatalf("no function %s in the page", name)
+	}
+	fn := page[start:]
+	return fn[:strings.Index(fn, "\n}\n")+3]
+}
+
+// runNode runs script with node and decodes what it prints (JSON); the test is skipped when there is no node.
+func runNode(t *testing.T, script string, out any) {
+	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("no node to run the page's script")
 	}
-	page := string(settingsPage)
-	start := strings.Index(page, "function stepRoute(")
-	if start < 0 {
-		t.Fatal("no stepRoute in settings.html")
+	file := filepath.Join(t.TempDir(), "page.js")
+	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	fn := page[start:]
-	fn = fn[:strings.Index(fn, "\n}\n")+3]
+	b, err := exec.Command(node, file).Output()
+	if ee := (&exec.ExitError{}); errors.As(err, &ee) {
+		t.Fatalf("node: %v: %s", err, ee.Stderr)
+	} else if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	if err := json.Unmarshal(b, out); err != nil {
+		t.Fatalf("node's output: %v: %s", err, b)
+	}
+}
 
+// routesReply: the routes part of /api/settings, as the page gets it.
+func routesReply(t *testing.T) json.RawMessage {
+	t.Helper()
 	store, _ := state.Open(t.TempDir())
 	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Home: t.TempDir()}).Handler())
@@ -290,69 +311,154 @@ func TestSettingsEffectiveRoutes(t *testing.T) {
 	}
 	json.NewDecoder(res.Body).Decode(&reply)
 	var rc struct {
-		Models  []string       `json:"models"`
-		Efforts []string       `json:"efforts"`
-		Modes   []string       `json:"modes"`
-		Shifts  map[string]int `json:"shifts"`
+		Shifts map[string]int `json:"shifts"`
 	}
 	if err := json.Unmarshal(reply.Routes, &rc); err != nil || len(rc.Shifts) != len(core.Modes) {
 		t.Fatalf("/api/settings routes: %v: %s", err, reply.Routes)
 	}
+	return reply.Routes
+}
 
-	// Every route the table can hold, and ones Mako does not know, with each mode.
-	script := fn + `
-const rc = ` + string(reply.Routes) + `;
-const out = [];
-for (const model of [...rc.models, "gpt"]) for (const effort of [...rc.efforts, "turbo"])
-  for (const mode of rc.modes) out.push({ model, effort, mode, got: stepRoute({ model, effort }, rc.shifts[mode], rc) });
+type jsRoute struct{ Model, Effort string }
+
+// The effective routes the settings show under the table (stepRoute and effectiveRoute in settings.html) are the ones
+// core.Step gives a started task: every model and effort, in every mode, moved the same way, and with the table's own
+// cells over the defaults. The page's functions are run with node (skipped when there is none), with the ladders and
+// shifts /api/settings sends.
+func TestSettingsEffectiveRoutes(t *testing.T) {
+	page := string(settingsPage)
+	routes := routesReply(t)
+	var rc struct {
+		Models  []string `json:"models"`
+		Efforts []string `json:"efforts"`
+		Modes   []string `json:"modes"`
+	}
+	json.Unmarshal(routes, &rc)
+
+	script := jsFunc(t, page, "stepRoute") + jsFunc(t, page, "effectiveRoute") + `
+let routeChoices = ` + string(routes) + `;
+let cfg = { routes: { table: { work: { medium: { model: "opus" }, big: { effort: "max" } } } } };
+const out = { step: [], eff: [] };
+for (const model of [...routeChoices.models, "gpt"]) for (const effort of [...routeChoices.efforts, "turbo"])
+  for (const mode of routeChoices.modes) out.step.push({ model, effort, mode, got: stepRoute({ model, effort }, routeChoices.shifts[mode], routeChoices) });
+for (const phase of routeChoices.phases) for (const size of routeChoices.sizes) for (const mode of routeChoices.modes)
+  out.eff.push({ phase, size, mode, got: effectiveRoute(phase, size, mode) });
 console.log(JSON.stringify(out));`
-	file := filepath.Join(t.TempDir(), "step.js")
-	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
-		t.Fatal(err)
+	var out struct {
+		Step []struct {
+			Model, Effort, Mode string
+			Got                 jsRoute
+		}
+		Eff []struct {
+			Phase, Size, Mode string
+			Got               jsRoute
+		}
 	}
-	out, err := exec.Command(node, file).Output()
-	if err != nil {
-		t.Fatalf("node: %v", err)
+	runNode(t, script, &out)
+	if len(out.Step) == 0 || len(out.Eff) == 0 {
+		t.Fatal("node gave nothing")
 	}
-	var cases []struct {
-		Model, Effort, Mode string
-		Got                 struct{ Model, Effort string }
-	}
-	if err := json.Unmarshal(out, &cases); err != nil || len(cases) == 0 {
-		t.Fatalf("node's output: %v: %s", err, out)
-	}
-	for _, c := range cases {
+	for _, c := range out.Step {
 		want := core.Step(core.Route{Model: c.Model, Effort: c.Effort}, core.ModeShift(c.Mode))
 		if c.Got.Model != want.Model || c.Got.Effort != want.Effort {
 			t.Errorf("%s · %s in %s: page %s · %s, core.Step %s · %s", c.Model, c.Effort, c.Mode, c.Got.Model, c.Got.Effort, want.Model, want.Effort)
 		}
 	}
-	// The default Work route of a medium task, as the tooltip of a project's mode shows it: sonnet · high.
-	if cost := core.Step(core.DefaultRoutes()[core.PhaseWork]["medium"], core.ModeShift(core.ModeCost)); cost.Label() != "sonnet · medium" {
-		t.Errorf("cost work/medium: %s", cost.Label())
+	// The table as the page's cfg holds it: the defaults, with work/medium's model and work/big's effort changed.
+	table := core.DefaultRoutes()
+	table[core.PhaseWork]["medium"] = core.Route{Model: "opus", Effort: table[core.PhaseWork]["medium"].Effort}
+	table[core.PhaseWork]["big"] = core.Route{Model: table[core.PhaseWork]["big"].Model, Effort: "max"}
+	for _, c := range out.Eff {
+		want := core.Step(table[c.Phase][c.Size], core.ModeShift(c.Mode))
+		if c.Got.Model != want.Model || c.Got.Effort != want.Effort {
+			t.Errorf("%s/%s in %s: page %s · %s, core.Step %s · %s", c.Phase, c.Size, c.Mode, c.Got.Model, c.Got.Effort, want.Model, want.Effort)
+		}
 	}
 }
 
-// The mode's hint says when it applies; the table redraws the effective routes on a change of the mode, and a project's
-// mode select carries the tooltip with its Work route. The settings have no script tests, so this checks the page's source.
-func TestSettingsModeShowsEffectiveRoutes(t *testing.T) {
+// A project's mode select tells the Work route of a medium task under its mode, and the global mode's when they differ;
+// "as set" tells the global one's only. Run with node, with the page's strings.
+func TestSettingsRouteModeTip(t *testing.T) {
 	page := string(settingsPage)
-	for _, want := range []string{
-		`addEventListener("change", () => { renderNav(); paintEffective(); })`,
-		`data-eff="${p}/${s}"`,
-		`data-f="routeMode" title="${esc(routeModeTip(p?.routeMode))}"`,
-		`inp.title = routeModeTip(pp.routeMode)`,
-	} {
-		if !strings.Contains(page, want) {
-			t.Errorf("settings.html lacks %s", want)
+	words := map[string]string{}
+	for _, k := range []string{"s.pr.routeModeTip", "s.pr.routeModeVs", "s.r.mode.cost", "s.r.mode.balanced", "s.r.mode.quality"} {
+		words[k] = i18n.T(k)
+		if words[k] == k {
+			t.Fatalf("no string %s", k)
 		}
 	}
+	w, _ := json.Marshal(words)
+	script := jsFunc(t, page, "stepRoute") + jsFunc(t, page, "effectiveRoute") + jsFunc(t, page, "routeText") + jsFunc(t, page, "routeModeTip") + `
+const I18N = ` + string(w) + `;
+const t = (key, vars = {}) => String(I18N[key] ?? key).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+let routeChoices = ` + string(routesReply(t)) + `;
+const out = {};
+let cfg;
+for (const global of ["", "cost", "quality"]) {
+  cfg = { routes: global ? { mode: global } : {} };
+  for (const own of ["", "cost", "balanced", "quality"]) out[global + "/" + own] = routeModeTip(own);
+}
+console.log(JSON.stringify(out));`
+	var tips map[string]string
+	runNode(t, script, &tips)
+	for key, got := range tips {
+		global, own, _ := strings.Cut(key, "/")
+		if global == "" {
+			global = core.ModeBalanced
+		}
+		if own == "" {
+			own = global
+		}
+		work := func(mode string) string {
+			return core.Step(core.DefaultRoutes()[core.PhaseWork]["medium"], core.ModeShift(mode)).Label()
+		}
+		want := "Work, medium task: " + work(own) + " (" + own + ")"
+		if own != global {
+			want += "; the global mode: " + work(global) + " (" + global + ")"
+		}
+		if got != want {
+			t.Errorf("tip of %q: %q, want %q", key, got, want)
+		}
+	}
+	if len(tips) != 12 {
+		t.Errorf("%d tips", len(tips))
+	}
+}
+
+// The board card's label of the agent's route (routeLabel in board.html) is core.Route.LabelWithMode's, for every mode,
+// an unknown one too.
+func TestBoardRouteLabel(t *testing.T) {
+	board, err := os.ReadFile("board.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []core.Route{
+		{Model: "opus", Effort: "high"},
+		{Model: "opus", Effort: "high", Mode: core.ModeBalanced},
+		{Model: "opus", Effort: "high", Mode: core.ModeCost},
+		{Model: "opus", Effort: "xhigh", Mode: core.ModeQuality},
+		{Model: "opus", Mode: core.ModeQuality},
+		{Effort: "low", Mode: core.ModeCost},
+		{Mode: core.ModeQuality},
+		{Model: "opus", Effort: "high", Mode: "turbo"},
+	}
+	in, _ := json.Marshal(cases)
+	var got []string
+	runNode(t, jsFunc(t, string(board), "routeLabel")+"\nconsole.log(JSON.stringify("+string(in)+".map(routeLabel)));", &got)
+	if len(got) != len(cases) {
+		t.Fatalf("labels: %q", got)
+	}
+	for i, r := range cases {
+		if got[i] != r.LabelWithMode() {
+			t.Errorf("%+v: board %q, Go %q", r, got[i], r.LabelWithMode())
+		}
+	}
+}
+
+// The mode's hint says when it applies. (That the table redraws on a change of the mode is in the page's script, which
+// has no browser test: checked by hand, see the MR.)
+func TestSettingsModeHint(t *testing.T) {
 	if hint := i18n.T("s.r.modeHint"); !strings.HasPrefix(hint, "Applied when a task starts: each route in the table goes a level down (cost) or up (quality). The table keeps the base values") {
 		t.Errorf("modeHint: %q", hint)
-	}
-	for _, k := range []string{"s.r.effective", "s.r.effectiveHint", "s.pr.routeModeTip"} {
-		if i18n.T(k) == k {
-			t.Errorf("no %s", k)
-		}
 	}
 }

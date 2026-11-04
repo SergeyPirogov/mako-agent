@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A level up raises the effort to xhigh, then the model; on opus the effort goes on to max. A level down lowers
 // the effort to low, then the model.
@@ -46,8 +49,8 @@ func TestDefaultRoutes(t *testing.T) {
 	}
 }
 
-// The label names the mode only when it moved the route; balanced, or none, adds nothing.
-func TestRouteLabelMode(t *testing.T) {
+// LabelWithMode names the mode only when it moved the route; balanced, or none, adds nothing.
+func TestRouteLabelWithMode(t *testing.T) {
 	for _, c := range []struct {
 		r    Route
 		want string
@@ -58,9 +61,13 @@ func TestRouteLabelMode(t *testing.T) {
 		{Route{Model: "opus", Effort: "high"}, "opus · high"},
 		{Route{Model: "opus", Mode: ModeQuality}, "opus (quality)"},
 		{Route{Mode: ModeQuality}, ""},
+		{Route{Model: "opus", Effort: "high", Mode: "turbo"}, "opus · high"},
 	} {
-		if got := c.r.Label(); got != c.want {
+		if got := c.r.LabelWithMode(); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.r, got, c.want)
+		}
+		if got := c.r.Label(); strings.Contains(got, "(") {
+			t.Errorf("Label of %+v names the mode: %q", c.r, got)
 		}
 	}
 }
