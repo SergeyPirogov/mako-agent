@@ -8,6 +8,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/shot"
+	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
@@ -51,6 +52,9 @@ func recent(at string) bool {
 
 // searchLag: how long a tracker's search may take to show a new issue (GitHub's can take minutes).
 var searchLag = 10 * time.Minute // a var for the tests
+
+// searchCap: a search that returns this many tasks is cut off, not complete: its absentees are not removed.
+var searchCap = trackers.ListMax // a var for the tests
 
 // stale: a rating that started long ago and never ended, Mako having stopped meanwhile.
 func stale(at string) bool {

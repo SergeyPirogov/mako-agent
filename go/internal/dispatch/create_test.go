@@ -131,6 +131,48 @@ func TestCreatedTaskSurvivesSearchLag(t *testing.T) {
 	}
 }
 
+// A search cut off at its limit does not list everything: a task missing from it is not removed (it may be past the
+// cut), and once the search is complete again the missing one goes as before.
+func TestCutOffSearchRemovesNothing(t *testing.T) {
+	d, f, _ := setup(t)
+	ctx := context.Background()
+	d.Poll(ctx)
+	if _, ok := d.Store.Get("grp/app#5"); !ok {
+		t.Fatal("the task did not come to the board")
+	}
+	oldLag, oldCap := searchLag, searchCap
+	searchLag, searchCap = 0, 1
+	defer func() { searchLag, searchCap = oldLag, oldCap }()
+	f.mu.Lock()
+	f.unindexed = map[int]bool{5: true} // open, but the search does not list it
+	f.issues[6] = map[string]any{
+		"id": 1006, "iid": 6, "state": "opened", "title": "Інша", "description": "", "web_url": f.base + "/grp/app/-/issues/6",
+		"labels": []string{"claude-agent"}, "issue_type": "issue", "assignees": []any{}, "references": map[string]string{"full": "grp/app#6"},
+	}
+	f.mu.Unlock()
+	d.Poll(ctx) // one task found = the limit: cut off
+	if _, ok := d.Store.Get("grp/app#5"); !ok {
+		t.Fatal("a cut-off search removed a task that may be past the cut")
+	}
+	// A closed one is not past the cut: the board shows it as gone even from a cut-off search.
+	f.mu.Lock()
+	f.issues[5]["state"] = "closed"
+	f.mu.Unlock()
+	d.Poll(ctx)
+	if r, ok := d.Store.Get("grp/app#5"); !ok || r.Gone == "" {
+		t.Fatalf("a closed task was not marked gone by a cut-off search: %+v, %v", r, ok)
+	}
+	f.mu.Lock()
+	f.issues[5]["state"] = "opened"
+	f.mu.Unlock()
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status, r.Gone = core.Snoozed, "" })
+	searchCap = 2
+	d.Poll(ctx) // one found of two possible: complete
+	if _, ok := d.Store.Get("grp/app#5"); ok {
+		t.Fatal("a complete search kept a task that is not in it")
+	}
+}
+
 // The estimate of a task that was removed meanwhile does not bring back an empty record.
 func TestEstimateOfRemovedTaskLeavesNoRecord(t *testing.T) {
 	d, _, _ := setup(t)

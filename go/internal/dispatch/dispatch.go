@@ -409,6 +409,11 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 			d.ensureProject(t, task.Project)
 			d.seen(ctx, t, task)
 		}
+		// A search cut off at the limit does not list everything: what is missing from it may be past the cut.
+		cutOff := len(tasks) >= searchCap
+		if cutOff {
+			d.Log("", fmt.Sprintf("the search of %s hit the limit of %d tasks: not removing what it does not list", t.ID(), searchCap))
+		}
 		// A task waiting for «Взяти в роботу» that left the search: closed or deleted ones stay on the board
 		// as such; the rest (reassigned, label removed) are forgotten.
 		for _, r := range d.Store.All() {
@@ -420,6 +425,8 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 			case err != nil:
 			case st == "open" && recent(r.CreatedAt):
 				// Just made: the tracker's search may not have indexed it yet.
+			case st == "open" && cutOff:
+				// May be past the cut of the search.
 			case st == "open":
 				d.Log(r.ID, "no longer matches the search, removing")
 				d.Store.Delete(r.ID)

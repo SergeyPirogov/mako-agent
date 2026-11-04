@@ -115,7 +115,7 @@ func (u *jiraUser) member(me string, assignees []string) bool {
 }
 
 // jiraMax: as many issues as FetchMine reads, page by page, like GitHub's and GitLab's lists.
-const jiraMax = perPage * maxPages
+const jiraMax = ListMax
 
 // jiraFields: what a task is made of.
 var jiraFields = []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}
