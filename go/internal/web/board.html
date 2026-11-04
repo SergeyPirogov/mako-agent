@@ -36,6 +36,7 @@
 <div id="update"></div>
 <div id="release"></div>
 <div id="limit-hold"></div>
+<div id="auth-hold"></div>
 <div class="work" id="work">
   <div class="side">
     <!-- One row on top: the filter, how the list is grouped, "+" (a new task or chat) -->
@@ -470,6 +471,17 @@ function limitHoldHTML(h) {
     + (working ? `<div>Agents at work (${working}) keep going, but may stop when the limit runs out.</div>` : "") + `</div>`;
 }
 
+// The Claude login failed a turn: the queue waits for you to log in again, or for any agent to finish a turn.
+function authHoldHTML(h) {
+  if (!h) return "";
+  const queued = data.records.filter((r) => !r.archivedAt && r.status === "queued").length;
+  return `<div class="banner auth"><div><b>${esc(t("b.auth.title"))}</b></div>`
+    + `<div>${esc(t("b.auth.hold", { queued: queued ? t("b.auth.queued", { n: queued }) : "" }))}</div>`
+    + `<div class="muted">${md(t("b.auth.holdCmd"))}</div>`
+    + `<div class="auth-a"><button type="button" class="primary" data-auth-go>${esc(t("b.auth.done"))}</button>`
+    + `<button type="button" data-copy-cmd="claude auth login">${esc(t("b.auth.copy").replace(/`/g, ""))}</button></div></div>`;
+}
+
 function visible() {
   return data.records.filter((r) => (showArchive ? r.archivedAt : !r.archivedAt) && (!project || r.task.project === project));
 }
@@ -518,6 +530,7 @@ function render() {
   const rh = $("release-hide");
   if (rh) rh.onclick = async () => { rh.disabled = true; await fetch("/api/release/dismiss?version=" + encodeURIComponent(data.release.version), { method: "POST" }); await load(); };
   $("limit-hold").innerHTML = limitHoldHTML(data.limitHold);
+  $("auth-hold").innerHTML = authHoldHTML(data.authHold);
   const ub = $("update-btn");
   if (ub) ub.onclick = async () => { ub.disabled = true; await fetch("/api/update", { method: "POST" }); await load(); };
   const un = $("update-now");
@@ -4691,6 +4704,7 @@ function limitButtons(s) {
 // The same two buttons in a chat of the board: ?on=1 asks, ?on=0 takes it back.
 const limitAuto = (id, on) => fetch(`/api/resumeonreset?id=${encodeURIComponent(id)}&on=${on ? 1 : 0}`, { method: "POST" })
   .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
+const authStatus = () => t("b.auth.status"); // renderChat has a `t` of its own
 function renderChat(v) {
   const s = v.snap, list = v.list;
   const live = s.state === "working" || s.state === "waiting";
@@ -4727,7 +4741,7 @@ function renderChat(v) {
   st.className = `chat-status ${limitCut(s) ? "limited" : s.state}`;
   // Working says nothing: the active tool card already reads «Running».
   const cut = limitCut(s);
-  const stText = cut ? limitText(s) : { working: "", waiting: "Waiting for you", done: "Your turn" }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
+  const stText = cut ? limitText(s) : { working: "", waiting: "Waiting for you", done: "Your turn", auth: authStatus() }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
   const stEl = st.querySelector(".st");
   stEl.textContent = stText; stEl.hidden = !stText;
   const more = [];
@@ -5045,7 +5059,13 @@ function chatItem(it, i, v) {
       return `<div class="turn-end">${MR_ICON.ok}Turn finished · ${dur}${it.cost ? ` · $${it.cost.toFixed(2)}` : ""}</div>`;
     }
     case "error":
-      return `<div class="notice">${esc(it.text)}</div>`;
+      return `<div class="notice md">${md(it.text)}</div>`;
+    case "auth":
+      // The login failed: one card with what to do. Claude's own words stay below, their backticks as code.
+      return `<div class="notice auth" role="alert"><b>${esc(t("b.auth.title"))}</b>
+        <div class="md">${md(t("b.auth.lead"))}${md(t("b.auth.token"))}</div>
+        <div class="auth-raw muted md">${md(it.text)}</div>
+        <div class="auth-a"><button type="button" class="chip pri" data-copy-cmd="claude auth login">${esc(t("b.auth.copy").replace(/`/g, ""))}</button></div></div>`;
     case "compact":
       return `<div class="turn-end">Conversation compacted: the agent goes on from its summary</div>`;
     case "image":
@@ -5693,6 +5713,17 @@ document.addEventListener("click", (e) => {
   $("pic-dlg").showModal();
 });
 $("pic-dlg").addEventListener("click", () => $("pic-dlg").close());
+// The Claude login failed: «Copy claude auth login» and «I logged in — continue», on the card in a chat and on the banner.
+document.addEventListener("click", (e) => {
+  const cp = e.target.closest?.("[data-copy-cmd]");
+  if (cp) {
+    const label = cp.textContent;
+    navigator.clipboard?.writeText(cp.dataset.copyCmd).then(() => { cp.textContent = t("b.auth.copied"); setTimeout(() => { cp.textContent = label; }, 1500); }, () => {});
+    return;
+  }
+  const go = e.target.closest?.("[data-auth-go]");
+  if (go) { go.disabled = true; fetch("/api/auth/continue", { method: "POST" }).then(() => load()); }
+});
 window.addEventListener("hashchange", () => {
   const since = digestHash();
   if (since) return loadDigest(since);

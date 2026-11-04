@@ -177,6 +177,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		OnState:       func() { d.watchTerminals(time.Now()) },
 		OnLimits:      d.limitsReported,
 		OnLimit:       func(until int64, resume bool) { d.noteLimit(id, until, resume) },
+		OnAuth:        d.NoteAuth,
 		ResumeOnReset: d.resumeFlag(id),
 		// The task keeps its session: a later resume goes on with exactly this conversation.
 		OnSession: func(sid, model string) {
@@ -652,6 +653,9 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 	case state == "limited":
 		// The Claude limit cut the turn: it is not finished, so nothing that waits for a finished turn goes on.
 		a.State, a.Reason = "stopped", limitReason(s.Snapshot().LimitedUntil)
+	case state == "auth":
+		// The Claude login failed the turn: it is not finished either.
+		a.State, a.Reason = "stopped", "the Claude login failed: run `claude auth login`"
 	default:
 		a.State, a.Tool = "working", tool
 	}
