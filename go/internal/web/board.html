@@ -4503,13 +4503,25 @@ function drawCtxWarn(v, live, share) {
     <button type="button" data-compact title="Send /compact: Claude sums the conversation up and goes on from the summary">Compact now</button>
     ${task ? `<button type="button" data-fresh title="Start the task over in the same worktree, without this conversation">New conversation</button>` : ""}`;
 }
+// toolArg:begin
+const TOOL_ARG_KEYS = ["command", "file_path", "pattern", "url", "description", "prompt"];
+// The one line a step's head shows: the first line, cut to 160 characters.
 const toolArg = (input) => {
-  for (const k of ["command", "file_path", "pattern", "url", "description", "prompt"]) {
+  for (const k of TOOL_ARG_KEYS) {
     const x = input?.[k];
     if (typeof x === "string" && x) return `: ${x.split("\n")[0].slice(0, 160)}`;
   }
   return "";
 };
+// What a permission request asks for, whole: you allow the command you read, not the first 160 characters of it.
+const permArg = (input) => {
+  for (const k of TOOL_ARG_KEYS) {
+    const x = input?.[k];
+    if (typeof x === "string" && x) return x;
+  }
+  return JSON.stringify(input ?? {});
+};
+// toolArg:end
 const EDITS = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
 // The conversation in turns (chat.Group): your messages on the right, each turn of the agent under one name with
 // what it said and its steps, gathered by what they did.
@@ -4681,7 +4693,7 @@ function chatItem(it, i, v) {
       if (it.tool === "ExitPlanMode") return planCard(it, v);
       if (docked) return "";
       if (it.tool === "AskUserQuestion") return askCard(it);
-      const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200);
+      const arg = permArg(it.input);
       if (it.status !== "asked") {
         return `<div class="perm-done ${it.status}">${{ allowed: "✓ You allowed once", always: "✓ Always allowed", denied: "✗ You said no", cancelled: "✗ Not answered: the agent stopped asking" }[it.status] ?? it.status}: <code>${esc(it.tool === "Bash" ? arg : `${it.tool} ${arg}`)}</code></div>`;
       }
@@ -4844,7 +4856,7 @@ function drawDock(v, it) {
     planButtons(v);
     return;
   }
-  const arg = toolArg(it.input).slice(2) || JSON.stringify(it.input ?? {}).slice(0, 200), always = alwaysLabel(it);
+  const arg = permArg(it.input), always = alwaysLabel(it);
   d.innerHTML = `<div class="dock-in"><div class="dock-h"><span class="dock-ic" aria-hidden="true">!</span><b>The agent asks for permission</b><span class="muted">· ${esc(it.tool)}</span>${wait}</div>
     <code class="perm-cmd">${esc(arg)}</code>${warn}
     <div class="dock-row">${instead}<span class="spacer"></span>
