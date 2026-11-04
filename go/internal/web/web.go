@@ -516,6 +516,15 @@ func (s *Server) Handler() http.Handler {
 			writeJSON(w, map[string]bool{"ok": true})
 			return
 		}
+		if action == "resumeonreset" {
+			// «Продовжити після скидання» of a chat after the Claude limit: a task's, a free chat's or a question's.
+			if err := s.D.SetResumeOnReset(id, r.URL.Query().Get("on") == "1"); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+			writeJSON(w, map[string]bool{"ok": true})
+			return
+		}
 		if dispatch.IsFreeChat(id) {
 			s.freeChatAction(w, r, action, id)
 			return

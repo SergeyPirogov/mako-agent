@@ -992,6 +992,7 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .chat-status.working .dot { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); animation: pulse 1.6s ease-in-out infinite; }
 .chat-status.waiting .dot { background: var(--warn); }
 .chat-status.done .dot { background: var(--ok); }
+.chat-status.limited .dot { background: var(--warn); }
 .chat-status b { font-weight: 600; flex: none; }
 .chat-status b[hidden] { display: none; }
 .st-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -1067,6 +1068,13 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .chat-quick .chip { display: inline-flex; align-items: center; text-decoration: none; cursor: pointer; }
 .chat-quick .chip.pri { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
 .chat-quick .chip.pri:hover { color: var(--primary-fg); }
+.chat-quick .chip.on { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+/* The limit cut an answer in an Ask chat: the line and the buttons under the conversation. */
+.ca-limit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 12px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+.ca-limit b { margin-right: auto; font-weight: 600; }
+.ca-limit .chip { cursor: pointer; }
+.ca-limit .chip.pri { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); font-weight: 600; }
+.ca-limit .chip.on { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
 /* The context nearly full: a warning above the input, with Compact now and New conversation. */
 .chat-ctxwarn { max-width: 780px; margin: 0 auto 8px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 10px;
   background: color-mix(in srgb, var(--warn) 14%, var(--card)); color: var(--warn); font-size: 13px; }

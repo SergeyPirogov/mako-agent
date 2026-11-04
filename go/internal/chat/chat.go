@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -61,7 +62,7 @@ type Limits struct {
 // Snapshot: the conversation and the agent's state; Version changes with every change.
 type Snapshot struct {
 	Version int    `json:"version"`
-	State   string `json:"state"` // "working", "waiting" (a permission), "done" (its turn ended), "exited"
+	State   string `json:"state"` // "working", "waiting" (a permission), "done" (its turn ended), "limited" (the Claude limit cut it), "exited"
 	Since   int64  `json:"since"`
 	Live    bool   `json:"live"`
 	Asleep  bool   `json:"asleep,omitempty"` // closed for being idle: a message wakes it up
@@ -77,6 +78,10 @@ type Snapshot struct {
 	Turn     TurnStat  `json:"turn"`
 	// Plan: the plan the agent waits to have approved, in steps.
 	Plan *PlanDoc `json:"plan,omitempty"`
+	// LimitedUntil: when the Claude limit that cut the turn resets (unix seconds; 0: not limited, or the reset is
+	// not known). ResumeOnReset: the session goes on by itself once it has.
+	LimitedUntil  int64 `json:"limitedUntil,omitempty"`
+	ResumeOnReset bool  `json:"resumeOnReset,omitempty"`
 	// WorkMode: the mode the plan's work goes on in unless you pick another (set by Mako, not the session).
 	WorkMode string `json:"workMode,omitempty"`
 	// TurnUsage, TurnModel: a replayed transcript's turn going on, its tokens and the model that spent them, so
@@ -97,6 +102,10 @@ type Options struct {
 	History   string // a Claude Code transcript: the conversation so far, shown before it continues
 	OnState   func()
 	OnLimits  func(Limits)
+	// OnResume: the limit cut a turn and has reset, and the session was asked to go on by itself: it hands over
+	// the message to say, the way your own message from the board goes (a closed agent is resumed by it). Nil: the
+	// session sends it itself.
+	OnResume  func(text string) error
 	OnSession func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
 	// OnCost: what a turn cost (USD) and the tokens its model calls read and wrote, so the task can add up its
 	// budget.
@@ -119,35 +128,43 @@ type Session struct {
 
 	lineMax int // maxLine as it was at Start: the session's goroutine must not read the variable later
 
-	mu        sync.Mutex
-	writeMu   sync.Mutex
-	cmd       *exec.Cmd
-	pid       int // cmd.Process.Pid once started; Stop reads it instead of cmd.Process, which Start writes
-	stdin     io.WriteCloser
-	items     []Item
-	version   int
-	state     string
-	since     time.Time
-	exited    bool
-	stopping  bool
-	asleep    bool
-	idle      *time.Timer
-	sessionID string
-	mode      string
-	model     string
-	context   int
-	window    int
-	spent     float64                    // claude reports the cost so far of its process: what of it is already counted
-	spentTok  int                        // the tokens of the process's model calls by its last result: spent / spentTok is what a token costs
-	procTok   int                        // the tokens of the process's model calls so far
-	lastTurn  float64                    // what the last finished turn cost (USD)
-	rate      float64                    // what a token cost in the turns so far (USD), kept when a new process continues
-	tokens    int                        // the tokens of this turn's model calls, told with its cost
-	usage     core.Usage                 // the same tokens by kind
-	calls     map[string]bool            // the model calls already counted, by message id: one comes in several events
-	pending   map[string]json.RawMessage // permission request → the tool's input
-	o         Options
-	ended     chan struct{} // closed once the agent has exited and OnState has heard of it
+	mu       sync.Mutex
+	writeMu  sync.Mutex
+	cmd      *exec.Cmd
+	pid      int // cmd.Process.Pid once started; Stop reads it instead of cmd.Process, which Start writes
+	stdin    io.WriteCloser
+	items    []Item
+	version  int
+	state    string
+	since    time.Time
+	exited   bool
+	stopping bool
+	asleep   bool
+	idle     *time.Timer
+	// The Claude limit: limitHit is told by a rate-limit event of the turn going on; limitedUntil is when the limit
+	// that cut the turn resets; resumeTimer sends the message to go on then, if resumeOnReset.
+	limitHit      bool
+	limitedUntil  int64
+	resumeOnReset bool
+	resumeTimer   *time.Timer
+	resumeGen     int // changes with every arming and disarming: a timer that fires late finds it is not its turn
+	lastLimits    Limits
+	sessionID     string
+	mode          string
+	model         string
+	context       int
+	window        int
+	spent         float64                    // claude reports the cost so far of its process: what of it is already counted
+	spentTok      int                        // the tokens of the process's model calls by its last result: spent / spentTok is what a token costs
+	procTok       int                        // the tokens of the process's model calls so far
+	lastTurn      float64                    // what the last finished turn cost (USD)
+	rate          float64                    // what a token cost in the turns so far (USD), kept when a new process continues
+	tokens        int                        // the tokens of this turn's model calls, told with its cost
+	usage         core.Usage                 // the same tokens by kind
+	calls         map[string]bool            // the model calls already counted, by message id: one comes in several events
+	pending       map[string]json.RawMessage // permission request → the tool's input
+	o             Options
+	ended         chan struct{} // closed once the agent has exited and OnState has heard of it
 
 	// A replayed transcript's turn going on (from your last message): its model calls' tokens and their model, for
 	// what the turn costs so far when nobody runs it through Mako's chat (the agent in a terminal).
@@ -473,19 +490,36 @@ func (s *Session) handle(line []byte) {
 		s.cancel(e.RequestID)
 	case "rate_limit_event":
 		var r struct {
-			Windows map[string]struct {
+			Status   string `json:"status"` // "rejected" once the limit is used up
+			ResetsAt int64  `json:"resetsAt"`
+			Windows  map[string]struct {
 				Utilization float64 `json:"utilization"`
 				ResetsAt    int64   `json:"resetsAt"`
 			} `json:"unifiedWindows"`
 		}
-		if json.Unmarshal(e.RateLimit, &r) == nil && s.o.OnLimits != nil {
-			l := Limits{At: time.Now().Unix()}
-			if w, ok := r.Windows["five_hour"]; ok {
-				l.FiveHour = &Window{Used: w.Utilization, ResetsAt: w.ResetsAt}
+		if json.Unmarshal(e.RateLimit, &r) != nil {
+			break
+		}
+		l := Limits{At: time.Now().Unix()}
+		if w, ok := r.Windows["five_hour"]; ok {
+			l.FiveHour = &Window{Used: w.Utilization, ResetsAt: w.ResetsAt}
+		}
+		if w, ok := r.Windows["seven_day"]; ok {
+			l.Week = &Window{Used: w.Utilization, ResetsAt: w.ResetsAt}
+		}
+		s.mu.Lock()
+		if len(r.Windows) > 0 {
+			s.lastLimits = l
+		}
+		// The turn the limit cuts ends with an error result: that is where the state changes.
+		if r.Status == "rejected" {
+			s.limitHit = true
+			if r.ResetsAt > 0 {
+				s.limitedUntil = r.ResetsAt
 			}
-			if w, ok := r.Windows["seven_day"]; ok {
-				l.Week = &Window{Used: w.Utilization, ResetsAt: w.ResetsAt}
-			}
+		}
+		s.mu.Unlock()
+		if s.o.OnLimits != nil && len(r.Windows) > 0 {
 			s.o.OnLimits(l)
 		}
 	case "result":
@@ -520,13 +554,111 @@ func (s *Session) handle(line []byte) {
 			cost = turn
 		}
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: cost, At: at})
-		s.setState("done")
+		if s.limitCut(e.IsError, e.Result) {
+			s.setState("limited")
+		} else {
+			s.setState("done")
+		}
 		s.mu.Lock()
 		if s.idle != nil {
 			s.idle.Stop()
 		}
 		s.idle = time.AfterFunc(IdleAfter, s.sleep)
 		s.mu.Unlock()
+	}
+}
+
+// limitText: what Claude Code says when the limit cut the turn ("You've hit your session limit · resets 3pm").
+var limitText = regexp.MustCompile(`(?i)hit your .*limit`)
+
+// limitCut tells whether the turn that just ended was cut by the Claude limit: its error result follows a
+// rejected rate-limit event, or says so in words. It keeps when the limit resets (the reported window that is
+// fullest, when the event did not say) and starts the automatic continuation if it was asked for.
+func (s *Session) limitCut(isError bool, result string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	hit := s.limitHit
+	s.limitHit = false
+	if !isError || !(hit || limitText.MatchString(result)) {
+		s.limitedUntil = 0
+		return false
+	}
+	if s.limitedUntil == 0 {
+		s.limitedUntil = s.lastLimits.fullest()
+	}
+	s.armResumeLocked()
+	return true
+}
+
+// fullest: when the window that is the most used resets, 0 when none is known.
+func (l Limits) fullest() int64 {
+	var at int64
+	used := -1.0
+	for _, w := range []*Window{l.FiveHour, l.Week} {
+		if w != nil && w.ResetsAt > time.Now().Unix() && w.Used > used {
+			at, used = w.ResetsAt, w.Used
+		}
+	}
+	return at
+}
+
+// ResumeGrace: how long after the limit resets the session goes on by itself.
+var ResumeGrace = 30 * time.Second
+
+// ResumeMessage: what the session says to itself to go on after the limit.
+const ResumeMessage = "Continue where you stopped: the usage limit has reset."
+
+// SetResumeOnReset makes the session go on by itself once the limit that cut its turn has reset (or takes it
+// back). It works on a closed session too: the message resumes the conversation.
+func (s *Session) SetResumeOnReset(on bool) {
+	s.mu.Lock()
+	s.resumeOnReset = on
+	if on {
+		s.armResumeLocked()
+	} else {
+		s.disarmResumeLocked()
+	}
+	s.version++
+	s.mu.Unlock()
+	s.changed()
+}
+
+// armResumeLocked (s.mu held) starts the timer that sends the continuation, if the session is limited, knows
+// when the limit resets and was asked to go on.
+func (s *Session) armResumeLocked() {
+	s.disarmResumeLocked()
+	if !s.resumeOnReset || s.limitedUntil == 0 {
+		return
+	}
+	gen := s.resumeGen
+	wait := time.Until(time.Unix(s.limitedUntil, 0).Add(ResumeGrace))
+	s.resumeTimer = time.AfterFunc(max(wait, 0), func() { s.resumeNow(gen) })
+}
+
+// disarmResumeLocked (s.mu held) drops the timer: a message of yours, or Stop.
+func (s *Session) disarmResumeLocked() {
+	s.resumeGen++
+	if s.resumeTimer != nil {
+		s.resumeTimer.Stop()
+		s.resumeTimer = nil
+	}
+}
+
+// resumeNow is the timer's: the limit has reset, so it says "go on" the way a message from the board goes.
+func (s *Session) resumeNow(gen int) {
+	s.mu.Lock()
+	if gen != s.resumeGen { // taken back, or a message of yours came first
+		s.mu.Unlock()
+		return
+	}
+	s.resumeTimer = nil
+	s.mu.Unlock()
+	send := s.o.OnResume
+	if send == nil {
+		send = s.Send
+	}
+	if err := send(ResumeMessage); err != nil {
+		log.Printf("chat %s: could not go on after the limit: %v", s.ID, err)
 	}
 }
 
@@ -672,6 +804,12 @@ func (s *Session) Send(text string) error {
 	}
 	// Working before Claude reads it: a turn it ends at once must not be set back to working.
 	at := s.add(Item{Kind: "user", Text: text})
+	// A message of yours goes on from the limit by itself: nothing is left to wait for.
+	s.mu.Lock()
+	wasLimited, until := s.state == "limited", s.limitedUntil
+	s.limitedUntil, s.limitHit = 0, false
+	s.disarmResumeLocked()
+	s.mu.Unlock()
 	s.setState("working")
 	err := s.write(userMessage(text))
 	if err == nil {
@@ -683,6 +821,10 @@ func (s *Session) Send(text string) error {
 	closed = s.exited || s.stopping
 	if s.state == "working" && !s.exited && len(s.pending) == 0 {
 		s.state, s.since = "done", time.Now()
+		if wasLimited { // still cut by the limit: the message did not go on from it
+			s.state, s.limitedUntil = "limited", until
+			s.armResumeLocked()
+		}
 	}
 	s.version++
 	s.mu.Unlock()
@@ -913,14 +1055,14 @@ func (s *Session) reply(requestID string, resp map[string]any, mark func(*Item))
 // sleep closes an agent that has waited for you IdleAfter; its conversation stays, and a message resumes it.
 func (s *Session) sleep() {
 	s.mu.Lock()
-	idle := s.state == "done" && !s.exited && len(s.pending) == 0
+	idle := (s.state == "done" || s.state == "limited") && !s.exited && len(s.pending) == 0
 	if idle {
 		s.asleep = true
 		s.stopping = true // closed from here on: Send must not take a message the closing stdin will lose
 	}
 	s.mu.Unlock()
 	if idle {
-		s.Stop()
+		s.stop(true) // the continuation after the limit stays: it resumes the closed conversation
 	}
 }
 
@@ -977,11 +1119,17 @@ func (s *Session) Interrupt() error {
 }
 
 // Stop ends the agent; the conversation stays in Claude Code's history (--continue).
-func (s *Session) Stop() {
+func (s *Session) Stop() { s.stop(false) }
+
+// stop is Stop; keepResume: a session closed for idleness still goes on after the limit.
+func (s *Session) stop(keepResume bool) {
 	s.mu.Lock()
 	s.stopping = true
 	if s.idle != nil {
 		s.idle.Stop()
+	}
+	if !keepResume {
+		s.disarmResumeLocked()
 	}
 	pid, w := s.pid, s.stdin
 	s.mu.Unlock()
@@ -1009,7 +1157,7 @@ func (s *Session) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snap := Drawn(Snapshot{Version: s.version, State: s.state, Since: s.since.UnixMilli(), Live: !s.exited, Asleep: s.exited && s.asleep, Mode: s.mode, Model: s.model,
-		Context: s.context, Window: s.window, Items: append([]Item{}, s.items...)}, s.Worktree)
+		Context: s.context, Window: s.window, Items: append([]Item{}, s.items...), LimitedUntil: s.limitedUntil, ResumeOnReset: s.resumeOnReset}, s.Worktree)
 	// What the turn costs so far: its tokens at the price of the earlier turns (of this process or one before it);
 	// once it ends, its result says it exactly.
 	if s.state == "working" || s.state == "waiting" {

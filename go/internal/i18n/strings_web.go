@@ -458,4 +458,11 @@ var webStrings = map[string]string{
 	"b.agent.done":       "See the agent's answer in Orca: next is your move or the MR",
 	"b.agent.idle":       "No agent works in the workspace now",
 	"b.agent.unknown":    "Orca does not answer",
+	"b.limit.until":      "Claude limit until {time}",
+	"b.limit.reset":      "Claude limit has reset",
+	"b.limit.unknown":    "Claude limit reached",
+	"b.limit.now":        "Continue now",
+	"b.limit.nowHint":    "Send «continue» to the agent: it goes on from where the limit cut it",
+	"b.limit.auto":       "Continue after the reset",
+	"b.limit.autoHint":   "Once the limit resets, Mako tells the agent to go on, with a closed agent resumed too",
 }
