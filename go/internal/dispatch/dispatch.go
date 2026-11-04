@@ -334,7 +334,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 }
 
 // slowTick: a round that takes longer is logged with its slow steps (a tracker that does not answer, say).
-const slowTick = 30 * time.Second
+var slowTick = 30 * time.Second
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
