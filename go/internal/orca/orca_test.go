@@ -81,11 +81,16 @@ func TestHandExplainsFailure(t *testing.T) {
 func TestInstructions(t *testing.T) {
 	j := job(t)
 	me := Instructions("", "me", j)
-	if !strings.Contains(me, "Do not push") || strings.Contains(me, "{branch}") {
+	// You open the MR: there is no pipeline for the agent to wait on.
+	if !strings.Contains(me, "Do not push") || strings.Contains(me, "{branch}") || strings.Contains(me, "Do not wait for CI") {
 		t.Fatalf("for me:\n%s", me)
 	}
-	if got := Instructions("Візьми {taskId} у {branch} → {baseBranch}, {unknown}", "agent", j); got != "Візьми grp/app#5 у fix/5-fix-pay → main, {unknown}" {
+	if got := Instructions("Візьми {taskId} у {branch} → {baseBranch}, {unknown}", "agent", j); got != "Візьми grp/app#5 у fix/5-fix-pay → main, {unknown}\n\n"+ciNote {
 		t.Fatalf("custom: %s", got)
+	}
+	// The agent opens the MR: it ends its turn instead of watching CI, which Mako does.
+	if got := Instructions("", "agent", j); !strings.Contains(got, "gh pr create") || !strings.HasSuffix(got, ciNote) {
+		t.Fatalf("default:\n%s", got)
 	}
 }
 
@@ -96,6 +101,9 @@ func TestInstructionsWithChecks(t *testing.T) {
 	if !strings.Contains(got, "Do not push and do not open a merge request") || !strings.Contains(got, "   - `go test ./...`") ||
 		!strings.Contains(got, "into main") || strings.Contains(got, "gh pr create") || strings.Contains(got, "{checks}") {
 		t.Fatalf("with checks:\n%s", got)
+	}
+	if !strings.HasSuffix(got, ciNote) {
+		t.Fatalf("with checks, no CI note:\n%s", got)
 	}
 	// Your own end of the prompt is kept, with what Mako does after it.
 	got = Instructions("Візьми {taskId}", "agent", j)

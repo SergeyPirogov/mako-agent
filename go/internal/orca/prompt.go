@@ -114,6 +114,13 @@ const checksNote = "## Mako opens the merge request\n" +
 	"If they pass, Mako pushes the branch and opens the merge request into {baseBranch}. If one fails, you get the\n" +
 	"last lines of its output here: fix the cause, commit, and end your turn again."
 
+// ciNote: every end of the prompt that leads to a merge request gets it. Mako watches the pipeline itself and sends
+// the agent the failed jobs, but only once its turn is over: an agent waiting on CI spends limits on each poll and
+// holds that back.
+const ciNote = "## Do not wait for CI\n" +
+	"Once the merge request exists, end your turn: do not watch or poll its pipeline (`gh pr checks --watch`,\n" +
+	"`glab ci status`, sleep loops). Mako watches CI itself and, if it fails, sends you the failed jobs here."
+
 // FullPrompt: the task, what to do differently when it is a new attempt, screenshots for UI changes, the
 // language to write in and how to finish.
 func FullPrompt(j Job, o config.Orca) string {
@@ -211,6 +218,9 @@ func Instructions(custom, mrBy string, j Job) string {
 		text = DefaultHandoffForMe
 	default:
 		text = DefaultHandoff
+	}
+	if mrBy != "me" {
+		text += "\n\n" + ciNote
 	}
 	return placeholder.ReplaceAllStringFunc(text, func(m string) string {
 		if v, ok := values[m[1:len(m)-1]]; ok {
