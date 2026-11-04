@@ -350,6 +350,32 @@ function md(text) {
   return out.join("").replace(/(<li>.*?<\/li>)+/g, (m) => `<ul>${m}</ul>`);
 }
 
+// A POST whose answer is JSON {ok, error}. Anything else (plain text from the server or the service worker, a 4xx/5xx,
+// a rejected fetch while Mako restarts) comes back as {ok:false, error}, so the caller can keep what the user typed.
+// msg: {failed, gone}: the words for a failure in general and for a 404 (the task has no record any more).
+async function postJSON(url, init, msg) {
+  const failed = msg?.failed ?? t("b.net.noAnswer");
+  try {
+    const res = await fetch(url, { method: "POST", ...init });
+    const j = await res.json().catch(() => null);
+    if (j && typeof j === "object") return res.ok || j.ok === false ? j : { ok: false, error: failed };
+    return { ok: false, error: res.status === 404 && msg?.gone ? msg.gone : failed };
+  } catch { return { ok: false, error: failed }; }
+}
+
+// A message to the agent. Returns false (after showing the warning) when it did not go, so the caller can give the text back.
+async function sayTo(id, text, warn) {
+  const r = await postJSON(`/api/say?id=${encodeURIComponent(id)}`, { body: text }, { failed: t("b.say.failed"), gone: t("b.say.gone") });
+  warn(r.ok === false ? r.error : "");
+  return r.ok !== false;
+}
+
+// What was typed and attached comes back to the field when its message did not go; the new text typed meanwhile stays.
+function restoreUnsent(v, typed, att) {
+  if (typed) v.input.value = v.input.value ? `${typed}\n${v.input.value}` : typed;
+  v.att = [...att, ...v.att];
+}
+
 async function post(action, id, extra = "") {
   await fetch(`/api/${action}?id=${encodeURIComponent(id ?? "")}${extra}`, { method: "POST" });
   await load();
@@ -4503,18 +4529,23 @@ function chatFor(id) {
   // To a closed agent too: the message resumes the conversation, in a new session the board reads from 0.
   const say = async (text) => {
     if (!text) return;
-    const r = await (await fetch(`/api/say?id=${encodeURIComponent(id)}`, { method: "POST", body: text })).json().catch(() => ({}));
-    warn(r.ok === false ? r.error : "");
-    if (r.ok === false) v.input.value ||= text;
+    if (!(await sayTo(id, text, warn))) return false;
     if (!v.snap?.live) v.version = -1;
     v.atEnd = true;
     pollChat();
+    return true;
   };
   // The pictures attached go with the message as lines naming their files: the agent reads them from there.
   const send = () => {
-    const text = [v.input.value.trim(), ...v.att.map((a) => a.line)].filter(Boolean).join("\n");
+    const typed = v.input.value.trim(), att = v.att;
+    const text = [typed, ...att.map((a) => a.line)].filter(Boolean).join("\n");
     v.input.value = ""; v.att = []; drawAttached(v);
-    say(text);
+    // A message that was not sent goes back to the field with its pictures; say() shows the warning.
+    say(text).then((ok) => {
+      if (ok !== false) return;
+      restoreUnsent(v, typed, att);
+      drawAttached(v); drawSend(v);
+    });
   };
   const interrupt = () => fetch(`/api/interrupt?id=${encodeURIComponent(id)}`, { method: "POST" });
   // While the agent runs and nothing is typed, the send button is Stop; a typed message turns it back into Send.
@@ -4522,8 +4553,8 @@ function chatFor(id) {
   const attach = async (files) => {
     for (const f of files) {
       if (!f.type.startsWith("image/")) continue;
-      const r = await (await fetch(`/api/attach?id=${encodeURIComponent(id)}&name=${encodeURIComponent(f.name || "image.png")}`,
-        { method: "POST", headers: { "Content-Type": f.type }, body: f })).json().catch(() => ({ ok: false, error: "the picture did not upload" }));
+      const r = await postJSON(`/api/attach?id=${encodeURIComponent(id)}&name=${encodeURIComponent(f.name || "image.png")}`,
+        { headers: { "Content-Type": f.type }, body: f }, { failed: t("b.attach.failed"), gone: t("b.attach.gone") });
       if (r.ok === false) { warn(r.error); continue; }
       warn("");
       v.att.push({ line: r.line, url: r.url, name: f.name || "image" });
