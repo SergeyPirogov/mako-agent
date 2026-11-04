@@ -19,7 +19,7 @@ func TestBoardSelfCheckSteps(t *testing.T) {
 	var parts []string
 	for _, re := range []string{
 		`(?m)^const plural = .*$`, `(?s)\nconst MR_ICON = \{.*?\n\};\n`, `(?m)^const CHK = .*$`, `(?m)^const stepHTML = .*$`,
-		`(?s)\nfunction selfTitle\(.*?\n}\n`, `(?s)\nfunction selfBlock\(.*?\n}\n`, `(?s)\nfunction blockersHTML\(.*?\n}\n`, `(?m)^const mergeHeld = .*$`,
+		`(?s)\nfunction selfTitle\(.*?\n}\n`, `(?s)\nfunction selfBlock\(.*?\n}\n`, `(?s)\nfunction tryRow\(.*?\n}\n`, `(?s)\nfunction blockersHTML\(.*?\n}\n`, `(?m)^const mergeHeld = .*$`,
 	} {
 		m := regexp.MustCompile(re).FindString(src)
 		if m == "" {
@@ -29,6 +29,7 @@ func TestBoardSelfCheckSteps(t *testing.T) {
 	}
 	script := `
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+let data = {};
 const review = null, isAsked = () => false, mrName = (u) => u, reviewFixBtn = () => "", assessing = () => false;
 ` + strings.Join(parts, "\n") + `
 const steps = [{ open: "/settings", do: "Save <it>", expect: "Saved" }, { do: "Open the card", done: true }, { do: "Merge", done: true, stale: 2 }];
@@ -41,6 +42,12 @@ const out = {
   none: selfBlock(r(null)),
   blockers: blockersHTML(r({ required: true, steps, left: 2, blocks: true })),
   noBlockers: blockersHTML(r({ required: true, steps, left: 0, done: true })),
+  tryNone: selfBlock(r({ steps, left: 2, canTry: true })),
+  tryStarting: selfBlock(r({ steps, left: 2, canTry: true, try: { state: "starting" } })),
+  tryRunning: selfBlock(r({ steps, left: 2, canTry: true, tried: true, try: { state: "running", url: "http://127.0.0.1:5000", fresh: true } })),
+  tryOld: selfBlock(r({ steps, left: 2, canTry: true, try: { state: "running", url: "http://127.0.0.1:5000" } })),
+  tryFailed: selfBlock(r({ steps, left: 2, canTry: true, try: { state: "failed", error: "exit 3 <boom>" } })),
+  tryPhone: (data = { remote: true }, selfBlock(r({ steps, left: 2, canTry: true }))),
   held: String(mergeHeld(r({ blocks: true }))),
   notHeld: String(mergeHeld(r({ blocks: false }))),
 };
@@ -83,6 +90,15 @@ console.log(JSON.stringify(out));
 	if out["none"] != "" {
 		t.Errorf("no check: %q", out["none"])
 	}
+	// «Try this build»: to start, starting, running at the branch as it is (Open, Stop), at older commits, failed.
+	lacks("open", "data-try")
+	has("tryNone", `data-try`, "Try this build", `class="primary"`)
+	has("tryStarting", "Building and starting…", "data-trystop")
+	lacks("tryStarting", `data-try "`, `data-try>`)
+	has("tryRunning", ">Open<", "data-trystop", "http://127.0.0.1:5000")
+	has("tryOld", "Try the new commits", "data-trystop")
+	has("tryFailed", "Try again", "exit 3 &lt;boom&gt;")
+	lacks("tryPhone", "data-try")
 	has("blockers", "What blocks the merge", "Check it yourself: 2 of 3 steps left", "data-selfskip")
 	lacks("noBlockers", "Check it yourself")
 	if out["held"] != "true" || out["notHeld"] != "false" {

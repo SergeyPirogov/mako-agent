@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,7 +29,7 @@ func TestCopyHome(t *testing.T) {
 	write(t, filepath.Join(home, ".mako", "mako.log"), "big")
 	write(t, filepath.Join(home, ".mako", "phones.json"), "keys")
 	write(t, filepath.Join(home, ".mako", "screenshots", "t", "a.png"), "png")
-	if err := CopyHome(home, dst); err != nil {
+	if err := CopyHome(home, dst, true); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{"mako.config.json", ".env", ".mako/state.json", ".mako/logs/a.log"} {
@@ -43,11 +44,34 @@ func TestCopyHome(t *testing.T) {
 	}
 	// A home without data yet still gives a state folder.
 	empty := filepath.Join(t.TempDir(), "copy")
-	if err := CopyHome(t.TempDir(), empty); err != nil {
+	if err := CopyHome(t.TempDir(), empty, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(empty, ".mako")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A copy to try has no secrets: no tracker can be reached from it.
+func TestCopyHomeWithoutSecrets(t *testing.T) {
+	home, dst := t.TempDir(), filepath.Join(t.TempDir(), "copy")
+	write(t, filepath.Join(home, "mako.config.json"), `{"trackers":[]}`)
+	write(t, filepath.Join(home, ".env"), "GITHUB_TOKEN=x")
+	write(t, filepath.Join(home, ".mako", "state.json"), `{}`)
+	if err := CopyHome(home, dst, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".env")); err == nil {
+		t.Fatal(".env copied")
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".mako", "state.json")); err != nil {
+		t.Fatal("no state copied")
+	}
+	if got := strings.Join(serveArgs("/h", 5, Try), " "); got != "-home /h -try -no-tray -port 5" {
+		t.Fatalf("args %q", got)
+	}
+	if got := strings.Join(serveArgs("/h", 5, Readonly), " "); got != "-home /h -readonly -no-tray -port 5" {
+		t.Fatalf("args %q", got)
 	}
 }
 

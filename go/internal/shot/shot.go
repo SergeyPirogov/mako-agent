@@ -53,7 +53,8 @@ func FindChrome() (string, error) {
 
 // Capture photographs url with headless Chrome into out (PNG), the window width×height; wait is how long the
 // page's scripts get to load its data.
-func Capture(ctx context.Context, chrome, url, out string, width, height int, wait time.Duration) error {
+// dark: the page is shown as in a system with the dark theme (the board's «auto» theme follows it).
+func Capture(ctx context.Context, chrome, url, out string, width, height int, wait time.Duration, dark bool) error {
 	profile, err := os.MkdirTemp("", "mako-chrome-")
 	if err != nil {
 		return err
@@ -78,9 +79,13 @@ func Capture(ctx context.Context, chrome, url, out string, width, height int, wa
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait+60*time.Second)
 	defer cancel()
-	cmd := proc.Command(ctx, chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
-		"--no-default-browser-check", "--user-data-dir="+profile, fmt.Sprintf("--window-size=%d,%d", window, height),
-		fmt.Sprintf("--virtual-time-budget=%d", wait.Milliseconds()), "--screenshot="+out, page)
+	args := []string{"--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
+		"--no-default-browser-check", "--user-data-dir=" + profile, fmt.Sprintf("--window-size=%d,%d", window, height),
+		fmt.Sprintf("--virtual-time-budget=%d", wait.Milliseconds()), "--screenshot=" + out}
+	if dark {
+		args = append(args, "--force-dark-mode", "--blink-settings=preferredColorScheme=0")
+	}
+	cmd := proc.Command(ctx, chrome, append(args, page)...)
 	msg, err := cmd.CombinedOutput()
 	if _, statErr := os.Stat(out); statErr != nil {
 		if err == nil {
@@ -138,11 +143,15 @@ func Module(dir string) string {
 
 // CopyHome makes a copy of the Mako home's settings and data in dst, so a second Mako can show them without
 // touching the real ones: the config, .env and the state folder, without the log and the paired phones.
-func CopyHome(home, dst string) error {
+func CopyHome(home, dst string, secrets bool) error {
 	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return err
 	}
-	for _, name := range []string{"mako.config.json", ".env"} {
+	names := []string{"mako.config.json"}
+	if secrets {
+		names = append(names, ".env")
+	}
+	for _, name := range names {
 		if err := copyFile(filepath.Join(home, name), filepath.Join(dst, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -223,10 +232,84 @@ func Build(ctx context.Context, module, bin string) error {
 	return nil
 }
 
-// Serve runs the Mako at bin read-only with the data in home on port, and returns once its board answers; stop
+// Mode: how a copy of Mako runs: Readonly for screenshots (only GET), Try for «Try this build» (the board works
+// on the copy of the data, but nothing reaches the trackers, the agents or the repositories).
+type Mode string
+
+const (
+	Readonly Mode = "-readonly"
+	Try      Mode = "-try"
+)
+
+// ServeWorktree builds the Mako in the worktree src (or its revision rev, in a temporary worktree) and runs it in
+// mode on a free port with a copy of the data in home; it returns its address and what to stop and clean up
+// (also when it fails). A copy to try gets no .env: no tokens, so no tracker is reached from it.
+func ServeWorktree(ctx context.Context, src, rev, home string, mode Mode) (string, func(), error) {
+	top, err := gitOut(src, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", nil, fmt.Errorf("%s is not a git repository: %w", src, err)
+	}
+	tmp, err := os.MkdirTemp("", "mako-shot-")
+	if err != nil {
+		return "", nil, err
+	}
+	var undo []func()
+	cleanup := func() {
+		for i := len(undo) - 1; i >= 0; i-- {
+			undo[i]()
+		}
+		os.RemoveAll(tmp)
+	}
+	repo := top
+	if rev != "" {
+		repo = filepath.Join(tmp, "src")
+		if _, err := gitOut(top, "worktree", "add", "--detach", repo, rev); err != nil {
+			return "", cleanup, fmt.Errorf("worktree for %s: %w", rev, err)
+		}
+		undo = append(undo, func() { gitOut(top, "worktree", "remove", "--force", repo) })
+	}
+	module := Module(repo)
+	if module == "" {
+		return "", cleanup, fmt.Errorf("there is no Mako (cmd/mako) in %s: for another project run its build and pass -url", repo)
+	}
+	bin := filepath.Join(tmp, "mako")
+	if err := Build(ctx, module, bin); err != nil {
+		return "", cleanup, err
+	}
+	data := filepath.Join(tmp, "home")
+	if err := CopyHome(home, data, mode != Try); err != nil {
+		return "", cleanup, fmt.Errorf("copy of Mako data: %w", err)
+	}
+	port, err := FreePort()
+	if err != nil {
+		return "", cleanup, err
+	}
+	stopMako, err := Serve(ctx, bin, data, port, mode)
+	if err != nil {
+		return "", cleanup, err
+	}
+	undo = append(undo, stopMako)
+	return fmt.Sprintf("http://127.0.0.1:%d", port), cleanup, nil
+}
+
+func gitOut(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// serveArgs: the command line of a copy of Mako in mode.
+func serveArgs(home string, port int, mode Mode) []string {
+	return []string{"-home", home, string(mode), "-no-tray", "-port", fmt.Sprint(port)}
+}
+
+// Serve runs the Mako at bin in mode with the data in home on port, and returns once its board answers; stop
 // ends it.
-func Serve(ctx context.Context, bin, home string, port int) (stop func(), err error) {
-	cmd := exec.Command(bin, "-home", home, "-readonly", "-no-tray", "-port", fmt.Sprint(port))
+func Serve(ctx context.Context, bin, home string, port int, mode Mode) (stop func(), err error) {
+	cmd := exec.Command(bin, serveArgs(home, port, mode)...)
 	var out strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Start(); err != nil {
@@ -249,6 +332,9 @@ func Serve(ctx context.Context, bin, home string, port int) (stop func(), err er
 		select {
 		case <-exited:
 			msg := out.String()
+			if strings.Contains(msg, "flag provided but not defined") && mode == Try {
+				return nil, errors.New("this version of Mako cannot run as a copy to try (-try) yet: rebase the branch on the main branch")
+			}
 			if strings.Contains(msg, "flag provided but not defined") {
 				return nil, errors.New("this version of Mako cannot run read-only (-readonly) yet: cannot take the \"before\" screenshot from it")
 			}

@@ -57,6 +57,8 @@ type Server struct {
 	Update *update.Updater
 	// Release: a newer release of Mako, for one installed from a release (no clone); nil otherwise.
 	Release *update.Releases
+	// Try: this is a copy of Mako to try a branch on («Try this build»); the board says so.
+	Try bool
 
 	cfgMu sync.Mutex // mako.config.json is read, changed and written by one request at a time
 
@@ -65,7 +67,9 @@ type Server struct {
 }
 
 type stateReply struct {
-	Version  string       `json:"version"`
+	Version string `json:"version"`
+	// Try: a copy of Mako to try a branch on: the board says so in its header.
+	Try      bool         `json:"try,omitempty"`
 	Now      int64        `json:"now"`
 	WipLimit int          `json:"wipLimit"`
 	Records  []recordView `json:"records"`
@@ -210,7 +214,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMilli()
-		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
+		reply := stateReply{Version: s.Version, Try: s.Try, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
@@ -254,6 +258,10 @@ func (s *Server) Handler() http.Handler {
 		reply.NavRetros = s.D.NavRetros(r.URL.Query().Get("project"))
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
+		// sel: the task whose card the board has open: its copy to try is kept while it is.
+		if sel := r.URL.Query().Get("sel"); sel != "" {
+			s.D.TryKeep(sel)
+		}
 		reply.LessonOffers = s.D.LessonOffers()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
@@ -772,6 +780,18 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "trybuild":
+			// «Try this build»: opens on the Mac, not on the phone that asked.
+			if remote(r) {
+				writeJSON(w, map[string]any{"ok": false, "error": "a build to try opens on the Mac: start it from there"})
+				return
+			}
+			if err := s.D.TryBuild(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "trystop":
+			s.D.TryStop(id)
 		case "selfskip":
 			// «Skip» of the check: the merge goes on without it, for the reason given.
 			if err := s.D.SelfSkip(id, r.URL.Query().Get("why")); err != nil {

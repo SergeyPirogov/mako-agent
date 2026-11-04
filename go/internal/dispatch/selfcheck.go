@@ -31,6 +31,11 @@ type SelfCheckView struct {
 	Skipped string `json:"skipped,omitempty"`
 	// Blocks: the check holds the merge now.
 	Blocks bool `json:"blocks,omitempty"`
+	// CanTry: «Try this build» is there for the task; Tried: a copy of the branch as it is now came up, so a tick
+	// needs no reason; Try: the task's copy, if any.
+	CanTry bool     `json:"canTry,omitempty"`
+	Tried  bool     `json:"tried,omitempty"`
+	Try    *TryView `json:"try,omitempty"`
 }
 
 // SelfStepView is a step and its tick: Stale, how many commits the branch got after the tick (0: up to date).
@@ -128,6 +133,10 @@ func (d *Dispatcher) SelfView(r core.Record) *SelfCheckView {
 		v.Skipped = sc.Skipped.Reason
 	}
 	v.Blocks = v.Required && v.Left > 0 && v.Skipped == ""
+	if v.CanTry = head != "" && d.canTry(r); v.CanTry {
+		v.Tried = tried(r, head)
+		v.Try = d.tryView(r.ID, head)
+	}
 	return v
 }
 
@@ -159,6 +168,9 @@ func (d *Dispatcher) selfAtMerge(r core.Record) string {
 
 // errSelfStep: a tick the check cannot take.
 var errSelfStep = errors.New("no such step of the check")
+
+// errNotTried: a tick of a step before the branch as it is was tried, with no reason given.
+var errNotTried = errors.New("try this build first, or say why the step is checked without it")
 
 // headOf: the HEAD of the task's worktree, read now.
 func (d *Dispatcher) headOf(id string) (string, error) {
@@ -194,6 +206,10 @@ func (d *Dispatcher) SelfStep(id string, n int, on bool, why string) error {
 		var err error
 		if head, err = d.headOf(id); err != nil {
 			return err
+		}
+		// With «Try this build» there, a tick is for what was seen running: a reason otherwise.
+		if why == "" && d.canTry(r) && !tried(r, head) {
+			return errNotTried
 		}
 	}
 	d.Store.Update(id, func(r *core.Record) {

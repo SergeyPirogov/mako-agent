@@ -361,6 +361,8 @@ async function load() {
     if (document.visibilityState === "visible") q.set("seen", "1");
     if (statsDays) q.set("days", statsDays);
     if (statsProject) q.set("project", statsProject);
+    // sel: the open card; its "Try this build" copy is kept while it is open.
+    if (selected) q.set("sel", selected);
     // X-Mako: the board's own look; only then does seen=1 count (another site cannot send it).
     data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`, { headers: { "X-Mako": "1" } })).json();
     // A record without a project is not a task (a stray write made it): no group with no name, no row in «needs attention».
@@ -377,7 +379,9 @@ async function load() {
     return;
   }
   // The running version, so it is clear which Mako is on screen.
-  if (data.version) $("ver").textContent = data.version;
+  if (data.version) $("ver").textContent = data.version + (data.try ? " · try build" : "");
+  // A copy of Mako to try a branch on: its own data, nothing reaches out; the header tells it from the real one.
+  document.body.classList.toggle("try-build", !!data.try);
   if (data.digest) return openDigest(data.digest);
   await Promise.all([loadCard(), loadWork()]);
   render();
@@ -1615,7 +1619,23 @@ function selfBlock(r) {
   }).join("");
   const why = v.skipped ? `<span class="mr-why">Skipped: ${esc(v.skipped)}</span>` : v.required && !v.done ? `<span class="mr-why">The merge waits for it</span>` : "";
   return `<div class="mr-row mr-advice self${v.done ? " done" : ""}">${MR_ICON.eye}
-  <div class="mr-adv"><b>${selfTitle(v)}</b>${why}<ol class="self-steps">${steps}</ol></div></div>`;
+  <div class="mr-adv"><b>${selfTitle(v)}</b>${why}<ol class="self-steps">${steps}</ol>${tryRow(v)}</div></div>`;
+}
+// "Try this build": the task's branch as a second copy of the app, opened on the first step's page; one per task,
+// kept while the card is open. Ticks before it need a reason.
+function tryRow(v) {
+  // The copy runs and opens on the Mac: a phone gets no button for it.
+  if (!v.canTry || data?.remote) return "";
+  const t = v.try, btn = (attr, label, cls = "ghost", title = "") => `<button type="button" class="${cls}" ${attr}${title ? ` title="${esc(title)}"` : ""}>${label}</button>`;
+  const stop = btn("data-trystop", "Stop", "ghost", "Stop the copy");
+  const start = (label) => btn("data-try", label, v.tried || v.done ? "ghost" : "primary", "Build the branch and run it as a second copy on a free port, then open the first step's page");
+  let row;
+  if (t?.state === "starting") row = `<span class="try-st"><span class="spin"></span>Building and starting…</span>${stop}`;
+  else if (t?.state === "running" && t.fresh) row = `${btn("data-try", "Open", "ghost", t.url)}${stop}<span class="try-st muted">${esc(t.url)}</span>`;
+  else if (t?.state === "running") row = `${start("Try the new commits")}${stop}`;
+  else row = start(t?.state === "failed" ? "Try again" : "Try this build");
+  const err = t?.state === "failed" ? `<div class="try-err">${esc(t.error)}</div>` : "";
+  return `<div class="mr-adv-a try-row">${row}</div>${err}`;
 }
 // "Review" in the MR card, two things kept apart: the reviewer agent (the advice to run it, "Run AI review" / "Skip",
 // its result), then you: what the agent advises you to look at yourself, step by step.
@@ -1960,10 +1980,16 @@ function toast(text, bad = false) {
 }
 
 // The card's buttons: a request to the agent, or the merge.
-// A step of "Check it yourself" ticked or cleared. A failed one says why in a toast.
+// A step of "Check it yourself" ticked or cleared. With "Try this build" there and not run for the branch as it is,
+// a tick asks why it is given without it. A failed one says why in a toast.
 async function tickStep(r, btn) {
+  let why = "";
+  if (btn.dataset.on === "1" && r.self?.canTry && !r.self.tried) {
+    why = await askReason("Tick it without trying this build? Say why: it goes to the task's journal.", { ok: "Tick", placeholder: "E.g.: looked at it on the branch I run myself" });
+    if (!why) return;
+  }
   btn.disabled = true;
-  await selfAction(r.id, "selfstep", `&n=${btn.dataset.step}&on=${btn.dataset.on}`);
+  await selfAction(r.id, "selfstep", `&n=${btn.dataset.step}&on=${btn.dataset.on}${why ? `&why=${encodeURIComponent(why)}` : ""}`);
   btn.disabled = false;
 }
 // selfAction: a "Check it yourself" action; the answer is the board's next look, an error a toast.
@@ -4207,6 +4233,8 @@ function renderDetail() {
     post(btn.dataset.a, r.id, btn.dataset.x);
   };
   for (const btn of $("detail").querySelectorAll("[data-step]")) btn.onclick = () => tickStep(r, btn);
+  for (const btn of $("detail").querySelectorAll("[data-try]")) btn.onclick = () => { btn.disabled = true; selfAction(r.id, "trybuild"); };
+  for (const btn of $("detail").querySelectorAll("[data-trystop]")) btn.onclick = () => { btn.disabled = true; selfAction(r.id, "trystop"); };
   for (const btn of $("detail").querySelectorAll("[data-selfskip]")) btn.onclick = async () => {
     const why = await askReason("Merge without checking it yourself? Say why: it goes to the task's journal.", { ok: "Skip the check", placeholder: "E.g.: only the docs changed" });
     if (why) selfAction(r.id, "selfskip", `&why=${encodeURIComponent(why)}`);

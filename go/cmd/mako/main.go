@@ -56,12 +56,13 @@ func main() {
 	open := flag.Bool("open", false, "open the board in the browser")
 	noTray := flag.Bool("no-tray", false, "no menu bar icon: only the board in the browser")
 	readonly := flag.Bool("readonly", false, "only show the board (for screenshots): no task polling, agents or changes")
+	try := flag.Bool("try", false, "a copy to try a branch on («Try this build»): the board works on the copy of the data in -home, nothing reaches the trackers, the agents or the repositories")
 	port := flag.Int("port", 0, "board port instead of the configured one")
 	flag.Parse()
-	if *readonly {
+	if *readonly || *try {
 		*noTray, *open = true, false
 	}
-	if err := run(*homeFlag, *open, *noTray, *readonly, *port); err != nil {
+	if err := run(*homeFlag, *open, *noTray, *readonly, *try, *port); err != nil {
 		fmt.Fprintln(os.Stderr, "mako:", err)
 		os.Exit(1)
 	}
@@ -102,14 +103,16 @@ func reportBrokenState(d *dispatch.Dispatcher, store *state.Store) {
 	}
 }
 
-func run(homeFlag string, open, noTray, readonly bool, port int) error {
+func run(homeFlag string, open, noTray, readonly, try bool, port int) error {
 	desktop.FixPath()
 	home := findHome(homeFlag)
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err
 	}
 	cfg, ts, problems := setup.Build(home)
-	if readonly {
+	// A copy: for screenshots, or to try a branch on.
+	copied := readonly || try
+	if copied {
 		// A Mako for screenshots runs on a copy of the data in home: never on the state of the real one.
 		cfg.StateDir = filepath.Join(home, ".mako")
 		cfg.Notifications.Enabled = false
@@ -125,7 +128,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	// rotate the first one's log. Taken before anything in the folder is touched.
 	release, err := lockState(cfg.StateDir)
 	if err != nil {
-		if !readonly && showExisting(addr) {
+		if !copied && showExisting(addr) {
 			return nil
 		}
 		return err
@@ -147,7 +150,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		if !readonly && showExisting(addr) {
+		if !copied && showExisting(addr) {
 			return nil
 		}
 		return fmt.Errorf("port %d is busy: %w", cfg.Notifications.Port, err)
@@ -161,6 +164,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	d.Problems = problems
 	d.Version = version
 	d.BoardURL = "http://" + ln.Addr().String()
+	defer d.StopTries() // the copies to try of the tasks' branches go with Mako
 	// The Mac does not fall asleep while an agent works, unless the settings let it.
 	d.KeepAwake = func(on bool) { awake.Keep(on && d.Config().KeepAwake) }
 	// The board opens in Mako's own window on macOS (it needs the menu bar's run loop), else in the browser.
@@ -179,6 +183,11 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		return serveReadonly(ctx, ln, &web.Server{D: d, Version: version, Home: home, Show: func(string) {}, Phones: phones})
+	}
+	if try {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return serveTry(ctx, ln, &web.Server{D: d, Version: version, Home: home, Show: func(string) {}, Try: true})
 	}
 	// Everything the Mac is told goes to the paired phones too, with board links made relative to the app.
 	push := func(m phone.Message) {
@@ -288,6 +297,42 @@ func serveReadonly(ctx context.Context, ln net.Listener, s *web.Server) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdown)
+}
+
+// serveTry serves the board of a copy to try a branch on: no polling and no agents (the dispatcher's loop does
+// not run), and of the changes only those that stay in the copy's data (tryAllowed); the rest is refused, for
+// it would reach the real trackers, agents or repositories the copied settings point at.
+func serveTry(ctx context.Context, ln net.Listener, s *web.Server) error {
+	srv := &http.Server{Handler: tryOnly(s.Handler())}
+	go srv.Serve(ln)
+	log.Printf("Mako %s to try: http://%s", version, ln.Addr())
+	<-ctx.Done()
+	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return srv.Shutdown(shutdown)
+}
+
+// tryOnly: h with only the requests a copy to try may take.
+func tryOnly(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !tryAllowed(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, `{"ok":false,"error":"not in a build to try: it would reach the trackers, the agents or the repositories"}`)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// tryChanges: what a copy to try may change: its own settings and its tasks' marks in its state.json.
+var tryChanges = map[string]bool{
+	"/api/settings": true, "/api/pause": true, "/api/tracker-pause": true, "/api/release/dismiss": true,
+	"/api/selfcheck": true, "/api/selfstep": true, "/api/selfskip": true, "/api/later": true,
+}
+
+func tryAllowed(r *http.Request) bool {
+	return r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodPost && tryChanges[r.URL.Path]
 }
 
 // relaunch replaces Mako with the binary at its path, which may be a new build: the same pid, arguments and

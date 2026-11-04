@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -31,6 +30,7 @@ and uploads it to the tracker, and the command prints the image Markdown for the
   mako screenshot -rev origin/main -name before            # "before": the main branch
   mako screenshot -name after                              # "after": this worktree
   mako screenshot -name after -page /settings
+  mako screenshot -name after-dark -theme dark
   mako screenshot -name after -url http://127.0.0.1:5173/  # not Mako
 
 `
@@ -45,6 +45,7 @@ func screenshot(args []string) error {
 	name := fs.String("name", "screenshot", "name: before, after, …")
 	out := fs.String("out", "", "where to save the PNG (default a temporary file)")
 	size := fs.String("size", "1440x900", "window size, WxH")
+	theme := fs.String("theme", "light", "the page's theme: light or dark")
 	wait := fs.Duration("wait", 4*time.Second, "how long to wait for the page to load data")
 	homeFlag := fs.String("home", "", "folder of the current Mako with settings and data")
 	task := fs.String("task", os.Getenv("MAKO_TASK"), "task the screenshot belongs to: Mako shows it in the chat and uploads it to the tracker")
@@ -77,7 +78,7 @@ func screenshot(args []string) error {
 	}
 	link := *target
 	if link == "" {
-		base, cleanup, err := serveMako(ctx, *src, *rev, home)
+		base, cleanup, err := shot.ServeWorktree(ctx, *src, *rev, home, shot.Readonly)
 		if cleanup != nil {
 			defer cleanup()
 		}
@@ -86,7 +87,10 @@ func screenshot(args []string) error {
 		}
 		link = base + "/" + strings.TrimPrefix(*page, "/")
 	}
-	if err := shot.Capture(ctx, chrome, link, file, width, height, *wait); err != nil {
+	if *theme != "light" && *theme != "dark" {
+		return fmt.Errorf("-theme: %q, expected light or dark", *theme)
+	}
+	if err := shot.Capture(ctx, chrome, link, file, width, height, *wait, *theme == "dark"); err != nil {
 		return err
 	}
 	fmt.Println("Screenshot:", file)
@@ -107,55 +111,6 @@ func screenshot(args []string) error {
 		fmt.Println(md)
 	}
 	return nil
-}
-
-// serveMako builds the Mako to photograph and runs it read-only; it returns its address and what to clean up.
-func serveMako(ctx context.Context, src, rev, home string) (string, func(), error) {
-	top, err := gitOut(src, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", nil, fmt.Errorf("%s is not a git repository: %w", src, err)
-	}
-	tmp, err := os.MkdirTemp("", "mako-shot-")
-	if err != nil {
-		return "", nil, err
-	}
-	var undo []func()
-	cleanup := func() {
-		for i := len(undo) - 1; i >= 0; i-- {
-			undo[i]()
-		}
-		os.RemoveAll(tmp)
-	}
-	repo := top
-	if rev != "" {
-		repo = filepath.Join(tmp, "src")
-		if _, err := gitOut(top, "worktree", "add", "--detach", repo, rev); err != nil {
-			return "", cleanup, fmt.Errorf("worktree for %s: %w", rev, err)
-		}
-		undo = append(undo, func() { gitOut(top, "worktree", "remove", "--force", repo) })
-	}
-	module := shot.Module(repo)
-	if module == "" {
-		return "", cleanup, fmt.Errorf("there is no Mako (cmd/mako) in %s: for another project run its build and pass -url", repo)
-	}
-	bin := filepath.Join(tmp, "mako")
-	if err := shot.Build(ctx, module, bin); err != nil {
-		return "", cleanup, err
-	}
-	data := filepath.Join(tmp, "home")
-	if err := shot.CopyHome(home, data); err != nil {
-		return "", cleanup, fmt.Errorf("copy of Mako data: %w", err)
-	}
-	port, err := shot.FreePort()
-	if err != nil {
-		return "", cleanup, err
-	}
-	stopMako, err := shot.Serve(ctx, bin, data, port)
-	if err != nil {
-		return "", cleanup, err
-	}
-	undo = append(undo, stopMako)
-	return fmt.Sprintf("http://127.0.0.1:%d", port), cleanup, nil
 }
 
 // deliver hands the screenshot to the running Mako for the task: it shows it in the chat and uploads it to the
@@ -200,15 +155,6 @@ func deliver(base, task, name, file string) (string, error) {
 func runningURL(home string) string {
 	cfg, _ := config.Load(home)
 	return fmt.Sprintf("http://127.0.0.1:%d", cfg.Notifications.Port)
-}
-
-func gitOut(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 func safeName(s string) string {

@@ -109,6 +109,16 @@ func TestTermStatAndTerminalApp(t *testing.T) {
 	if !macOnly("/api/terminalapp") {
 		t.Fatal("Terminal.app is not Mac-only")
 	}
+	// «Try this build» runs and opens on the Mac too.
+	req, _ = http.NewRequest("POST", srv.URL+"/api/trybuild?id=a%231", nil)
+	req.Header.Set("X-Forwarded-For", "100.64.0.2")
+	req.Header.Set("Origin", srv.URL)
+	if res, _ := http.DefaultClient.Do(req); res.StatusCode == 200 {
+		t.Fatal("a build tried from a phone")
+	}
+	if !macOnly("/api/trybuild") {
+		t.Fatal("«Try this build» is not Mac-only")
+	}
 }
 
 // Finder and the editor open on the Mac: a paired phone gets no button for them, and no Finder if it asks anyway.

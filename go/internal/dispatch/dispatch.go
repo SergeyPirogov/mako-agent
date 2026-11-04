@@ -97,6 +97,8 @@ type Dispatcher struct {
 	branches map[string]branchLook
 	// selfBehind: how many commits a branch's HEAD is past a «Check it yourself» tick, by "tick..head" (behind).
 	selfBehind map[string]int
+	// tries: the tasks' copies to try («Try this build»), one per task.
+	tries map[string]*tryRun
 	// fixing: when «Виправити» handed each task's remarks to its agent, whose report Mako waits for; replying:
 	// the tasks whose report is being read.
 	fixing   map[string]time.Time
@@ -151,7 +153,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, repoLessoning: map[string]bool{}, repoLessoned: map[string]time.Time{}, lessonAnswering: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]int{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, repoLessoning: map[string]bool{}, repoLessoned: map[string]time.Time{}, lessonAnswering: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]int{}, tries: map[string]*tryRun{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
 		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery, preparing: map[string]bool{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
@@ -284,6 +286,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		defer tick.Stop()
 		for {
 			d.WatchAgents(ctx, time.Now())
+			d.reapTries(time.Now())
 			select {
 			case <-ctx.Done():
 				return
