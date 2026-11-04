@@ -96,8 +96,19 @@ type Dispatcher struct {
 	Spends *state.Spends
 	// branches: the tasks' branches as the board's reviewer row last looked at them (lookBranch).
 	branches map[string]branchLook
-	// selfBehind: how many commits the branch got past a «Check it yourself» tick, per task (selfCheckBehind).
-	selfBehind map[string]selfLook
+	// selfBehind: how many commits a branch's HEAD is past a «Check it yourself» tick, by "tick..head" (behind).
+	selfBehind map[string]int
+	// tries: the tasks' copies to try («Try this build»), one per task.
+	tries map[string]*tryRun
+	// OpenTry opens a copy to try in the browser, ServeMako builds and runs Mako's own; nil: notify.Open and
+	// shot.ServeWorktree (tests put theirs).
+	OpenTry   func(url string)
+	ServeMako func(ctx context.Context, worktree, home string) (url string, stop func(), err error)
+	// selfSynced: when each task's MR task list was last synced; selfSyncing: the ones syncing now.
+	selfSynced  map[string]time.Time
+	selfSyncing map[string]bool
+	// selfWG: the syncs a tick on the board started in the background (syncSelfNow); a test waits for them.
+	selfWG sync.WaitGroup
 	// fixing: when «Виправити» handed each task's remarks to its agent, whose report Mako waits for; replying:
 	// the tasks whose report is being read.
 	fixing   map[string]time.Time
@@ -158,7 +169,7 @@ type LogLine struct {
 func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatcher {
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
-		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, repoLessoning: map[string]bool{}, repoLessoned: map[string]time.Time{}, lessonAnswering: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]selfLook{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
+		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, repoLessoning: map[string]bool{}, repoLessoned: map[string]time.Time{}, lessonAnswering: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]int{}, tries: map[string]*tryRun{}, selfSynced: map[string]time.Time{}, selfSyncing: map[string]bool{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
 		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery, preparing: map[string]bool{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
@@ -291,6 +302,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		defer tick.Stop()
 		for {
 			d.WatchAgents(ctx, time.Now())
+			d.reapTries(time.Now())
 			// Also at once after Mako starts: the agents the limit cut before a restart go on too.
 			go d.resumeLimited(time.Now())
 			select {
@@ -328,6 +340,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	step("gates", d.CheckGates)
 	step("handoffs", func() { d.CheckHandoffs(ctx) })
 	step("merges", func() { d.CheckMerges(ctx) })
+	step("self-check lists", func() { d.SyncSelfLists(ctx) })
 	step("stages", func() { d.TrackStages(ctx, time.Now()) })
 	step("rebase", func() { d.AutoRebase(ctx, time.Now()) })
 	step("fix", func() { d.AutoFix(ctx, time.Now()) })
@@ -1100,7 +1113,13 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 		switch st {
 		case "merged":
 			d.Log(r.ID, "MR merged")
-			d.Store.Update(r.ID, func(r *core.Record) { r.ReviewState, r.MergedAt = "merged", now() })
+			checked := d.selfAtMerge(r)
+			d.Store.Update(r.ID, func(r *core.Record) {
+				r.ReviewState, r.MergedAt = "merged", now()
+				if r.CheckedAtMerge == "" {
+					r.CheckedAtMerge = checked // merged from the board: as it stood then
+				}
+			})
 			d.move(ctx, t, r.Task, trackers.AtMerged)
 			if !onTerminal(r) {
 				orca.Mark(ctx, d.Config().Orca, repo.Path, r.Worktree, r.Branch, "done")

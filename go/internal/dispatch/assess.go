@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/shot"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
@@ -70,7 +71,7 @@ func (d *Dispatcher) assess(ctx context.Context, id string) {
 	if err != nil {
 		dir, base = os.TempDir(), ""
 	}
-	a, err := writer.Assess(d.spending(ctx, id, core.PhaseAssess), dir, base, d.runRoute(r, core.PhaseAssess), r.Task, d.agentWords(ctx, r), r.Summary)
+	a, err := writer.Assess(d.spending(ctx, id, core.PhaseAssess), dir, base, d.runRoute(r, core.PhaseAssess), r.Task, d.agentWords(ctx, r), r.Summary, d.checkHint(r, dir))
 	a.At = now()
 	if err != nil {
 		d.Fault(id, "task not assessed", err)
@@ -79,4 +80,12 @@ func (d *Dispatcher) assess(ctx context.Context, id string) {
 		d.Log(id, "agent assessed the task")
 	}
 	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Assessment = &a }) // not a record made anew if the task left meanwhile
+}
+
+// checkHint: what the assessment's steps to check can point at: Mako's pages in Mako's own repository.
+func (d *Dispatcher) checkHint(r core.Record, dir string) string {
+	if shot.Module(dir) != "" {
+		return writer.MakoHint
+	}
+	return ""
 }

@@ -25,10 +25,19 @@ func (r Record) Clone() Record {
 	r.Metrics = clonePtr(r.Metrics, Metrics.deep)
 	r.AgentReviews = cloneEach(r.AgentReviews, AgentReview.deep)
 	r.Assessment = clonePtr(r.Assessment, func(v Assessment) Assessment {
-		v.Review = clonePtr(v.Review, func(a ReviewAdvice) ReviewAdvice { return a })
+		v.Review = clonePtr(v.Review, func(a ReviewAdvice) ReviewAdvice {
+			a.Steps = slices.Clone(a.Steps)
+			return a
+		})
 		return v
 	})
-	r.SelfCheck = clonePtr(r.SelfCheck, func(v SelfCheck) SelfCheck { return v })
+	r.SelfCheck = clonePtr(r.SelfCheck, func(v SelfCheck) SelfCheck {
+		v.Steps = slices.Clone(v.Steps)
+		v.Tried = clonePtr(v.Tried, func(m SelfMark) SelfMark { return m })
+		v.Skipped = clonePtr(v.Skipped, func(k SelfSkip) SelfSkip { return k })
+		v.Synced = slices.Clone(v.Synced)
+		return v
+	})
 	r.Retro = clonePtr(r.Retro, func(v Retro) Retro { return v })
 	r.Estimate = clonePtr(r.Estimate, func(v Estimate) Estimate { return v })
 	r.Secrets = slices.Clone(r.Secrets)

@@ -64,6 +64,9 @@ type Config struct {
 	Terminal Terminal
 	// Reviewer: a second agent reads the task and the branch's diff when you ask for it on the board.
 	Reviewer Reviewer
+	// SelfCheck: when «Check it yourself» holds the merge until its steps are ticked (or the check is skipped):
+	// "advised" (when the assessment advises a check), "always", "off".
+	SelfCheck string
 	// Estimate: a new task gets the agent's estimate (clarity, size, risk, advice) as it appears.
 	Estimate bool
 	// EstimateModel: the estimate's size picks the task's routes (else every task is medium).
@@ -112,6 +115,22 @@ const (
 	DefaultLessonTasks = 3
 	DefaultLessonDays  = 90
 )
+
+// The values of Config.SelfCheck.
+const (
+	SelfCheckAdvised = "advised"
+	SelfCheckAlways  = "always"
+	SelfCheckOff     = "off"
+)
+
+// selfCheckMode: the setting's value, "advised" for anything else.
+func selfCheckMode(s string) string {
+	switch s = strings.TrimSpace(s); s {
+	case SelfCheckAlways, SelfCheckOff:
+		return s
+	}
+	return SelfCheckAdvised
+}
 
 // reviewComments: the setting's value, "" for anything else.
 func reviewComments(s string) string {
@@ -275,6 +294,9 @@ type Repo struct {
 	// Checks: the commands that must pass in the agent's worktree before Mako opens its MR ("go vet ./...",
 	// "go test ./..."); none: the agent opens the MR itself, as before.
 	Checks []string
+	// Try: what runs a task's branch for «Try this build» in its worktree, listening on $PORT ("npm run dev --
+	// --port $PORT"); "": no such button (Mako's own repository has it built in).
+	Try string
 	// RouteMode: the routes' mode for this repo's tasks; "" the global one.
 	RouteMode string
 }
@@ -428,6 +450,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		Reviewer: Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model), Comments: reviewComments(raw.AgentReview.Comments),
 			LessonTasks: atLeast(orInt(raw.AgentReview.LessonTasks, DefaultLessonTasks), 2, DefaultLessonTasks),
 			LessonDays:  atLeast(orInt(raw.AgentReview.LessonDays, DefaultLessonDays), 1, DefaultLessonDays)},
+		SelfCheck:     selfCheckMode(raw.SelfCheck),
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
@@ -584,6 +607,7 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 			project.Repos[name] = c.NewRepo(name, r.RepoPath, orStr(r.CloneURL, clone), r.BaseBranch, r.BranchPattern)
 			project.Repos[name].Setup = r.Setup
 			project.Repos[name].Checks = cleanChecks(r.Checks)
+			project.Repos[name].Try = strings.TrimSpace(r.Try)
 			if m := strings.TrimSpace(r.RouteMode); slices.Contains(core.Modes, m) {
 				project.Repos[name].RouteMode = m // an unknown one: the global mode
 			}
@@ -744,7 +768,8 @@ type rawConfig struct {
 		LessonTasks *int   `json:"lessonTasks"`
 		LessonDays  *int   `json:"lessonDays"`
 	} `json:"agentReview"`
-	Estimate struct {
+	SelfCheck string `json:"selfCheck"`
+	Estimate  struct {
 		Enabled  *bool `json:"enabled"`
 		UseModel *bool `json:"useModel"`
 	} `json:"estimate"`
@@ -887,6 +912,7 @@ type rawRepo struct {
 	Setup         string   `json:"setup"`
 	BranchPattern string   `json:"branchPattern"`
 	Checks        []string `json:"checks"`
+	Try           string   `json:"try"`
 	RouteMode     string   `json:"routeMode"`
 }
 

@@ -278,3 +278,68 @@ func TestSummarizeTrendToday(t *testing.T) {
 		t.Fatalf("days %+v", st.Days)
 	}
 }
+
+// «Check it yourself» in the stats: the merged tasks with a check, checked or not, and which of each a later
+// bug fix points at (by the issue's id, #N in the same project, its URL or the MR).
+func TestSummarizeSelfCheck(t *testing.T) {
+	at := func(h int) string { return time.Date(2026, 11, 1, h, 0, 0, 0, time.UTC).Format(time.RFC3339Nano) }
+	merged := func(id, checked string) Record {
+		return Record{ID: id, Task: Task{ID: id, Project: "o/r", URL: "https://github.com/o/r/issues/" + id[4:]}, Status: Done, StartedAt: at(1),
+			ReviewState: "merged", MergedAt: at(2), PRURL: "https://github.com/o/r/pull/" + id[4:] + "0", CheckedAtMerge: checked}
+	}
+	fix := func(id, title, desc string, h int, labels ...string) Record {
+		return Record{ID: id, Task: Task{ID: id, Project: "o/r", Title: title, Description: desc, Labels: labels}, Status: Queued, CreatedAt: at(h)}
+	}
+	records := []Record{
+		merged("o/r#1", "checked"),
+		merged("o/r#2", "checked"),
+		merged("o/r#3", "unchecked"),
+		merged("o/r#4", "skipped"),
+		merged("o/r#5", ""), // no check was asked
+		fix("o/r#11", "Кнопка зламалась після #1", "", 5, "bug"),
+		fix("o/r#12", "Слід o/r#3", "", 5, "Fix"),
+		fix("o/r#13", "Згадка #2 без мітки", "", 5, "feature"),
+		fix("o/r#14", "Баг", "Після https://github.com/o/r/pull/40 падає", 5, "bug"),
+		fix("o/r#15", "Баг до мерджу #2", "", 1, "bug"),
+		fix("o/r#16", "Баг у #22 і #20", "", 5, "bug"),
+	}
+	s := Summarize(records, time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC), time.Time{}).SelfCheck
+	want := SelfCheckStats{Advised: 4, Checked: 2, Unchecked: 2, CheckedFixed: 1, UncheckedFixed: 2}
+	if s != want {
+		t.Fatalf("%+v, want %+v", s, want)
+	}
+	if containsRef("…/issues/55", "…/issues/5") || !containsRef("see …/issues/5.", "…/issues/5") {
+		t.Fatal("containsRef")
+	}
+}
+
+// A fix is told by the whole word, in the labels or the tracker's type: not "debug" or "prefix".
+func TestIsFix(t *testing.T) {
+	for _, c := range []struct {
+		labels []string
+		meta   string
+		want   bool
+	}{
+		{[]string{"bug"}, "", true},
+		{[]string{"Type::Bug"}, "", true},
+		{[]string{"kind/fix"}, "", true},
+		{nil, "Type: Bug | Priority: High", true},
+		{[]string{"hotfix"}, "", true},
+		{[]string{"debug", "prefix", "bugzilla"}, "", false},
+		{nil, "Type: Prefix | Priority: High", false},
+		{nil, "Type: Task | Component: debugger", false},
+		{[]string{"feature"}, "", false},
+		{nil, "", false},
+	} {
+		if got := isFix(Record{Task: Task{Labels: c.labels, Meta: c.meta}}); got != c.want {
+			t.Errorf("isFix(%v, %q) = %v, want %v", c.labels, c.meta, got, c.want)
+		}
+	}
+	// It reaches the stats: a "debug" task is no fix of the merged task it names.
+	at := func(h int) string { return time.Date(2026, 11, 1, h, 0, 0, 0, time.UTC).Format(time.RFC3339Nano) }
+	merged := Record{ID: "o/r#1", Task: Task{ID: "o/r#1", Project: "o/r"}, Status: Done, StartedAt: at(1), ReviewState: "merged", MergedAt: at(2), CheckedAtMerge: "checked"}
+	notFix := Record{ID: "o/r#2", Task: Task{ID: "o/r#2", Project: "o/r", Title: "Після #1", Labels: []string{"debug"}, Meta: "Type: Prefix"}, CreatedAt: at(5)}
+	if s := Summarize([]Record{merged, notFix}, time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC), time.Time{}).SelfCheck; s.CheckedFixed != 0 || s.Checked != 1 {
+		t.Fatalf("%+v", s)
+	}
+}

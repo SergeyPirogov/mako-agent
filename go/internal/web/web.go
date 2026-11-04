@@ -60,6 +60,8 @@ type Server struct {
 	// Relay: the address phones reach this Mac at through the relay ("https://<id>.relay.example.com"), "" while
 	// its tunnel is down; nil when the relay is off (no MAKO_RELAY, docs/relay.md).
 	Relay func() string
+	// Try: this is a copy of Mako to try a branch on («Try this build»); the board says so.
+	Try bool
 
 	cfgMu sync.Mutex // mako.config.json is read, changed and written by one request at a time
 
@@ -68,7 +70,9 @@ type Server struct {
 }
 
 type stateReply struct {
-	Version  string       `json:"version"`
+	Version string `json:"version"`
+	// Try: a copy of Mako to try a branch on: the board says so in its header.
+	Try      bool         `json:"try,omitempty"`
 	Now      int64        `json:"now"`
 	WipLimit int          `json:"wipLimit"`
 	Records  []recordView `json:"records"`
@@ -126,6 +130,8 @@ type recordView struct {
 	Reviewable bool `json:"reviewable,omitempty"`
 	// SelfCheckNew: how many commits the branch got after your «Check it yourself» tick; 0: up to date or no tick.
 	SelfCheckNew int `json:"selfCheckNew,omitempty"`
+	// Self: the «Check it yourself» steps and their ticks; nil when nothing is asked of you.
+	Self *dispatch.SelfCheckView `json:"self,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
 	// CIWait: the MR in review is open and its CI still runs.
@@ -211,7 +217,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now().UnixMilli()
-		reply := stateReply{Version: s.Version, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
+		reply := stateReply{Version: s.Version, Try: s.Try, Now: now, WipLimit: s.D.Config().WipLimit, Records: []recordView{}, Searches: s.D.Searches()}
 		reply.Problems, reply.Paused = s.D.Status()
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
@@ -255,6 +261,10 @@ func (s *Server) Handler() http.Handler {
 		reply.NavRetros = s.D.NavRetros(r.URL.Query().Get("project"))
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
+		// sel: the task whose card the board has open: its copy to try is kept while it is.
+		if sel := r.URL.Query().Get("sel"); sel != "" {
+			s.D.TryKeep(sel)
+		}
 		reply.LessonOffers = s.D.LessonOffers()
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
@@ -266,6 +276,7 @@ func (s *Server) Handler() http.Handler {
 			v.ReviewBlocks = s.D.ReviewBlocks(rec)
 			v.Reviewable = s.D.Reviewable(rec)
 			v.SelfCheckNew = s.D.SelfCheckBehind(rec)
+			v.Self = s.D.SelfView(rec)
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
 				v.CIWait = s.D.CIWait(rec)
@@ -763,6 +774,35 @@ func (s *Server) Handler() http.Handler {
 		case "selfcheck":
 			// «Check it yourself»: the tick is the task's, with the branch's HEAD it was set at.
 			if err := s.D.SelfCheck(id, r.URL.Query().Get("on") == "1"); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "selfstep":
+			// A step of «Check it yourself»: n from 0; why, when it is ticked without «Try this build».
+			q := r.URL.Query()
+			n, err := strconv.Atoi(q.Get("n"))
+			if err == nil {
+				err = s.D.SelfStep(id, n, q.Get("on") == "1", strings.TrimSpace(q.Get("why")))
+			}
+			if err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "trybuild":
+			// «Try this build»: opens on the Mac, not on the phone that asked.
+			if remote(r) {
+				writeJSON(w, map[string]any{"ok": false, "error": "a build to try opens on the Mac: start it from there"})
+				return
+			}
+			if err := s.D.TryBuild(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "trystop":
+			s.D.TryStop(id)
+		case "selfskip":
+			// «Skip» of the check: the merge goes on without it, for the reason given.
+			if err := s.D.SelfSkip(id, r.URL.Query().Get("why")); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}

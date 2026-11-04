@@ -163,7 +163,9 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PUT" {
 			var ch map[string]any
 			json.Unmarshal(body, &ch)
-			if ch["state_event"] == "close" {
+			if strings.HasSuffix(p, "/merge") {
+				mr["state"] = "merged"
+			} else if ch["state_event"] == "close" {
 				mr["state"] = "closed"
 			} else {
 				mr["title"], mr["description"] = ch["title"], ch["description"]

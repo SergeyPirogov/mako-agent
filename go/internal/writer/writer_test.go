@@ -56,6 +56,36 @@ func TestParseAssessment(t *testing.T) {
 	}
 }
 
+// "check" as steps, as now asked: kept as steps (at most five, empty ones dropped), and as one text beside them for
+// an older Mako; a list of plain strings is steps too; [] is no check.
+func TestParseAssessmentCheckSteps(t *testing.T) {
+	scores := `"clarity":{"score":4},"complexity":{"score":2},"completeness":{"score":5},"risk":{"score":3}`
+	a, err := ParseAssessment(`{` + scores + `,"review":{"need":false,"check":[{"open":" /settings ","do":"Зберегти проєкт","expect":"Збережено"},{"do":""},{"open":"/#a#1","do":"Тиснути Merge"},{"do":"3"},{"do":"4"},{"do":"5"},{"do":"6"}]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := a.Review.Steps
+	if len(st) != 5 || st[0] != (core.CheckStep{Open: "/settings", Do: "Зберегти проєкт", Expect: "Збережено"}) || st[1].Open != "/#a#1" || st[4].Do != "5" {
+		t.Fatalf("steps %+v", st)
+	}
+	if !strings.HasPrefix(a.Review.Check, "1. /settings: Зберегти проєкт → Збережено 2. /#a#1: Тиснути Merge") {
+		t.Fatalf("check %q", a.Review.Check)
+	}
+	a, err = ParseAssessment(`{` + scores + `,"review":{"need":true,"check":["Відкрити дошку","Відкрити налаштування"]}}`)
+	if err != nil || len(a.Review.Steps) != 2 || a.Review.Steps[1].Do != "Відкрити налаштування" {
+		t.Fatalf("%+v, %v", a.Review, err)
+	}
+	a, err = ParseAssessment(`{` + scores + `,"review":{"need":true,"why":"x","check":[]}}`)
+	if err != nil || a.Review.Check != "" || a.Review.Steps != nil || a.Review.CheckSteps() != nil {
+		t.Fatalf("%+v, %v", a.Review, err)
+	}
+	// A single step with only "do" is the sentence of old: kept as Check alone.
+	a, _ = ParseAssessment(`{` + scores + `,"review":{"need":true,"check":[{"do":"Глянути"}]}}`)
+	if a.Review.Check != "Глянути" || a.Review.Steps != nil {
+		t.Fatalf("%+v", a.Review)
+	}
+}
+
 // Words with braces before the answer, or an object the model broke off, do not hide the answer after it.
 func TestParseAssessmentAmongBraces(t *testing.T) {
 	full := `{"clarity":{"score":4,"why":"ok"},"complexity":{"score":2,"why":"x"},"completeness":{"score":5,"why":"y"},"risk":{"score":1,"why":"z"},"size":"small","missing":""}`

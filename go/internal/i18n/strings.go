@@ -133,6 +133,8 @@ var goStrings = map[string][2]string{
 	"problem.language":   {"language %q: Mako speaks «en» or «uk»; English for now", "language %q: Mako знає «en» або «uk»; поки що англійська"},
 	"mr.whatChanged":     {"## What changed", "## Що змінено"},
 	"mr.howChecked":      {"## How it was checked\nMako ran the project's checks in the agent's worktree before opening this merge request:", "## Як перевірено\nMako прогнав перевірки проєкту у worktree агента, перш ніж відкрити цей merge request:"},
+	"mr.selfCheck":       {"### Check it yourself\nMako keeps these ticks and the task's card on its board in step.", "### Перевір сам\nMako тримає ці галочки однаковими з карткою задачі на своїй дошці."},
+	"selfcheck.look":     {"Look through the change yourself: run it and try what the task asks for", "Переглянь зміну сам: запусти її й спробуй те, про що просить задача"},
 	"commit.lesson":      {"%s: Add a review lesson to CLAUDE.md\n\n- %s", "%s: Додати урок з рев'ю в CLAUDE.md\n\n- %s"},
 	"commit.navrule":     {"Add a navigation hint to CLAUDE.md\n\n- %s", "Додати підказку з навігації в CLAUDE.md\n\n- %s"},
 	"commit.repoLesson":  {"Add a reviewer lesson to CLAUDE.md\n\n- %s\n- The reviewer kept asking for it on %s", "Додати урок рецензента в CLAUDE.md\n\n- %s\n- Рецензент щоразу просив про це в %s"},

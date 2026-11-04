@@ -571,7 +571,8 @@ func ReviewNotes(answer string) (string, error) {
 
 // Assess: the agent's rating of a finished task, from the task as it was written, the end of the agent's work
 // and the branch's changes. Each score is from 1 to 5, its reason and what the description lacked in Mako's language.
-func Assess(ctx context.Context, dir, baseBranch string, route core.Route, t core.Task, agentText, summary string) (core.Assessment, error) {
+// hint: what the developer can open and run in this project, for the steps of "check" ("" when nothing is known).
+func Assess(ctx context.Context, dir, baseBranch string, route core.Route, t core.Task, agentText, summary, hint string) (core.Assessment, error) {
 	var commits, stat, diff string
 	if baseBranch != "" {
 		commits, stat, diff = BranchWork(ctx, dir, baseBranch)
@@ -585,11 +586,12 @@ func Assess(ctx context.Context, dir, baseBranch string, route core.Route, t cor
 		"Also the size the task came to: \"small\" (a few lines in one place), \"medium\" (several files of one part), or \"big\" (many parts, new subsystems, migrations).",
 		"Base the scores on the task's text and the actual changes, not on what the agent says about itself.",
 		"Answer with JSON only, no code fences, in this shape, each \"why\" one short sentence in " + lang() + ":",
-		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"size":"small","missing":"...","review":{"need":false,"why":"...","check":"..."}}`,
+		`{"clarity":{"score":1,"why":"..."},"complexity":{"score":1,"why":"..."},"completeness":{"score":1,"why":"..."},"risk":{"score":1,"why":"..."},"size":"small","missing":"...","review":{"need":false,"why":"...","check":[{"open":"...","do":"...","expect":"..."}]}}`,
 		"\"missing\": in " + lang() + ", at most 3 short points on what the description should have said (\"\" when nothing).",
 		"\"review\": two separate pieces of advice before the merge.",
 		"- \"need\" and \"why\": whether a reviewer agent (another AI that reads the diff) is worth running: true when the code is risky, subtle or touches what is easy to break, false when it is plain and safe; \"why\" one short sentence in " + lang() + " about the code, not about manual checks.",
-		"- \"check\": what the developer should look at themselves before the merge, that neither the tests nor a reviewer reading the diff can tell (how the page looks, a flow to click through, a real service to try), one short sentence in " + lang() + "; \"\" when nothing.",
+		"- \"check\": what the developer should look at themselves before the merge, that neither the tests nor a reviewer reading the diff can tell (how the page looks, a flow to click through, a real service to try): 2 to 5 steps, each with \"open\" (the page or the command to start from), \"do\" (what to do there) and \"expect\" (what they should see), short, in " + lang() + "; [] when nothing.",
+		checkHint(hint),
 		"", taskText(t, 8000, true),
 		"", "Summary of the work:", orNone(summary),
 		"", "End of the agent's session:", orNone(lastOf(agentText, 6000)),
@@ -664,9 +666,9 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 		Size                                    string
 		Missing                                 json.RawMessage
 		Review                                  *struct {
-			Need  bool   `json:"need"`
-			Why   string `json:"why"`
-			Check string `json:"check"`
+			Need  bool            `json:"need"`
+			Why   string          `json:"why"`
+			Check json.RawMessage `json:"check"`
 		}
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -679,7 +681,13 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 	}
 	// The advice came later too: an answer without it is still an assessment.
 	if in.Review != nil {
-		a.Review = &core.ReviewAdvice{Need: in.Review.Need, Why: clipTo(strings.TrimSpace(in.Review.Why), 500), Check: clipTo(strings.TrimSpace(in.Review.Check), 500)}
+		a.Review = &core.ReviewAdvice{Need: in.Review.Need, Why: clipTo(strings.TrimSpace(in.Review.Why), 500)}
+		a.Review.Steps = checkSteps(in.Review.Check)
+		a.Review.Check = clipTo(core.StepsText(a.Review.Steps), 1500)
+		if len(a.Review.Steps) == 1 && a.Review.Steps[0].Open == "" && a.Review.Steps[0].Expect == "" {
+			// A sentence, as older prompts asked for: kept as it was, with no steps beside it.
+			a.Review.Check, a.Review.Steps = a.Review.Steps[0].Do, nil
+		}
 	}
 	for _, s := range []struct {
 		in  score
@@ -692,6 +700,56 @@ func ParseAssessment(answer string) (core.Assessment, error) {
 	}
 	return a, nil
 }
+
+// maxCheckSteps: more steps than this is not a check before the merge but a test plan; the rest is cut off.
+const maxCheckSteps = 5
+
+// checkSteps reads "check": a list of steps as asked, or one sentence (as older prompts asked, or a model that
+// answers so), or a list of plain strings; nil when nothing.
+func checkSteps(raw json.RawMessage) []core.CheckStep {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		if text = clipTo(strings.TrimSpace(text), 500); text != "" {
+			return []core.CheckStep{{Do: text}}
+		}
+		return nil
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return nil
+	}
+	var steps []core.CheckStep
+	for _, it := range items {
+		var s core.CheckStep
+		if json.Unmarshal(it, &text) == nil {
+			s.Do = text
+		} else if json.Unmarshal(it, &s) != nil {
+			continue
+		}
+		s = core.CheckStep{Open: clipTo(strings.TrimSpace(s.Open), 200), Do: clipTo(strings.TrimSpace(s.Do), 300), Expect: clipTo(strings.TrimSpace(s.Expect), 300)}
+		if s.Do == "" {
+			s.Do, s.Open = s.Open, ""
+		}
+		if s.Do == "" {
+			continue
+		}
+		if steps = append(steps, s); len(steps) == maxCheckSteps {
+			break
+		}
+	}
+	return steps
+}
+
+// checkHint: the line of the prompt on what the steps can point at in this project.
+func checkHint(hint string) string {
+	if hint == "" {
+		return "  For \"open\": what to start and where to go in it (a command, a page, a screen)."
+	}
+	return "  For \"open\": " + hint
+}
+
+// MakoHint: the hint for Assess in Mako's own repository: its pages, which «Try this build» opens.
+const MakoHint = "this is Mako itself; «Try this build» runs this branch as a second copy of Mako with a copy of its data, so \"open\" is one of its pages: \"/\" (the board), \"/settings\", \"/#<task id>\" (a task's card), and say when a step is about the phone's width (390×844)."
 
 // pointsText: a few points, as a string or, as models sometimes answer, a list of them.
 func pointsText(raw json.RawMessage) string {

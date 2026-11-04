@@ -363,6 +363,8 @@ async function load() {
     if (document.visibilityState === "visible") q.set("seen", "1");
     if (statsDays) q.set("days", statsDays);
     if (statsProject) q.set("project", statsProject);
+    // sel: the open card; its "Try this build" copy is kept while it is open.
+    if (selected) q.set("sel", selected);
     // X-Mako: the board's own look; only then does seen=1 count (another site cannot send it).
     data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`, { headers: { "X-Mako": "1" } })).json();
     // A record without a project is not a task (a stray write made it): no group with no name, no row in «needs attention».
@@ -379,7 +381,9 @@ async function load() {
     return;
   }
   // The running version, so it is clear which Mako is on screen.
-  if (data.version) $("ver").textContent = data.version;
+  if (data.version) $("ver").textContent = data.version + (data.try ? " · try build" : "");
+  // A copy of Mako to try a branch on: its own data, nothing reaches out; the header tells it from the real one.
+  document.body.classList.toggle("try-build", !!data.try);
   if (data.digest) return openDigest(data.digest);
   await Promise.all([loadCard(), loadWork()]);
   render();
@@ -1352,8 +1356,8 @@ let itab = "changes", itabPicked = false, tabPicked = false;
 // The JS twin of trackers.CIRunning: the pipeline has not finished yet.
 const ciRunning = (ci) => ["running", "pending", "created", "preparing", "waiting_for_resource", "scheduled"].includes(ci);
 // The reviewer agent is reading the branch or the agent is fixing its remarks: the MR is not ready to merge yet.
-// Also when the reviewer's blockers wait for Fix (r.reviewBlocks).
-const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing" || !!r.reviewBlocks || assessing(r);
+// Also when the reviewer's blockers wait for Fix (r.reviewBlocks), and when "Check it yourself" waits for you.
+const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing" || !!r.reviewBlocks || assessing(r) || !!r.self?.blocks;
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
@@ -1523,6 +1527,7 @@ function mrCard(r, term) {
     : fixing ? "The agent is fixing the reviewer's remarks: merge once it finishes"
     : r.reviewBlocks ? "The reviewer left blockers: fix them before the merge"
     : assessing(r) ? "The agent is judging whether a review is needed: merge once it decides"
+    : r.self?.blocks ? "Check it yourself first: tick its steps or skip the check"
     : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
     "merge", merging ? "busy" : c.mergeable && !held ? "ready" : "", !c.mergeable || held || merging) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
@@ -1593,45 +1598,66 @@ function adviseReview(r) {
   return a.review ? a.review.need : (a.risk?.value ?? 0) >= 4;
 }
 const ADVISE = "AI review advised";
-// "Check it yourself": once the reviewer agent has had its say, the agent's advice is what is left for you to look
-// at. You tick it off here; the tick is kept in the task with the branch's HEAD, and goes stale once the branch
-// gets new commits.
-// "none": not ticked; "stale": ticked, but the branch has moved on; "done": ticked at the branch as it is.
-const selfState = (r) => !r.selfCheck ? "none" : r.selfCheckNew > 0 ? "stale" : "done";
+// "Check it yourself": the agent's advice on what to look at yourself, as steps to tick (r.self, from the Go
+// SelfView). A tick is kept in the task with the branch's HEAD, and goes stale once the branch gets new commits.
 const adviceText = (r, need) => r.assessment?.review?.why || (need ? r.assessment?.risk?.why : "") || "";
 // A line of advice: its title, the reason under it, and its button under the reason (the side panel is narrow).
 // whyHTML: the reason is ready HTML (it holds buttons), not text to escape.
 // chips: ready HTML between the title and the reason (the agent's answers, see replyChips).
 const adviceBlock = (icon, title, why, btn = "", cls = "", whyHTML = false, chips = "") => `<div class="mr-row mr-advice ${cls}">${MR_ICON[icon]}
   <div class="mr-adv"><b>${esc(title)}</b>${chips}${why ? `<span class="mr-why">${whyHTML ? why : esc(why)}</span>` : ""}${btn ? `<div class="mr-adv-a">${btn}</div>` : ""}</div></div>`;
-// "Check it yourself": a box to tick, the advice beside it. Ticked, it fades to background.
-const selfBlock = (check, state, fresh = 0) => {
-  const done = state === "done";
-  const title = done ? "You checked it" : state === "stale" ? `You checked it before ${fresh} new ${plural(fresh, "commit", "commits")}` : "Check it yourself";
-  return `<div class="mr-row mr-advice self${done ? " done" : ""}">
-  <button type="button" class="chk" role="checkbox" aria-checked="${done}" data-self="${done ? 0 : 1}" title="${done ? "Not checked after all" : state === "stale" ? "Mark the new changes as looked at" : "Mark it as looked at"}">${done ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>` : ""}</button>
-  <div class="mr-adv"><b>${title}</b><span class="mr-why">${esc(check)}</span></div></div>`;
-};
-// "Review" in the MR card, two things kept apart: the reviewer agent (the advice to run it, "Run AI review" / "Skip",
-// its result), then you: what the agent advises you to look at yourself, with "Checked". An assessment from before
-// the advice had a "check" of its own: once the reviewer ran, its reason is what is left for you.
-// What the agent advises you to look at yourself: "" when nothing.
-function checkText(r) {
-  const a = r.assessment, need = adviseReview(r), ran = !!r.agentReviews?.length;
-  return a?.review ? (a.review.check ?? (ran && need ? adviceText(r, need) : "")) : "";
+// "Check it yourself": a box to tick per step, the step beside it (where to go, what to do, what to see). Every
+// step ticked at the branch as it is, the block fades to background.
+const CHK = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>`;
+const stepHTML = (s) => `${s.open ? `<code>${esc(s.open)}</code> · ` : ""}${esc(s.do)}${s.expect ? `<span class="st-exp"> → ${esc(s.expect)}</span>` : ""}`;
+function selfTitle(v) {
+  const n = v.steps.length, stale = Math.max(0, ...v.steps.map((s) => s.stale ?? 0));
+  if (v.done) return "You checked it";
+  if (v.skipped) return "Check skipped";
+  if (n === 1) return stale ? `You checked it before ${stale} new ${plural(stale, "commit", "commits")}` : "Check it yourself";
+  return `Check it yourself: ${v.left} of ${n} left`;
 }
+function selfBlock(r) {
+  const v = r.self;
+  if (!v?.steps?.length) return "";
+  const steps = v.steps.map((s, i) => {
+    const on = !!s.done && !s.stale;
+    const title = on ? "Not checked after all" : s.stale ? "Mark the new changes as looked at" : "Mark it as looked at";
+    return `<li class="st${on ? " on" : ""}${s.stale ? " stale" : ""}"><button type="button" class="chk" role="checkbox" aria-checked="${on}" data-step="${i}" data-on="${on ? 0 : 1}" title="${title}">${on ? CHK : ""}</button>
+      <span class="st-t">${stepHTML(s)}${s.stale ? `<span class="st-stale">checked before ${s.stale} new ${plural(s.stale, "commit", "commits")}</span>` : ""}</span></li>`;
+  }).join("");
+  const why = v.skipped ? `<span class="mr-why">Skipped: ${esc(v.skipped)}</span>` : v.required && !v.done ? `<span class="mr-why">The merge waits for it</span>` : "";
+  return `<div class="mr-row mr-advice self${v.done ? " done" : ""}">${MR_ICON.eye}
+  <div class="mr-adv"><b>${selfTitle(v)}</b>${why}<ol class="self-steps">${steps}</ol>${tryRow(v)}</div></div>`;
+}
+// "Try this build": the task's branch as a second copy of the app, opened on the first step's page; one per task,
+// kept while the card is open. Ticks before it need a reason.
+function tryRow(v) {
+  // The copy runs and opens on the Mac: a phone gets no button for it.
+  if (!v.canTry || data?.remote) return "";
+  const t = v.try, btn = (attr, label, cls = "ghost", title = "") => `<button type="button" class="${cls}" ${attr}${title ? ` title="${esc(title)}"` : ""}>${label}</button>`;
+  const stop = btn("data-trystop", "Stop", "ghost", "Stop the copy");
+  const start = (label) => btn("data-try", label, v.tried || v.done ? "ghost" : "primary", "Build the branch and run it as a second copy on a free port, then open the first step's page");
+  let row;
+  if (t?.state === "starting") row = `<span class="try-st"><span class="spin"></span>Building and starting…</span>${stop}`;
+  else if (t?.state === "running" && t.fresh) row = `${btn("data-try", "Open", "ghost", t.url)}${stop}<span class="try-st muted">${esc(t.url)}</span>`;
+  else if (t?.state === "running") row = `${start("Try the new commits")}${stop}`;
+  else row = start(t?.state === "failed" ? "Try again" : "Try this build");
+  const err = t?.state === "failed" ? `<div class="try-err">${esc(t.error)}</div>` : "";
+  return `<div class="mr-adv-a try-row">${row}</div>${err}`;
+}
+// "Review" in the MR card, two things kept apart: the reviewer agent (the advice to run it, "Run AI review" / "Skip",
+// its result), then you: what the agent advises you to look at yourself, step by step.
 function reviewSection(r) {
   const a = r.assessment, need = adviseReview(r), ran = !!r.agentReviews?.length, ready = r.reviewStep === "ready";
   const why = need !== null ? adviceText(r, need) : "";
-  const check = checkText(r);
   let ai = "", you = "", note = "";
   if (assessing(r)) ai = row("run", "The agent is judging whether a review is needed…");
   else if (need === true && !ran) { ai = adviceBlock("talk", "AI review advised", why, ready ? reviewBtn("Run AI review", "primary") + skipBtn() : "", "ask"); note = "advised"; }
   else if (need === false && !ran) ai = adviceBlock("ok", "No AI review needed", why, ready ? reviewBtn("Run anyway") : "", "past");
-  if (check) {
-    const state = selfState(r);
-    you = selfBlock(check, state, r.selfCheckNew);
-    if (state !== "done") note ||= "check yourself";
+  if (r.self?.steps?.length) {
+    you = selfBlock(r);
+    if (!r.self.done && !r.self.skipped) note ||= "check yourself";
   }
   // Before the reviewer: its advice with its buttons in it ("Run AI review" / "Skip", or just "Run anyway" when it is
   // not needed); after it: its result. Then what is left for you.
@@ -1963,6 +1989,25 @@ function toast(text, bad = false) {
 }
 
 // The card's buttons: a request to the agent, or the merge.
+// A step of "Check it yourself" ticked or cleared. With "Try this build" there and not run for the branch as it is,
+// a tick asks why it is given without it. A failed one says why in a toast.
+async function tickStep(r, btn) {
+  let why = "";
+  if (btn.dataset.on === "1" && r.self?.canTry && !r.self.tried) {
+    why = await askReason("Tick it without trying this build? Say why: it goes to the task's journal.", { ok: "Tick", placeholder: "E.g.: looked at it on the branch I run myself" });
+    if (!why) return;
+  }
+  btn.disabled = true;
+  await selfAction(r.id, "selfstep", `&n=${btn.dataset.step}&on=${btn.dataset.on}${why ? `&why=${encodeURIComponent(why)}` : ""}`);
+  btn.disabled = false;
+}
+// selfAction: a "Check it yourself" action; the answer is the board's next look, an error a toast.
+async function selfAction(id, action, extra = "") {
+  const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${extra}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
+  if (res.ok === false || res.error) toast(`⚠ ${res.error}`, true);
+  await load();
+  return res;
+}
 async function mrAction(id, action, kind = "") {
   if (action === "merge") merging.add(id);
   const res = await fetch(`/api/${action}?id=${encodeURIComponent(id)}${kind ? `&kind=${kind}` : ""}`, { method: "POST" }).then((r) => r.json()).catch((e) => ({ error: e.message }));
@@ -3381,7 +3426,18 @@ function modelsCard(s) {
 }
 
 function qualityTab(s) {
-  return `${reviewCard(s.review)}<div class="srow">${forecastCard(s.forecast)}${assessCard(s)}</div>${failuresCard(s)}`;
+  return `${reviewCard(s.review)}<div class="srow">${forecastCard(s.forecast)}${assessCard(s)}</div>${selfCheckCard(s.selfCheck)}${failuresCard(s)}`;
+}
+
+// "Check it yourself" on the merged tasks the agent advised to check by hand: checked before the merge or not, and
+// how many of each needed a fix after it. Whether the advice is worth following.
+function selfCheckCard(v) {
+  if (!v?.advised) return "";
+  const row = (what, n, fixed) => `<div class="hrow"><span>${what}</span>${meter(n / v.advised, "acc")}<b>${n}</b></div>`
+    + `<div class="snote">${n ? `${fixed} of them needed a fix after the merge · ${Math.round((fixed / n) * 100)}%` : "None"}</div>`;
+  return scard("Check it yourself", row("Checked before the merge", v.checked, v.checkedFixed) + row("Merged without the check", v.unchecked, v.uncheckedFixed)
+    + `<div class="snote">A fix: a later bug task that names the issue or its MR.</div>`,
+    `${v.advised} ${plural(v.advised, "task", "tasks")} advised`);
 }
 
 // The reviewer agent's rounds as a funnel: its remarks, the agent's answers, the next rounds' verdicts, converged.
@@ -3910,6 +3966,11 @@ function blockersHTML(r) {
     lines.push(blkRow(`<div>The reviewer left ${n ? `${n} ${plural(n, "blocker", "blockers")}` : "remarks"}: press Fix to hand ${n === 1 ? "it" : "them"} to the agent</div>`,
       r.reviewStep === "notes" ? `<div class="mr-actions">${reviewFixBtn(true, n)}</div>` : ""));
   }
+  if (r.self?.blocks) {
+    const n = r.self.steps.length;
+    lines.push(blkRow(`<div>Check it yourself: ${r.self.left} of ${n} ${plural(n, "step", "steps")} left</div>`,
+      `<div class="mr-actions"><button type="button" class="ghost" data-selfskip title="Merge without the check: say why, it goes to the task's journal">Skip</button></div>`));
+  }
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
   return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
 }
@@ -4271,9 +4332,12 @@ function renderDetail() {
     if (btn.dataset.a === "cancel" && r.starting && !(await askConfirm("Cancel the launch? Preparation will be stopped and the created worktree removed.", { ok: "Cancel launch", cancel: "Keep going" }))) return;
     post(btn.dataset.a, r.id, btn.dataset.x);
   };
-  for (const btn of $("detail").querySelectorAll("[data-self]")) btn.onclick = () => {
-    btn.disabled = true;
-    post("selfcheck", r.id, `&on=${btn.dataset.self}`);
+  for (const btn of $("detail").querySelectorAll("[data-step]")) btn.onclick = () => tickStep(r, btn);
+  for (const btn of $("detail").querySelectorAll("[data-try]")) btn.onclick = () => { btn.disabled = true; selfAction(r.id, "trybuild"); };
+  for (const btn of $("detail").querySelectorAll("[data-trystop]")) btn.onclick = () => { btn.disabled = true; selfAction(r.id, "trystop"); };
+  for (const btn of $("detail").querySelectorAll("[data-selfskip]")) btn.onclick = async () => {
+    const why = await askReason("Merge without checking it yourself? Say why: it goes to the task's journal.", { ok: "Skip the check", placeholder: "E.g.: only the docs changed" });
+    if (why) selfAction(r.id, "selfskip", `&why=${encodeURIComponent(why)}`);
   };
   for (const btn of $("detail").querySelectorAll("[data-redo]")) btn.onclick = () => openRedo(r);
   $("back").onclick = () => { selected = null; statsOpen = false; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };

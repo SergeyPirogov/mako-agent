@@ -96,8 +96,9 @@ func primaryAction(v recordView) string {
 		case b != "" || v.CIWait != "":
 			return "open-mr"
 		// The reviewer is reading the branch, or the agent is fixing its remarks: the merge waits for them.
-		// Or the agent is still judging whether a review is needed: the merge waits for its verdict.
-		case v.ReviewStep == "running" || v.ReviewStep == "fixing" || dispatch.Assessing(r):
+		// Or the agent is still judging whether a review is needed: the merge waits for its verdict. Or for your
+		// «Check it yourself».
+		case v.ReviewStep == "running" || v.ReviewStep == "fixing" || dispatch.Assessing(r) || v.Self != nil && v.Self.Blocks:
 			return "open-mr"
 		}
 		return "merge"

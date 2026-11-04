@@ -26,7 +26,15 @@ async function loadI18n() {
 // or a click outside. Focus starts on OK (on Cancel when danger, so a stray Enter does not destroy anything); the
 // focus ring shows only after a key (other than Enter/Esc) is pressed in the dialog, so a mouse-opened dialog has
 // no ring. A destructive OK is red, and with success the OK is green. {ok, cancel} are the buttons' labels.
-function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.cancel"), danger = false, success = false } = {}) {
+function askConfirm(message, opts = {}) {
+  return askDialog(message, opts);
+}
+// askReason: askConfirm with a line to write the reason in: resolves the reason (trimmed), or null on Cancel. OK
+// waits for a reason.
+function askReason(message, { placeholder = "", ...opts } = {}) {
+  return askDialog(message, { ...opts, input: placeholder || " " });
+}
+function askDialog(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.cancel"), danger = false, success = false, input = "" } = {}) {
   return new Promise((resolve) => {
     const dlg = document.createElement("dialog");
     dlg.className = "confirm-dlg";
@@ -41,13 +49,30 @@ function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.can
     okBtn.className = danger ? "danger" : success ? "success" : "primary";
     // The buttons and a click outside answer at once; Esc closes the dialog, and that is a cancel.
     let done = false;
-    const answer = (yes) => { if (done) return; done = true; resolve(yes); dlg.remove(); };
+    const field = input ? document.createElement("input") : null;
+    const answer = (yes) => {
+      if (done) return;
+      done = true;
+      resolve(field ? (yes ? field.value.trim() : null) : yes);
+      dlg.remove();
+    };
     okBtn.onclick = () => answer(true);
     noBtn.onclick = () => answer(false);
     actions.append(noBtn, okBtn);
     const box = document.createElement("div");
     box.className = "confirm-box";
-    box.append(text, actions);
+    box.append(text);
+    if (field) {
+      field.type = "text";
+      field.className = "confirm-in";
+      field.placeholder = input.trim();
+      field.setAttribute("aria-label", message);
+      okBtn.disabled = true;
+      field.oninput = () => { okBtn.disabled = !field.value.trim(); };
+      field.onkeydown = (e) => { if (e.key === "Enter" && field.value.trim()) { e.preventDefault(); answer(true); } };
+      box.append(field);
+    }
+    box.append(actions);
     dlg.append(box);
     dlg.addEventListener("click", (e) => { if (e.target === dlg) answer(false); });
     dlg.addEventListener("close", () => answer(false));
@@ -55,7 +80,7 @@ function askConfirm(message, { ok = t("b.confirm.ok"), cancel = t("b.confirm.can
     dlg.showModal();
     // Programmatic focus counts as :focus-visible in a modal dialog; show the ring only once the keyboard is used.
     dlg.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== "Escape") dlg.classList.add("kbd"); });
-    (danger ? noBtn : okBtn).focus();
+    (field ?? (danger ? noBtn : okBtn)).focus();
   });
 }
 
