@@ -273,3 +273,29 @@ func TestJiraSearchPages(t *testing.T) {
 		t.Fatalf("max 1: %v %d, tokens %q", err, len(one), tokens)
 	}
 }
+
+// A token that may read the check runs but not the commit statuses (403) still gets the CI of the check runs.
+func TestGitHubCheckRunsWithoutStatusAccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/commits/s1/check-runs":
+			json.NewEncoder(w).Encode(map[string]any{"total_count": 1, "check_runs": []any{
+				map[string]any{"id": 5, "name": "test", "status": "completed", "conclusion": "failure", "html_url": "https://gh/5"}}})
+		case "/repos/o/r/commits/s1/status":
+			w.WriteHeader(403)
+			w.Write([]byte(`{"message":"Resource not accessible by personal access token"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	g, _ := NewGitHub(&config.Tracker{ID: "gh", APIURL: srv.URL}, "tok")
+	ci, jobs := g.checkRuns(context.Background(), "o/r", "s1")
+	if ci != "failed" || len(jobs) != 1 || jobs[0].ID != 5 || jobs[0].Status != "failed" {
+		t.Fatalf("%q %+v", ci, jobs)
+	}
+	// The check runs themselves unreadable: no CI, as before.
+	if ci, jobs := g.checkRuns(context.Background(), "o/r", "s2"); ci != "" || jobs != nil {
+		t.Fatalf("no check runs: %q %+v", ci, jobs)
+	}
+}

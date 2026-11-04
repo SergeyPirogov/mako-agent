@@ -353,8 +353,9 @@ func (g *GitHub) checkRuns(ctx context.Context, repo, sha string) (string, []Job
 			TargetURL string `json:"target_url"`
 		} `json:"statuses"`
 	}
+	// A token without «Commit statuses: read» gets 403 here: the check runs alone then say what the CI is.
 	if g.do(ctx, "GET", "/repos/"+repo+"/commits/"+sha+"/status?per_page=100", nil, &status) != nil {
-		return "", nil
+		status.Statuses = nil
 	}
 	if len(runs) == 0 && len(status.Statuses) == 0 {
 		return "", nil
