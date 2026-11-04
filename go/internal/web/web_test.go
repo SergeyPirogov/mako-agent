@@ -55,6 +55,31 @@ func TestBoard(t *testing.T) {
 		t.Fatalf("POST: %d", res.StatusCode)
 	}
 
+	// Garbage in min is refused: the task is not snoozed to the default time, nothing overflows.
+	store.Update("grp/app#8", func(r *core.Record) { r.Status, r.Task = core.Asking, core.Task{ID: "grp/app#8", Title: "Bad min"} })
+	for _, min := range []string{"abc", "0", "-5", "525601", "200000000000", "99999999999999999999"} {
+		req, _ = http.NewRequest("POST", srv.URL+"/api/later?id=grp/app%238&min="+min, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, _ := http.DefaultClient.Do(req)
+		body, _ := io.ReadAll(res.Body)
+		if !strings.Contains(string(body), `"ok":false`) {
+			t.Fatalf("min=%s: %s", min, body)
+		}
+		if r, _ := store.Get("grp/app#8"); r.Status != core.Asking || r.SnoozedUntil != 0 {
+			t.Fatalf("min=%s snoozed the task: %+v", min, r)
+		}
+	}
+	req, _ = http.NewRequest("POST", srv.URL+"/api/later?id=grp/app%238&min=525600", nil)
+	req.Header.Set("Origin", srv.URL)
+	res, _ = http.DefaultClient.Do(req)
+	if body, _ := io.ReadAll(res.Body); !strings.Contains(string(body), `"ok":true`) {
+		t.Fatalf("min=525600: %s", body)
+	}
+	if r, _ := store.Get("grp/app#8"); r.Status != core.Snoozed {
+		t.Fatalf("a year was not accepted: %+v", r)
+	}
+	store.Delete("grp/app#8")
+
 	// «Запустити зараз» reaches Push: the queued task leaves the queue (here it fails at once: no trackers).
 	store.Update("grp/app#6", func(r *core.Record) { r.Status, r.Task = core.Queued, core.Task{ID: "grp/app#6", Title: "Ship"} })
 	req, _ = http.NewRequest("POST", srv.URL+"/api/push?id=grp/app%236", nil)

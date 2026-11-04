@@ -28,6 +28,9 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/update"
 )
 
+// maxLaterMin is the longest a task can be put off: 365 days.
+const maxLaterMin = 365 * 24 * 60
+
 //go:embed board.html
 var board []byte
 
@@ -616,7 +619,16 @@ func (s *Server) Handler() http.Handler {
 		case "push":
 			s.D.Push(ctx, id)
 		case "later":
-			min, _ := strconv.Atoi(r.URL.Query().Get("min"))
+			// No min: the default snooze. Anything else must be a number: -1 brings it back, 1..maxLaterMin puts it off.
+			min := 0
+			if v := r.URL.Query().Get("min"); v != "" {
+				n, err := strconv.Atoi(v)
+				if err != nil || n < -1 || n == 0 || n > maxLaterMin {
+					writeJSON(w, map[string]any{"ok": false, "error": "min must be -1 or a number of minutes from 1 to " + strconv.Itoa(maxLaterMin)})
+					return
+				}
+				min = n
+			}
 			s.D.Later(id, min)
 		case "pick":
 			// The model from the arrow and the estimate's advice on the card: ?model=sonnet&plan=1 (empty model: as the
