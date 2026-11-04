@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
@@ -71,5 +72,30 @@ func TestAgentReviewEnv(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(env); strings.TrimSpace(string(got)) != "[][1]" {
 		t.Fatalf("env %q", got)
+	}
+}
+
+// A failed Claude's error says why: its stderr, else what it printed to stdout, else its result line.
+func TestAskModelFailureSaysWhy(t *testing.T) {
+	for name, tc := range map[string]struct{ body, want string }{
+		"stderr": {`echo "boom: bad flag" >&2; exit 1`, "boom: bad flag"},
+		"stdout": {`echo "Usage limit reached"; exit 1`, "Usage limit reached"},
+		"result": {`echo '{"type":"result","is_error":true,"result":"You hit your limit"}'; exit 1`, "You hit your limit"},
+		"silent": {`exit 1`, "no output"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeClaude(t, tc.body)
+			_, err := AskModel(context.Background(), t.TempDir(), core.Route{Model: "haiku"}, "q", 10*time.Second)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestFailDetailKeepsTail(t *testing.T) {
+	got := failDetail(strings.Repeat("я", 1000)+"END", nil)
+	if !strings.HasSuffix(got, "END") || len(got) > failDetailMax+4 || !utf8.ValidString(got) {
+		t.Fatalf("bad tail: %q", got)
 	}
 }

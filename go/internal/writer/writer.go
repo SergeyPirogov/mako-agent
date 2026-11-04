@@ -221,7 +221,7 @@ func AskModel(ctx context.Context, dir string, route core.Route, prompt string, 
 		return "", fmt.Errorf("no answer from Claude within %d min", int(timeout.Minutes()))
 	}
 	if err != nil {
-		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
+		return "", fmt.Errorf("claude: %v: %s", err, failDetail(stderr.String(), out))
 	}
 	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, route.Model)), ""))
 	if text == "" || len(text) > 6000 {
@@ -229,6 +229,31 @@ func AskModel(ctx context.Context, dir string, route core.Route, prompt string, 
 	}
 	return text, nil
 }
+
+// failDetail: what a failed `claude -p` said, for the error: the tail of its stderr, else of what it printed
+// besides JSON, else its result line's text (Claude Code reports some failures, a limit among them, there).
+func failDetail(stderr string, out *output) string {
+	text := strings.TrimSpace(stderr)
+	if text == "" && out != nil {
+		text = strings.TrimSpace(out.plain.String())
+		if text == "" {
+			r, _, _ := out.parse()
+			text = strings.TrimSpace(r)
+		}
+	}
+	if text == "" {
+		return "no output; check that `claude` runs in a terminal"
+	}
+	if cut := len(text) - failDetailMax; cut > 0 {
+		for cut < len(text) && !utf8.RuneStart(text[cut]) {
+			cut++
+		}
+		text = "…" + text[cut:]
+	}
+	return text
+}
+
+const failDetailMax = 600
 
 func clip(diff string) string {
 	if len(diff) > maxDiff {
@@ -459,7 +484,7 @@ func runReviewer(ctx context.Context, dir, prompt string, route core.Route) (str
 		return "", errors.New("the reviewer did not answer within 15 min")
 	}
 	if err != nil {
-		return "", fmt.Errorf("claude: %v: %s", err, clipTo(strings.TrimSpace(stderr.String()), 200))
+		return "", fmt.Errorf("claude: %v: %s", err, failDetail(stderr.String(), out))
 	}
 	return answer(ctx, out, route.Model), nil
 }
