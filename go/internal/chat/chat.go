@@ -128,6 +128,8 @@ type Session struct {
 
 	lineMax int // maxLine as it was at Start: the session's goroutine must not read the variable later
 
+	idleAfter time.Duration // IdleAfter as it was at Start, for the same reason
+
 	mu       sync.Mutex
 	writeMu  sync.Mutex
 	cmd      *exec.Cmd
@@ -179,7 +181,7 @@ var IdleAfter = 20 * time.Minute
 
 // Start runs the setup and then the agent, in the background: the conversation shows both.
 func Start(o Options) *Session {
-	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode, lineMax: maxLine,
+	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode, lineMax: maxLine, idleAfter: IdleAfter,
 		ended: make(chan struct{})}
 	if s.mode == "" {
 		s.mode = "default"
@@ -335,7 +337,7 @@ func Replay(id, path string) Snapshot { return ReplayIn(id, "", path) }
 
 // ReplayIn is Replay for a conversation held in worktree: its steps name the files relative to it.
 func ReplayIn(id, worktree, path string) Snapshot {
-	s := &Session{ID: id, Worktree: worktree, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}, lineMax: maxLine}
+	s := &Session{ID: id, Worktree: worktree, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}, lineMax: maxLine, idleAfter: IdleAfter}
 	s.replay(path)
 	snap := s.Snapshot()
 	snap.Version = len(snap.Items) // the same file, the same version: the board redraws only what changed
@@ -563,7 +565,9 @@ func (s *Session) handle(line []byte) {
 		if s.idle != nil {
 			s.idle.Stop()
 		}
-		s.idle = time.AfterFunc(IdleAfter, s.sleep)
+		if s.idleAfter > 0 { // 0: a session built without Start (a test's) never sleeps
+			s.idle = time.AfterFunc(s.idleAfter, s.sleep)
+		}
 		s.mu.Unlock()
 	}
 }
