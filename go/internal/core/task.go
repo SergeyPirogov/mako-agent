@@ -187,6 +187,11 @@ type Record struct {
 	// Changed: what the branch changed against its base, kept when its worktree is cleaned up, so a finished
 	// task still says it.
 	Changed *ChangeStat `json:"changed,omitempty"`
+	// LimitedUntil: the Claude limit cut the agent's turn and resets then (unix seconds; 0: not cut).
+	// ResumeAfterLimit: Mako makes it go on by itself after the reset (the settings', or the chat's own choice).
+	// Kept here so the agent goes on even if Mako restarts meanwhile.
+	LimitedUntil     int64 `json:"limitedUntil,omitempty"`
+	ResumeAfterLimit bool  `json:"resumeAfterLimit,omitempty"`
 }
 
 // ChangeStat: the size of a branch's work: files, lines added and removed, commits.

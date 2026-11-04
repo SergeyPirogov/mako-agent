@@ -117,56 +117,228 @@ func TestLookChatLimited(t *testing.T) {
 	}
 }
 
-// «Продовжити після скидання»: the limit resets, the agent is said «go on» the way a message from the board goes,
-// and Mako tells you; a failed message tells nothing.
-func TestResumeAfterLimitNotifies(t *testing.T) {
-	old := chat.ResumeGrace
-	chat.ResumeGrace = 20 * time.Millisecond
-	defer func() { chat.ResumeGrace = old }()
+// logText: the task's log, as one text.
+func logText(d *Dispatcher, id string) string {
+	var b strings.Builder
+	for _, l := range d.Logs(id) {
+		b.WriteString(l.Text + "\n")
+	}
+	return b.String()
+}
+
+// limitedTask: a task whose agent the Claude limit cut and that is kept so (no session: as after Mako restarted).
+func limitedTask(d *Dispatcher, id, priority string, until int64, resume bool) {
+	d.Store.Update(id, func(r *core.Record) {
+		r.Status, r.Task.Priority, r.LimitedUntil, r.ResumeAfterLimit = core.HandedOff, priority, until, resume
+	})
+}
+
+// toldOf: the notifications Mako sends from now on.
+func toldOf(t *testing.T) func() []notify.Notice {
 	var mu sync.Mutex
 	var told []notify.Notice
 	notify.Remote = func(n notify.Notice) { mu.Lock(); told = append(told, n); mu.Unlock() }
-	defer func() { notify.Remote = nil }()
+	t.Cleanup(func() { notify.Remote = nil })
+	return func() []notify.Notice { mu.Lock(); defer mu.Unlock(); return append([]notify.Notice{}, told...) }
+}
+
+// After a restart the agents the limit cut go on by themselves once it has reset: the most urgent first, no more
+// at once than the WIP limit (2), one notification for them all and a line in each task's log; the rest waits
+// until a slot frees.
+func TestResumeLimitedAfterRestart(t *testing.T) {
 	d, _, _ := setup(t)
 	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
-	said := make(chan string, 4)
-	fail := errors.New("no worktree")
-	var err error
-	say := func(text string) error { said <- text; return err }
-	limitedChat(t, d, "chat-a", time.Now().Unix(), chat.Options{OnResume: d.afterLimit("Fix login", say)})
-	if e := d.SetResumeOnReset("chat-a", true); e != nil {
-		t.Fatal(e)
+	told := toldOf(t)
+	var mu sync.Mutex
+	var went []string
+	d.goOn = func(id string) error { mu.Lock(); went = append(went, id); mu.Unlock(); return nil }
+	past := time.Now().Add(-time.Minute).Unix()
+	limitedTask(d, "grp/app#1", "Low", past, true)
+	limitedTask(d, "grp/app#2", "High", past, true)
+	limitedTask(d, "grp/app#3", "Blocker", past, true)
+	if n := d.resumeLimited(time.Now()); n != 2 || strings.Join(went, " ") != "grp/app#3 grp/app#2" {
+		t.Fatalf("went on %d: %v", n, went)
 	}
-	select {
-	case text := <-said:
-		if text != chat.ResumeMessage {
-			t.Fatalf("said %q", text)
+	for _, id := range []string{"grp/app#3", "grp/app#2"} {
+		if r, _ := d.Store.Get(id); r.LimitedUntil != 0 {
+			t.Fatalf("%s is still kept as cut", id)
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the agent did not go on")
+		if !strings.Contains(logText(d, id), "the agent goes on by itself") {
+			t.Fatalf("%s log: %v", id, d.Logs(id))
+		}
 	}
-	waitFor(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(told) == 1 }, "no notification")
-	if n := told[0]; n.Kind != notify.Limits || !strings.Contains(n.Message, "Fix login") {
-		t.Fatalf("notification %+v", n)
+	waitFor(t, func() bool { return len(told()) > 0 }, "no notification")
+	if n := told(); len(n) != 1 || n[0].Kind != notify.Limits || !strings.Contains(n[0].Message, "2") {
+		t.Fatalf("notifications %+v", n)
 	}
-	// A message that could not be given: Mako does not claim the agent went on.
-	err = fail
-	if e := d.afterLimit("x", say)("go on"); !errors.Is(e, fail) {
-		t.Fatalf("error %v", e)
+	// Both slots are taken: the third waits.
+	if n := d.resumeLimited(time.Now()); n != 0 {
+		t.Fatalf("went on beyond the WIP limit: %v", went)
 	}
-	mu.Lock()
-	n := len(told)
-	mu.Unlock()
-	if n != 1 {
-		t.Fatalf("told %d times", n)
+	if r, _ := d.Store.Get("grp/app#1"); r.LimitedUntil != past {
+		t.Fatal("the waiting one was forgotten")
+	}
+	d.Store.Update("grp/app#3", func(r *core.Record) { r.Status = core.Done })
+	if n := d.resumeLimited(time.Now()); n != 1 || went[2] != "grp/app#1" {
+		t.Fatalf("after a slot freed: %v", went)
 	}
 }
 
-// Nothing runs to wait for the reset: the choice is refused, not silently dropped.
-func TestResumeOnResetNoSession(t *testing.T) {
+// Nothing goes on while a limit is still past the threshold (the week's), before the reset, or when the chat
+// turned going on by itself off; a task that finished meanwhile is forgotten.
+func TestResumeLimitedWaits(t *testing.T) {
 	d, _, _ := setup(t)
 	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	toldOf(t)
+	var went []string
+	d.goOn = func(id string) error { went = append(went, id); return nil }
+	limitedTask(d, "grp/app#1", "", time.Now().Add(time.Hour).Unix(), true)   // not yet
+	limitedTask(d, "grp/app#2", "", time.Now().Add(-time.Hour).Unix(), false) // off for this chat
+	limitedTask(d, "grp/app#3", "", time.Now().Add(-time.Hour).Unix(), true)
+	d.Store.Update("grp/app#3", func(r *core.Record) { r.Status = core.Cancelled })
+	d.Chats.SetLimits(chat.Limits{Week: &chat.Window{Used: 0.97, ResetsAt: time.Now().Add(48 * time.Hour).Unix()}})
+	if n := d.resumeLimited(time.Now()); n != 0 {
+		t.Fatalf("went on past the week's threshold: %v", went)
+	}
+	d.Chats.SetLimits(chat.Limits{Week: &chat.Window{Used: 0.5, ResetsAt: time.Now().Add(48 * time.Hour).Unix()}})
+	if n := d.resumeLimited(time.Now()); n != 0 {
+		t.Fatalf("went on: %v", went)
+	}
+	if r, _ := d.Store.Get("grp/app#3"); r.LimitedUntil != 0 {
+		t.Fatal("a cancelled task is still kept as cut")
+	}
+	if r, _ := d.Store.Get("grp/app#2"); r.LimitedUntil == 0 {
+		t.Fatal("the one turned off was forgotten")
+	}
+}
+
+// A message that could not be given is not claimed as going on: no notification, the task's log says why, and it
+// is not tried again every round.
+func TestResumeLimitedFails(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	told := toldOf(t)
+	d.goOn = func(string) error { return errors.New("no worktree") }
+	limitedTask(d, "grp/app#1", "", time.Now().Add(-time.Hour).Unix(), true)
+	if n := d.resumeLimited(time.Now()); n != 0 {
+		t.Fatalf("went on %d", n)
+	}
+	time.Sleep(100 * time.Millisecond) // a notification goes out in the background
+	if len(told()) != 0 {
+		t.Fatalf("told %v", told())
+	}
+	if !strings.Contains(logText(d, "grp/app#1"), "could not go on after the Claude limit: no worktree") {
+		t.Fatalf("log %v", d.Logs("grp/app#1"))
+	}
+	// Still cut: the next round tries again. It goes on once the message can be given.
+	if r, _ := d.Store.Get("grp/app#1"); r.LimitedUntil == 0 || !r.ResumeAfterLimit {
+		t.Fatalf("a failed message forgot the limit: %+v", r)
+	}
+	var went []string
+	d.goOn = func(id string) error { went = append(went, id); return nil }
+	if n := d.resumeLimited(time.Now()); n != 1 || len(went) != 1 {
+		t.Fatalf("the next round: went on %d %v", n, went)
+	}
+	if r, _ := d.Store.Get("grp/app#1"); r.LimitedUntil != 0 {
+		t.Fatal("still kept as cut after it went on")
+	}
+}
+
+// What can never work (a task outside Mako's terminal) is tried maxResumeTries times, then left to you.
+func TestResumeLimitedGivesUp(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	toldOf(t)
+	tries := 0
+	d.goOn = func(string) error { tries++; return errors.New("the task is not in a Mako terminal") }
+	limitedTask(d, "grp/app#1", "", time.Now().Add(-time.Hour).Unix(), true)
+	for range maxResumeTries + 3 {
+		d.resumeLimited(time.Now())
+	}
+	if tries != maxResumeTries {
+		t.Fatalf("tried %d times, want %d", tries, maxResumeTries)
+	}
+	if r, _ := d.Store.Get("grp/app#1"); r.LimitedUntil != 0 {
+		t.Fatal("still kept after giving up")
+	}
+	if !strings.Contains(logText(d, "grp/app#1"), "giving up") {
+		t.Fatalf("log %q", logText(d, "grp/app#1"))
+	}
+}
+
+// The agent's limit is kept with the task as its chat tells it, with the settings' choice (on by default); taking
+// it back on one chat leaves the others; Stop forgets it; a chat without a running agent keeps the choice too.
+func TestLimitKept(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	reset := time.Now().Add(time.Hour).Unix()
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status = core.HandedOff })
+	if !d.resumeFlag("grp/app#5") {
+		t.Fatal("going on after the limit is not on by default")
+	}
+	limitedChat(t, d, "grp/app#5", reset, chat.Options{
+		OnLimit:       func(u int64, r bool) { d.noteLimit("grp/app#5", u, r) },
+		ResumeOnReset: d.resumeFlag("grp/app#5"),
+	})
+	waitFor(t, func() bool { r, _ := d.Store.Get("grp/app#5"); return r.LimitedUntil == reset && r.ResumeAfterLimit }, "the limit is not kept")
+	if !strings.Contains(logText(d, "grp/app#5"), "it goes on by itself after "+time.Unix(reset, 0).Format("15:04")) {
+		t.Fatalf("log %v", d.Logs("grp/app#5"))
+	}
+	limitedTask(d, "grp/app#6", "", reset, true)
+	if err := d.SetResumeOnReset("grp/app#5", false); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := d.Store.Get("grp/app#5"); r.ResumeAfterLimit || r.LimitedUntil != reset {
+		t.Fatalf("taken back: %+v", r)
+	}
+	if r, _ := d.Store.Get("grp/app#6"); !r.ResumeAfterLimit {
+		t.Fatal("the other chat lost its choice")
+	}
+	// No running agent: the kept choice changes.
+	if err := d.SetResumeOnReset("grp/app#6", false); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := d.Store.Get("grp/app#6"); r.ResumeAfterLimit {
+		t.Fatal("the choice of a chat with no agent is not kept")
+	}
+	if snap := d.WithLimit("grp/app#6", chat.Snapshot{State: "exited", Version: 7}); snap.State != "limited" || snap.LimitedUntil != reset || snap.ResumeOnReset || snap.Version == 7 {
+		t.Fatalf("snapshot %+v", snap)
+	}
+	d.StopTerminal("grp/app#5")
+	if r, _ := d.Store.Get("grp/app#5"); r.LimitedUntil != 0 {
+		t.Fatal("stopped, it would still go on by itself")
+	}
 	if err := d.SetResumeOnReset("chat-none", true); err == nil {
-		t.Fatal("no error for a chat with no session")
+		t.Fatal("no error for a chat that does not exist")
+	}
+}
+
+// A free chat's limit is kept in chats.json and it goes on the free chat's way, after the tasks.
+func TestResumeLimitedChats(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	toldOf(t)
+	d.updateChats(func([]FreeChat) []FreeChat { return []FreeChat{{ID: "chat-a", Title: "Fix login"}} })
+	past := time.Now().Add(-time.Hour).Unix()
+	d.noteLimit("chat-a", past, true)
+	if c, _ := d.freeChat("chat-a"); c.LimitedUntil != past || !c.ResumeAfterLimit {
+		t.Fatalf("chat %+v", c)
+	}
+	limitedTask(d, "grp/app#1", "Low", past, true)
+	var went []string
+	d.goOn = func(id string) error { went = append(went, id); return nil }
+	if n := d.resumeLimited(time.Now()); n != 2 || strings.Join(went, " ") != "grp/app#1 chat-a" {
+		t.Fatalf("went on %v", went)
+	}
+	if c, _ := d.freeChat("chat-a"); c.LimitedUntil != 0 {
+		t.Fatal("the chat is still kept as cut")
+	}
+}
+
+func TestPriorityRank(t *testing.T) {
+	for p, want := range map[string]int{"P0": 0, "Blocker": 0, "Highest": 0, "high": 1, "P1": 1, "": 2, "Medium": 2, "whatever": 2, "Low": 3, "P4": 4, "Lowest": 4} {
+		if got := priorityRank(p); got != want {
+			t.Fatalf("%q: %d, want %d", p, got, want)
+		}
 	}
 }

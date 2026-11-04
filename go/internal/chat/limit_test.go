@@ -90,13 +90,6 @@ func TestNotLimited(t *testing.T) {
 
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
 
-// shortGrace: the continuation comes a moment after the reset, not 30 seconds.
-func shortGrace(t *testing.T) {
-	old := ResumeGrace
-	ResumeGrace = 50 * time.Millisecond
-	t.Cleanup(func() { ResumeGrace = old })
-}
-
 func limited(t *testing.T, s *Session, reset int64) {
 	t.Helper()
 	s.handle([]byte(rejected(reset)))
@@ -106,101 +99,78 @@ func limited(t *testing.T, s *Session, reset int64) {
 	}
 }
 
-// «Continue after the reset»: the session says «go on» by itself once the limit has reset.
-func TestResumeOnReset(t *testing.T) {
-	shortGrace(t)
-	said := make(chan string, 4)
-	s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
+type limitNote struct {
+	until  int64
+	resume bool
+}
+
+// noted: an OnLimit that keeps what it was told, for Mako to keep.
+func noted() (func(int64, bool), func() []limitNote) {
+	var mu sync.Mutex
+	var got []limitNote
+	return func(u int64, r bool) { mu.Lock(); got = append(got, limitNote{u, r}); mu.Unlock() },
+		func() []limitNote { mu.Lock(); defer mu.Unlock(); return append([]limitNote{}, got...) }
+}
+
+// The session tells Mako when the limit cuts it, with the choice it started with (the settings'), and when a
+// message goes on from it; the session itself sends nothing after the reset.
+func TestOnLimitTold(t *testing.T) {
+	on, got := noted()
+	s, in := limitSession(Options{OnLimit: on, ResumeOnReset: true})
+	s.resumeOnReset = s.o.ResumeOnReset // limitSession builds it without Start
 	defer s.Stop()
-	s.SetResumeOnReset(true)
+	reset := time.Now().Unix()
+	limited(t, s, reset)
+	if g := got(); len(g) != 1 || g[0] != (limitNote{reset, true}) {
+		t.Fatalf("told %v", g)
+	}
 	if !s.Snapshot().ResumeOnReset {
 		t.Fatal("the choice is not in the snapshot")
 	}
-	limited(t, s, time.Now().Unix())
-	select {
-	case text := <-said:
-		if text != ResumeMessage {
-			t.Fatalf("said %q", text)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the session did not go on after the reset")
+	time.Sleep(100 * time.Millisecond)
+	if in.String() != "" {
+		t.Fatalf("the session went on by itself: %q", in.String())
+	}
+	if err := s.Send("my own"); err != nil {
+		t.Fatal(err)
+	}
+	if g := got(); len(g) != 2 || g[1].until != 0 {
+		t.Fatalf("after Send: told %v", g)
 	}
 }
 
-// Without the choice nothing is sent, and a limit that resets later is waited for.
-func TestNoResumeWithoutChoiceOrBeforeReset(t *testing.T) {
-	shortGrace(t)
-	said := make(chan string, 4)
-	s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
-	defer s.Stop()
-	limited(t, s, time.Now().Unix()) // reset already, but nobody asked
-	s.SetResumeOnReset(true)         // asked now: it goes on at once
-	select {
-	case <-said:
-	case <-time.After(5 * time.Second):
-		t.Fatal("asked after the limit, it did not go on")
+// Taking the choice back on one chat is told for it alone; another chat keeps its own.
+func TestResumeOnResetPerChat(t *testing.T) {
+	onA, gotA := noted()
+	onB, gotB := noted()
+	a, _ := limitSession(Options{OnLimit: onA})
+	b, _ := limitSession(Options{OnLimit: onB})
+	a.resumeOnReset, b.resumeOnReset = true, true
+	defer a.Stop()
+	defer b.Stop()
+	reset := time.Now().Add(time.Hour).Unix()
+	limited(t, a, reset)
+	limited(t, b, reset)
+	a.SetResumeOnReset(false)
+	if a.Snapshot().ResumeOnReset || !b.Snapshot().ResumeOnReset {
+		t.Fatalf("a %v, b %v", a.Snapshot().ResumeOnReset, b.Snapshot().ResumeOnReset)
 	}
-	s2, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
-	defer s2.Stop()
-	s2.SetResumeOnReset(true)
-	limited(t, s2, time.Now().Add(time.Hour).Unix())
-	select {
-	case <-said:
-		t.Fatal("went on before the limit reset")
-	case <-time.After(300 * time.Millisecond):
+	if g := gotA(); g[len(g)-1] != (limitNote{reset, false}) {
+		t.Fatalf("a told %v", g)
 	}
-}
-
-// Stop, a message of yours and taking the choice back all cancel the continuation.
-func TestResumeCancelled(t *testing.T) {
-	shortGrace(t)
-	for name, cancel := range map[string]func(*Session){
-		"stop":    func(s *Session) { s.Stop() },
-		"message": func(s *Session) { s.Send("my own") },
-		"off":     func(s *Session) { s.SetResumeOnReset(false) },
-	} {
-		said := make(chan string, 4)
-		s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
-		s.SetResumeOnReset(true)
-		limited(t, s, time.Now().Add(150*time.Millisecond).Unix()-1) // due within the grace
-		cancel(s)
-		select {
-		case <-said:
-			t.Fatalf("%s: went on all the same", name)
-		case <-time.After(600 * time.Millisecond):
-		}
-		s.Stop()
+	if g := gotB(); len(g) != 1 || !g[0].resume {
+		t.Fatalf("b told %v", g)
 	}
 }
 
-// A session closed for idleness keeps its continuation: it resumes the conversation, which Stop alone would not.
-func TestResumeSurvivesSleep(t *testing.T) {
-	shortGrace(t)
-	said := make(chan string, 4)
-	s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
-	s.SetResumeOnReset(true)
-	limited(t, s, time.Now().Add(200*time.Millisecond).Unix())
-	s.sleep()
-	if !s.Snapshot().ResumeOnReset || s.asleep != true {
-		t.Fatal("it did not sleep")
-	}
-	select {
-	case <-said:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the sleeping session did not go on")
-	}
-}
-
-// Without OnResume the session sends the message itself.
-func TestResumeSendsItself(t *testing.T) {
-	shortGrace(t)
-	s, in := limitSession(Options{})
-	defer s.Stop()
-	s.SetResumeOnReset(true)
-	limited(t, s, time.Now().Unix())
-	eventually(t, func() bool { return strings.Contains(in.String(), ResumeMessage) }, func() string { return "nothing written: " + in.String() })
-	if st, _, _ := s.State(); st != "working" {
-		t.Fatalf("state %q", st)
+// Stop (Mako quitting) does not tell the limit is gone: it is kept, so the agent goes on after a restart.
+func TestStopKeepsLimit(t *testing.T) {
+	on, got := noted()
+	s, _ := limitSession(Options{OnLimit: on})
+	limited(t, s, time.Now().Add(time.Hour).Unix())
+	s.Stop()
+	if g := got(); len(g) != 1 || g[0].until == 0 {
+		t.Fatalf("told %v", g)
 	}
 }
 

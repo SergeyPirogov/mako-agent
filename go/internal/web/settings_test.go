@@ -193,6 +193,44 @@ func TestSaveAgentLanguage(t *testing.T) {
 	}
 }
 
+// «Продовжувати після скидання ліміту» is on unless the settings say off, and saving it changes it at once.
+func TestSaveResumeAfterLimit(t *testing.T) {
+	home := t.TempDir()
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	save := func(cfg string) {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/settings", strings.NewReader(`{"config": `+cfg+`, "env": {}}`))
+		req.Header.Set("Origin", srv.URL)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil || res.StatusCode != 200 {
+			t.Fatalf("save %s: %v %v", cfg, err, res)
+		}
+	}
+	save(`{}`)
+	if !d.Config().ResumeAfterLimit {
+		t.Fatal("off by default")
+	}
+	save(`{"resumeAfterLimit": false}`)
+	b, _ := os.ReadFile(filepath.Join(home, "mako.config.json"))
+	if d.Config().ResumeAfterLimit || !strings.Contains(string(b), `"resumeAfterLimit": false`) {
+		t.Fatalf("off: %v, %s", d.Config().ResumeAfterLimit, b)
+	}
+	res, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Config map[string]any `json:"config"`
+	}
+	json.NewDecoder(res.Body).Decode(&got)
+	if got.Config["resumeAfterLimit"] != false {
+		t.Fatalf("settings read back %v", got.Config)
+	}
+}
+
 // Removing worktrees and opening them in Finder is for the board's own page only, and a body that is no JSON is
 // refused.
 func TestWorktreeRemoveEndpoints(t *testing.T) {

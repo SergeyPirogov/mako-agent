@@ -123,6 +123,7 @@ func (s *Server) codeRoutes(mux *http.ServeMux) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		s.D.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
 		if c := s.D.Chats.Get(id); c != nil {
 			c.Interrupt()
 		}

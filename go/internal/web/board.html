@@ -4608,18 +4608,21 @@ function drawSend(v) {
   b.title = stop ? "Stop: interrupt the current step (Esc)" : "Send (Enter)";
   b.setAttribute("aria-label", stop ? "Stop" : "Send");
 }
-// The Claude limit cut the agent's turn: the chat says until when instead of «Your turn» and offers to go on, now
-// or by itself after the reset. A stopped agent shows it while the reset is ahead.
+// The Claude limit cut the agent's turn: the chat says when it goes on by itself (or that it does not, for this
+// chat) instead of «Your turn», and offers to go on now. A stopped agent shows it while the reset is ahead.
 const limitCut = (s) => s.state === "limited" || (s.limitedUntil * 1000 > Date.now() && s.state !== "working" && s.state !== "waiting");
 function limitText(s) {
   if (!s.limitedUntil) return t("b.limit.unknown");
-  return s.limitedUntil * 1000 > Date.now() ? t("b.limit.until", { time: fmtWhen(s.limitedUntil * 1000) }) : t("b.limit.reset");
+  const at = s.limitedUntil * 1000;
+  if (at > Date.now()) return t(s.resumeOnReset ? "b.limit.autoAt" : "b.limit.autoOff", { time: fmtWhen(at) });
+  // Reset, but it waits: for a slot of the WIP limit, or the week's limit past the threshold.
+  return t(s.resumeOnReset ? "b.limit.autoSoon" : "b.limit.reset");
 }
-// «Continue now» sends «continue»; «Continue after the reset» is a switch kept by the session (only while the reset is ahead).
+// «Continue now» sends «continue»; «Continue after the reset» is this chat's switch, on unless you turn it off
+// here (or the settings do for every chat).
 function limitButtons(s) {
-  const ahead = s.limitedUntil * 1000 > Date.now();
   return `<button type="button" class="chip pri" data-limit-go title="${esc(t("b.limit.nowHint"))}">${esc(t("b.limit.now"))}</button>`
-    + (ahead ? `<button type="button" class="chip${s.resumeOnReset ? " on" : ""}" role="switch" aria-checked="${s.resumeOnReset ? "true" : "false"}" data-limit-auto title="${esc(t("b.limit.autoHint"))}">${esc(t("b.limit.auto"))}</button>` : "");
+    + (s.limitedUntil ? `<button type="button" class="chip${s.resumeOnReset ? " on" : ""}" role="switch" aria-checked="${s.resumeOnReset ? "true" : "false"}" data-limit-auto title="${esc(t("b.limit.autoHint"))}">${esc(t("b.limit.auto"))}</button>` : "");
 }
 // The same two buttons in a chat of the board: ?on=1 asks, ?on=0 takes it back.
 const limitAuto = (id, on) => fetch(`/api/resumeonreset?id=${encodeURIComponent(id)}&on=${on ? 1 : 0}`, { method: "POST" })

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
@@ -316,8 +318,8 @@ func TestResumeOnResetRoute(t *testing.T) {
 		json.NewDecoder(res.Body).Decode(&out)
 		return out
 	}
-	if out := post("/api/resumeonreset?id=chat-none&on=1"); out["ok"] != false || !strings.Contains(out["error"].(string), "not running") {
-		t.Fatalf("no agent: %v", out)
+	if out := post("/api/resumeonreset?id=chat-none&on=1"); out["ok"] != false || !strings.Contains(out["error"].(string), "no such chat") {
+		t.Fatalf("no chat: %v", out)
 	}
 	reset := time.Now().Add(time.Hour).Unix()
 	bin := filepath.Join(t.TempDir(), "claude")
@@ -356,5 +358,65 @@ sleep 30
 	}
 	if out := post("/api/resumeonreset?id=chat-l&on=0"); out["ok"] != true || snapshot().ResumeOnReset {
 		t.Fatalf("off: %v", out)
+	}
+	// A task cut before Mako restarted (no agent running): the choice is kept with it, and the chat shows the
+	// limit kept.
+	store.Update("grp/app#9", func(r *core.Record) { r.Status, r.LimitedUntil, r.ResumeAfterLimit = core.HandedOff, reset, true })
+	if out := post("/api/resumeonreset?id=" + url.QueryEscape("grp/app#9") + "&on=0"); out["ok"] != true {
+		t.Fatalf("no agent: %v", out)
+	}
+	if r, _ := store.Get("grp/app#9"); r.ResumeAfterLimit || r.LimitedUntil != reset {
+		t.Fatalf("kept %+v", r)
+	}
+	res, err := http.Get(srv.URL + "/api/chat?id=" + url.QueryEscape("grp/app#9"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap chat.Snapshot
+	json.NewDecoder(res.Body).Decode(&snap)
+	if snap.State != "limited" || snap.LimitedUntil != reset || snap.ResumeOnReset {
+		t.Fatalf("snapshot %+v", snap)
+	}
+}
+
+// A chat you stop (the question's «Зупинити», a free chat's or a task's interrupt) does not go on by itself after
+// the Claude limit: the limit kept for it is forgotten, and another chat's stays.
+func TestStopForgetsLimit(t *testing.T) {
+	stateDir := t.TempDir()
+	store, _ := state.Open(stateDir)
+	d := dispatch.New(&config.Config{StateDir: stateDir}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	post := func(path string) {
+		req, _ := http.NewRequest("POST", srv.URL+path, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+	}
+	until := time.Now().Add(-time.Minute).Unix()
+	for _, id := range []string{"grp/app#1", "grp/app#2"} {
+		store.Update(id, func(r *core.Record) { r.Status, r.LimitedUntil, r.ResumeAfterLimit = core.HandedOff, until, true })
+	}
+	post("/api/interrupt?id=" + url.QueryEscape("grp/app#1"))
+	if r, _ := store.Get("grp/app#1"); r.LimitedUntil != 0 || r.ResumeAfterLimit {
+		t.Fatalf("task interrupted, still kept: %+v", r)
+	}
+	if r, _ := store.Get("grp/app#2"); r.LimitedUntil != until {
+		t.Fatalf("another task lost its limit: %+v", r)
+	}
+	// A question and a free chat are kept in files of their own.
+	kept := func(file string) string { b, _ := os.ReadFile(filepath.Join(stateDir, file)); return string(b) }
+	entry := fmt.Sprintf(`[{"id": %%q, "limitedUntil": %d, "resumeAfterLimit": true}]`, until)
+	os.WriteFile(filepath.Join(stateDir, "questions.json"), []byte(fmt.Sprintf(entry, "ask-q")), 0o600)
+	os.WriteFile(filepath.Join(stateDir, "chats.json"), []byte(fmt.Sprintf(entry, "chat-f")), 0o600)
+	post("/api/code/stop?id=ask-q")
+	post("/api/interrupt?id=chat-f")
+	for _, f := range []string{"questions.json", "chats.json"} {
+		if strings.Contains(kept(f), "limitedUntil") {
+			t.Fatalf("%s: still goes on by itself after a stop: %s", f, kept(f))
+		}
 	}
 }
