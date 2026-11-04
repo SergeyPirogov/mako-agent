@@ -505,7 +505,7 @@ func (s *Server) Handler() http.Handler {
 			IDs     []string `json:"ids"`
 		}
 		if r.ContentLength != 0 {
-			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			if err := decodeJSON(r, 200<<10, &in); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": "bad request: " + err.Error()})
 				return
 			}
@@ -688,7 +688,10 @@ func (s *Server) Handler() http.Handler {
 				err = s.D.SwitchView(id, r.URL.Query().Get("to"), r.URL.Query().Get("now") == "1")
 			case action == "say":
 				// To a closed agent too: the message resumes its conversation.
-				body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
+				body, ok := readBody(w, r, 200<<10)
+				if !ok {
+					return
+				}
 				err = s.D.Say(id, strings.TrimSpace(string(body)))
 			case action == "plan":
 				do, o, perr := readPlan(r)
@@ -743,7 +746,10 @@ func (s *Server) Handler() http.Handler {
 			}
 		case "lesson":
 			// «Зберегти» (to the task's branch or the base one) or «Ні» for the lesson Mako offers; the body is the rule.
-			body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+			body, ok := readBody(w, r, 8<<10)
+			if !ok {
+				return
+			}
 			if err := s.D.SaveLesson(ctx, id, r.URL.Query().Get("to"), string(body)); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return

@@ -59,8 +59,8 @@ func skipsPushHook(command string) bool {
 const hooksSkipped = "Mako stopped the push: it skips the git hooks (--no-verify or core.hooksPath), and with them the check of the changes for secrets. " +
 	"Push without those, so that the hooks run; if a hook of the repository fails, fix the cause."
 
-// guardURL: where the task's agent asks before a Bash command; the token is new for each start of the agent.
-func (d *Dispatcher) guardURL(id string) string {
+// GuardURL: where the task's agent asks before a Bash command; the token is new for each start of the agent.
+func (d *Dispatcher) GuardURL(id string) string {
 	token := randomToken()
 	d.mu.Lock()
 	if d.guardTokens == nil {
@@ -142,6 +142,9 @@ func hookDecision(decision, reason string) map[string]any {
 		"permissionDecisionReason": reason,
 	}}
 }
+
+// HookDeny: the hook's output that stops the command with the reason.
+func HookDeny(reason string) map[string]any { return hookDecision("deny", reason) }
 
 // checkFailed: what the agent is told when the push could not be checked: it is not let through unchecked.
 func checkFailed(err error) string {

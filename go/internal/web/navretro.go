@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"io"
 	"net/http"
 )
 
@@ -26,7 +25,10 @@ func (s *Server) navRoutes(mux *http.ServeMux) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<10))
+		body, ok := readBody(w, r, 8<<10)
+		if !ok {
+			return
+		}
 		q := r.URL.Query()
 		if err := s.D.SaveNavRule(context.WithoutCancel(r.Context()), q.Get("key"), q.Get("id"), string(body)); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

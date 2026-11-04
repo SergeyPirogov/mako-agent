@@ -1,7 +1,9 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -113,7 +115,10 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 	switch action {
 	case "say":
 		// To a closed agent too: the message resumes its conversation.
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 200<<10))
+		body, ok := readBody(w, r, 200<<10)
+		if !ok {
+			return
+		}
 		err = s.D.SayFree(id, strings.TrimSpace(string(body)))
 	case "resume":
 		err = s.D.ResumeFree(id)
@@ -165,10 +170,35 @@ func readPlan(r *http.Request) (string, dispatch.PlanApproval, error) {
 // decodeJSON reads the body's JSON (at most limit bytes) into v; an empty body leaves v as it is. The error says
 // the body could not be read, for {ok:false, error}.
 func decodeJSON(r *http.Request, limit int64, v any) error {
-	if err := json.NewDecoder(io.LimitReader(r.Body, limit)).Decode(v); err != nil && err != io.EOF {
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil {
+		return fmt.Errorf("could not read the request: %w", err)
+	}
+	if int64(len(body)) > limit {
+		return errors.New(errTooLong)
+	}
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(v); err != nil && err != io.EOF {
 		return fmt.Errorf("could not read the request: %w", err)
 	}
 	return nil
+}
+
+// errTooLong is the answer to a body over its route's limit: it is refused, never cut and passed on.
+const errTooLong = "too long"
+
+// readBody reads the request's body, at most max bytes. A longer one is not cut: it answers {ok:false, error:"too
+// long"} and reports false, so the caller just returns.
+func readBody(w http.ResponseWriter, r *http.Request, max int64) ([]byte, bool) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, max+1))
+	switch {
+	case err != nil:
+		writeJSON(w, map[string]any{"ok": false, "error": "could not read the request: " + err.Error()})
+	case int64(len(body)) > max:
+		writeJSON(w, map[string]any{"ok": false, "error": errTooLong})
+	default:
+		return body, true
+	}
+	return nil, false
 }
 
 // controlChat: the running agent's controls in its chat — an answer to its question, an option of one, the mode,

@@ -151,7 +151,10 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+		body, ok := readBody(w, r, 4096)
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 		defer cancel()
 		if err := s.D.AnswerRepoLesson(ctx, r.URL.Query().Get("id"), r.URL.Query().Get("to"), string(body)); err != nil {
