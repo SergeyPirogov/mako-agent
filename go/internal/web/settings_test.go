@@ -233,3 +233,27 @@ func TestSettingsFirstRunOrder(t *testing.T) {
 		t.Fatalf("order in the add pane: title %d, tiles %d, language %d", title, tiles, lang)
 	}
 }
+
+// An offered lesson's rule is shown whole, in a multi-line field (not a text input that cuts a long rule), and
+// «Save to CLAUDE.md» sends what that field holds. The settings have no script tests, so this checks the page's source.
+func TestLessonRuleIsTextarea(t *testing.T) {
+	page := string(settingsPage)
+	start := strings.Index(page, `class="lesson-offer"`)
+	if start < 0 {
+		t.Fatal("no offered lesson in settings.html")
+	}
+	offer := page[start:]
+	offer = offer[:strings.Index(offer, `data-answer="base"`)]
+	if !strings.Contains(offer, `<textarea rows="3" aria-label=`) || !strings.Contains(offer, `>${esc(l.rule)}</textarea>`) {
+		t.Errorf("the lesson's rule is not a three-row textarea: %s", offer)
+	}
+	if strings.Contains(offer, `<input`) {
+		t.Error("the lesson's rule is still in an input")
+	}
+	if !strings.Contains(page, `box.querySelector("textarea").value`) || strings.Contains(page, `box.querySelector("input")`) {
+		t.Error("«Save to CLAUDE.md» does not read the rule from the textarea")
+	}
+	if !strings.Contains(page, ".lesson-offer textarea { min-height: 0;") {
+		t.Error("the lesson's textarea does not reset the global textarea's min-height")
+	}
+}
