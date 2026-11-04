@@ -153,7 +153,11 @@ func (d *Dispatcher) syncSelf(ctx context.Context, id string) {
 
 // syncSelfNow: a tick on the board goes to the MR at once, in the background.
 func (d *Dispatcher) syncSelfNow(id string) {
-	go d.syncSelf(context.Background(), id)
+	d.selfWG.Add(1)
+	go func() {
+		defer d.selfWG.Done()
+		d.syncSelf(context.Background(), id)
+	}()
 }
 
 // syncSelfList brings the MR's task list and the board's ticks of the task together.

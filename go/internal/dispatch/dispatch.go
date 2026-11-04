@@ -106,6 +106,8 @@ type Dispatcher struct {
 	// selfSynced: when each task's MR task list was last synced; selfSyncing: the ones syncing now.
 	selfSynced  map[string]time.Time
 	selfSyncing map[string]bool
+	// selfWG: the syncs a tick on the board started in the background (syncSelfNow); a test waits for them.
+	selfWG sync.WaitGroup
 	// fixing: when «Виправити» handed each task's remarks to its agent, whose report Mako waits for; replying:
 	// the tasks whose report is being read.
 	fixing   map[string]time.Time

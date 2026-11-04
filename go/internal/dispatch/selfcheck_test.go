@@ -32,6 +32,8 @@ func selfSetup(t *testing.T, steps []core.CheckStep, prep ...func(*config.Config
 		r.Assessment = &core.Assessment{At: now(), State: "done", Review: &core.ReviewAdvice{Need: false, Steps: steps}}
 	})
 	d.reviews = map[string]reviewLook{id: {at: time.Now(), check: &trackers.ReviewCheck{State: "open", CI: "success", Mergeable: true}}}
+	// A tick syncs the MR's task list in the background: it ends before the test's folders are removed.
+	t.Cleanup(d.selfWG.Wait)
 	return d, cfg, id, wt, f
 }
 
