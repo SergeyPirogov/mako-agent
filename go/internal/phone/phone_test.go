@@ -92,6 +92,8 @@ func TestPush(t *testing.T) {
 // A phone re-subscribing (or dropping its subscription) while pushes go out must not race with them: Push works
 // on a snapshot of the subscription taken under the lock (go test -race).
 func TestPushBesideSubscribeDoesNotRace(t *testing.T) {
+	// Every Subscribe is written to disk and synced, so a few dozen rounds are enough for the two sides to overlap.
+	const rounds = 40
 	p, _ := Open(t.TempDir())
 	a, _ := p.Pair(p.NewPairing(), "iPhone", "")
 	p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/first"})
@@ -104,12 +106,12 @@ func TestPushBesideSubscribeDoesNotRace(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 300; i++ {
+		for i := 0; i < rounds; i++ {
 			p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/second"})
 			p.Subscribe(a.Token, nil)
 		}
 	}()
-	for i := 0; i < 300; i++ {
+	for i := 0; i < rounds; i++ {
 		p.Push(context.Background(), Message{Title: "x"})
 		p.Subscribe(a.Token, &webpush.Subscription{Endpoint: "https://web.push.apple.com/third"})
 	}

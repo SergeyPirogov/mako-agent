@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -74,6 +75,79 @@ func TestSaveEnv(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(home, ".env"))
 	if string(data) != "# tokens\nGITLAB_TOKEN=new\nJIRA_EMAIL=a@b\n" {
 		t.Fatalf("%q", data)
+	}
+}
+
+// A .env left 0644 (by hand, by an older Mako) is 0600 after the save: it holds the tokens.
+func TestSaveEnvTightensRights(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".env")
+	os.WriteFile(path, []byte("GITHUB_TOKEN=abc\n"), 0o644)
+	if err := SaveEnv(home, map[string]string{"GITLAB_TOKEN": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := os.Stat(path)
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf(".env mode = %o, want 600", perm)
+	}
+}
+
+// What SaveEnv writes is read back as it was typed: spaces, #, quotes and backslashes included.
+func TestSaveEnvRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	values := map[string]string{
+		"SPACES": "a b  c", "HASH": "x#y", "DOUBLE": `say "hi"`, "SINGLE": "it's", "QUOTED": `"q"`,
+		"SLASH": `back\slash\`, "LEAD": "  lead", "PLAIN": "glpat-abc_123.x/y:z@h+=,", "EQ": "a=b",
+	}
+	if err := SaveEnv(home, values); err != nil {
+		t.Fatal(err)
+	}
+	got := readEnv(filepath.Join(home, ".env"))
+	for k, v := range values {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	data, _ := os.ReadFile(filepath.Join(home, ".env"))
+	if !strings.Contains(string(data), "PLAIN=glpat-abc_123.x/y:z@h+=,\n") {
+		t.Fatalf("a plain value got quoted:\n%s", data)
+	}
+	// Saved again over itself, nothing changes.
+	if err := SaveEnv(home, map[string]string{"SPACES": values["SPACES"]}); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(filepath.Join(home, ".env")); string(again) != string(data) {
+		t.Fatalf("changed on a second save:\n%s\n---\n%s", data, again)
+	}
+}
+
+// A value on several lines would break the file: it is refused and .env stays as it was.
+func TestSaveEnvRefusesNewlines(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".env")
+	os.WriteFile(path, []byte("GITHUB_TOKEN=abc\n"), 0o600)
+	for _, v := range []string{"a\nINJECTED=1", "a\rb"} {
+		if err := SaveEnv(home, map[string]string{"GITHUB_TOKEN": v}); err == nil || !strings.Contains(err.Error(), "GITHUB_TOKEN") {
+			t.Fatalf("%q: err = %v", v, err)
+		}
+	}
+	if data, _ := os.ReadFile(path); string(data) != "GITHUB_TOKEN=abc\n" {
+		t.Fatalf(".env = %q", data)
+	}
+}
+
+// A .env written by hand reads as before: quotes around a value are taken off, the rest as it stands.
+func TestReadEnvByHand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	os.WriteFile(path, []byte("# tokens\nA=v\nB=\"v\"\nC='v'\n D = v \nE=C:\\path\nnot a pair\n"), 0o600)
+	got := readEnv(path)
+	for _, k := range []string{"A", "B", "C", "D"} {
+		if got[k] != "v" {
+			t.Errorf("%s = %q, want v", k, got[k])
+		}
+	}
+	if got["E"] != `C:\path` || len(got) != 5 {
+		t.Fatalf("%v", got)
 	}
 }
 

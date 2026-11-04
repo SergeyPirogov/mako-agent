@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 )
 
 // LatestReleaseAPI: Mako's latest release on GitHub, read without a token.
@@ -190,7 +192,7 @@ func (r *Releases) Dismiss(version string) error {
 	if err := os.MkdirAll(filepath.Dir(r.File), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(r.File, b, 0o600)
+	return fsx.WriteFile(r.File, b, 0o600)
 }
 
 // load reads the hidden version once; r.mu is held.

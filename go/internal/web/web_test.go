@@ -209,6 +209,13 @@ func TestSettingsSaveReloads(t *testing.T) {
 	if r := post(`{"config":{"trackers":[{"type":"svn"}]}}`); r["ok"] != false {
 		t.Fatalf("bad config saved: %v", r)
 	}
+	// A token on two lines would break .env: refused before mako.config.json is written.
+	if r := post(`{"config":{"wipLimit":3},"env":{"GITHUB_TOKEN":"a\nB=1"}}`); r["ok"] != false || !strings.Contains(r["error"].(string), "GITHUB_TOKEN") {
+		t.Fatalf("a token on two lines saved: %v", r)
+	}
+	if _, err := os.Stat(filepath.Join(home, "mako.config.json")); err == nil {
+		t.Fatal("mako.config.json written for a refused save")
+	}
 	r := post(`{"config":{"wipLimit":2,"keepMe":{"x":1},"trackers":[{"type":"github","allProjects":true}]},"env":{"GITHUB_TOKEN":"tok"}}`)
 	if r["ok"] != true {
 		t.Fatalf("save: %v", r)

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/desktop"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
@@ -65,6 +67,41 @@ func main() {
 	}
 }
 
+// maxLog: past it mako.log goes to mako.log.1 at the start.
+const maxLog = 10 << 20
+
+// lockState takes the lock of the state folder for as long as Mako runs.
+func lockState(dir string) (release func(), err error) {
+	release, err = fsx.Lock(filepath.Join(dir, "lock"))
+	if errors.Is(err, fsx.ErrLocked) {
+		return nil, fmt.Errorf("another Mako already uses %s", dir)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", filepath.Join(dir, "lock"), err)
+	}
+	return release, nil
+}
+
+// showExisting: Mako is already running at addr, so its board is shown (in its window) instead of starting a
+// second one. false when nothing answers there.
+func showExisting(addr string) bool {
+	if !running("http://" + addr) {
+		return false
+	}
+	if !showRunning("http://" + addr) {
+		notify.Open("http://" + addr)
+	}
+	return true
+}
+
+// reportBrokenState puts a state.json that could not be read among Mako's errors, so it is seen on the board
+// and not only in the log.
+func reportBrokenState(d *dispatch.Dispatcher, store *state.Store) {
+	if store.Broken != "" {
+		d.Fault("mako", "state.json broken", fmt.Errorf("it could not be read and is kept as %s; Mako started with an empty board", store.Broken))
+	}
+}
+
 func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	desktop.FixPath()
 	home := findHome(homeFlag)
@@ -83,8 +120,23 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
 		return err
 	}
-	// Started from Finder nobody sees stderr: the log goes to a file too.
-	if f, err := os.OpenFile(filepath.Join(cfg.StateDir, "mako.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
+	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Notifications.Port)
+	// One Mako per state folder: a second one (on another port too) would write over the same state.json and
+	// rotate the first one's log. Taken before anything in the folder is touched.
+	release, err := lockState(cfg.StateDir)
+	if err != nil {
+		if !readonly && showExisting(addr) {
+			return nil
+		}
+		return err
+	}
+	defer release()
+	// Started from Finder nobody sees stderr: the log goes to a file too, the older part of a big one to mako.log.1.
+	logFile := filepath.Join(cfg.StateDir, "mako.log")
+	if err := fsx.Rotate(logFile, maxLog); err != nil {
+		fmt.Fprintln(os.Stderr, "mako: mako.log not rotated:", err)
+	}
+	if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil {
 		defer f.Close()
 		log.SetOutput(io.MultiWriter(os.Stderr, f))
 	}
@@ -93,14 +145,9 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 	}
 	notify.Enabled = cfg.Notifications.Enabled
 
-	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Notifications.Port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		// Mako is already running: show its board (in its window) instead of starting a second one.
-		if !readonly && running("http://"+addr) {
-			if !showRunning("http://" + addr) {
-				notify.Open("http://" + addr)
-			}
+		if !readonly && showExisting(addr) {
 			return nil
 		}
 		return fmt.Errorf("port %d is busy: %w", cfg.Notifications.Port, err)
@@ -110,6 +157,7 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 		return fmt.Errorf("state.json: %w", err)
 	}
 	d := dispatch.New(cfg, store, ts)
+	reportBrokenState(d, store)
 	d.Problems = problems
 	d.Version = version
 	d.BoardURL = "http://" + ln.Addr().String()

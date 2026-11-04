@@ -2,12 +2,14 @@ package state
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 )
 
 // ReviewRequests keeps the merge requests waiting for my review in review-requests.json, apart from the
@@ -16,6 +18,8 @@ type ReviewRequests struct {
 	mu   sync.Mutex
 	file string
 	list map[string]*core.ReviewRequest
+	// OnSaveError hears that a change stayed in memory only; it is called outside the lock.
+	OnSaveError func(error)
 }
 
 func OpenReviewRequests(dir string) (*ReviewRequests, error) {
@@ -27,7 +31,11 @@ func OpenReviewRequests(dir string) (*ReviewRequests, error) {
 		if err := json.Unmarshal(data, &s.list); err != nil {
 			// A broken file must not turn the feature off: it is kept aside and the list starts anew (the
 			// next search fills it again).
-			_ = os.Rename(s.file, s.file+".broken")
+			if to, rerr := keepAside(s.file); rerr != nil {
+				log.Printf("review-requests.json: cannot be read (%v) nor kept aside: %v", err, rerr)
+			} else {
+				log.Printf("review-requests.json: cannot be read (%v): kept as %s", err, to)
+			}
 			s.list = map[string]*core.ReviewRequest{}
 		}
 	}
@@ -60,6 +68,12 @@ func (s *ReviewRequests) All() []core.ReviewRequest {
 
 // Update changes (or makes) the request under the lock and saves.
 func (s *ReviewRequests) Update(id string, change func(r *core.ReviewRequest)) core.ReviewRequest {
+	out, err := s.update(id, change)
+	s.saveFailed(err)
+	return out
+}
+
+func (s *ReviewRequests) update(id string, change func(r *core.ReviewRequest)) (core.ReviewRequest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.list[id]
@@ -69,16 +83,27 @@ func (s *ReviewRequests) Update(id string, change func(r *core.ReviewRequest)) c
 	}
 	change(r)
 	r.ID = id
-	_ = s.saveLocked()
-	return *r
+	return *r, s.saveLocked()
 }
 
 func (s *ReviewRequests) Delete(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var err error
 	if _, ok := s.list[id]; ok {
 		delete(s.list, id)
-		_ = s.saveLocked()
+		err = s.saveLocked()
+	}
+	s.mu.Unlock()
+	s.saveFailed(err)
+}
+
+func (s *ReviewRequests) saveFailed(err error) {
+	if err == nil {
+		return
+	}
+	log.Printf("review-requests.json: not saved: %v", err)
+	if s.OnSaveError != nil {
+		s.OnSaveError(err)
 	}
 }
 
@@ -87,9 +112,5 @@ func (s *ReviewRequests) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := s.file + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.file)
+	return fsx.WriteFile(s.file, data, 0o600)
 }

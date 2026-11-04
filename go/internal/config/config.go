@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 )
 
@@ -280,8 +281,23 @@ func Load(home string) (*Config, error) {
 	return c, err
 }
 
-// SaveEnv sets keys in home/.env, keeping its other lines; an empty value removes the key.
+// CheckEnv refuses what .env cannot hold: a value on more than one line.
+func CheckEnv(updates map[string]string) error {
+	keys := slices.Sorted(maps.Keys(updates))
+	for _, k := range keys {
+		if strings.ContainsAny(updates[k], "\r\n") {
+			return fmt.Errorf("%s: a value cannot span lines", k)
+		}
+	}
+	return nil
+}
+
+// SaveEnv sets keys in home/.env, keeping its other lines; an empty value removes the key. The file is replaced
+// at once and only its owner may read it, as it holds the tokens.
 func SaveEnv(home string, updates map[string]string) error {
+	if err := CheckEnv(updates); err != nil {
+		return err
+	}
 	path := filepath.Join(home, ".env")
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -297,7 +313,7 @@ func SaveEnv(home string, updates map[string]string) error {
 			if v == "" {
 				continue
 			}
-			line = k + "=" + v
+			line = k + "=" + encodeEnv(v)
 		}
 		if line != "" || len(lines) > 0 {
 			lines = append(lines, line)
@@ -310,10 +326,34 @@ func SaveEnv(home string, updates map[string]string) error {
 	sort.Strings(keys)
 	for _, k := range keys {
 		if !done[k] && updates[k] != "" {
-			lines = append(lines, k+"="+updates[k])
+			lines = append(lines, k+"="+encodeEnv(updates[k]))
 		}
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+	return fsx.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+}
+
+var plainEnv = regexp.MustCompile(`^[A-Za-z0-9_./:@+=,-]*$`)
+
+// encodeEnv writes a value so that readEnv gives it back as it was: a plain one as it is, any other (spaces, #,
+// quotes) in double quotes with \ and " escaped.
+func encodeEnv(v string) string {
+	if plainEnv.MatchString(v) {
+		return v
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`
+}
+
+// decodeEnv reads a value as encodeEnv writes it; a value in single quotes is taken as it is between them, one
+// without quotes as it stands.
+func decodeEnv(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		return strings.NewReplacer(`\\`, `\`, `\"`, `"`).Replace(v[1 : len(v)-1])
+	}
+	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
+		return v[1 : len(v)-1]
+	}
+	return v
 }
 
 // Parse turns the raw config into what the dispatcher needs and fills the defaults.
@@ -581,7 +621,7 @@ func readEnv(path string) map[string]string {
 		if !ok {
 			continue
 		}
-		env[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+		env[strings.TrimSpace(k)] = decodeEnv(v)
 	}
 	return env
 }

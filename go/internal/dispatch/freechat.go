@@ -19,6 +19,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
@@ -77,7 +78,7 @@ func (d *Dispatcher) updateChats(f func([]FreeChat) []FreeChat) error {
 	all := f(d.readChats())
 	b, _ := json.MarshalIndent(all, "", "  ")
 	os.MkdirAll(filepath.Dir(d.chatsFile()), 0o755)
-	return os.WriteFile(d.chatsFile(), b, 0o600)
+	return fsx.WriteFile(d.chatsFile(), b, 0o600)
 }
 
 // FreeChats: the chats without a task, the latest first.

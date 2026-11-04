@@ -19,6 +19,8 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/proc"
 	"github.com/creack/pty"
+
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 )
 
 // What a terminal keeps for a viewer who comes later: the last 2 MB of output.
@@ -523,7 +525,7 @@ func (m *Manager) writeSettings(name string, settings map[string]any) (string, e
 		return "", err
 	}
 	file := filepath.Join(m.Dir, safeName.ReplaceAllString(name, "_"))
-	return file, os.WriteFile(file, b, 0o600)
+	return file, fsx.WriteFile(file, b, 0o600)
 }
 
 var safeName = regexp.MustCompile(`[^\w.-]`)

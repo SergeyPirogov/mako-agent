@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 )
@@ -47,8 +49,8 @@ func (a *absence) save() {
 		return
 	}
 	data, _ := json.Marshal(a)
-	if os.WriteFile(a.file+".tmp", data, 0o600) == nil {
-		_ = os.Rename(a.file+".tmp", a.file)
+	if err := fsx.WriteFile(a.file, data, 0o600); err != nil {
+		log.Printf("%s: not saved: %v", filepath.Base(a.file), err)
 	}
 }
 
