@@ -1034,8 +1034,9 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 	}
 }
 
-// Open PR / Open MR in the task card's header is a secondary outline button with the host's logo (#586),
-// the same in every state; the page has no script tests, so this holds the source.
+// Open PR / Open MR in the task card's header is a secondary square outline button with only the host's logo
+// (#586, #631), the same in every state; the name is in the title and aria-label. The page has no script
+// tests, so this holds the source.
 func TestBoardOpenMRButtonSecondary(t *testing.T) {
 	src := string(board)
 	i := strings.Index(src, "const openMR = ")
@@ -1047,9 +1048,11 @@ func TestBoardOpenMRButtonSecondary(t *testing.T) {
 	for _, want := range []string{
 		`r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : ""`,
 		`TRACKER_ICON[host]`,
-		`title="Open on ${host}"`,
-		`class="btn open-mr"`,
-		`${ICON.external}</a>`,
+		`: ICON.external`,
+		`class="btn open-mr icon-only"`,
+		`title="${label}"`,
+		`aria-label="${label}"`,
+		`on ${host}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("openMR is missing %q", want)
@@ -1058,14 +1061,18 @@ func TestBoardOpenMRButtonSecondary(t *testing.T) {
 	if strings.Contains(body, "primary") {
 		t.Error("openMR is a primary button again")
 	}
+	if strings.Contains(body, ">Open ${") || strings.Contains(body, "${ICON.external}</a>") {
+		t.Error("openMR has visible text or the arrow again: it is only the logo")
+	}
 	if strings.Contains(src, `openMR(r, "primary")`) {
 		t.Error("a state of the header still asks for a primary Open MR")
 	}
 	css := string(style)
 	for _, want := range []string{
-		".d-head .actions > a.btn.open-mr { gap: 4px; }",
+		".d-head .actions > a.btn.open-mr { width: 32px; padding: 0; justify-content: center; }",
 		".d-head .actions > a.btn svg { flex: none; vertical-align: -3px; }",
-		"color: var(--mute)",
+		".d-head .actions > a.btn.open-mr > svg { width: 16px; height: 16px; }",
+		"details.more > summary.icon, .d-head .actions > a.btn.open-mr { width: 44px; }",
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("style.css is missing %q", want)

@@ -3737,11 +3737,13 @@ function metaLine(r) {
   return parts.length ? `<div class="d-meta">${parts.join(`<i>·</i>`)}</div>` : "";
 }
 
-// A secondary button in every state (the fix is in the blockers' block): the host's logo before the text, ↗ after it.
+// A secondary square button in every state (the fix is in the blockers' block): only the host's logo (↗ when the host is
+// unknown); the name of the PR/MR is in the tooltip and the aria-label.
 const openMR = (r) => {
   if (!r.prUrl) return "";
   const host = r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : "";
-  return `<a class="btn open-mr" href="${esc(r.prUrl)}" target="_blank" rel="noopener"${host ? ` title="Open on ${host}"` : ""}>${host ? TRACKER_ICON[host] : ""}Open ${esc(mrName(r.prUrl))}${ICON.external}</a>`;
+  const label = esc(`Open ${mrName(r.prUrl)}${host ? ` on ${host}` : ""}`);
+  return `<a class="btn open-mr icon-only" href="${esc(r.prUrl)}" target="_blank" rel="noopener" title="${label}" aria-label="${label}">${host ? TRACKER_ICON[host] : ICON.external}</a>`;
 };
 // The main action, as a button the card's handlers already know (data-a, data-merge), and the one next
 // to it when the state has a pair (Start + Snooze, Merge + Open MR).
