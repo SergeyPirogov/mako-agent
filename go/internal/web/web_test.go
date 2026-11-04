@@ -1314,3 +1314,15 @@ func TestResumeWithoutWorktreeIsReported(t *testing.T) {
 	}
 
 }
+
+// The browser fetches the manifest without credentials unless the link asks for them; without the device
+// cookie start_url would always be "/" and the installed app would open signed out.
+func TestBoardManifestLinkSendsCredentials(t *testing.T) {
+	page, err := os.ReadFile("board.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), `<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">`) {
+		t.Fatal(`board.html: <link rel="manifest"> needs crossorigin="use-credentials"`)
+	}
+}
