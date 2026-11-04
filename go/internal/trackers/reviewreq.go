@@ -344,6 +344,21 @@ func (g *GitHub) checkRuns(ctx context.Context, repo, sha string) (string, []Job
 			break
 		}
 	}
+	// A check run again on the same commit (a pull request's description edited, a job re-run) is a new run of the
+	// same name: only the latest says what the check is now, an older failure of it is over.
+	latest := map[string]int{}
+	kept := runs[:0]
+	for _, r := range runs {
+		if i, ok := latest[r.Name]; ok {
+			if r.ID > kept[i].ID {
+				kept[i] = r
+			}
+			continue
+		}
+		latest[r.Name] = len(kept)
+		kept = append(kept, r)
+	}
+	runs = kept
 	// The combined status: the last status of each context.
 	var status struct {
 		Statuses []struct {
