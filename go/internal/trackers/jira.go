@@ -85,15 +85,11 @@ type jiraIssue struct {
 		Assignee *struct {
 			AccountID string `json:"accountId"`
 		} `json:"assignee"`
-		Reporter *struct {
-			DisplayName string `json:"displayName"`
-		} `json:"reporter"`
-		Comment struct {
+		Reporter *jiraUser `json:"reporter"`
+		Comment  struct {
 			Comments []struct {
 				Body   json.RawMessage `json:"body"`
-				Author struct {
-					DisplayName string `json:"displayName"`
-				} `json:"author"`
+				Author jiraUser        `json:"author"`
 			} `json:"comments"`
 		} `json:"comment"`
 		Status struct {
@@ -102,6 +98,20 @@ type jiraIssue struct {
 			} `json:"statusCategory"`
 		} `json:"status"`
 	} `json:"fields"`
+}
+
+// jiraUser: an issue's reporter or a comment's author.
+type jiraUser struct {
+	AccountID   string `json:"accountId"`
+	DisplayName string `json:"displayName"`
+	// AccountType: "atlassian" for the site's own users; "customer" for a service desk's portal customers, "app".
+	AccountType string `json:"accountType"`
+}
+
+// member: the user is the project's: me, the issue's assignee, or one of the site's own users; a service desk's
+// customer or an app is an outsider.
+func (u *jiraUser) member(me string, assignees []string) bool {
+	return byProject(u.AccountID, me, assignees) || u.AccountType == "atlassian"
 }
 
 func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, error) {
@@ -129,14 +139,16 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 		for _, c := range is.Fields.Components {
 			t.Components = append(t.Components, c.Name)
 		}
-		for _, c := range is.Fields.Comment.Comments {
-			t.Comments = append(t.Comments, core.Comment{Author: c.Author.DisplayName, Body: strings.TrimSpace(adfToText(c.Body))})
-		}
 		if is.Fields.Assignee != nil {
 			t.Assignees = []string{is.Fields.Assignee.AccountID}
 		}
+		me, _ := j.Me(ctx)
 		if is.Fields.Reporter != nil {
 			t.Author = is.Fields.Reporter.DisplayName
+			t.AuthorMember = is.Fields.Reporter.member(me, t.Assignees)
+		}
+		for _, c := range is.Fields.Comment.Comments {
+			t.Comments = append(t.Comments, core.Comment{Author: c.Author.DisplayName, Body: strings.TrimSpace(adfToText(c.Body)), Member: c.Author.member(me, t.Assignees)})
 		}
 		tasks = append(tasks, t)
 	}

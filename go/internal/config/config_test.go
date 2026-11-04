@@ -314,6 +314,28 @@ func TestChecks(t *testing.T) {
 	}
 }
 
+// Unattended (AutoTake, AutoFix) the agent edits without asking but asks before running commands, unless the
+// settings choose the mode themselves (#494).
+func TestDefaultPermissionMode(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{}`: "auto",
+		`{"executors":{"t":{"type":"terminal"}}}`:                                                              "auto",
+		`{"notifications":{"autoTake":true}}`:                                                                  "acceptEdits",
+		`{"notifications":{"autoTake":true},"executors":{"t":{"type":"terminal"}}}`:                            "acceptEdits",
+		`{"executors":{"t":{"type":"terminal","autoFix":true}}}`:                                               "acceptEdits",
+		`{"executors":{"t":{"type":"terminal","autoFix":true,"permissionMode":"auto"}}}`:                       "auto",
+		`{"notifications":{"autoTake":true},"executors":{"t":{"type":"terminal","permissionMode":"default"}}}`: "default",
+	} {
+		c, err := Parse([]byte(raw), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Terminal.PermissionMode != want {
+			t.Errorf("%s: %q, want %q", raw, c.Terminal.PermissionMode, want)
+		}
+	}
+}
+
 func TestParseAutoTakeOnly(t *testing.T) {
 	for in, want := range map[string]string{"": AutoTakeAll, "all": AutoTakeAll, "smallClear": AutoTakeSmallClear, "small": AutoTakeSmall, "big": AutoTakeAll} {
 		if c, _ := Parse([]byte(`{"notifications":{"autoTake":true,"autoTakeOnly":"`+in+`"}}`), nil); c.Notifications.AutoTakeOnly != want || !c.Notifications.AutoTake {

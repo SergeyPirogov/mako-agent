@@ -97,11 +97,7 @@ func (d *Dispatcher) AskAgent(ctx context.Context, id, kind string) error {
 	if kind == "comments" {
 		// The reviewers' words, without Mako's request around them; the MR is the one request just read.
 		if c, _ := d.Review(ctx, id); c != nil {
-			var said []string
-			for _, t := range c.Threads {
-				said = append(said, strings.TrimSpace(t.Body))
-			}
-			go d.suggestLesson(id, strings.Join(said, "\n\n"))
+			go d.suggestLesson(id, reviewersSaid(c.Threads))
 		}
 	}
 	d.asked(id, kind)
@@ -222,28 +218,40 @@ func (d *Dispatcher) ciRequest(ctx context.Context, id, url string, c *trackers.
 		return "", err
 	}
 	var b strings.Builder
-	b.WriteString(i18n.TA("agent.ci", url) + "\n")
+	b.WriteString(i18n.TA("agent.ci", url) + "\n" + i18n.TA("agent.untrusted") + "\n")
 	for i, j := range c.Failed {
 		b.WriteString("\n" + i18n.TA("agent.ciJob", j.Name, j.URL) + "\n")
 		if i >= 2 {
 			continue // the first ones' logs are enough to start with
 		}
 		if log, err := desk.JobLog(ctx, url, j, 60); err == nil && log != "" {
-			b.WriteString(i18n.TA("agent.ciLog") + "\n```\n" + log + "\n```\n")
+			b.WriteString(i18n.TA("agent.ciLog") + "\n" + core.Untrusted("CI job log "+j.Name, false, log) + "\n")
 		}
 	}
 	return b.String(), nil
 }
 
+// reviewersSaid: what the project's people said in the MR's threads, for a lesson; an outsider's comment is no
+// rule for the repo's next agents.
+func reviewersSaid(threads []trackers.Thread) string {
+	var said []string
+	for _, t := range threads {
+		if t.Member {
+			said = append(said, strings.TrimSpace(t.Body))
+		}
+	}
+	return strings.Join(said, "\n\n")
+}
+
 func commentsRequest(url, branch string, threads []trackers.Thread) string {
 	var b strings.Builder
-	b.WriteString(i18n.TA("agent.comments", url, branch) + "\n")
+	b.WriteString(i18n.TA("agent.comments", url, branch) + "\n" + i18n.TA("agent.untrusted") + "\n")
 	for i, t := range threads {
 		where := ""
 		if t.Path != "" {
 			where = fmt.Sprintf(" (%s:%d)", t.Path, t.Line)
 		}
-		fmt.Fprintf(&b, "\n%d. %s%s: %s\n", i+1, t.Author, where, strings.TrimSpace(t.Body))
+		fmt.Fprintf(&b, "\n%d. %s\n", i+1, core.Untrusted("review comment by "+t.Author+where, !t.Member, t.Body))
 	}
 	return b.String()
 }

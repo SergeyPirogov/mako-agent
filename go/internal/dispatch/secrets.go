@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
@@ -57,15 +58,48 @@ func (d *Dispatcher) GuardPush(ctx context.Context, id string, hook []byte) map[
 	found, err := d.CheckSecrets(ctx, id)
 	if err != nil {
 		d.Log(id, "the secrets check failed, push not stopped: "+err.Error())
-		return nil
 	}
-	if len(found) == 0 {
-		return nil
+	if len(found) > 0 {
+		return hookDecision("deny", secretsRequest(found))
 	}
+	// Unattended (AutoTake, AutoFix): what a task's text or an MR's comment talked the agent into stays on this
+	// machine until you let it out.
+	if unattended(d.Config()) {
+		return hookDecision("ask", unattendedPush)
+	}
+	return nil
+}
+
+// unattended: tasks go to work (AutoTake) or MRs get fixed (AutoFix) with nobody looking.
+func unattended(cfg *config.Config) bool { return cfg.Notifications.AutoTake || cfg.Terminal.AutoFix }
+
+// orcaFor: the Orca settings a task's agent in Orca starts with. With AutoTake it only commits and you open the MR
+// from Orca (MRBy "me"): Orca starts Claude with its own settings, so Mako's guard cannot ask you before it pushes.
+func orcaFor(cfg *config.Config) config.Orca {
+	o := cfg.Orca
+	if cfg.Notifications.AutoTake {
+		o.MRBy = "me"
+	}
+	return o
+}
+
+// mrBy: who opens the task's MR, "agent" or "me" (see orcaFor).
+func (d *Dispatcher) mrBy(r core.Record) string {
+	if onTerminal(r) {
+		return d.Config().Orca.MRBy
+	}
+	return orcaFor(d.Config()).MRBy
+}
+
+// unattendedPush: why the guard asks you about a push or a new MR while tasks go to work by themselves.
+const unattendedPush = "Mako asks a human to confirm pushes and new merge requests while tasks are taken (AutoTake) or MRs are fixed (AutoFix) automatically."
+
+// hookDecision: Claude Code's PreToolUse hook output with the decision ("deny", "ask") and its reason.
+func hookDecision(decision, reason string) map[string]any {
 	return map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName":            "PreToolUse",
-		"permissionDecision":       "deny",
-		"permissionDecisionReason": secretsRequest(found),
+		"permissionDecision":       decision,
+		"permissionDecisionReason": reason,
 	}}
 }
 

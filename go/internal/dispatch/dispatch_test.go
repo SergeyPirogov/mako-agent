@@ -38,6 +38,7 @@ type fakeGitLab struct {
 	assigned  []any
 	unindexed map[int]bool // open, but the search does not find them yet
 	base      string
+	trace     string // every CI job's log
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +52,8 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(map[string]any{"id": 7, "username": "serg"})
 	case p == "/api/v4/merge_requests": // MRs to review: none
 		reply([]any{})
+	case strings.HasPrefix(p, "/api/v4/projects/grp/app/jobs/") && strings.HasSuffix(p, "/trace"):
+		w.Write([]byte(f.trace))
 	case p == "/api/graphql":
 		var q struct {
 			Query     string         `json:"query"`

@@ -404,7 +404,7 @@ func (d *Dispatcher) lookBranch(r core.Record) (string, bool) {
 }
 
 // pushes: the branch must be pushed to be ready: the agent opens the MR, or there is one.
-func (d *Dispatcher) pushes(r core.Record) bool { return d.Config().Orca.MRBy != "me" || r.PRURL != "" }
+func (d *Dispatcher) pushes(r core.Record) bool { return d.mrBy(r) != "me" || r.PRURL != "" }
 
 // setReview puts the round in the task's record: in place of its «running» or «skipped» one, or of one that
 // failed on the same commit, or as a new one.

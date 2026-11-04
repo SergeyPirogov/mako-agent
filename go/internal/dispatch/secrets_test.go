@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 )
 
@@ -106,5 +107,33 @@ func TestGuardPush(t *testing.T) {
 	}
 	if r, _ := d.Store.Get(id); len(r.Secrets) != 0 {
 		t.Fatalf("card still shows %+v", r.Secrets)
+	}
+	// Unattended (AutoTake, AutoFix): a clean push or a new MR waits for you; one with secrets is still refused.
+	decision := func(a map[string]any) string {
+		out, _ := a["hookSpecificOutput"].(map[string]any)
+		s, _ := out["permissionDecision"].(string)
+		return s
+	}
+	for _, turn := range []func(*config.Config){
+		func(c *config.Config) { c.Notifications.AutoTake = true },
+		func(c *config.Config) { c.Terminal.AutoFix = true },
+	} {
+		cfg := *d.Config()
+		turn(&cfg)
+		d.Cfg = &cfg
+		for _, cmd := range []string{"git push -u origin feature/5", "gh pr create --fill", "glab mr create --fill"} {
+			if a := d.GuardPush(ctx, id, hookFor(cmd)); decision(a) != "ask" {
+				t.Fatalf("%q unattended: %v", cmd, a)
+			}
+		}
+		if a := d.GuardPush(ctx, id, hookFor("go test ./...")); a != nil {
+			t.Fatalf("not a push, unattended: %v", a)
+		}
+		os.WriteFile(filepath.Join(wt, ".env"), []byte("DEBUG=1\n"), 0o644)
+		if a := d.GuardPush(ctx, id, hookFor("git push")); decision(a) != "deny" {
+			t.Fatalf("secrets unattended: %v", a)
+		}
+		os.Remove(filepath.Join(wt, ".env"))
+		cfg.Notifications.AutoTake, cfg.Terminal.AutoFix = false, false
 	}
 }

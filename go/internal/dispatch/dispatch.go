@@ -729,9 +729,10 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		res, err = d.handTerminal(ctx, job, logf)
 	} else {
 		d.step(id, "orca", "Orca is creating the worktree and starting the agent")
-		d.notePrompt(id, orca.FullPrompt(job, d.Config().Orca)) // what Hand gives the agent
+		o := orcaFor(d.Config())
+		d.notePrompt(id, orca.FullPrompt(job, o)) // what Hand gives the agent
 		// Not stopped halfway: a workspace Orca made is known only from its reply, and «Скасувати» removes it.
-		res, err = d.Hand(context.WithoutCancel(ctx), d.Config().Orca, job, logf)
+		res, err = d.Hand(context.WithoutCancel(ctx), o, job, logf)
 	}
 	d.endSteps(id)
 	abort := func() {
