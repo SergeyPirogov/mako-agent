@@ -1178,7 +1178,7 @@ async function renderPhone(qr) {
     step1 = `${t("s.p.install")}
       <div class="row"><button data-p="refresh">${t("s.p.check")}</button></div>`;
   } else if (!ts.running) {
-    step1 = `${esc(ts.error || t("s.p.notConnected"))}. ${t("s.p.signIn")}
+    step1 = `${ts.error ? esc(ts.error) : `${t("s.p.notConnected")}. ${t("s.p.signIn")}`}
       <div class="row"><button data-p="refresh">${t("s.p.check")}</button></div>`;
   } else if (!ts.serving) {
     step1 = `${ok(t("s.p.works", { host: `<code>${esc(ts.host)}</code>` }))}
