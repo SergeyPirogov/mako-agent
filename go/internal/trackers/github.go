@@ -94,7 +94,7 @@ func (g *GitHub) do(ctx context.Context, method, path string, body, out any) err
 		case 401:
 			return "GitHub rejected the token (401): check GITHUB_TOKEN or gh auth login"
 		case 403:
-			return "GitHub forbade the action (403): the token lacks permissions (repo)"
+			return "GitHub forbade the action (403): the token lacks permissions (repo), or GitHub's rate limit is exhausted"
 		}
 		return ""
 	})

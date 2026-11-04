@@ -121,7 +121,7 @@ func TestCallRateLimit403(t *testing.T) {
 	mode = "permissions"
 	calls.Store(0)
 	err = g.do(ctx, "GET", "/user", nil, nil)
-	if !errors.As(err, &he) || he.RateLimited || !strings.Contains(err.Error(), "lacks permissions") || calls.Load() != 1 {
+	if !errors.As(err, &he) || he.RateLimited || !strings.Contains(err.Error(), "lacks permissions") || !strings.Contains(err.Error(), "or GitHub's rate limit is exhausted") || calls.Load() != 1 {
 		t.Fatalf("permissions: %v, %d calls", err, calls.Load())
 	}
 }
