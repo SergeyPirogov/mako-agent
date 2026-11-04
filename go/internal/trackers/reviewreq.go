@@ -70,6 +70,7 @@ type glReviewMR struct {
 	WebURL      string `json:"web_url"`
 	SHA         string `json:"sha"`
 	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 	Author      glUser `json:"author"`
 	References  struct {
 		Full string `json:"full"` // "group/app!12"
@@ -118,6 +119,10 @@ func (g *GitLab) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 		memo := old[path]
 		if memo.sha != m.SHA {
 			memo = reviewMemo{sha: m.SHA}
+		}
+		// The MR changed since (CI run again on the same head, say): its pipeline is read anew.
+		if memo.updated != m.UpdatedAt {
+			memo.ci, memo.updated = "", m.UpdatedAt
 		}
 		// The list has no pipeline: the MR itself has its head's, asked until it settles.
 		if !ciSettled(memo.ci) {
@@ -272,17 +277,19 @@ func (g *GitHub) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 		if memo.updated != it.UpdatedAt || it.UpdatedAt == "" {
 			var p ghPull
 			if err := g.do(ctx, "GET", path, nil, &p); err == nil {
-				if p.Head.SHA != memo.sha {
-					memo.ci = ""
-				}
+				// A new head, or CI run again on the same one (it updates the PR too): its CI is read anew.
+				memo.ci = ""
 				memo.sha, memo.add, memo.del, memo.sized = p.Head.SHA, p.Additions, p.Deletions, true
-				var reviews []struct {
+				type ghReview struct {
 					State string `json:"state"`
 					User  struct {
 						Login string `json:"login"`
 					} `json:"user"`
 				}
-				if err := g.do(ctx, "GET", path+"/reviews?per_page=100", nil, &reviews); err == nil {
+				reviews, err := allPages(url.Values{}, func(query string, out *[]ghReview) error {
+					return g.do(ctx, "GET", path+"/reviews?"+query, nil, out)
+				})
+				if err == nil {
 					last := ""
 					for _, rv := range reviews {
 						if strings.EqualFold(rv.User.Login, me) && rv.State != "COMMENTED" && rv.State != "PENDING" {
@@ -309,23 +316,52 @@ func (g *GitHub) ToReview(ctx context.Context) ([]core.ReviewRequest, error) {
 	return out, nil
 }
 
-// checkRuns: the head commit's checks in one word (as ReviewCheck.CI) and as jobs; "" when it has none.
+// checkRuns: the head commit's checks (check runs, and the commit statuses Jenkins or Travis set) in one word
+// (as ReviewCheck.CI) and as jobs; "" when it has none or they could not be read.
 func (g *GitHub) checkRuns(ctx context.Context, repo, sha string) (string, []Job) {
-	var runs struct {
-		CheckRuns []struct {
-			ID         int64  `json:"id"`
-			Name       string `json:"name"`
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-			HTMLURL    string `json:"html_url"`
-		} `json:"check_runs"`
+	if sha == "" {
+		return "", nil
 	}
-	if sha == "" || g.do(ctx, "GET", "/repos/"+repo+"/commits/"+sha+"/check-runs?per_page=100", nil, &runs) != nil || len(runs.CheckRuns) == 0 {
+	type ghCheckRun struct {
+		ID         int64  `json:"id"`
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		HTMLURL    string `json:"html_url"`
+	}
+	var runs []ghCheckRun
+	for page := 1; page <= maxPages; page++ {
+		var res struct {
+			Total     int          `json:"total_count"`
+			CheckRuns []ghCheckRun `json:"check_runs"`
+		}
+		query := url.Values{"per_page": {strconv.Itoa(perPage)}, "page": {strconv.Itoa(page)}}
+		if g.do(ctx, "GET", "/repos/"+repo+"/commits/"+sha+"/check-runs?"+query.Encode(), nil, &res) != nil {
+			return "", nil
+		}
+		runs = append(runs, res.CheckRuns...)
+		if len(res.CheckRuns) < perPage || len(runs) >= res.Total {
+			break
+		}
+	}
+	// The combined status: the last status of each context.
+	var status struct {
+		Statuses []struct {
+			ID        int64  `json:"id"`
+			Context   string `json:"context"`
+			State     string `json:"state"` // error, failure, pending, success
+			TargetURL string `json:"target_url"`
+		} `json:"statuses"`
+	}
+	if g.do(ctx, "GET", "/repos/"+repo+"/commits/"+sha+"/status?per_page=100", nil, &status) != nil {
+		return "", nil
+	}
+	if len(runs) == 0 && len(status.Statuses) == 0 {
 		return "", nil
 	}
 	ci, running, failed := "success", false, false
 	jobs := []Job{}
-	for _, r := range runs.CheckRuns {
+	for _, r := range runs {
 		job := Job{ID: r.ID, Name: r.Name, URL: r.HTMLURL, Status: "success"}
 		switch {
 		case r.Status != "completed":
@@ -335,6 +371,17 @@ func (g *GitHub) checkRuns(ctx context.Context, repo, sha string) (string, []Job
 			job.Status, failed = "failed", true
 		case r.Conclusion == "skipped" || r.Conclusion == "neutral":
 			job.Status = "skipped"
+		}
+		jobs = append(jobs, job)
+	}
+	for _, st := range status.Statuses {
+		// No ID of a job: a status has no log Mako could read (JobLog asks the Actions API).
+		job := Job{Name: st.Context, URL: st.TargetURL, Status: "success"}
+		switch st.State {
+		case "pending":
+			job.Status, running = "running", true
+		case "failure", "error":
+			job.Status, failed = "failed", true
 		}
 		jobs = append(jobs, job)
 	}

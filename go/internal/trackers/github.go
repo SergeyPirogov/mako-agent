@@ -22,6 +22,8 @@ type GitHub struct {
 	headers map[string]string
 	mu      sync.Mutex
 	login   string
+	// comments: the issues' comments as the last poll read them, by task ID.
+	comments map[string]commentMemo
 	// memos: the PRs to review as the last poll read them, by their URL.
 	memos map[string]reviewMemo
 }
@@ -45,6 +47,7 @@ type ghIssue struct {
 	} `json:"user"`
 	AuthorAssociation string `json:"author_association"`
 	Comments          int    `json:"comments"`
+	UpdatedAt         string `json:"updated_at"`
 	Repository        *struct {
 		FullName string `json:"full_name"`
 	} `json:"repository"`
@@ -91,7 +94,7 @@ func (g *GitHub) do(ctx context.Context, method, path string, body, out any) err
 		case 401:
 			return "GitHub rejected the token (401): check GITHUB_TOKEN or gh auth login"
 		case 403:
-			return "GitHub forbade the action (403): the token lacks permissions (repo) or the rate limit is exhausted"
+			return "GitHub forbade the action (403): the token lacks permissions (repo)"
 		}
 		return ""
 	})
@@ -116,6 +119,10 @@ func (g *GitHub) Me(ctx context.Context) (string, error) {
 func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 	seen := map[string]bool{}
 	var tasks []core.Task
+	g.mu.Lock()
+	old := g.comments
+	g.mu.Unlock()
+	memos := map[string]commentMemo{}
 	add := func(repo string, is ghIssue) {
 		if is.PullRequest != nil {
 			return
@@ -127,19 +134,25 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 		seen[t.ID] = true
 		me, _ := g.Me(ctx)
 		t.AuthorMember = ghMember(is.AuthorAssociation) || byProject(t.Author, me, t.Assignees)
-		if is.Comments > 0 {
-			var cs []struct {
+		if m := old[t.ID]; is.Comments > 0 && m.holds(is.UpdatedAt, is.Comments) {
+			t.Comments, memos[t.ID] = slices.Clone(m.comments), m
+		} else if is.Comments > 0 {
+			type ghComment struct {
 				Body string `json:"body"`
 				User struct {
 					Login string `json:"login"`
 				} `json:"user"`
 				AuthorAssociation string `json:"author_association"`
 			}
-			if err := g.do(ctx, "GET", fmt.Sprintf("/repos/%s/issues/%d/comments?per_page=100", repo, is.Number), nil, &cs); err == nil {
+			cs, err := allPages(url.Values{}, func(query string, out *[]ghComment) error {
+				return g.do(ctx, "GET", fmt.Sprintf("/repos/%s/issues/%d/comments?%s", repo, is.Number, query), nil, out)
+			})
+			if err == nil {
 				for _, c := range cs {
 					member := ghMember(c.AuthorAssociation) || ofTask(c.User.Login, me, t)
 					t.Comments = append(t.Comments, core.Comment{Author: c.User.Login, Body: c.Body, Member: member})
 				}
+				memos[t.ID] = commentMemo{updated: is.UpdatedAt, count: is.Comments, comments: t.Comments}
 			} else {
 				t.CommentsUnread = true
 			}
@@ -190,6 +203,9 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 			add(repo, is)
 		}
 	}
+	g.mu.Lock()
+	g.comments = memos
+	g.mu.Unlock()
 	return tasks, nil
 }
 

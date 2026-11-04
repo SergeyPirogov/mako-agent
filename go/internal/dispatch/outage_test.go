@@ -86,6 +86,23 @@ func TestPollKeepsWhenTrackerWentDown(t *testing.T) {
 	if again := d.Searches()["gitlab"]; !again.Since.Equal(first.Since) || !again.At.After(first.At) {
 		t.Errorf("still down since the first failure: %+v, first %+v", again, first)
 	}
+	// Two failures in a row: the host is given a rest, and the board still says why it is down.
+	start := time.Now()
+	d.Poll(ctx)
+	rest := d.Searches()["gitlab"]
+	if !strings.Contains(rest.Error, "does not answer") || !strings.Contains(rest.Down, "refuses connections") || time.Since(start) > time.Second {
+		t.Errorf("resting host: %+v", rest)
+	}
+}
+
+func TestRateLimitIsAnOutage(t *testing.T) {
+	gl := gitlabAt(t, "https://git.example.app")
+	if got := outage(gl, &trackers.HTTPError{Status: 403, RateLimited: true}); !strings.Contains(got, "too many requests") {
+		t.Errorf("403 rate limit: %q", got)
+	}
+	if got := outage(gl, &trackers.HTTPError{Status: 403}); !strings.Contains(got, "check the token") {
+		t.Errorf("403: %q", got)
+	}
 }
 
 // GitHub answers a search for an unknown assignee with 422: the board names the login, not «помилка 422».

@@ -223,16 +223,16 @@ func (j *Jira) Why(ctx context.Context, link string) (*core.Task, []Check, error
 		return &t, append(checks, Check{Text: "The task does not match the JQL query: " + jql + ". Most often it is not assigned to you"}), nil
 	}
 	checks = append(checks, Check{OK: true, Text: "The task matches the JQL query"})
-	// FetchMine reads the first 50 of the search.
-	all, err := j.search(ctx, jql, 50)
+	// FetchMine reads the first jiraMax of the search.
+	all, err := j.search(ctx, jql, jiraMax)
 	if err == nil {
 		in := false
 		for _, x := range all {
 			in = in || x.ID == key
 		}
 		checks = append(checks, map[bool]Check{
-			true:  {OK: true, Text: "The task is among the first 50 the query returns"},
-			false: {Text: "The query returns more than 50 tasks and this one is not among the first 50: narrow the JQL"},
+			true:  {OK: true, Text: fmt.Sprintf("The task is among the first %d the query returns", jiraMax)},
+			false: {Text: fmt.Sprintf("The query returns more than %d tasks and this one is not among the first %d: narrow the JQL", jiraMax, jiraMax)},
 		}[in])
 	}
 	if j.cfg.SkipOthersTasks && len(t.Assignees) > 0 {

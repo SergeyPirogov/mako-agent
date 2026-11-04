@@ -114,16 +114,37 @@ func (u *jiraUser) member(me string, assignees []string) bool {
 	return byProject(u.AccountID, me, assignees) || u.AccountType == "atlassian"
 }
 
+// jiraMax: as many issues as FetchMine reads, page by page, like GitHub's and GitLab's lists.
+const jiraMax = perPage * maxPages
+
+// search reads up to max issues of a query, a page after a page by nextPageToken.
 func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, error) {
-	var res struct {
-		Issues []jiraIssue `json:"issues"`
+	var issues []jiraIssue
+	token := ""
+	for len(issues) < max {
+		var res struct {
+			Issues        []jiraIssue `json:"issues"`
+			NextPageToken string      `json:"nextPageToken"`
+			IsLast        bool        `json:"isLast"`
+		}
+		body := map[string]any{"jql": jql, "maxResults": min(max-len(issues), perPage), "fields": []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}}
+		if token != "" {
+			body["nextPageToken"] = token
+		}
+		if err := j.do(ctx, "POST", "/rest/api/3/search/jql", body, &res); err != nil {
+			return nil, err
+		}
+		issues = append(issues, res.Issues...)
+		if res.IsLast || res.NextPageToken == "" || res.NextPageToken == token || len(res.Issues) == 0 {
+			break
+		}
+		token = res.NextPageToken
 	}
-	body := map[string]any{"jql": jql, "maxResults": max, "fields": []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}}
-	if err := j.do(ctx, "POST", "/rest/api/3/search/jql", body, &res); err != nil {
-		return nil, err
+	if len(issues) > max {
+		issues = issues[:max]
 	}
 	tasks := []core.Task{}
-	for _, is := range res.Issues {
+	for _, is := range issues {
 		t := core.Task{
 			ID: is.Key, Slug: is.Key, TrackerID: j.cfg.ID, Project: is.Fields.Project.Key,
 			Title: is.Fields.Summary, Description: strings.TrimSpace(adfToText(is.Fields.Description)),
@@ -160,7 +181,7 @@ func (j *Jira) FetchMine(ctx context.Context) ([]core.Task, error) {
 	if strings.TrimSpace(jql) == "" {
 		jql = `assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`
 	}
-	return j.search(ctx, jql, 50)
+	return j.search(ctx, jql, jiraMax)
 }
 
 func (j *Jira) AssignToMe(ctx context.Context, t core.Task) error {
