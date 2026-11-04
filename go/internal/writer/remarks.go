@@ -308,3 +308,67 @@ func PriorText(remarks []core.Remark) string {
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
+
+// The markers of the reviewer's answer on someone else's MR (ForeignReview), in any case, with Markdown
+// around them: «SUMMARY: …», «CHECK:», «VERDICT: fix — why».
+var (
+	summaryLine = regexp.MustCompile(`(?i)^\s*[#*_]*\s*summary\s*[*_]*\s*:\s*[*_]*\s*(.*)$`)
+	checkLine   = regexp.MustCompile(`(?i)^\s*[#*_]*\s*check\s*[*_]*\s*:\s*[*_]*\s*(.*)$`)
+	verdictLine = regexp.MustCompile(`(?i)^\s*[#*_]*\s*verdict\s*[*_]*\s*:\s*[*_]*\s*([a-z]+)[*_]*\s*(?:—|–|-|:)?\s*(.*)$`)
+	bullet      = regexp.MustCompile(`^\s*(?:[-*•+]|\d+[.)])\s+`)
+)
+
+// ParseForeignReview: the reviewer's answer on someone else's MR as a draft of my review: the summary, the
+// remarks as comments to send, what to check by hand and the verdict. An answer out of the format is all
+// summary, with no comments: nothing of it is lost.
+func ParseForeignReview(text string) core.ReviewDraft {
+	text = strings.TrimSpace(text)
+	var d core.ReviewDraft
+	for _, r := range ParseRemarks(text) {
+		d.Comments = append(d.Comments, core.DraftComment{ID: r.ID, Weight: r.Weight, File: r.File, Line: r.Line, Text: r.Text, State: core.DraftOpen})
+	}
+	var summary []string
+	section := ""
+	for _, l := range strings.Split(text, "\n") {
+		if m := summaryLine.FindStringSubmatch(l); m != nil {
+			section = "summary"
+			if s := strings.TrimSpace(m[1]); s != "" {
+				summary = append(summary, s)
+			}
+			continue
+		}
+		if m := checkLine.FindStringSubmatch(l); m != nil {
+			section = "check"
+			if s := strings.TrimSpace(m[1]); s != "" && !strings.EqualFold(s, "none") {
+				d.Manual = append(d.Manual, s)
+			}
+			continue
+		}
+		if m := verdictLine.FindStringSubmatch(l); m != nil {
+			section = ""
+			switch v := strings.ToLower(m[1]); v {
+			case core.VerdictMerge, core.VerdictFix, core.VerdictDiscuss:
+				d.Verdict, d.VerdictNote = v, strings.TrimSpace(m[2])
+			}
+			continue
+		}
+		if remarkLine.MatchString(l) {
+			section = ""
+			continue
+		}
+		switch section {
+		case "summary":
+			summary = append(summary, l)
+		case "check":
+			item := strings.TrimSpace(bullet.ReplaceAllString(l, ""))
+			if item != "" && !strings.EqualFold(item, "none") {
+				d.Manual = append(d.Manual, item)
+			}
+		}
+	}
+	d.Summary = strings.TrimSpace(strings.Join(summary, "\n"))
+	if d.Summary == "" && len(d.Comments) == 0 && len(d.Manual) == 0 && d.Verdict == "" {
+		d.Summary = text
+	}
+	return d
+}

@@ -45,6 +45,7 @@ var goStrings = map[string][2]string{
 	"notify.andMore":              {"- and %d more", "- і ще %d"},
 	"notify.commit":               {"commit", "коміт"},
 	"notify.reviewAsked":          {"👀 You were asked to review: %s", "👀 Вас призначили рев'ювером: %s"},
+	"notify.reviewPrepared":       {"📝 Your review is prepared: %s", "📝 Ревʼю підготовано: %s"},
 	"notify.phoneWorks":           {"Notifications on the phone work", "Сповіщення на телефон працюють"},
 	"action.allow":                {"Allow", "Дозволити"},
 	"action.deny":                 {"No", "Ні"},
