@@ -135,9 +135,6 @@ func (d *Dispatcher) mrBy(r core.Record) string {
 const unattendedPush = "Mako asks a human to confirm pushes and new merge requests while tasks are taken (AutoTake) or MRs are fixed (AutoFix) automatically."
 
 // hookDecision: Claude Code's PreToolUse hook output with the decision ("deny", "ask") and its reason.
-// HookDeny: the hook's output that stops the command with the reason.
-func HookDeny(reason string) map[string]any { return hookDecision("deny", reason) }
-
 func hookDecision(decision, reason string) map[string]any {
 	return map[string]any{"hookSpecificOutput": map[string]any{
 		"hookEventName":            "PreToolUse",
@@ -145,6 +142,9 @@ func hookDecision(decision, reason string) map[string]any {
 		"permissionDecisionReason": reason,
 	}}
 }
+
+// HookDeny: the hook's output that stops the command with the reason.
+func HookDeny(reason string) map[string]any { return hookDecision("deny", reason) }
 
 // checkFailed: what the agent is told when the push could not be checked: it is not let through unchecked.
 func checkFailed(err error) string {
