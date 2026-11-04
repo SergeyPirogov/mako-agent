@@ -74,11 +74,17 @@ const DefaultHandoff = "## Finish with a merge request\n" +
 	"   ## Worth a look\n" +
 	"   - risks, open questions, anything left undone (skip if none)\n" +
 	"   {closingRef}\n" +
+	templateNote +
 	"   GitLab: `glab mr create --target-branch {baseBranch} --fill` when glab is installed, otherwise\n" +
 	"   `git push -o merge_request.create -o merge_request.target={baseBranch} -o merge_request.title=\"…\" origin {branch}`.\n" +
 	"   GitHub: `gh pr create --base {baseBranch} --fill`.\n" +
 	"5. Reply with the link to the merge request.\n" +
 	"Mako watches the branch: once the merge request exists, it moves the issue on and comments with the link."
+
+// templateNote: the repository's own merge request template wins over the sections above: its CI may check them.
+const templateNote = "   If the repository has a merge request template (`.github/pull_request_template.md`,\n" +
+	"   `.github/PULL_REQUEST_TEMPLATE/`, `.gitlab/merge_request_templates/`), use its sections instead, with its\n" +
+	"   headings word for word and none left out: write in each one, or say there why it does not apply.\n"
 
 // DefaultHandoffForMe: the developer opens the MR in Orca after a look; the agent stops at commits.
 const DefaultHandoffForMe = "## Finish with commits, not a merge request\n" +
@@ -89,7 +95,8 @@ const DefaultHandoffForMe = "## Finish with commits, not a merge request\n" +
 	"   from these messages.\n" +
 	"3. Do not push and do not open a merge request: the developer reviews the changes and opens it from Orca.\n" +
 	"4. Reply with a ready merge request: a title (what it does, in a sentence) and a Markdown description with\n" +
-	"   \"## What changed\", \"## How it was checked\", \"## Worth a look\", ending with \"{closingRef}\"."
+	"   \"## What changed\", \"## How it was checked\", \"## Worth a look\", ending with \"{closingRef}\".\n" +
+	templateNote
 
 // DefaultHandoffChecked: with checks in the repo's settings, the agent commits and Mako runs them and opens the
 // MR itself once they pass.
@@ -175,8 +182,11 @@ func Screenshots(j Job) string {
 		"   current Mako's data, then photographs it in headless Chrome. For a project other than Mako, run its local\n" +
 		"   build on a free port (the base branch in a temporary `git worktree` for «before») and add `-url http://127.0.0.1:<port>/<page>`.\n" +
 		"2. Mako shows each screenshot in the task's chat on its board; the command prints a Markdown image for it.\n" +
-		"   Put both in the merge request description under \"## Screenshots\" (before, then after).\n" +
-		"3. If a screenshot cannot be taken (no Chrome, the app does not start), say why in the description."
+		"   Put both in the merge request description (before, then after) under the screenshots heading of the\n" +
+		"   repository's merge request template, word for word, or under \"## Screenshots\" when it has none.\n" +
+		"3. Never leave that section out of a merge request that changes the pages: if a screenshot cannot be taken (no\n" +
+		"   Chrome, the app does not start, the state cannot be shown), say why there; if the change does not alter the\n" +
+		"   look, say so there and why."
 }
 
 // ShellQuote: s as one word for the shell.
