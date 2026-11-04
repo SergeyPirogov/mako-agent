@@ -1039,8 +1039,8 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 func TestBoardBlockerFixButtonCompact(t *testing.T) {
 	css := string(style)
 	for _, want := range []string{
-		".tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; }",
-		".tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; }",
+		".tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; flex: none; }",
+		".tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; white-space: nowrap; }",
 		// The shared rules stay as they were: the review pair still shares the width.
 		".mr-actions button { flex: 1; height: 32px; padding: 0 10px; }",
 	} {
@@ -1050,6 +1050,45 @@ func TestBoardBlockerFixButtonCompact(t *testing.T) {
 	}
 	if strings.Contains(string(board), "the block's full width") {
 		t.Error("board.html still says the fix button is the block's full width")
+	}
+}
+
+// A blocker's reason and its fix button stand on one row (#583): the text, with the file list under it, on the left in
+// .blk-text, the button on the right, for the conflicts, CI, comments and the reviewer's Fix alike. Without a button
+// (no live agent) the reason stays the bare text. The page has no script or style tests: this holds the source.
+func TestBoardBlockerRowsOneLine(t *testing.T) {
+	src := string(board)
+	i := strings.Index(src, "function blockersHTML(")
+	j := strings.Index(src[i:], "\n}\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no blockersHTML in board.html")
+	}
+	body := src[i : i+j]
+	for _, want := range []string{
+		`const blkRow = (text, btn) => btn ? ` + "`" + `<div class="blk-row"><div class="blk-text">${text}</div>${btn}</div>` + "`" + ` : text;`,
+		`details.push(blkRow(`,
+		`<div class="mono-list">${files.map(esc).join("<br>")}</div>` + "`" + ` : ""),`,
+		`askBtn("conflicts", "Resolve conflicts"`,
+		`askBtn("ci", "Fix CI"`,
+		`askBtn("comments", "Fix comments"`,
+		`lines.push(blkRow(`,
+		`r.reviewStep === "notes" ? ` + "`" + `<div class="mr-actions">${reviewFixBtn(true, n)}</div>` + "`" + ` : ""));`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("blockersHTML is missing %q", want)
+		}
+	}
+	if n := strings.Count(body, "blkRow("); n != 4 {
+		t.Errorf("blkRow wraps %d rows in blockersHTML, want 4 (conflicts, CI, comments, reviewer)", n)
+	}
+	css := string(style)
+	for _, want := range []string{
+		".tcard.blocker .blk-row { display: flex; align-items: center; gap: 12px; }",
+		".tcard.blocker .blk-text { flex: 1; min-width: 0; display: grid; gap: 8px; overflow-wrap: anywhere; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %q", want)
+		}
 	}
 }
 
