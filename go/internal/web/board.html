@@ -779,6 +779,95 @@ function reviewAskRow(q) {
     <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${showTrackerMark() ? trackerMark(q) : ""}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="New commits since you last looked">updated</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Waiting " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
 }
 
+// «Prepare review»: Mako's reviewer drafts my review of the MR (q.draft): a summary, the comments to send, what
+// to check by hand, a verdict. askEdits: the comments' texts being edited, not saved yet ("<mr> <comment>");
+// askSkip: the comments taken out of «Send selected».
+let askEdits = {}, askSkip = new Set();
+const DRAFT_VERDICT = { merge: ["✅", "can be merged"], fix: ["❌", "fix first"], discuss: ["◐", "talk to the author"] };
+const draftKey = (q, c) => `${q.id} ${c.id}`;
+// The comments «Send selected» sends: not struck out, not sent, not taken out.
+const draftToSend = (q) => (q.draft?.comments || []).filter((c) => (c.state === "draft" || c.state === "failed") && !askSkip.has(draftKey(q, c)));
+function draftCommentHTML(q, c) {
+  const key = draftKey(q, c), sent = c.state === "sent", dropped = c.state === "dropped";
+  const where = c.file ? `<code class="rm-at">${esc(c.file)}${c.line ? `:${c.line}` : ""}</code>` : `<span class="rm-at">on the MR</span>`;
+  const st = sent ? `<a class="rm-chip ok" href="${esc(c.url)}" target="_blank" rel="noopener">✅ sent ↗</a>`
+    : c.state === "failed" ? chip("", ["❌", "not sent"], c.error) : dropped ? chip("", ["", "struck out"]) : "";
+  const pick = sent || dropped ? "" : `<input type="checkbox" class="dc-pick" data-c="${esc(c.id)}" ${askSkip.has(key) ? "" : "checked"} title="Send this comment with «Send selected»">`;
+  const drop = sent ? "" : `<button type="button" class="ghost dc-drop" data-c="${esc(c.id)}" data-dropped="${dropped ? 0 : 1}" title="${dropped ? "Bring the comment back" : "Strike the comment out: it is not sent"}">${dropped ? "↺" : "✕"}</button>`;
+  const body = sent || dropped ? `<div class="rm-t">${inlineCode(c.text)}</div>`
+    : `<textarea class="dc-text" data-c="${esc(c.id)}" rows="${Math.min(8, Math.max(2, Math.ceil((askEdits[key] ?? c.text).length / 90)))}" aria-label="Comment ${esc(c.id)}">${esc(askEdits[key] ?? c.text)}</textarea>`;
+  return `<li class="rm dc ${esc(c.weight)} ${esc(c.state)}"><div class="rm-h">${pick}<span class="rm-w">${WEIGHT_ICON[c.weight] ?? ""} ${WEIGHT[c.weight] ?? esc(c.weight)}</span>${where}<span class="rm-st">${st}${drop}</span></div>${body}</li>`;
+}
+function draftHTML(q, card) {
+  const dr = q.draft, open = q.state === "open";
+  const prepare = !open ? "" : dr?.state === "running" ? `<button disabled>Reviewer is reading the MR…</button>`
+    : `<button class="${dr ? "ghost" : "primary"}" id="rq-prepare" title="Mako's reviewer reads the MR in a read-only worktree and drafts your review">${dr ? "Prepare again" : "Prepare review"}</button>`;
+  if (!dr) return card("Mako review", `<div class="tcard-b dr-empty"><span class="muted">Mako's reviewer reads the MR for you: what it changes and why, its risks as comments you can send, what to check by hand, whether to merge it.</span>${prepare}</div>`);
+  const note = [dr.cost ? `$${dr.cost.toFixed(2)}` : "", dr.at ? esc(ago(dr.at)) : ""].filter(Boolean).join(" · ");
+  if (dr.state === "running") return card("Mako review", `<div class="tcard-b dr-empty"><span class="muted">The reviewer is reading the MR: the draft shows here when it is done.</span>${prepare}</div>`, note);
+  const parts = [];
+  if (dr.state === "failed") parts.push(`<div class="notice">${linkify(`The reviewer failed: ${dr.error || "no answer"}`)}</div>`);
+  if (dr.limited) parts.push(`<div class="notice warn">No local clone of ${esc(q.project)}: the reviewer read the diff only.</div>`);
+  if (dr.verdict) parts.push(`<div class="dr-verdict">${chip("Verdict:", DRAFT_VERDICT[dr.verdict] ?? ["", dr.verdict])}${dr.verdictNote ? ` <span>${inlineCode(dr.verdictNote)}</span>` : ""}</div>`);
+  if (dr.summary) parts.push(`<div class="md">${md(dr.summary)}</div>`);
+  if (dr.manual?.length) parts.push(`<div class="dr-h">Check by hand</div><ul class="dr-manual">${dr.manual.map((m) => `<li>${inlineCode(m)}</li>`).join("")}</ul>`);
+  const comments = dr.comments || [];
+  if (comments.length) parts.push(`<div class="dr-h">Comments · ${comments.length}</div><ol class="rm-list">${comments.map((c) => draftCommentHTML(q, c)).join("")}</ol>`);
+  else if (dr.state === "ready") parts.push(`<div class="muted">No comments: the reviewer found nothing worth pointing out.</div>`);
+  const n = draftToSend(q).length;
+  const acts = [comments.length && open ? `<button class="primary" id="rq-send" ${n ? "" : "disabled"} title="Post the chosen comments to the MR from you">Send selected (${n})</button>` : "",
+    open ? `<button id="rq-approve" title="Approve the MR from you">Approve</button>` : "", prepare].filter(Boolean).join("");
+  return card("Mako review", `<div class="tcard-b dr">${parts.join("")}${acts ? `<div class="dr-acts">${acts}</div>` : ""}</div>`, note);
+}
+// The draft's buttons: their request, then the board again; a failure is a toast.
+async function draftAction(q, action, body) {
+  const res = await fetch(`/api/review-request/${action}?id=${encodeURIComponent(q.id)}`, {
+    method: "POST", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+  if (res.ok === false) toast(`⚠ ${res.error}`, true);
+  await load();
+  return res;
+}
+function bindDraft(q) {
+  const box = $("detail");
+  const prep = $("rq-prepare");
+  if (prep) prep.onclick = () => { prep.disabled = true; draftAction(q, "prepare"); };
+  const send = $("rq-send");
+  if (send) send.onclick = async () => {
+    const ids = draftToSend(q).map((c) => c.id);
+    if (!ids.length || !confirm(`Send ${ids.length} ${plural(ids.length, "comment", "comments")} to ${q.ref} as you?`)) return;
+    send.disabled = true;
+    const res = await draftAction(q, "send", { ids });
+    if (res.ok) {
+      const failed = (res.draft?.comments || []).filter((c) => ids.includes(c.id) && c.state === "failed").length;
+      toast(failed ? `⚠ ${failed} of ${ids.length} not sent` : `Sent ${ids.length} ${plural(ids.length, "comment", "comments")}`, failed > 0);
+    }
+  };
+  const approve = $("rq-approve");
+  if (approve) approve.onclick = async () => {
+    if (!confirm(`Approve ${q.ref} as you?`)) return;
+    approve.disabled = true;
+    if ((await draftAction(q, "approve")).ok) toast(`Approved ${q.ref}`);
+  };
+  for (const el of box.querySelectorAll(".dc-pick")) el.onchange = () => {
+    const key = `${q.id} ${el.dataset.c}`;
+    if (el.checked) askSkip.delete(key); else askSkip.add(key);
+    shown = ""; renderAsk(q);
+  };
+  for (const el of box.querySelectorAll(".dc-drop")) el.onclick = () => {
+    const key = `${q.id} ${el.dataset.c}`, c = q.draft.comments.find((x) => x.id === el.dataset.c);
+    draftAction(q, "draft", { comment: el.dataset.c, text: askEdits[key] ?? c?.text ?? "", dropped: el.dataset.dropped === "1" }).then((res) => { if (res.ok) delete askEdits[key]; });
+  };
+  for (const el of box.querySelectorAll(".dc-text")) {
+    const key = `${q.id} ${el.dataset.c}`;
+    el.oninput = () => { askEdits[key] = el.value; };
+    // Saved when it is left: the board's next look at the MR has it.
+    el.onchange = async () => {
+      if ((await draftAction(q, "draft", { comment: el.dataset.c, text: el.value, dropped: false })).ok) delete askEdits[key];
+    };
+  }
+}
+
 // The open MR to review as its code host has it now ({check, files, item} or {error}), and the files unfolded.
 let askView = null, askOpen = new Set();
 async function loadAsk(q) {
@@ -827,13 +916,17 @@ function renderAsk(q) {
     </div>
     ${v?.error ? `<div class="notice">${linkify(v.error)}</div>` : ""}
     <div class="tchips">${chips.join("")}</div>
+    ${draftHTML(q, card)}
     ${card("Description",  `<div class="tcard-b md">${q.description?.trim() ? md(q.description) : `<span style="color:var(--mute)">No description</span>`}</div>`, `from ${esc(host)}`)}
     ${card("CI", `<div class="tcard-b">${ci}</div>`)}
     ${card(`Discussions${c?.threads?.length ? ` · ${c.threads.length}` : ""}`, threads)}
     ${card(`Changes${files.length ? ` · ${files.length} ${plural(files.length, "file", "files")}` : ""}`, filesHTML)}
     ${logs.length ? `<details class="journal"><summary>Journal ·  ${logs.length}</summary><div class="log">${logs.map((l) => `${fmtWhen(l.at)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   if (html === shown) return;
+  // A comment being typed is not drawn over: the card is drawn again once it is left.
+  if (document.activeElement?.classList.contains("dc-text") && $("detail").contains(document.activeElement)) return;
   $("detail").innerHTML = shown = html;
+  bindDraft(q);
   $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
   $("ask-open").onclick = () => window.open(q.url, "_blank", "noopener");
   for (const d of $("detail").querySelectorAll(".rq-file")) d.ontoggle = () => {
@@ -3443,7 +3536,7 @@ function bindFaults() {
 
 const SIZE_NAMES = { small: "small", medium: "medium", big: "big" };
 const STAGE_NAMES = { agent: "agent working", you: "waiting for you", ci: "waiting for CI", review: "waiting for review" };
-const PHASE_NAMES = { estimate: "estimate", plan: "plan", work: "work", review: "agent review", assess: "assessment and retro" };
+const PHASE_NAMES = { estimate: "estimate", plan: "plan", work: "work", review: "agent review", assess: "assessment and retro", forme: "review for me" };
 
 // A time in seconds, short: 42 min, 3 h 5 min, 2 d 4 h.
 function durText(sec) {

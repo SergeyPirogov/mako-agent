@@ -241,6 +241,9 @@ func (s *Server) Handler() http.Handler {
 		reply.Models = core.Models
 		// project: the statistics of one project only (none: all of them).
 		reply.Stats = core.SummarizePriced(core.OfProject(all, r.URL.Query().Get("project")), time.Now(), since, s.D.Config().Prices)
+		if s.D.Spends != nil { // the reviewer over others' MRs: no task's, a phase of its own
+			core.AddSpends(&reply.Stats, s.D.Spends.All(), since, r.URL.Query().Get("project"))
+		}
 		reply.NavRetros = s.D.NavRetros(r.URL.Query().Get("project"))
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
@@ -453,6 +456,49 @@ func (s *Server) Handler() http.Handler {
 	s.navRoutes(mux)
 	s.codeRoutes(mux)
 	s.chatRoutes(mux)
+	// «Рев'ю для мене»: «Підготувати ревʼю» (the reviewer drafts my review), a comment of the draft edited or
+	// struck out, the chosen comments sent to the MR, «Схвалити».
+	mux.HandleFunc("POST /api/review-request/{action}", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		ctx, id := context.WithoutCancel(r.Context()), r.URL.Query().Get("id")
+		var in struct {
+			Comment string   `json:"comment"`
+			Text    string   `json:"text"`
+			Dropped bool     `json:"dropped"`
+			IDs     []string `json:"ids"`
+		}
+		if r.ContentLength != 0 {
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": "bad request: " + err.Error()})
+				return
+			}
+		}
+		var err error
+		reply := map[string]any{"ok": true}
+		switch r.PathValue("action") {
+		case "prepare":
+			err = s.D.PrepareReview(id)
+		case "draft":
+			err = s.D.EditDraft(id, in.Comment, in.Text, in.Dropped)
+		case "send":
+			var rq core.ReviewRequest
+			rq, err = s.D.SendDrafts(ctx, id, in.IDs)
+			reply["draft"] = rq.Draft
+		case "approve":
+			err = s.D.ApproveReview(ctx, id)
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, reply)
+	})
 	// Mako's own errors: «На аналіз» opens an issue with them in Mako's repository, «Очистити» forgets them.
 	mux.HandleFunc("POST /api/faults/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {

@@ -510,6 +510,22 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .rq-file .fst.D { color: var(--err); }
 .rq-file .fst.R { color: var(--purple); }
 .rq-file > .diff { max-height: 60vh; overflow: auto; }
+/* «Mako review» on the card of an MR to review: the reviewer's draft of my review. */
+.dr { display: grid; gap: 10px; }
+.dr-empty { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.dr-empty > span { flex: 1 1 260px; }
+.dr .notice { margin: 0; }
+.dr-h { font-size: 12px; font-weight: 600; color: var(--mute); text-transform: uppercase; letter-spacing: .04em; }
+.dr-manual { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.dr-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.dr-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.dc .rm-h input { margin: 0; }
+.dc textarea { width: 100%; box-sizing: border-box; margin-top: 6px; font: inherit; font-size: 13px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.dc .dc-drop { padding: 0 6px; }
+.dc.dropped { opacity: .6; }
+.dc.dropped .rm-t { text-decoration: line-through; }
+.dc a.rm-chip { text-decoration: none; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 4px 0 14px; }
 .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--mute); padding: 8px 12px; margin-bottom: -1px; }
 .tab:hover { background: none; color: var(--fg); }
