@@ -646,6 +646,9 @@ func (s *Server) Handler() http.Handler {
 		case "say", "permit", "answer", "choose", "interrupt", "view", "mode", "plan":
 			var err error
 			c := s.D.Chats.Get(id)
+			if action == "interrupt" {
+				s.D.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
+			}
 			switch {
 			case action == "view":
 				// In the middle of a turn the switch waits for it to end, unless now=1 («Switch now»).

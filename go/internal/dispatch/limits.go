@@ -235,6 +235,8 @@ func (d *Dispatcher) resumeLimited(now time.Time) int {
 		return false
 	}
 	var cut []cutAgent
+	// The WIP limit is the queue's (release): tasks at work and starting. The chats and questions at work are not
+	// in it, there as there; the ones made to go on here take slots of it, after the tasks.
 	d.mu.Lock()
 	active := len(d.starting)
 	d.mu.Unlock()
@@ -284,8 +286,10 @@ func (d *Dispatcher) resumeLimited(now time.Time) int {
 		d.ForgetLimit(a.id)
 		if err := d.goOnAfterLimit(a.id); err != nil {
 			d.Log(logID(a), "could not go on after the Claude limit: "+err.Error())
+			d.keepFailedResume(a)
 			continue
 		}
+		delete(d.resumeFails, a.id)
 		d.Log(logID(a), "the Claude limit has reset: the agent goes on by itself")
 		names = append(names, a.name)
 	}
@@ -293,6 +297,30 @@ func (d *Dispatcher) resumeLimited(now time.Time) int {
 		notify.Inform(notify.Limits, i18n.T("notify.limitContinuedTitle"), i18n.T("notify.limitContinuedText", len(names), strings.Join(names, ", ")), d.BoardURL)
 	}
 	return len(names)
+}
+
+// maxResumeTries: how many rounds an agent that could not be made to go on is tried again before Mako leaves it
+// to you (its Resume button); a worktree that is gone or a task outside Mako's terminal will not get better.
+const maxResumeTries = 5
+
+// keepFailedResume: the message did not reach the agent, so it is still cut: the limit is kept for the next round
+// (a moment's failure, a worktree being made), unless it failed maxResumeTries times in a row. Not when a new
+// limit was kept meanwhile (it was cut again), or the agent is no longer to be resumed.
+func (d *Dispatcher) keepFailedResume(a cutAgent) {
+	if d.resumeFails == nil {
+		d.resumeFails = map[string]int{}
+	}
+	d.resumeFails[a.id]++
+	if d.resumeFails[a.id] >= maxResumeTries {
+		delete(d.resumeFails, a.id)
+		d.Log(logID(a), "giving up going on by itself after the Claude limit: resume it yourself")
+		return
+	}
+	d.keepLimit(a.id, func(u *int64, r *bool) {
+		if *u == 0 {
+			*u, *r = a.until, true
+		}
+	})
 }
 
 // logID: whose log tells of the agent: the task's own, else Mako's.

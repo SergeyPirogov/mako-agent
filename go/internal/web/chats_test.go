@@ -378,3 +378,45 @@ sleep 30
 		t.Fatalf("snapshot %+v", snap)
 	}
 }
+
+// A chat you stop (the question's «Зупинити», a free chat's or a task's interrupt) does not go on by itself after
+// the Claude limit: the limit kept for it is forgotten, and another chat's stays.
+func TestStopForgetsLimit(t *testing.T) {
+	stateDir := t.TempDir()
+	store, _ := state.Open(stateDir)
+	d := dispatch.New(&config.Config{StateDir: stateDir}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	post := func(path string) {
+		req, _ := http.NewRequest("POST", srv.URL+path, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+	}
+	until := time.Now().Add(-time.Minute).Unix()
+	for _, id := range []string{"grp/app#1", "grp/app#2"} {
+		store.Update(id, func(r *core.Record) { r.Status, r.LimitedUntil, r.ResumeAfterLimit = core.HandedOff, until, true })
+	}
+	post("/api/interrupt?id=" + url.QueryEscape("grp/app#1"))
+	if r, _ := store.Get("grp/app#1"); r.LimitedUntil != 0 || r.ResumeAfterLimit {
+		t.Fatalf("task interrupted, still kept: %+v", r)
+	}
+	if r, _ := store.Get("grp/app#2"); r.LimitedUntil != until {
+		t.Fatalf("another task lost its limit: %+v", r)
+	}
+	// A question and a free chat are kept in files of their own.
+	kept := func(file string) string { b, _ := os.ReadFile(filepath.Join(stateDir, file)); return string(b) }
+	entry := fmt.Sprintf(`[{"id": %%q, "limitedUntil": %d, "resumeAfterLimit": true}]`, until)
+	os.WriteFile(filepath.Join(stateDir, "questions.json"), []byte(fmt.Sprintf(entry, "ask-q")), 0o600)
+	os.WriteFile(filepath.Join(stateDir, "chats.json"), []byte(fmt.Sprintf(entry, "chat-f")), 0o600)
+	post("/api/code/stop?id=ask-q")
+	post("/api/interrupt?id=chat-f")
+	for _, f := range []string{"questions.json", "chats.json"} {
+		if strings.Contains(kept(f), "limitedUntil") {
+			t.Fatalf("%s: still goes on by itself after a stop: %s", f, kept(f))
+		}
+	}
+}

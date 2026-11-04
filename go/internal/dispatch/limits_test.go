@@ -230,8 +230,39 @@ func TestResumeLimitedFails(t *testing.T) {
 	if !strings.Contains(logText(d, "grp/app#1"), "could not go on after the Claude limit: no worktree") {
 		t.Fatalf("log %v", d.Logs("grp/app#1"))
 	}
+	// Still cut: the next round tries again. It goes on once the message can be given.
+	if r, _ := d.Store.Get("grp/app#1"); r.LimitedUntil == 0 || !r.ResumeAfterLimit {
+		t.Fatalf("a failed message forgot the limit: %+v", r)
+	}
+	var went []string
+	d.goOn = func(id string) error { went = append(went, id); return nil }
+	if n := d.resumeLimited(time.Now()); n != 1 || len(went) != 1 {
+		t.Fatalf("the next round: went on %d %v", n, went)
+	}
 	if r, _ := d.Store.Get("grp/app#1"); r.LimitedUntil != 0 {
-		t.Fatal("it would be tried again every round")
+		t.Fatal("still kept as cut after it went on")
+	}
+}
+
+// What can never work (a task outside Mako's terminal) is tried maxResumeTries times, then left to you.
+func TestResumeLimitedGivesUp(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	toldOf(t)
+	tries := 0
+	d.goOn = func(string) error { tries++; return errors.New("the task is not in a Mako terminal") }
+	limitedTask(d, "grp/app#1", "", time.Now().Add(-time.Hour).Unix(), true)
+	for range maxResumeTries + 3 {
+		d.resumeLimited(time.Now())
+	}
+	if tries != maxResumeTries {
+		t.Fatalf("tried %d times, want %d", tries, maxResumeTries)
+	}
+	if r, _ := d.Store.Get("grp/app#1"); r.LimitedUntil != 0 {
+		t.Fatal("still kept after giving up")
+	}
+	if !strings.Contains(logText(d, "grp/app#1"), "giving up") {
+		t.Fatalf("log %q", logText(d, "grp/app#1"))
 	}
 }
 

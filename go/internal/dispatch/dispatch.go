@@ -128,6 +128,8 @@ type Dispatcher struct {
 	limitHeld bool
 	// resuming: the agents the limit cut are being made to go on (resumeLimited), one round at a time.
 	resuming atomic.Bool
+	// resumeFails: how many rounds in a row an agent could not be made to go on (resumeLimited only).
+	resumeFails map[string]int
 	// goOn: how an agent the limit cut is made to go on (a test's stand-in); nil: the way a message from the board goes.
 	goOn func(id string) error
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
