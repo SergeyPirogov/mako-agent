@@ -3230,7 +3230,8 @@ function th(label, info, cls = "n") {
   return `<th class="${cls}">${label}<span class="info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}">${INFO_ICON}</span></th>`;
 }
 // «30 of 37 finished · 81 %»: the count, what it is of, and the share.
-const routeShare = (n, of, noun) => of ? `${n} of ${of} ${noun} <span class="muted">· ${Math.round((n / of) * 100)}%</span>` : "—";
+// The noun is dropped on a phone (.noun), where the header's ⓘ says what the count is of.
+const routeShare = (n, of, noun) => of ? `${n} of ${of}<span class="noun"> ${noun}</span> <span class="muted">· ${Math.round((n / of) * 100)}%</span>` : "—";
 const routeCost = (g) => g.priced ? money(g.cost) : "—";
 const ROUTE_COST = th("Per task", "The phase's own spend, average per task over the tasks with a price.");
 const routePhaseName = (p) => p === "cifix" ? "CI fix" : PHASE_NAMES[p] || p;
@@ -3267,7 +3268,7 @@ const ROUTE_COLUMNS = {
     [ROUTE_COST, routeCost],
   ],
   cifix: [
-    [th("Green after one fix", "Merged after the agent was asked once to fix the CI. Of the tasks that ended, merged or failed, after a request."),
+    [th("Merged after one fix", "Merged after the agent was asked once to fix the CI: the CI's own result is not kept, so a rework of another kind counts too. Of the tasks that ended, merged or failed, after a request."),
       (g) => routeShare(g.ciGreen, g.ciEnded, "finished")],
     [th("Requests per task", "How many times the agent was asked to fix the CI, per task."), (g) => g.taken ? (g.ciRequests / g.taken).toFixed(1) : "—"],
     [th("Per task", "A CI fix's spend is counted in Work: it has none of its own."), () => `<span class="muted">in Work</span>`],

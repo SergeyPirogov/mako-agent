@@ -95,7 +95,8 @@ func TestApprovePlanDefaultMode(t *testing.T) {
 }
 
 // The plan's stats: each «Поправити» is counted and the approval is stamped, for the route stats' «approved first
-// time» and the time to approval. A revision that fails (the plan was already answered) is not counted.
+// time» and the time to approval. A revision the chat refuses (no notes, or the plan was already answered) is not
+// counted.
 func TestPlanRevisionsAndApprovalKept(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	id := "grp/app#11"
@@ -119,6 +120,13 @@ func TestPlanRevisionsAndApprovalKept(t *testing.T) {
 	}
 	if r, _ := store.Get(id); r.PlanRevisions != 1 || r.PlanApprovedAt != "" {
 		t.Fatalf("after the revision: %d revisions, approved %q", r.PlanRevisions, r.PlanApprovedAt)
+	}
+	// The plan p1 is answered now: sending it back once more is refused by the chat, and is not counted.
+	if err := d.RevisePlan(id, "p1", "Once more"); err == nil {
+		t.Fatal("an answered plan was sent back")
+	}
+	if r, _ := store.Get(id); r.PlanRevisions != 1 {
+		t.Fatalf("a revision of an answered plan counted: %d", r.PlanRevisions)
 	}
 	// The agent offers the plan again; approving it stamps the approval.
 	waitFor(t, func() bool { a := c.Asked(); return a != nil && a.ID == "p2" }, "no plan asked again")
