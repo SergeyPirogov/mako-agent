@@ -372,6 +372,9 @@ func fileForm(field, name string, data []byte) (*multipartBody, error) {
 // perPage and maxPages bound a list read page by page: up to 1000 issues per query.
 const perPage, maxPages = 100, 10
 
+// ListMax: how many issues FetchMine reads at most; a search that returns that many may have more behind it.
+const ListMax = perPage * maxPages
+
 // allPages reads a GitHub or GitLab list page by page (page=1, 2, …) until a page comes back short:
 // one request returns at most perPage items, the rest of the issues are on the next pages.
 func allPages[T any](q url.Values, get func(query string, out *[]T) error) ([]T, error) {

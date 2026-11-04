@@ -409,6 +409,11 @@ func (d *Dispatcher) Poll(ctx context.Context) {
 			d.ensureProject(t, task.Project)
 			d.seen(ctx, t, task)
 		}
+		// A search cut off at the limit does not list everything: what is missing from it may be past the cut.
+		if len(tasks) >= searchCap {
+			d.Log("", fmt.Sprintf("the search of %s hit the limit of %d tasks: not removing what it does not list", t.ID(), searchCap))
+			continue
+		}
 		// A task waiting for «Взяти в роботу» that left the search: closed or deleted ones stay on the board
 		// as such; the rest (reassigned, label removed) are forgotten.
 		for _, r := range d.Store.All() {
