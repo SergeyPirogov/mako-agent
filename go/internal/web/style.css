@@ -694,9 +694,8 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .fix-btn:active, .mr-h .icon[data-ask]:active { transform: scale(.88); }
 .fix-btn.busy, .mr-h .icon[data-ask].busy { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); animation: glow 1s ease-out infinite; }
 .fix-btn.busy svg, .mr-h .icon[data-ask].busy svg { animation: twinkle .9s ease-in-out infinite; }
-/* Merge pressed: the button stays muted, with a spinning icon, until the task leaves the Merge state or the merge fails. */
+/* Merge pressed: the button stays muted and disabled, with a still icon, until the task leaves the Merge state or the merge fails. */
 .merge-go.busy, .mr-h .icon[data-merge].busy { opacity: .6; cursor: default; }
-.merge-go.busy svg, .mr-h .icon[data-merge].busy svg { animation: spin .9s linear infinite; }
 /* Passed to the agent: a muted check until the hold runs out. */
 .fix-btn.sent, .mr-h .icon[data-ask].sent { opacity: .55; cursor: default; background: var(--card); color: var(--ok); border-color: var(--line); }
 .fix-btn.sent:active { transform: none; }
@@ -1228,7 +1227,7 @@ details.journal .log { margin-top: 8px; }
   section { padding: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { button, a.btn, details.menu > summary { transition: none; } .s.ag-working::before { animation: none; }
-  .fix-btn.busy, .fix-btn.busy svg, .mr-h .icon[data-ask].busy, .mr-h .icon[data-ask].busy svg, .merge-go.busy svg, .mr-h .icon[data-merge].busy svg { animation: none; } #toast { transition: none; } }
+  .fix-btn.busy, .fix-btn.busy svg, .mr-h .icon[data-ask].busy, .mr-h .icon[data-ask].busy svg { animation: none; } #toast { transition: none; } }
 
 /* The board on a phone (iPhone 15 Pro Max is 430 px wide, SE 375): nothing wider than the screen, one scroll
    per screen, touch targets of 44 px, clear of the notch and the home indicator. */

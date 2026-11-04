@@ -1081,6 +1081,10 @@ func TestBoardMergeHeldAfterConfirm(t *testing.T) {
 	if !strings.Contains(css, ".merge-go.busy") || !strings.Contains(css, ".icon[data-merge].busy") {
 		t.Error("style.css has no .busy style for the merge button and icon")
 	}
+	// The disabled «Merging…» button is enough: the icon must not spin.
+	if strings.Contains(css, ".merge-go.busy svg") || strings.Contains(css, ".icon[data-merge].busy svg") {
+		t.Error("style.css animates the icon of a busy merge button: it must stay still")
+	}
 }
 
 // The style sheet's braces balance: a missing "}" once swallowed everything below the reduced-motion media block.
