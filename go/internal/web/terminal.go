@@ -8,8 +8,12 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"golang.org/x/net/websocket"
 )
+
+// maxHookBody: the most the agent's hooks (/hook, /guard) may send; more is refused, not cut.
+const maxHookBody = 1 << 20
 
 // xterm.js 6.0.0 with its fit and web-links addons, from npm (MIT, see vendor/LICENSE-xterm).
 //
@@ -31,7 +35,11 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 			http.Error(w, "unknown session", http.StatusForbidden)
 			return
 		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		body, _ := io.ReadAll(io.LimitReader(r.Body, maxHookBody+1))
+		if len(body) > maxHookBody {
+			http.Error(w, errTooLong, http.StatusRequestEntityTooLarge)
+			return
+		}
 		sess.Hook(body)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -42,7 +50,12 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 			http.Error(w, "unknown session", http.StatusForbidden)
 			return
 		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		body, _ := io.ReadAll(io.LimitReader(r.Body, maxHookBody+1))
+		if len(body) > maxHookBody {
+			// Cut, the hook would not parse and the command would run unchecked: a body this big is stopped.
+			writeJSON(w, dispatch.HookDeny("Mako stopped the command: the agent's request to the push guard is over 1 MB, too long to check."))
+			return
+		}
 		if answer := s.D.GuardPush(r.Context(), q.Get("id"), body); answer != nil {
 			writeJSON(w, answer)
 			return
