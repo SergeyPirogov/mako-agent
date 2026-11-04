@@ -1102,3 +1102,35 @@ func TestStyleBracesBalance(t *testing.T) {
 		t.Errorf("style.css has %d \"{\" and %d \"}\"", o, c)
 	}
 }
+
+// «Continue» is among the hints after the agent's turn (#582): a quick message, placed after the actions that follow
+// the task's state and before «What else could break?», so it is the main one only when nothing else is offered.
+// The board has no script tests, so this holds the page's source.
+func TestBoardNextActionsContinue(t *testing.T) {
+	src := string(board)
+	i := strings.Index(src, "function nextActions(")
+	j := strings.Index(src[i:], "\n}\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no nextActions in board.html")
+	}
+	body := src[i : i+j]
+	cont := strings.Index(body, `{ label: "Continue", quick: "Continue where you left off." }`)
+	if cont < 0 {
+		t.Fatal(`nextActions has no «Continue» hint with the quick message "Continue where you left off."`)
+	}
+	if diff := strings.Index(body, `label: "Show the diff"`); diff < 0 || diff > cont {
+		t.Error("«Continue» must come after the actions by the task's state")
+	}
+	if more := strings.Index(body, `label: "What else could break?"`); more < cont {
+		t.Error("«Continue» must come before «What else could break?»")
+	}
+	// The hints are hidden while the agent works or waits, so «Continue» is never offered then.
+	k := strings.Index(src, "function drawNextActions(")
+	l := strings.Index(src[k:], "\n}\n")
+	if k < 0 || l < 0 {
+		t.Fatal("no drawNextActions in board.html")
+	}
+	if !strings.Contains(src[k:k+l], `box.hidden = s.state === "working" || s.state === "waiting"`) {
+		t.Error("the hints are no longer hidden while the agent works or waits")
+	}
+}

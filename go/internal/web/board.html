@@ -4511,6 +4511,7 @@ function nextActions(v) {
     out.push({ label: "Open the MR", href: r.prUrl });
   }
   if (r && ch?.files?.length) out.push({ label: "Show the diff", next: "diff" });
+  out.push({ label: "Continue", quick: "Continue where you left off." });
   out.push({ label: "What else could break?", quick: "What else could break because of these changes? Check the places that depend on them and tell me what you find." });
   return out;
 }
