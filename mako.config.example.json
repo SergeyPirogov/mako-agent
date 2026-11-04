@@ -6,6 +6,7 @@
   "wipLimit": 2,
   "wipAuto": false,
   "limitPausePct": 85,
+  "resumeAfterLimit": true,
   "archiveAfterDays": 2,
   "keepAwake": true,
   "branchPattern": "{type}/{id}-{title}",

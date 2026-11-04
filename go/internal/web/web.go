@@ -317,8 +317,10 @@ func (s *Server) Handler() http.Handler {
 		} else if t, ok := s.D.TaskChat(id); ok {
 			snap = t // a task whose agent is not running: its conversation so far
 		} else {
-			writeJSON(w, chat.Snapshot{State: "exited", Items: []chat.Item{}})
-			return
+			snap = chat.Snapshot{State: "exited", Items: []chat.Item{}}
+		}
+		if c == nil {
+			snap = s.D.WithLimit(id, snap) // cut by the limit before Mako restarted: it still goes on by itself
 		}
 		if strconv.Itoa(snap.Version) == r.URL.Query().Get("v") {
 			writeJSON(w, map[string]any{"version": snap.Version, "same": true})

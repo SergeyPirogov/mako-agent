@@ -118,6 +118,7 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 	case "resume":
 		err = s.D.ResumeFree(id)
 	case "stop":
+		s.D.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
 		if c != nil {
 			c.Stop()
 		}

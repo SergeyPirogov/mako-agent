@@ -42,6 +42,9 @@ type FreeChat struct {
 	At      int64  `json:"at"` // the last message, unix ms
 	// Error: why its worktree could not be made; the chat stays to read, it cannot go on.
 	Error string `json:"error,omitempty"`
+	// LimitedUntil, ResumeAfterLimit: the Claude limit cut its agent (as in core.Record).
+	LimitedUntil     int64 `json:"limitedUntil,omitempty"`
+	ResumeAfterLimit bool  `json:"resumeAfterLimit,omitempty"`
 }
 
 // Loose: the chat has no project: no clone, worktree or branch, only a folder of its own.
@@ -303,9 +306,10 @@ func (d *Dispatcher) startFree(c FreeChat, text string, setup *chat.SetupResult)
 	}
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: c.ID, Worktree: c.Dir, Command: command, Args: args, Env: d.agentEnv(c.ID), SetupDone: setup, Prompt: text, Mode: mode, History: history,
-		OnLimits:  d.limitsReported,
-		OnResume:  d.afterLimit(c.Title, func(text string) error { return d.SayFree(c.ID, text) }),
-		OnSession: func(sid, _ string) { d.touchChat(c.ID, sid) },
+		OnLimits:      d.limitsReported,
+		OnLimit:       func(until int64, resume bool) { d.noteLimit(c.ID, until, resume) },
+		ResumeOnReset: d.resumeFlag(c.ID),
+		OnSession:     func(sid, _ string) { d.touchChat(c.ID, sid) },
 	}))
 	return nil
 }

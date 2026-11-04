@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
@@ -316,8 +318,8 @@ func TestResumeOnResetRoute(t *testing.T) {
 		json.NewDecoder(res.Body).Decode(&out)
 		return out
 	}
-	if out := post("/api/resumeonreset?id=chat-none&on=1"); out["ok"] != false || !strings.Contains(out["error"].(string), "not running") {
-		t.Fatalf("no agent: %v", out)
+	if out := post("/api/resumeonreset?id=chat-none&on=1"); out["ok"] != false || !strings.Contains(out["error"].(string), "no such chat") {
+		t.Fatalf("no chat: %v", out)
 	}
 	reset := time.Now().Add(time.Hour).Unix()
 	bin := filepath.Join(t.TempDir(), "claude")
@@ -356,5 +358,23 @@ sleep 30
 	}
 	if out := post("/api/resumeonreset?id=chat-l&on=0"); out["ok"] != true || snapshot().ResumeOnReset {
 		t.Fatalf("off: %v", out)
+	}
+	// A task cut before Mako restarted (no agent running): the choice is kept with it, and the chat shows the
+	// limit kept.
+	store.Update("grp/app#9", func(r *core.Record) { r.Status, r.LimitedUntil, r.ResumeAfterLimit = core.HandedOff, reset, true })
+	if out := post("/api/resumeonreset?id=" + url.QueryEscape("grp/app#9") + "&on=0"); out["ok"] != true {
+		t.Fatalf("no agent: %v", out)
+	}
+	if r, _ := store.Get("grp/app#9"); r.ResumeAfterLimit || r.LimitedUntil != reset {
+		t.Fatalf("kept %+v", r)
+	}
+	res, err := http.Get(srv.URL + "/api/chat?id=" + url.QueryEscape("grp/app#9"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snap chat.Snapshot
+	json.NewDecoder(res.Body).Decode(&snap)
+	if snap.State != "limited" || snap.LimitedUntil != reset || snap.ResumeOnReset {
+		t.Fatalf("snapshot %+v", snap)
 	}
 }

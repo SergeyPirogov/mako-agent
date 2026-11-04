@@ -679,6 +679,7 @@ function renderOrca() {
     box.append(select(o, "agent", t("s.o.orcaAgent"), agents, { def: "claude" }));
   }
   box.append(num(cfg, "limitPausePct", t("s.o.limitPause"), { placeholder: "85", hint: t("s.o.limitPauseHint") }));
+  box.append(check(cfg, "resumeAfterLimit", t("s.o.resumeAfterLimit"), { def: true, hint: t("s.o.resumeAfterLimitHint") }));
   box.append(select(o, "mrBy", t("s.o.mrBy"), [["agent", t("s.o.mrByAgent")], ["me", t(onTerminal() ? "s.o.mrByMe" : "s.o.mrByMeOrca")]], { def: "agent" }));
   box.append(localized(o, "instructions", t("s.o.instructions"), { area: true, hint: t("s.o.instructionsHint"),
     placeholders: { en: t("s.o.instructionsPh"), uk: t("s.o.instructionsPh") } }));

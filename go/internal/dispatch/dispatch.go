@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
@@ -125,6 +126,10 @@ type Dispatcher struct {
 	wake     chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
+	// resuming: the agents the limit cut are being made to go on (resumeLimited), one round at a time.
+	resuming atomic.Bool
+	// goOn: how an agent the limit cut is made to go on (a test's stand-in); nil: the way a message from the board goes.
+	goOn func(id string) error
 	// restartPending: «Перезапустити, коли агенти закінчать хід» was pressed.
 	restartPending bool
 	// Hold: why no new agent may start now ("" none): Mako waits to update itself. Set by main.
@@ -284,6 +289,8 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		defer tick.Stop()
 		for {
 			d.WatchAgents(ctx, time.Now())
+			// Also at once after Mako starts: the agents the limit cut before a restart go on too.
+			go d.resumeLimited(time.Now())
 			select {
 			case <-ctx.Done():
 				return
