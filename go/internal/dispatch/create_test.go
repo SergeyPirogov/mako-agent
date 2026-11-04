@@ -154,6 +154,18 @@ func TestCutOffSearchRemovesNothing(t *testing.T) {
 	if _, ok := d.Store.Get("grp/app#5"); !ok {
 		t.Fatal("a cut-off search removed a task that may be past the cut")
 	}
+	// A closed one is not past the cut: the board shows it as gone even from a cut-off search.
+	f.mu.Lock()
+	f.issues[5]["state"] = "closed"
+	f.mu.Unlock()
+	d.Poll(ctx)
+	if r, ok := d.Store.Get("grp/app#5"); !ok || r.Gone == "" {
+		t.Fatalf("a closed task was not marked gone by a cut-off search: %+v, %v", r, ok)
+	}
+	f.mu.Lock()
+	f.issues[5]["state"] = "opened"
+	f.mu.Unlock()
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status, r.Gone = core.Snoozed, "" })
 	searchCap = 2
 	d.Poll(ctx) // one found of two possible: complete
 	if _, ok := d.Store.Get("grp/app#5"); ok {
