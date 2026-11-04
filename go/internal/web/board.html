@@ -108,6 +108,8 @@ let groupBy = (() => { try { return localStorage.getItem("mako-group") === "stat
 let foldedProjects = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-projects") || "[]"); } catch { return []; } })());
 // "Postponed" and "Done" of a project, opened on their own ("project|column").
 const openQuiet = new Set();
+// The sections of a project (Ready to merge, In progress, New) the user folded ("project|section"); the others are open.
+let foldedSubs = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-subs") || "[]"); } catch { return []; } })());
 // Where the list was scrolled to: it is drawn again on every refresh, click and fold.
 let listTop = 0;
 // The projects of the board (sorted): each has its colour in the list.
@@ -663,7 +665,11 @@ function render() {
     render();
   };
   for (const b of $("list").querySelectorAll(".quiet")) b.onclick = () => {
-    openQuiet.has(b.dataset.key) ? openQuiet.delete(b.dataset.key) : openQuiet.add(b.dataset.key);
+    if (b.dataset.sub) {
+      if (showAll) return;
+      foldedSubs.has(b.dataset.sub) ? foldedSubs.delete(b.dataset.sub) : foldedSubs.add(b.dataset.sub);
+      try { localStorage.setItem("mako-folded-subs", JSON.stringify([...foldedSubs])); } catch {}
+    } else openQuiet.has(b.dataset.key) ? openQuiet.delete(b.dataset.key) : openQuiet.add(b.dataset.key);
     render();
   };
   renderDetail();
@@ -724,7 +730,8 @@ function lessonBadge(p, entries) {
   return tid ? `<span class="lesson-badge" data-lessons-of="${esc(`${tid}|${p}`)}" title="${esc(t("b.lessonOffer"))}">💡</span>` : "";
 }
 
-// By project: a group per project, its tasks in the order of the work; "Postponed" and "Done" each a folded line of its own.
+// By project: a group per project, its tasks in the order of the work; every section of it (Ready to merge, In progress, New, Postponed, Done)
+// folds by a click on its heading: "Postponed" and "Done" start folded, the others open.
 const QUIET = ["later", "done"], SUMMARY = { doing: "at work", blocked: "blocked", review: "in review", merge: "ready to merge", forme: "to review", new: "new", failed: "not done" };
 function listByProject(entries, showAll) {
   const by = new Map();
@@ -743,12 +750,14 @@ function listByProject(entries, showAll) {
       + lessonBadge(p, all)
       + (isFolded ? `<span class="p-sum">${summary}</span>` : "") + `<span class="n">${all.length}</span></button>`;
     if (!isFolded) {
-      // Ready to merge first, under a small green heading: the next action for a person.
+      // Ready to merge first, under a small green heading: the next action for a person; then what is in progress, then the new ones.
       const ready = active.filter((e) => e.g === "merge"), doing = active.filter((e) => e.g !== "merge" && e.g !== "new"), fresh = active.filter((e) => e.g === "new");
-      if (ready.length) html += `<div class="sub merge" title="CI passed, no conflicts or open threads: the MR can be merged">${COLUMNS.find(([c]) => c === "merge")[1]}</div>` + ready.map((e) => e.html).join("");
-      // The rest in two small groups: what is in progress, then the new ones.
-      for (const [title, rs] of [[t("b.inProgress"), doing], [COLUMNS.find(([c]) => c === "new")[1], fresh]]) {
-        if (rs.length) html += `<div class="sub">${title}<span class="n">${rs.length}</span></div>` + rs.map((e) => e.html).join("");
+      const MERGE_TIP = "CI passed, no conflicts or open threads: the MR can be merged";
+      for (const [id, title, rs, cls, tip] of [["merge", COLUMNS.find(([c]) => c === "merge")[1], ready, " merge", MERGE_TIP], ["work", t("b.inProgress"), doing, "", ""], ["new", COLUMNS.find(([c]) => c === "new")[1], fresh, "", ""]]) {
+        if (!rs.length) continue;
+        const key = `${p}|${id}`, isOpen = showAll || !foldedSubs.has(key);
+        html += `<button class="quiet${isOpen ? " open" : ""}${cls}" data-sub="${esc(key)}" aria-expanded="${isOpen}"${tip ? ` title="${esc(tip)}"` : ""}>${ICON.chevron}${title}<span class="n">${rs.length}</span></button>`;
+        if (isOpen) html += rs.map((e) => e.html).join("");
       }
       if (!active.length) html += `<div class="p-none">${t("b.nothingInWork")}</div>`;
       for (const g of QUIET) {
