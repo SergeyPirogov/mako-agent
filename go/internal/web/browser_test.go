@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
+	cdppage "github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
@@ -190,5 +192,56 @@ func TestPhoneClientThroughAnEvilRelay(t *testing.T) {
 		if strings.Contains(tape, s) {
 			t.Errorf("the relay saw the %s", name)
 		}
+	}
+}
+
+// A hash that does not decode (#100%) and a blocked localStorage must not stop the board's script: the list still loads.
+func TestBoardSurvivesBadHashAndBlockedStorage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("a browser test")
+	}
+	chrome, err := shot.FindChrome()
+	if err != nil {
+		t.Skip(err)
+	}
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d}).Handler())
+	defer srv.Close()
+	for _, c := range []struct{ name, hash, script string }{
+		{"malformed hash", "#100%", ""},
+		{"blocked storage", "", `Storage.prototype.getItem = function () { throw new DOMException("denied", "SecurityError"); };`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome), chromedp.UserDataDir(t.TempDir()))
+			if goruntime.GOOS == "linux" {
+				opts = append(opts, chromedp.NoSandbox)
+			}
+			alloc, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+			defer cancel()
+			ctx, cancel := chromedp.NewContext(alloc)
+			defer cancel()
+			ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
+			if c.script != "" {
+				if err := chromedp.Do(ctx, chromedp.Func(func(ctx context.Context, tg *chromedp.Target) error {
+					_, err := cdp.Call(ctx, tg, cdppage.AddScriptToEvaluateOnNewDocument, cdppage.AddScriptToEvaluateOnNewDocumentParams{Source: c.script})
+					return err
+				})); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := chromedp.Do(ctx, chromedp.Navigate(srv.URL+"/"+c.hash)); err != nil {
+				t.Fatal(err)
+			}
+			for end := time.Now().Add(20 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+				if ok, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`typeof data !== "undefined" && data !== null`)); err == nil && ok {
+					return
+				}
+				if time.Now().After(end) {
+					t.Fatal("the board never loaded its data")
+				}
+			}
+		})
 	}
 }
