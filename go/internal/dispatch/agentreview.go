@@ -420,6 +420,21 @@ func (d *Dispatcher) setReview(id string, a core.AgentReview) {
 	})
 }
 
+// agentWatched: the task's agent is looked after (its state on the board, a notification when it waits for you):
+// a task in work, and a task past its MR whose agent in Mako's terminal runs again, fixing the review's remarks.
+func (d *Dispatcher) agentWatched(r core.Record) bool {
+	return r.Status == core.HandedOff || onTerminal(r) && d.agentRunning(r.ID)
+}
+
+// agentRunning: the task's agent in Mako's terminal is running (working, waiting for you or done with its turn).
+func (d *Dispatcher) agentRunning(id string) bool {
+	if s := d.Chats.Get(id); s != nil && s.Running() {
+		return true
+	}
+	s := d.Sessions.Get(id)
+	return s != nil && s.Running()
+}
+
 // agentIdle: the task's agent is not in the middle of a turn, nor waiting for your answer.
 func (d *Dispatcher) agentIdle(id string) bool {
 	if s := d.Chats.Get(id); s != nil && s.Running() {

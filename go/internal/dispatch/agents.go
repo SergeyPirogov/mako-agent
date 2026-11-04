@@ -83,7 +83,7 @@ func (d *Dispatcher) WatchAgents(ctx context.Context, now time.Time) {
 	var records []core.Record
 	live := map[string]bool{}
 	for _, r := range d.Store.All() {
-		if r.Status != core.HandedOff {
+		if !d.agentWatched(r) {
 			continue
 		}
 		if onTerminal(r) {
