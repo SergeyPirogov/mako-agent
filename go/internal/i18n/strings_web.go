@@ -386,6 +386,7 @@ var webStrings = map[string]string{
 	"s.p.tailnetHint":    "Mako is not seen from the internet. The phone needs Tailscale too (<a href=\"https://apps.apple.com/app/tailscale/id1470499037\" target=\"_blank\" rel=\"noopener\">iPhone</a>, <a href=\"https://play.google.com/store/apps/details?id=com.tailscale.ipn\" target=\"_blank\" rel=\"noopener\">Android</a>) with the same account.",
 	"s.p.openTailnet":    "Open for Tailscale",
 	"s.p.available":      "Mako is available at {url} — {how}",
+	"s.p.viaRelay":       "Mako is available from any network through the relay at {url}. Nothing is needed on the phone.",
 	"s.p.howAny":         "from any network (Funnel)",
 	"s.p.howTailnet":     "only for your Tailscale's devices",
 	"s.p.onlyTailnet":    "Only for Tailscale",

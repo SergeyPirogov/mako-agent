@@ -250,6 +250,25 @@ func requestOrigin(r *http.Request) string {
 	return scheme + "://" + host
 }
 
+// relayURL: where phones reach this Mac through the relay, "" while it is off or its tunnel is down.
+func (s *Server) relayURL() string {
+	if s.Relay == nil {
+		return ""
+	}
+	return strings.TrimRight(s.Relay(), "/")
+}
+
+// phoneURL: the address a phone opens Mako at: the relay's when its tunnel is up, else Tailscale's once served.
+func (s *Server) phoneURL(t phone.Tailscale) string {
+	if u := s.relayURL(); u != "" {
+		return u
+	}
+	if t.Host != "" && t.Serving {
+		return "https://" + t.Host
+	}
+	return ""
+}
+
 func (s *Server) phoneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /icons/", func(w http.ResponseWriter, r *http.Request) {
 		data, err := icons.ReadFile(strings.TrimPrefix(r.URL.Path, "/"))
@@ -384,8 +403,11 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 			devices = append(devices, deviceView{d, d.ViaTailscale()})
 		}
 		reply := map[string]any{"tailscale": t, "devices": devices, "tailscaleLeftovers": s.Phones.HasTailscaleDevices()}
-		if t.Host != "" && t.Serving {
-			reply["url"] = "https://" + t.Host
+		if u := s.phoneURL(t); u != "" {
+			reply["url"] = u
+		}
+		if u := s.relayURL(); u != "" {
+			reply["relay"] = map[string]string{"url": u}
 		}
 		writeJSON(w, reply)
 	})
@@ -403,13 +425,16 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		case "unserve":
 			err = phone.Unserve(r.Context())
 		case "pairing":
-			t := phone.TailscaleState(r.Context(), port)
-			if !t.Serving || t.Host == "" {
+			base := s.relayURL()
+			if base == "" {
+				base = s.phoneURL(phone.TailscaleState(r.Context(), port))
+			}
+			if base == "" {
 				err = fmt.Errorf("first open Mako for the phone through Tailscale")
 				break
 			}
 			code, secret := s.Phones.NewPairingKey()
-			link := "https://" + t.Host + "/pair#code=" + url.QueryEscape(code) + "&k=" + url.QueryEscape(secret)
+			link := base + "/pair#code=" + url.QueryEscape(code) + "&k=" + url.QueryEscape(secret)
 			png, qerr := qrcode.Encode(link, qrcode.Medium, 512)
 			if qerr != nil {
 				err = qerr

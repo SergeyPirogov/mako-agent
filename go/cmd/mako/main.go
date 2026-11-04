@@ -29,6 +29,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
+	"github.com/SergeyPirogov/mako-agent/go/internal/relay"
 	"github.com/SergeyPirogov/mako-agent/go/internal/setup"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
@@ -241,7 +242,18 @@ func run(homeFlag string, open, noTray, readonly bool, port int) error {
 		releases = &update.Releases{Current: version, File: filepath.Join(cfg.StateDir, "release.json")}
 		go releases.Watch(ctx, 6*time.Hour)
 	}
-	srv := &http.Server{Handler: (&web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones, Update: updater, Release: releases}).Handler()}
+	ws := &web.Server{D: d, Version: version, Home: home, Show: show, Phones: phones, Update: updater, Release: releases}
+	// The relay brings the phone to this Mac from any network, without Tailscale (docs/relay.md).
+	if addr := relay.Addr(); addr != "" {
+		if token, err := relay.LoadToken(cfg.StateDir); err != nil {
+			log.Printf("relay: %v", err)
+		} else {
+			rc := &relay.Client{Addr: addr, Token: token, Local: d.BoardURL}
+			ws.Relay = rc.URL
+			go rc.Run(ctx)
+		}
+	}
+	srv := &http.Server{Handler: ws.Handler()}
 	go srv.Serve(ln)
 	log.Printf("Mako %s: %s, board %s", version, home, d.BoardURL)
 	if len(cfg.Trackers) == 0 {
