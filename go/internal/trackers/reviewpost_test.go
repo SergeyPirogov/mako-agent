@@ -28,6 +28,17 @@ func TestInDiff(t *testing.T) {
 	}
 }
 
+// The old number of an unchanged line counts the removed lines before it, not the added ones.
+func TestDiffLineOld(t *testing.T) {
+	files := []ReviewFile{{Path: "a.go", Status: "M", Diff: "@@ -10,5 +20,5 @@\n ctx\n-old1\n-old2\n+new\n ctx2\n+more\n ctx3\n"}}
+	for line, want := range map[int][2]int{20: {1, 10}, 21: {1, 0}, 22: {1, 13}, 23: {1, 0}, 24: {1, 14}, 25: {0, 0}} {
+		ok, old := diffLine(files, "a.go", line)
+		if ok != (want[0] == 1) || old != want[1] {
+			t.Errorf("a.go:%d: %v, old %d; want %v", line, ok, old, want)
+		}
+	}
+}
+
 // posts: what a fake code host was sent, by path.
 type posts struct {
 	mu   sync.Mutex
@@ -89,6 +100,7 @@ func TestGitLabPostReview(t *testing.T) {
 		{Path: "cache.go", Line: 40, Body: "out of the diff"},
 		{Body: "about the MR"},
 		{Path: "cache.go", Line: 3, Body: "rejected line"},
+		{Path: "cache.go", Line: 1, Body: "on an unchanged line"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -96,8 +108,15 @@ func TestGitLabPostReview(t *testing.T) {
 	if res[0].URL != url+"#note_71" || res[1].URL != url+"#note_72" || res[2].URL != url+"#note_72" || res[3].URL != url+"#note_72" {
 		t.Fatalf("results %+v", res)
 	}
-	if len(sent.list) != 5 {
-		t.Fatalf("sent %+v", sent.list)
+	if len(sent.list) != 6 || res[4].URL != url+"#note_71" {
+		t.Fatalf("sent %+v, results %+v", sent.list, res)
+	}
+	// An unchanged line is placed by its old number too; an added one has none.
+	if pos, _ := sent.list[5].body["position"].(map[string]any); pos["new_line"] != 1.0 || pos["old_line"] != 1.0 {
+		t.Fatalf("context line %+v", pos)
+	}
+	if pos, _ := sent.list[0].body["position"].(map[string]any); pos["old_line"] != nil {
+		t.Fatalf("added line %+v", pos)
 	}
 	pos, _ := sent.list[0].body["position"].(map[string]any)
 	if pos["base_sha"] != "b0" || pos["start_sha"] != "s0" || pos["head_sha"] != "h1" || pos["new_path"] != "cache.go" ||

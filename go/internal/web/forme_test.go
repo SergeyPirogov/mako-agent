@@ -86,6 +86,7 @@ func TestBoardReviewForMe(t *testing.T) {
 		"${draftHTML(q, card)}", `id="rq-prepare"`, `id="rq-send"`, `id="rq-approve"`, `class="dc-text"`, `class="dc-pick"`, `class="ghost dc-drop"`,
 		"/api/review-request/${action}", `forme: "review for me"`, `No local clone of ${esc(q.project)}: the reviewer read the diff only.`,
 		`document.activeElement?.classList.contains("dc-text")`, "bindDraft(q);",
+		"if (dr.stale) parts.push(", `q.draft?.stale ?`, "changed since review", "will be replaced by the new review's; the sent ones stay.",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("board.html lacks %s", want)

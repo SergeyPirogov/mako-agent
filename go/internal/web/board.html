@@ -776,7 +776,7 @@ function reviewAskRow(q) {
   const since = q.state === "open" ? q.since : q.doneAt;
   return `<button class="item rq ${q.id === selected ? "sel" : ""}" data-id="${esc(q.id)}" title="${esc(q.project)}${esc(q.ref)} · ${esc(q.title)}">
     <span class="t">${esc(q.title)}</span>
-    <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${showTrackerMark() ? trackerMark(q) : ""}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="New commits since you last looked">updated</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Waiting " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
+    <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${showTrackerMark() ? trackerMark(q) : ""}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="New commits since you last looked">updated</span>` : ""}${q.draft?.stale ? `<span class="updated" title="New commits since Mako prepared your review">changed since review</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Waiting " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
 }
 
 // «Prepare review»: Mako's reviewer drafts my review of the MR (q.draft): a summary, the comments to send, what
@@ -804,9 +804,10 @@ function draftHTML(q, card) {
     : `<button class="${dr ? "ghost" : "primary"}" id="rq-prepare" title="Mako's reviewer reads the MR in a read-only worktree and drafts your review">${dr ? "Prepare again" : "Prepare review"}</button>`;
   if (!dr) return card("Mako review", `<div class="tcard-b dr-empty"><span class="muted">Mako's reviewer reads the MR for you: what it changes and why, its risks as comments you can send, what to check by hand, whether to merge it.</span>${prepare}</div>`);
   const note = [dr.cost ? `$${dr.cost.toFixed(2)}` : "", dr.at ? esc(ago(dr.at)) : ""].filter(Boolean).join(" · ");
-  if (dr.state === "running") return card("Mako review", `<div class="tcard-b dr-empty"><span class="muted">The reviewer is reading the MR: the draft shows here when it is done.</span>${prepare}</div>`, note);
+  if (dr.state === "running") return card("Mako review", `<div class="tcard-b dr-empty"><span class="muted">The reviewer is reading the MR: the new draft shows here when it is done${(dr.comments || []).some((c) => c.state === "sent") ? "; the comments already sent stay in it" : ""}.</span>${prepare}</div>`, note);
   const parts = [];
   if (dr.state === "failed") parts.push(`<div class="notice">${linkify(`The reviewer failed: ${dr.error || "no answer"}`)}</div>`);
+  if (dr.stale) parts.push(`<div class="notice warn">Changed since this review: the MR has new commits after ${esc((dr.commit || "").slice(0, 8))}. Comments on lines may go to the MR as general ones; Prepare again to review the new code.</div>`);
   if (dr.limited) parts.push(`<div class="notice warn">No local clone of ${esc(q.project)}: the reviewer read the diff only.</div>`);
   if (dr.verdict) parts.push(`<div class="dr-verdict">${chip("Verdict:", DRAFT_VERDICT[dr.verdict] ?? ["", dr.verdict])}${dr.verdictNote ? ` <span>${inlineCode(dr.verdictNote)}</span>` : ""}</div>`);
   if (dr.summary) parts.push(`<div class="md">${md(dr.summary)}</div>`);
@@ -831,7 +832,13 @@ async function draftAction(q, action, body) {
 function bindDraft(q) {
   const box = $("detail");
   const prep = $("rq-prepare");
-  if (prep) prep.onclick = () => { prep.disabled = true; draftAction(q, "prepare"); };
+  if (prep) prep.onclick = () => {
+    // The comments not sent yet give way to the new review's; the sent ones stay on the card.
+    const unsent = (q.draft?.comments || []).filter((c) => c.state === "draft" || c.state === "failed").length;
+    if (unsent && !confirm(`Prepare the review again? The ${unsent} unsent ${plural(unsent, "comment", "comments")} will be replaced by the new review's; the sent ones stay.`)) return;
+    prep.disabled = true;
+    draftAction(q, "prepare");
+  };
   const send = $("rq-send");
   if (send) send.onclick = async () => {
     const ids = draftToSend(q).map((c) => c.id);

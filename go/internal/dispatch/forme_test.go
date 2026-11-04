@@ -156,6 +156,17 @@ func TestPrepareReviewFails(t *testing.T) {
 	if dr := waitDraft(t, d, mr.ID); dr.State != "failed" || dr.Error != "claude: exit 1" {
 		t.Fatalf("%+v", dr)
 	}
+	// A run that fails over an earlier draft leaves its comments on the card.
+	ReviewForMe = func(context.Context, string, writer.ForeignMR, core.Route) (string, error) { return foreignAnswer, nil }
+	d.PrepareReview(mr.ID)
+	waitDraft(t, d, mr.ID)
+	ReviewForMe = func(context.Context, string, writer.ForeignMR, core.Route) (string, error) {
+		return "", errors.New("timeout")
+	}
+	d.PrepareReview(mr.ID)
+	if dr := waitDraft(t, d, mr.ID); dr.State != "failed" || dr.Error != "timeout" || len(dr.Comments) != 2 || dr.Summary != "Додає кеш." {
+		t.Fatalf("failed again: %+v", dr)
+	}
 	// A draft that was running when Mako stopped failed.
 	d.setDraft(mr.ID, func(dr *core.ReviewDraft) { dr.State = "running" })
 	d.interruptedDrafts()
@@ -312,15 +323,67 @@ func TestSendDrafts(t *testing.T) {
 		t.Fatalf("%+v", r.Draft.Comments[1])
 	}
 
-	// The review fails as a whole: the error, the comments as they were.
+	// Prepared again: the sent comments stay, sent; the new ones come after them, numbered after every earlier one.
 	d.PrepareReview(mr.ID)
-	waitDraft(t, d, mr.ID)
+	dr := waitDraft(t, d, mr.ID)
+	if len(dr.Comments) != 4 || dr.Comments[0].ID != "R1" || dr.Comments[0].State != core.DraftSent || dr.Comments[1].ID != "R2" || dr.Comments[1].State != core.DraftSent ||
+		dr.Comments[2].ID != "R3" || dr.Comments[2].State != core.DraftOpen || dr.Comments[3].ID != "R4" {
+		t.Fatalf("after Prepare again: %+v", dr.Comments)
+	}
+
+	// The review fails as a whole: the error, the comments as they were.
 	p.failAll = errors.New("403 Forbidden")
-	if _, err := d.SendDrafts(ctx, mr.ID, []string{"R1"}); err == nil || err.Error() != "403 Forbidden" {
+	if _, err := d.SendDrafts(ctx, mr.ID, []string{"R3"}); err == nil || err.Error() != "403 Forbidden" {
 		t.Fatalf("%v", err)
 	}
-	if c := draftOf(d, mr.ID).Comments[0]; c.State != core.DraftOpen {
+	if c := draftOf(d, mr.ID).Comments[2]; c.State != core.DraftOpen {
 		t.Fatalf("%+v", c)
+	}
+}
+
+// A draft replaced meanwhile by a shorter one: an edit finds its comment by ID or says it is gone; nothing else
+// changes and nothing panics.
+func TestEditDraftReplaced(t *testing.T) {
+	mr := mrToReview(1, "aaa")
+	d, _, _ := forMeSetup(t, mr)
+	d.PrepareReview(mr.ID)
+	waitDraft(t, d, mr.ID)
+	d.setDraft(mr.ID, func(dr *core.ReviewDraft) { dr.Comments = dr.Comments[1:] }) // only R2 is left
+	if err := d.EditDraft(mr.ID, "R1", "x", false); err == nil {
+		t.Fatal("edited a comment that is gone")
+	}
+	if err := d.EditDraft(mr.ID, "R2", "нове", true); err != nil {
+		t.Fatal(err)
+	}
+	if c := draftOf(d, mr.ID).Comments; len(c) != 1 || c[0].ID != "R2" || c[0].Text != "нове" || c[0].State != core.DraftDropped {
+		t.Fatalf("%+v", c)
+	}
+}
+
+// «Змінилось після ревʼю»: new commits after the head the reviewer read mark the draft; the next run is of the
+// new head and is not marked.
+func TestDraftStale(t *testing.T) {
+	mr := mrToReview(1, "aaa")
+	d, f, _ := forMeSetup(t, mr)
+	ctx := context.Background()
+	d.PrepareReview(mr.ID)
+	waitDraft(t, d, mr.ID)
+	d.Poll(ctx)
+	if draftOf(d, mr.ID).Stale {
+		t.Fatal("stale with no new commits")
+	}
+	f.open[0].HeadSHA = "bbb"
+	d.Poll(ctx)
+	if dr := draftOf(d, mr.ID); !dr.Stale || dr.Commit != "aaa" || len(dr.Comments) != 2 {
+		t.Fatalf("after a push: %+v", dr)
+	}
+	d.PrepareReview(mr.ID)
+	if dr := waitDraft(t, d, mr.ID); dr.Stale || dr.Commit != "bbb" {
+		t.Fatalf("prepared again: %+v", dr)
+	}
+	d.Poll(ctx)
+	if draftOf(d, mr.ID).Stale {
+		t.Fatal("stale after the review of the new head")
 	}
 }
 

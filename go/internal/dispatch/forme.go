@@ -47,9 +47,8 @@ func (d *Dispatcher) PrepareReview(id string) error {
 	}
 	d.preparing[id] = true
 	d.mu.Unlock()
-	d.Reviews.Update(id, func(r *core.ReviewRequest) {
-		r.Draft = &core.ReviewDraft{State: "running", At: now(), Commit: r.HeadSHA}
-	})
+	// What the earlier draft has stays on the card meanwhile: a failed run leaves it as it was.
+	d.setDraft(id, func(dr *core.ReviewDraft) { dr.State, dr.Error, dr.At = "running", "", now() })
 	d.Log(id, "reviewer is preparing your review of the MR")
 	go d.prepare(id, inbox)
 	return nil
@@ -124,9 +123,33 @@ func (d *Dispatcher) prepare(id string, inbox trackers.ReviewInbox) {
 	if _, ok := d.Reviews.Get(id); !ok {
 		return // the MR left the list meanwhile
 	}
-	d.Reviews.Update(id, func(r *core.ReviewRequest) { r.Draft = &draft })
+	d.Reviews.Update(id, func(r *core.ReviewRequest) {
+		draft.Comments = carrySent(r.Draft, draft.Comments)
+		r.Draft = &draft
+	})
 	d.Log(id, fmt.Sprintf("reviewer prepared your review (%s): %d comments to send", route.Label(), len(draft.Comments)))
 	notify.Inform(notify.AgentReview, i18n.T("notify.reviewPrepared", rq.Ref), rq.Title, d.reviewLink(id))
+}
+
+// carrySent: the new draft's comments after the ones of the earlier draft already sent to the MR, so the card
+// still tells what went and nothing is sent twice. The new ones are numbered after every earlier one: a send
+// that answers after the new draft came marks its own comments, by ID, never new ones.
+func carrySent(old *core.ReviewDraft, fresh []core.DraftComment) []core.DraftComment {
+	var out []core.DraftComment
+	next := 1
+	if old != nil {
+		for _, c := range old.Comments {
+			next = max(next, core.RemarkNum(c.ID)+1)
+			if c.State == core.DraftSent {
+				out = append(out, c)
+			}
+		}
+	}
+	for i, c := range fresh {
+		c.ID = "R" + strconv.Itoa(next+i)
+		out = append(out, c)
+	}
+	return out
 }
 
 // setDraft changes the MR's draft (a copy: the store hands out shallow ones) under the store's lock.
@@ -278,25 +301,34 @@ func (d *Dispatcher) EditDraft(id, comment, text string, dropped bool) error {
 	if rq.Draft == nil {
 		return errors.New("the MR has no draft review")
 	}
-	i := slices.IndexFunc(rq.Draft.Comments, func(c core.DraftComment) bool { return c.ID == comment })
-	if i < 0 {
-		return fmt.Errorf("no such comment: %s", comment)
-	}
-	if rq.Draft.Comments[i].State == core.DraftSent {
-		return errors.New("the comment is sent already")
-	}
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return errors.New("the comment is empty")
 	}
+	// Looked up by its ID under the store's lock: another run may have replaced the draft since it was read.
+	var found, sent bool
 	d.setDraft(id, func(dr *core.ReviewDraft) {
+		i := slices.IndexFunc(dr.Comments, func(c core.DraftComment) bool { return c.ID == comment })
+		if i < 0 {
+			return
+		}
+		found = true
 		c := &dr.Comments[i]
+		if sent = c.State == core.DraftSent; sent {
+			return
+		}
 		c.Text, c.Error = text, ""
 		c.State = core.DraftOpen
 		if dropped {
 			c.State = core.DraftDropped
 		}
 	})
+	switch {
+	case !found:
+		return fmt.Errorf("no such comment: %s", comment)
+	case sent:
+		return errors.New("the comment is sent already")
+	}
 	return nil
 }
 
@@ -310,13 +342,13 @@ func (d *Dispatcher) SendDrafts(ctx context.Context, id string, ids []string) (c
 	if rq.Draft == nil {
 		return rq, errors.New("the MR has no draft review")
 	}
-	var at []int
+	var at []string // the comments posted, by ID: the draft may be another one by the time the host answers
 	var notes []trackers.DraftNote
-	for i, c := range rq.Draft.Comments {
+	for _, c := range rq.Draft.Comments {
 		if !slices.Contains(ids, c.ID) || c.State == core.DraftDropped || c.State == core.DraftSent {
 			continue
 		}
-		at = append(at, i)
+		at = append(at, c.ID)
 		notes = append(notes, trackers.DraftNote{Path: c.File, Line: c.Line, Body: c.Text})
 	}
 	if len(notes) == 0 {
@@ -328,8 +360,9 @@ func (d *Dispatcher) SendDrafts(ctx context.Context, id string, ids []string) (c
 	}
 	sent := 0
 	rq = d.setDraft(id, func(dr *core.ReviewDraft) {
-		for k, i := range at {
-			if i >= len(dr.Comments) || k >= len(res) {
+		for k, cid := range at {
+			i := slices.IndexFunc(dr.Comments, func(c core.DraftComment) bool { return c.ID == cid })
+			if i < 0 || k >= len(res) {
 				continue
 			}
 			c := &dr.Comments[i]

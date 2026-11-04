@@ -34,37 +34,54 @@ type PostedNote struct {
 	Error string `json:"error,omitempty"`
 }
 
-var hunkHead = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
+var hunkHead = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 
 // inDiff: the file's line (in its new version) is one the diff shows, added or around a change: a code host
 // takes a comment on it there.
 func inDiff(files []ReviewFile, path string, line int) bool {
+	ok, _ := diffLine(files, path, line)
+	return ok
+}
+
+// diffLine: whether the diff shows the file's line (of its new version), and, for an unchanged line around a
+// change, its number in the old version (0 for an added line): GitLab places a comment on such a line by both.
+func diffLine(files []ReviewFile, path string, line int) (bool, int) {
 	if line <= 0 {
-		return false
+		return false, 0
 	}
 	for _, f := range files {
 		if f.Path != path || f.Status == "D" {
 			continue
 		}
-		n := 0
+		oldN, newN := 0, 0
 		for _, l := range strings.Split(f.Diff, "\n") {
 			if m := hunkHead.FindStringSubmatch(l); m != nil {
-				n, _ = strconv.Atoi(m[1])
+				oldN, _ = strconv.Atoi(m[1])
+				newN, _ = strconv.Atoi(m[2])
 				continue
 			}
-			if n == 0 {
+			if newN == 0 {
 				continue
 			}
-			// Removed lines ("-") and «\ No newline» are not of the new version.
-			if strings.HasPrefix(l, "+") || strings.HasPrefix(l, " ") {
-				if n == line {
-					return true
+			// «\ No newline» is of neither version.
+			switch {
+			case strings.HasPrefix(l, "+"):
+				if newN == line {
+					return true, 0
 				}
-				n++
+				newN++
+			case strings.HasPrefix(l, " "):
+				if newN == line {
+					return true, oldN
+				}
+				newN++
+				oldN++
+			case strings.HasPrefix(l, "-"):
+				oldN++
 			}
 		}
 	}
-	return false
+	return false, 0
 }
 
 // placed: the note's body for a comment on the MR as a whole: the place it is about first.
@@ -122,11 +139,16 @@ func (g *GitLab) PostReview(ctx context.Context, reviewURL, headSHA string, note
 		}
 		var err error
 		posted := false
-		if refs != nil && inDiff(files, n.Path, n.Line) {
-			body := map[string]any{"body": n.Body, "position": map[string]any{
+		if ok, oldLine := diffLine(files, n.Path, n.Line); refs != nil && ok {
+			position := map[string]any{
 				"position_type": "text", "base_sha": refs.Base, "start_sha": refs.Start, "head_sha": refs.Head,
 				"old_path": oldPathOf(files, n.Path), "new_path": n.Path, "new_line": n.Line,
-			}}
+			}
+			// An unchanged line is placed by both of its numbers, else GitLab refuses it.
+			if oldLine > 0 {
+				position["old_line"] = oldLine
+			}
+			body := map[string]any{"body": n.Body, "position": position}
 			err = g.do(ctx, "POST", path+"/discussions", body, &d)
 			var he *HTTPError
 			// GitLab tells a line it will not take by 400: the note goes to the MR as a whole then.

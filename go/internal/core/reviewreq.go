@@ -45,7 +45,9 @@ type ReviewDraft struct {
 	Commit string `json:"commit,omitempty"` // the MR's head it read
 	Error  string `json:"error,omitempty"`
 	// Limited: there is no clone of the project on this Mac: the reviewer read the diff only.
-	Limited bool   `json:"limited,omitempty"`
+	Limited bool `json:"limited,omitempty"`
+	// Stale: the MR has new commits since the head the reviewer read (Commit): «змінилось після ревʼю».
+	Stale   bool   `json:"stale,omitempty"`
 	Summary string `json:"summary,omitempty"` // Markdown
 	// Verdict: "merge", "fix" (not before the blockers are fixed) or "discuss"; "" when it gave none.
 	Verdict     string         `json:"verdict,omitempty"`
