@@ -4372,6 +4372,7 @@ function chatFor(id) {
     <div class="chat-foot">
       <div class="chat-quick"></div>
       <div class="chat-ctxwarn" role="status" hidden></div>
+      <div class="chat-bg" role="status" hidden></div>
       <div class="chat-status" hidden><span class="dot"></span><b class="st"></b><span class="st-more"></span></div>
       <div class="chat-box composer">
         <div class="chat-att" hidden></div>
@@ -4649,6 +4650,7 @@ function renderChat(v) {
   if (t.cost) more.push(`${t.estimate ? "≈" : ""}$${t.cost.toFixed(2)}`);
   if (t.steps && (live || s.state === "done")) more.push(`${t.steps} ${plural(t.steps, "step", "steps")}`);
   st.querySelector(".st-more").innerHTML = more.filter(Boolean).map((x, i) => `${i || stText ? " · " : ""}${x}`).join("");
+  drawBackground(v);
   drawSend(v);
   // A closed agent still takes a message: it resumes. The button is for one stopped some other way.
   drawChatResume(v);
@@ -4666,6 +4668,36 @@ function renderChat(v) {
   drawCtxWarn(v, live, share);
   ctx.innerHTML = !s.context ? "" : `<span>Context</span>${s.window ? `<span class="meter" aria-hidden="true"><i style="width:${Math.min(100, Math.round(share * 100))}%"></i></span>` : ""}<span>${kTok(s.context)}${s.window ? ` / ${kTok(s.window)}` : ""}</span>`;
   v.input.placeholder = !s.live ? "Write to the agent — it will continue the conversation…" : s.state === "waiting" ? "Or tell the agent something different…" : s.state === "working" ? "The agent reads it after the current step…" : "What next?";
+}
+// Under the conversation, over the input: the subagents the agent launched in the background that have not reported yet.
+// They go on after its turn ended, so the line stays until the last one reports.
+function drawBackground(v) {
+  const box = v.el.querySelector(".chat-bg");
+  if (!box) return;
+  const run = v.snap?.live ? (v.snap.items ?? []).filter((it) => it.kind === "tool" && it.status === "background") : [];
+  box.hidden = !run.length;
+  if (!run.length) { box.innerHTML = ""; return; }
+  const names = run.map((it) => subagentLabel(it));
+  box.innerHTML = `<span class="spin" aria-hidden="true"></span><b>${run.length} ${plural(run.length, "subagent", "subagents")} working in the background</b>
+    <span class="muted bg-list" title="${esc(names.join("\n"))}">${esc(names.join(" · "))}</span>`;
+}
+// What a subagent was sent to do: its description, else the start of its prompt.
+function subagentLabel(it) {
+  const inp = it.input ?? {};
+  return String(inp.description || inp.prompt || inp.subagent_type || "Subagent").split("\n")[0].slice(0, 80);
+}
+// The agent's Agent/Task call as a card of its own: who it is, what it does, and while it works in the background a
+// spinner; once it reports, its summary on a click.
+function subagentCard(it, v) {
+  const inp = it.input ?? {}, working = it.status === "background" || it.status === "running";
+  const icon = working ? `<span class="spin" aria-hidden="true"></span>` : it.status === "error" || it.status === "denied" ? MR_ICON.bad : MR_ICON.ok;
+  const detail = !working && it.output ? `<pre class="tool-out">${esc(it.output)}</pre>` : "";
+  const shown = detail && (it.status === "error") !== v.flip.has(it.id);
+  const note = it.status === "background" ? "working in the background" : it.status === "running" ? "working" : "";
+  const secs = !working && it.at && it.end ? dur((it.end - it.at) / 1000) : "";
+  return `<div class="tool-card sub ${esc(it.status)}"><button type="button" class="tool-h" ${detail ? `data-toggle="${esc(it.id)}"` : "disabled"}>${icon}<b>Subagent</b>
+      ${inp.subagent_type ? `<span class="badge">${esc(inp.subagent_type)}</span>` : ""}<code title="${esc(subagentLabel(it))}">${esc(subagentLabel(it))}</code>
+      ${note ? `<span class="muted sub-note">${note}</span>` : ""}${secs ? `<span class="muted">${secs}</span>` : ""}${detail ? `<span class="muted">${shown ? "▾" : "▸"}</span>` : ""}</button>${shown ? detail : ""}</div>`;
 }
 // «Continue conversation» in the middle of the chat, for an agent stopped some other way. The task's header already
 // offers «Resume» as its main action, so then the chat does not put a second one (#515). Also redrawn when the
@@ -4891,6 +4923,7 @@ function chatItem(it, i, v) {
       return `<div class="msg">${t.text.trim() ? `<div class="md">${md(t.text)}</div>` : ""}${t.draft ? ticketCard(t.draft, i, v.id) : ""}${pl.plan ? planBlockCard(pl.plan, i, v.id) : ""}</div>`;
     }
     case "tool": {
+      if (it.tool === "Agent" || it.tool === "Task") return subagentCard(it, v);
       const icon = { running: "run", ok: "ok", error: "bad", denied: "idle" }[it.status] ?? "idle";
       const edit = EDITS.includes(it.tool);
       const detail = toolDetail(it);

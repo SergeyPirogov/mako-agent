@@ -1014,6 +1014,13 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .chat-status.limited .dot { background: var(--warn); }
 .chat-status b { font-weight: 600; flex: none; }
 .chat-status b[hidden] { display: none; }
+.chat-bg { display: flex; align-items: center; gap: 8px; max-width: 780px; margin: 0 auto 6px; font-size: 12px; color: var(--mute); min-width: 0; }
+.chat-bg[hidden] { display: none; }
+.chat-bg b { font-weight: 600; flex: none; color: var(--fg); }
+.chat-bg .bg-list { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-card.sub.background, .tool-card.sub.running { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.tool-card.sub .sub-note { flex: none; }
+.tool-card.sub .badge { flex: none; }
 .st-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The input: the text above, its controls in a row under it. */
 .chat-box.composer { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; border-radius: 12px; }
