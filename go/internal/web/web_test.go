@@ -269,6 +269,21 @@ func TestCodeModel(t *testing.T) {
 			t.Fatalf("bad model saved: %v", out)
 		}
 	}
+	// A well-formed name that the picker does not offer is refused too.
+	unk, _ := http.NewRequest("POST", srv.URL+"/api/code/model", strings.NewReader(`{"model":"zzz"}`))
+	unk.Header.Set("Origin", srv.URL)
+	if res, err := http.DefaultClient.Do(unk); err != nil {
+		t.Fatal(err)
+	} else {
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		if out["ok"] != false || out["error"] != "unknown model" || d.Config().CodeModel != config.DefaultCodeModel {
+			t.Fatalf("unknown model saved: %v", out)
+		}
+		if data, _ := os.ReadFile(filepath.Join(home, "mako.config.json")); strings.Contains(string(data), "zzz") {
+			t.Fatalf("config %s", data)
+		}
+	}
 	req, _ := http.NewRequest("POST", srv.URL+"/api/code/model", strings.NewReader(`{"model":"opus"}`))
 	req.Header.Set("Origin", srv.URL)
 	res, err := http.DefaultClient.Do(req)
