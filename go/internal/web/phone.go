@@ -90,7 +90,7 @@ func (s *Server) device(r *http.Request) *phone.Device {
 // prove the device themselves.
 func publicPath(p string) bool {
 	return strings.HasPrefix(p, "/pair") || strings.HasPrefix(p, "/icons/") ||
-		p == "/manifest.webmanifest" || p == "/sw.js" || p == "/style.css" || p == "/theme.js" || p == "/e2e"
+		p == "/manifest.webmanifest" || p == "/favicon.ico" || p == "/sw.js" || p == "/style.css" || p == "/theme.js" || p == "/e2e"
 }
 
 // Settings and pairing stay on the Mac, and Terminal.app, Finder and the editor open there: a phone gets the board
@@ -272,6 +272,17 @@ func (s *Server) phoneURL(t phone.Tailscale) string {
 func (s *Server) phoneRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /icons/", func(w http.ResponseWriter, r *http.Request) {
 		data, err := icons.ReadFile(strings.TrimPrefix(r.URL.Path, "/"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write(data)
+	})
+	// Browsers ask for /favicon.ico on their own; answer with the app icon instead of a 404 in the console.
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		data, err := icons.ReadFile("icons/icon-192.png")
 		if err != nil {
 			http.NotFound(w, r)
 			return

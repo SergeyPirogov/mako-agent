@@ -209,3 +209,24 @@ func TestTerminalLeavesWithTheBoard(t *testing.T) {
 		}
 	}
 }
+
+// /vendor/ serves the files, not a listing of the directory; the browser asks for /favicon.ico by itself.
+func TestVendorNoListingAndFavicon(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d}).Handler())
+	defer srv.Close()
+	for p, want := range map[string]int{"/vendor/": 404, "/vendor": 404, "/vendor/LICENSE-xterm": 200, "/favicon.ico": 200} {
+		res, err := http.Get(srv.URL + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != want {
+			t.Errorf("%s: %d, want %d", p, res.StatusCode, want)
+		}
+		if p == "/favicon.ico" && res.Header.Get("Content-Type") != "image/png" {
+			t.Errorf("favicon type %q", res.Header.Get("Content-Type"))
+		}
+	}
+}

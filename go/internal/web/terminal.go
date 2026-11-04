@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"golang.org/x/net/websocket"
 )
@@ -21,6 +22,11 @@ var vendor embed.FS
 func (s *Server) terminalRoutes(mux *http.ServeMux) {
 	files := http.FileServerFS(vendor)
 	mux.HandleFunc("GET /vendor/", func(w http.ResponseWriter, r *http.Request) {
+		// Files only: a directory would be listed by the file server.
+		if strings.HasSuffix(r.URL.Path, "/") {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-cache")
 		files.ServeHTTP(w, r)
 	})
