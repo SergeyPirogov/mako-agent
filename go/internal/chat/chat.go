@@ -33,8 +33,10 @@ type Item struct {
 	ID     string          `json:"id,omitempty"`
 	Tool   string          `json:"tool,omitempty"`
 	Input  json.RawMessage `json:"input,omitempty"`
-	Status string          `json:"status,omitempty"` // tool: "running", "ok", "error", "denied"; permission: "asked", "allowed", "always", "denied"; a plan (ExitPlanMode): "approved", "revised" (Text: your notes)
+	Status string          `json:"status,omitempty"` // tool: "running", "background" (a subagent launched in the background that has not reported yet), "ok", "error", "denied"; permission: "asked", "allowed", "always", "denied"; a plan (ExitPlanMode): "approved", "revised" (Text: your notes)
 	Output string          `json:"output,omitempty"`
+	// A background subagent (Agent/Task): the id of its task, which its notification names.
+	TaskID string `json:"taskId,omitempty"`
 	// Rules Claude suggests for «always allow».
 	Suggestions json.RawMessage `json:"suggestions,omitempty"`
 	// AskUserQuestion: what you chose, question → answer.
@@ -72,6 +74,9 @@ type Snapshot struct {
 	Context int    `json:"context,omitempty"`
 	Window  int    `json:"window,omitempty"`
 	Items   []Item `json:"items"`
+	// Background: the subagents the agent launched in the background that have not reported yet (they go on after
+	// the turn ended).
+	Background int `json:"background,omitempty"`
 	// The items as the board draws them: turns of steps, the agent's plan, the turn going on.
 	Turns    []Turn    `json:"turns"`
 	Progress *Progress `json:"progress,omitempty"`
@@ -300,6 +305,7 @@ func (s *Session) end() {
 			s.items[i].Status = "error"
 		}
 	}
+	interruptBackground(s.items)
 	s.version++
 	s.mu.Unlock()
 	s.changed()
@@ -328,6 +334,7 @@ func (s *Session) replay(path string) {
 			s.items[i].Status = "error"
 		}
 	}
+	interruptBackground(s.items) // no process is left to report them
 	s.mu.Unlock()
 }
 
@@ -356,6 +363,11 @@ func (s *Session) handle(line []byte) {
 			ContextWindow int `json:"contextWindow"`
 		} `json:"modelUsage"`
 		Parent     *string         `json:"parent_tool_use_id"`
+		TaskID     string          `json:"task_id"`     // system task_*: the background task
+		ToolUseID  string          `json:"tool_use_id"` // ... and the tool call that started it
+		Status     string          `json:"status"`      // task_notification: "completed", "failed", "stopped"
+		Summary    string          `json:"summary"`
+		Attachment json.RawMessage `json:"attachment"` // a transcript's: the notification comes queued
 		Message    json.RawMessage `json:"message"`
 		RequestID  string          `json:"request_id"`
 		Request    json.RawMessage `json:"request"`
@@ -382,6 +394,12 @@ func (s *Session) handle(line []byte) {
 			s.context = 0
 			s.mu.Unlock()
 			s.add(Item{Kind: "compact", At: at})
+		}
+		switch e.Subtype {
+		case "task_started":
+			s.setTaskID(e.ToolUseID, e.TaskID)
+		case "task_notification":
+			s.endBackground(e.ToolUseID, e.TaskID, e.Status, e.Summary, at)
 		}
 		if e.Subtype == "init" && e.SessionID != "" {
 			s.mu.Lock()
@@ -429,15 +447,25 @@ func (s *Session) handle(line []byte) {
 			}
 		}
 	case "user":
-		if e.Parent != nil || e.IsMeta {
+		if e.Parent != nil {
 			return
 		}
 		var m struct {
 			Content json.RawMessage `json:"content"`
 		}
 		json.Unmarshal(e.Message, &m)
-		// A message of yours: only a transcript has them, the stream does not repeat what Mako sent.
 		var text string
+		if json.Unmarshal(m.Content, &text) == nil {
+			// Claude Code hands the report of a background subagent over as a user message (a meta one, maybe).
+			if n, ok := parseNotification(text); ok {
+				s.endBackground(n.toolUseID, n.taskID, n.status, n.summary, at)
+				return
+			}
+		}
+		if e.IsMeta {
+			return
+		}
+		// A message of yours: only a transcript has them, the stream does not repeat what Mako sent.
 		if json.Unmarshal(m.Content, &text) == nil {
 			if t := strings.TrimSpace(text); t != "" && !strings.HasPrefix(t, "<") {
 				s.mu.Lock()
@@ -459,6 +487,17 @@ func (s *Session) handle(line []byte) {
 		for _, b := range blocks {
 			if b.Type == "tool_result" {
 				s.finishToolAt(b.ToolUseID, tail(textOf(b.Content), maxOutput), b.IsError, at)
+			}
+		}
+	case "attachment":
+		// A transcript keeps the notification of a background subagent as a queued command.
+		var a struct {
+			Type   string `json:"type"`
+			Prompt string `json:"prompt"`
+		}
+		if json.Unmarshal(e.Attachment, &a) == nil && a.Type == "queued_command" {
+			if n, ok := parseNotification(a.Prompt); ok {
+				s.endBackground(n.toolUseID, n.taskID, n.status, n.summary, at)
 			}
 		}
 	case "control_request":
@@ -562,13 +601,18 @@ func (s *Session) handle(line []byte) {
 			s.setState("done")
 		}
 		s.mu.Lock()
-		if s.idle != nil {
-			s.idle.Stop()
-		}
-		if s.idleAfter > 0 { // 0: a session built without Start (a test's) never sleeps
-			s.idle = time.AfterFunc(s.idleAfter, s.sleep)
-		}
+		s.armIdleLocked()
 		s.mu.Unlock()
+	}
+}
+
+// armIdleLocked (re)starts the countdown to closing an agent that waits for you.
+func (s *Session) armIdleLocked() {
+	if s.idle != nil {
+		s.idle.Stop()
+	}
+	if s.idleAfter > 0 { // 0: a session built without Start (a test's) never sleeps
+		s.idle = time.AfterFunc(s.idleAfter, s.sleep)
 	}
 }
 
@@ -711,6 +755,14 @@ func (s *Session) finishToolAt(id, output string, failed bool, at int64) {
 	s.mu.Lock()
 	for i := len(s.items) - 1; i >= 0; i-- {
 		if it := &s.items[i]; it.Kind == "tool" && it.ID == id {
+			if !failed && it.Status == "running" && launchedInBackground(*it, output) {
+				// The subagent goes on after this result: its notification ends the step.
+				it.Output, it.Status = output, "background"
+				if it.TaskID == "" {
+					it.TaskID = agentIDOf(output)
+				}
+				break
+			}
 			it.Output, it.Status, it.End = output, "ok", at
 			if failed {
 				it.Status = "error"
@@ -1059,7 +1111,8 @@ func (s *Session) reply(requestID string, resp map[string]any, mark func(*Item))
 // sleep closes an agent that has waited for you IdleAfter; its conversation stays, and a message resumes it.
 func (s *Session) sleep() {
 	s.mu.Lock()
-	idle := (s.state == "done" || s.state == "limited") && !s.exited && len(s.pending) == 0
+	// Closing the agent would kill the subagents it waits for: the countdown starts again when the last one reports.
+	idle := (s.state == "done" || s.state == "limited") && !s.exited && len(s.pending) == 0 && backgroundIn(s.items) == 0
 	if idle {
 		s.asleep = true
 		s.stopping = true // closed from here on: Send must not take a message the closing stdin will lose
@@ -1178,6 +1231,7 @@ func (s *Session) Snapshot() Snapshot {
 // worktree: where the conversation is held, for relative paths ("" when not known).
 func Drawn(snap Snapshot, worktree string) Snapshot {
 	snap.Turns, snap.Progress, snap.Turn = Group(snap.Items, worktree), ProgressOf(snap.Items), statOf(snap.Items)
+	snap.Background = backgroundIn(snap.Items)
 	// A conversation nobody runs any more: its last turn is over too.
 	if n := len(snap.Turns); !snap.Live && n > 0 && snap.Turns[n-1].Who == "agent" && snap.Turns[n-1].Summary == nil {
 		snap.Turns[n-1].Summary = summaryOf(snap.Turns, n-1, snap.Items, true)
@@ -1411,4 +1465,138 @@ func (s *Session) countTokens(message json.RawMessage) {
 	s.tokens += n
 	s.usage = s.usage.Add(u)
 	s.procTok += n
+}
+
+// subagentTool tells the tools that start a subagent (Task is the older name of Agent).
+func subagentTool(tool string) bool { return tool == "Agent" || tool == "Task" }
+
+// launchedInBackground: the result of an Agent/Task call is only the subagent's start when it was asked to run in
+// the background (or the result says it was started so).
+func launchedInBackground(it Item, output string) bool {
+	if !subagentTool(it.Tool) {
+		return false
+	}
+	var in struct {
+		Background bool `json:"run_in_background"`
+	}
+	json.Unmarshal(it.Input, &in)
+	return in.Background || strings.HasPrefix(output, "Async agent launched")
+}
+
+var agentIDRe = regexp.MustCompile(`(?m)^agentId:\s*(\S+)`)
+
+// agentIDOf: the id of the subagent a launch result names ("agentId: a63da7bd…"), "" when it names none.
+func agentIDOf(output string) string {
+	if m := agentIDRe.FindStringSubmatch(output); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// backgroundIn counts the subagents that went on in the background and have not reported yet.
+func backgroundIn(items []Item) int {
+	n := 0
+	for _, it := range items {
+		if it.Kind == "tool" && it.Status == "background" {
+			n++
+		}
+	}
+	return n
+}
+
+// interruptBackground ends the subagents nobody will hear from again (the process that ran them is gone).
+func interruptBackground(items []Item) {
+	for i := range items {
+		if items[i].Kind == "tool" && items[i].Status == "background" {
+			items[i].Status, items[i].Output = "error", "Interrupted: the session ended before the subagent reported."
+		}
+	}
+}
+
+// setTaskID remembers which task the subagent started by the tool call is (system task_started).
+func (s *Session) setTaskID(toolUseID, taskID string) {
+	if toolUseID == "" || taskID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.items) - 1; i >= 0; i-- {
+		if it := &s.items[i]; it.Kind == "tool" && it.ID == toolUseID {
+			if it.TaskID != taskID {
+				it.TaskID = taskID
+				s.version++
+			}
+			return
+		}
+	}
+}
+
+// endBackground ends the step of a subagent that reported: status is the notification's ("completed", "failed",
+// "stopped"), summary what it says (also with the subagent's own report, when it came with it). The step is found by
+// the tool call or by the task. A step that is not waiting for a report (one already ended: the same task notifies
+// again each time it stops) is left as it is.
+func (s *Session) endBackground(toolUseID, taskID, status, summary string, at int64) {
+	if toolUseID == "" && taskID == "" {
+		return
+	}
+	if at == 0 {
+		at = time.Now().UnixMilli()
+	}
+	s.mu.Lock()
+	for i := len(s.items) - 1; i >= 0; i-- {
+		it := &s.items[i]
+		if it.Kind != "tool" || !subagentTool(it.Tool) || it.Status != "background" && it.Status != "running" {
+			continue
+		}
+		if !(toolUseID != "" && it.ID == toolUseID || taskID != "" && it.TaskID == taskID) {
+			continue
+		}
+		it.Status, it.End = "ok", at
+		if status == "failed" || status == "stopped" {
+			it.Status = "error"
+		}
+		if summary != "" {
+			it.Output = tail(summary, maxOutput)
+		}
+		if it.TaskID == "" {
+			it.TaskID = taskID
+		}
+		s.version++
+		if (s.state == "done" || s.state == "limited") && backgroundIn(s.items) == 0 && !s.exited {
+			s.armIdleLocked() // the agent waited for them: its time to sleep starts now
+		}
+		s.mu.Unlock()
+		s.changed()
+		return
+	}
+	s.mu.Unlock()
+}
+
+type notification struct{ taskID, toolUseID, status, summary string }
+
+var notifTag = map[string]*regexp.Regexp{}
+
+func init() {
+	for _, k := range []string{"task-id", "tool-use-id", "status", "summary", "result"} {
+		notifTag[k] = regexp.MustCompile(`(?s)<` + k + `>(.*?)</` + k + `>`)
+	}
+}
+
+// parseNotification reads the <task-notification> Claude Code puts in the conversation when a background subagent
+// ends (a user message of the stream, a queued command of a transcript). ok is false for any other text.
+func parseNotification(text string) (n notification, ok bool) {
+	if !strings.Contains(text, "<task-notification>") {
+		return n, false
+	}
+	get := func(k string) string {
+		if m := notifTag[k].FindStringSubmatch(text); m != nil {
+			return strings.TrimSpace(m[1])
+		}
+		return ""
+	}
+	n = notification{taskID: get("task-id"), toolUseID: get("tool-use-id"), status: get("status"), summary: get("summary")}
+	if r := get("result"); r != "" {
+		n.summary = strings.TrimSpace(n.summary + "\n\n" + r)
+	}
+	return n, n.taskID != "" || n.toolUseID != ""
 }
