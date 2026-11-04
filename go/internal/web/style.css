@@ -1669,6 +1669,11 @@ section.ws .task-pane h1 { font-size: 19px; white-space: normal; margin: 6px 0 4
 .d-meta > .labels { flex-wrap: wrap; gap: 4px; }
 .d-meta .lbl { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; background: var(--hover); border: 1px solid var(--line); color: var(--mute); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
 .d-head .actions > button svg { vertical-align: -3px; margin-right: 4px; }
+/* Open PR / Open MR: a link, so the gap is the flex gap; the host logo is the size of the text, the ↗ is a quiet mark. */
+.d-head .actions > a.btn.open-mr { gap: 4px; }
+.d-head .actions > a.btn svg { flex: none; vertical-align: -3px; }
+.d-head .actions > a.btn.open-mr > svg:first-child { width: 16px; height: 16px; }
+.d-head .actions > a.btn.open-mr > svg:last-child { width: 12px; height: 12px; color: var(--mute); }
 /* The head's buttons are one height, whatever they are made of (the menus' own buttons are not in the list). */
 .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary),
 .ws-bar .actions > :is(button, a.btn), .ws-bar .actions > details > summary, .ws-bar .actions > .takesplit > :is(button, details > summary) { height: 32px; padding-block: 0; }

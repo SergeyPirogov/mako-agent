@@ -3548,7 +3548,12 @@ function metaLine(r) {
   return parts.length ? `<div class="d-meta">${parts.join(`<i>·</i>`)}</div>` : "";
 }
 
-const openMR = (r, cls = "") => r.prUrl ? `<a class="btn ${cls}" href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))}${ICON.external}</a>` : "";
+// A secondary button in every state (the fix is in the blockers' block): the host's logo before the text, ↗ after it.
+const openMR = (r) => {
+  if (!r.prUrl) return "";
+  const host = r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : "";
+  return `<a class="btn open-mr" href="${esc(r.prUrl)}" target="_blank" rel="noopener"${host ? ` title="Open on ${host}"` : ""}>${host ? TRACKER_ICON[host] : ""}Open ${esc(mrName(r.prUrl))}${ICON.external}</a>`;
+};
 // The main action, as a button the card's handlers already know (data-a, data-merge), and the one next
 // to it when the state has a pair (Start + Snooze, Merge + Open MR).
 function primaryHTML(r) {
@@ -3562,11 +3567,11 @@ function primaryHTML(r) {
     case "resume": return b("resume", `${ICON.play}Resume`, "primary", "", "Continue the conversation");
     case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
     // The fix buttons are in the "What blocks the merge" block, under their rows (blockersHTML); the header has the MR.
-    case "fix-conflicts": case "fix-ci": return openMR(r, "primary");
+    case "fix-conflicts": case "fix-ci": return openMR(r);
     case "merge": return isAsked(r.id, "merge") ? `<button class="merge-go busy" disabled title="Merging…">${ICON.merge}Merging…</button>` + openMR(r)
       : `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
     // CI still running, or the agent is in Orca: the MR is where to look.
-    case "open-mr": return openMR(r, "primary");
+    case "open-mr": return openMR(r);
     case "retry": return b("retry", "Retry", "primary");
     case "unarchive": return b("unarchive", `${ICON.unarchive}Restore from archive`);
     case "archive": return b("archive", `${ICON.archive}Archive`);

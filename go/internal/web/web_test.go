@@ -1029,8 +1029,47 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 	if strings.Contains(head, "data-ask") {
 		t.Error("primaryHTML still has a fix button: it is in the blockers' block now")
 	}
-	if !strings.Contains(head, `case "fix-conflicts": case "fix-ci": return openMR(r, "primary");`) {
+	if !strings.Contains(head, `case "fix-conflicts": case "fix-ci": return openMR(r);`) {
 		t.Error("the header does not keep Open MR for the fix states")
+	}
+}
+
+// Open PR / Open MR in the task card's header is a secondary outline button with the host's logo (#586),
+// the same in every state; the page has no script tests, so this holds the source.
+func TestBoardOpenMRButtonSecondary(t *testing.T) {
+	src := string(board)
+	i := strings.Index(src, "const openMR = ")
+	j := strings.Index(src[i:], "\n};\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no openMR in board.html")
+	}
+	body := src[i : i+j]
+	for _, want := range []string{
+		`r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : ""`,
+		`TRACKER_ICON[host]`,
+		`title="Open on ${host}"`,
+		`class="btn open-mr"`,
+		`${ICON.external}</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("openMR is missing %q", want)
+		}
+	}
+	if strings.Contains(body, "primary") {
+		t.Error("openMR is a primary button again")
+	}
+	if strings.Contains(src, `openMR(r, "primary")`) {
+		t.Error("a state of the header still asks for a primary Open MR")
+	}
+	css := string(style)
+	for _, want := range []string{
+		".d-head .actions > a.btn.open-mr { gap: 4px; }",
+		".d-head .actions > a.btn svg { flex: none; vertical-align: -3px; }",
+		"color: var(--mute)",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css is missing %q", want)
+		}
 	}
 }
 
