@@ -18,6 +18,7 @@ import (
 	"github.com/chromedp/chromedp"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/relay"
@@ -243,5 +244,57 @@ func TestBoardSurvivesBadHashAndBlockedStorage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Resume on a task whose worktree was deleted, pressed on the real board: the server refuses with {ok:false,error},
+// and the board says so in a toast (it once redrew in silence). An answer with ok:true shows none.
+func TestBoardToastsAFailedAction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("a browser test")
+	}
+	chrome, err := shot.FindChrome()
+	if err != nil {
+		t.Skip(err)
+	}
+	store, _ := state.Open(t.TempDir())
+	store.Update("grp/app#7", func(r *core.Record) {
+		r.Status, r.Executor, r.Worktree = core.HandedOff, "terminal", filepath.Join(t.TempDir(), "deleted")
+		r.Task = core.Task{ID: "grp/app#7", Title: "Gone", Project: "grp/app"}
+	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome), chromedp.UserDataDir(t.TempDir()))
+	if goruntime.GOOS == "linux" {
+		opts = append(opts, chromedp.NoSandbox)
+	}
+	alloc, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+	ctx, cancel := chromedp.NewContext(alloc)
+	defer cancel()
+	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if err := chromedp.Do(ctx, chromedp.Navigate(srv.URL+"/")); err != nil {
+		t.Fatal(err)
+	}
+	toastAfter := func(js string) string {
+		t.Helper()
+		text, err := chromedp.Run(ctx, chromedp.Evaluate[string](`new Promise((ok, no) => { document.getElementById("toast")?.remove(); (async () => { `+js+` })().then(() => ok(document.getElementById("toast")?.textContent ?? ""), (e) => no(String(e))); })`, chromedp.EvalAwaitPromise))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return text
+	}
+	if got := toastAfter(`await post("resume", "grp/app#7")`); !strings.Contains(got, "was deleted") {
+		t.Errorf("resume without a worktree: toast %q", got)
+	}
+	if got := toastAfter(`await post("nope", "grp/app#404")`); !strings.Contains(got, "⚠") {
+		t.Errorf("a 404: toast %q", got)
+	}
+	if got := toastAfter(`await post("later", "grp/app#7")`); got != "" {
+		t.Errorf("a successful action: toast %q", got)
 	}
 }

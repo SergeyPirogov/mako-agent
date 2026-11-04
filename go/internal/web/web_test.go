@@ -1264,8 +1264,8 @@ func TestBoardNextActionsContinue(t *testing.T) {
 	}
 }
 
-// Resume on a task whose worktree was deleted: the server says why ({ok:false,error}), and the board's post() shows
-// that as a toast instead of redrawing in silence. The board has no script tests, so the page's source is checked.
+// Resume on a task whose worktree was deleted: the server says why ({ok:false,error}). The board shows it as a toast:
+// TestBoardToastsAFailedAction.
 func TestResumeWithoutWorktreeIsReported(t *testing.T) {
 	store, _ := state.Open(t.TempDir())
 	gone := filepath.Join(t.TempDir(), "deleted")
@@ -1288,17 +1288,4 @@ func TestResumeWithoutWorktreeIsReported(t *testing.T) {
 		t.Fatalf("resume without a worktree: %v", out)
 	}
 
-	src := string(board)
-	for _, want := range []string{
-		`if (res.ok === false || status >= 400 || res.error) {`,
-		"toast(`⚠ ${res.error || `the request failed (${status})`}`, true);",
-		"return act(`/api/${action}?id=${encodeURIComponent(id ?? \"\")}${extra}`);",
-		"$(\"pause\").onclick = () => act(",
-		"$(\"awake\").onclick = () => act(",
-		"$(\"restart\").onclick = () => act(",
-	} {
-		if !strings.Contains(src, want) {
-			t.Errorf("board.html lacks %q", want)
-		}
-	}
 }
