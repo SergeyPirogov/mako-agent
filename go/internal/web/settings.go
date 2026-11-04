@@ -318,6 +318,50 @@ func (s *Server) changeConfig(ctx context.Context, change func(map[string]json.R
 	return err
 }
 
+// allowTools adds rules to «Commands without asking» of Mako's terminal agents in the settings, each once.
+func (s *Server) allowTools(ctx context.Context, rules []string) error {
+	return s.changeConfig(ctx, func(raw map[string]json.RawMessage) error {
+		return allowIn(raw, rules)
+	})
+}
+
+// allowIn: the rules added to the allowedTools of every terminal executor in the settings.
+func allowIn(raw map[string]json.RawMessage, rules []string) error {
+	var ex map[string]map[string]json.RawMessage
+	if b, ok := raw["executors"]; ok {
+		if err := json.Unmarshal(b, &ex); err != nil {
+			return fmt.Errorf("mako.config.json: executors: %w", err)
+		}
+	}
+	found := false
+	for name, e := range ex {
+		var typ string
+		json.Unmarshal(e["type"], &typ)
+		if typ != "terminal" {
+			continue
+		}
+		found = true
+		var have []string
+		if b, ok := e["allowedTools"]; ok {
+			if err := json.Unmarshal(b, &have); err != nil {
+				return fmt.Errorf("mako.config.json: executors.%s.allowedTools: %w", name, err)
+			}
+		}
+		for _, r := range rules {
+			if !slices.Contains(have, r) {
+				have = append(have, r)
+			}
+		}
+		e["allowedTools"], _ = json.Marshal(have)
+	}
+	if !found {
+		return errors.New("the settings have no Mako terminal agent: add the rules in Settings → Commands without asking")
+	}
+	var err error
+	raw["executors"], err = json.Marshal(ex)
+	return err
+}
+
 // pauseIn: the tracker id paused (or not) in the settings.
 func pauseIn(raw map[string]json.RawMessage, id string, on bool) error {
 	var err error

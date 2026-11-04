@@ -546,6 +546,12 @@ func (s *Session) handle(line []byte) {
 		s.mu.Lock()
 		s.pending[e.RequestID] = r.Input
 		s.mu.Unlock()
+		// A compound Bash line comes with no suggestion: «Always allow» then keeps a rule for each of its commands.
+		if r.ToolName == "Bash" && SuggestedRules(r.Suggestions) == nil {
+			if sug := bashSuggestions(r.Input); sug != nil {
+				r.Suggestions = sug
+			}
+		}
 		s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "asked", Suggestions: r.Suggestions})
 		s.setState("waiting")
 	case "control_cancel_request":
