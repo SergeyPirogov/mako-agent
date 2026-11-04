@@ -314,16 +314,15 @@ func TestChecks(t *testing.T) {
 	}
 }
 
-// Unattended (AutoTake, AutoFix) the agent edits without asking but asks before running commands, unless the
-// settings choose the mode themselves (#494).
+// Every agent works in auto unless the settings choose the mode themselves, unattended (AutoTake, AutoFix) too.
 func TestDefaultPermissionMode(t *testing.T) {
 	for raw, want := range map[string]string{
 		`{}`: "auto",
 		`{"executors":{"t":{"type":"terminal"}}}`:                                                              "auto",
-		`{"notifications":{"autoTake":true}}`:                                                                  "acceptEdits",
-		`{"notifications":{"autoTake":true},"executors":{"t":{"type":"terminal"}}}`:                            "acceptEdits",
-		`{"executors":{"t":{"type":"terminal","autoFix":true}}}`:                                               "acceptEdits",
-		`{"executors":{"t":{"type":"terminal","autoFix":true,"permissionMode":"auto"}}}`:                       "auto",
+		`{"notifications":{"autoTake":true}}`:                                                                  "auto",
+		`{"notifications":{"autoTake":true},"executors":{"t":{"type":"terminal"}}}`:                            "auto",
+		`{"executors":{"t":{"type":"terminal","autoFix":true}}}`:                                               "auto",
+		`{"executors":{"t":{"type":"terminal","autoFix":true,"permissionMode":"acceptEdits"}}}`:                "acceptEdits",
 		`{"notifications":{"autoTake":true},"executors":{"t":{"type":"terminal","permissionMode":"default"}}}`: "default",
 	} {
 		c, err := Parse([]byte(raw), nil)
