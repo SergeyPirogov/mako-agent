@@ -213,3 +213,80 @@ func journalHas(d *Dispatcher, id, text string) bool {
 	}
 	return false
 }
+
+// A skip is for the branch as it was: a new commit asks for the check again; ticked through, it is no skip; it is
+// only for Mako's agent with an open MR, and needs a reason.
+func TestSelfSkipIsForTheBranchAsItWas(t *testing.T) {
+	d, _, id, wt, _ := selfSetup(t, threeSteps[:2])
+	if err := d.SelfSkip(id, "лише документація"); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := d.Store.Get(id)
+	if v := d.SelfView(r); v.Blocks || v.Skipped == "" || r.SelfCheck.Skipped.Commit != headIn(t, wt) {
+		t.Fatalf("skipped: %+v, %+v", v, r.SelfCheck.Skipped)
+	}
+	// A commit after the skip: the merge waits for the check again, and the skip is no longer shown.
+	git(t, wt, "commit", "-q", "--allow-empty", "-m", "More")
+	lookAgain(d, id)
+	if v := d.SelfView(r); !v.Blocks || v.Skipped != "" || d.MergeReady(r) {
+		t.Fatalf("after a new commit: %+v", v)
+	}
+	if err := d.MergeReview(context.Background(), id); err == nil || !strings.Contains(err.Error(), "check it yourself") {
+		t.Fatalf("merged on an old skip: %v", err)
+	}
+	// Skipped again at the new HEAD, then ticked through: done, not skipped, and the MR goes in as checked.
+	if err := d.SelfSkip(id, "ще раз"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SelfCheck(id, true); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = d.Store.Get(id)
+	if v := d.SelfView(r); !v.Done || v.Skipped != "" || d.selfAtMerge(r) != "checked" {
+		t.Fatalf("ticked through: %+v, %q", v, d.selfAtMerge(r))
+	}
+	// Not for an agent in Orca (no ticks to give), nor for a task that is not in progress or in an open MR.
+	d.Store.Update(id, func(r *core.Record) { r.Executor = "orca" })
+	if err := d.SelfSkip(id, "причина"); err == nil || !strings.Contains(err.Error(), "can only be skipped") {
+		t.Fatalf("skipped for Orca: %v", err)
+	}
+	if err := d.SelfSkip("nope", "причина"); err == nil {
+		t.Fatal("skipped a task that does not exist")
+	}
+}
+
+// How the MR went in is counted for the agent's advice: with the setting "off" the steps are advice only, and a
+// task merged without ticking them is «unchecked» all the same (the stats are of whether the advice was followed,
+// not of the gate); "always" with no advice behind it asks for a look but counts nothing.
+func TestSelfAtMergeCountsTheAdvice(t *testing.T) {
+	d, cfg, id, _, _ := selfSetup(t, threeSteps[:1])
+	cfg.SelfCheck = config.SelfCheckOff
+	r, _ := d.Store.Get(id)
+	if got := d.selfAtMerge(r); got != "unchecked" {
+		t.Fatalf("off, not ticked: %q", got)
+	}
+	if err := d.SelfStep(id, 0, true, ""); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = d.Store.Get(id)
+	if got := d.selfAtMerge(r); got != "checked" {
+		t.Fatalf("off, ticked: %q", got)
+	}
+	cfg.SelfCheck = config.SelfCheckAlways
+	d.Store.Update(id, func(r *core.Record) {
+		r.SelfCheck = nil
+		r.Assessment.Review = &core.ReviewAdvice{Need: true, Why: "ризиково"}
+	})
+	r, _ = d.Store.Get(id)
+	if v := d.SelfView(r); v == nil || !v.Blocks {
+		t.Fatalf("always asks for a look: %+v", v)
+	}
+	if got := d.selfAtMerge(r); got != "" {
+		t.Fatalf("always, no advice: %q", got)
+	}
+	d.Store.Update(id, func(r *core.Record) { r.Assessment = nil })
+	r, _ = d.Store.Get(id)
+	if got := d.selfAtMerge(r); got != "" {
+		t.Fatalf("no assessment: %q", got)
+	}
+}

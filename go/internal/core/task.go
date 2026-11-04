@@ -341,10 +341,12 @@ type SelfMark struct {
 	Commit string `json:"commit"`
 }
 
-// SelfSkip: when the check was skipped, and the reason you gave.
+// SelfSkip: when the check was skipped, the reason you gave, and the branch's HEAD it was skipped at: a new commit
+// asks for the check again, as it does of a tick.
 type SelfSkip struct {
 	At     string `json:"at"`
 	Reason string `json:"reason"`
+	Commit string `json:"commit,omitempty"`
 }
 
 // Assessment is the agent's rating of a finished task, each score from 1 to 5.

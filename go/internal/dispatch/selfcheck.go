@@ -27,7 +27,7 @@ type SelfCheckView struct {
 	// Left: the steps not ticked at the branch as it is now; Done: none is left.
 	Left int  `json:"left"`
 	Done bool `json:"done,omitempty"`
-	// Skipped: the reason you gave to merge without the check.
+	// Skipped: the reason you gave to merge without the check, while the branch is as it was then.
 	Skipped string `json:"skipped,omitempty"`
 	// Blocks: the check holds the merge now.
 	Blocks bool `json:"blocks,omitempty"`
@@ -129,7 +129,8 @@ func (d *Dispatcher) SelfView(r core.Record) *SelfCheckView {
 		v.Steps = append(v.Steps, sv)
 	}
 	v.Done = v.Left == 0
-	if sc := r.SelfCheck; sc != nil && sc.Skipped != nil {
+	// A skip is for the branch as it was: a new commit asks for the check again. Ticked through, it is no skip.
+	if sc := r.SelfCheck; sc != nil && sc.Skipped != nil && !v.Done && (head == "" || sc.Skipped.Commit == "" || sc.Skipped.Commit == head) {
 		v.Skipped = sc.Skipped.Reason
 	}
 	v.Blocks = v.Required && v.Left > 0 && v.Skipped == ""
@@ -153,6 +154,9 @@ func (d *Dispatcher) SelfBlocks(r core.Record) (left, total int, blocks bool) {
 func (d *Dispatcher) selfAtMerge(r core.Record) string {
 	if !onTerminal(r) {
 		return "" // an agent in Orca: no ticks to give
+	}
+	if a := r.Assessment; a == nil || len(a.Review.CheckSteps()) == 0 {
+		return "" // selfCheck "always" asked for a look with no advice behind it: the stats are of the advice
 	}
 	v := d.SelfView(r)
 	switch {
@@ -294,14 +298,22 @@ func (d *Dispatcher) SelfSkip(id, why string) error {
 	if why == "" {
 		return errors.New("say why the check is skipped")
 	}
-	if _, ok := d.Store.Get(id); !ok {
+	r, ok := d.Store.Get(id)
+	if !ok {
 		return errors.New("no such task")
+	}
+	if !reviewable(r) {
+		return errors.New("the check can only be skipped for Mako agents that are in progress or in an open MR")
+	}
+	head, err := d.headOf(id)
+	if err != nil {
+		return err
 	}
 	d.Store.Update(id, func(r *core.Record) {
 		if r.SelfCheck == nil {
 			r.SelfCheck = &core.SelfCheck{}
 		}
-		r.SelfCheck.Skipped = &core.SelfSkip{At: now(), Reason: why}
+		r.SelfCheck.Skipped = &core.SelfSkip{At: now(), Reason: why, Commit: head}
 	})
 	d.Log(id, "self-check skipped: "+why)
 	return nil

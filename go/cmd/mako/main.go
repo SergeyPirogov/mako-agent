@@ -289,6 +289,13 @@ func run(homeFlag string, open, noTray, readonly, try bool, port int) error {
 	for end := time.Now().Add(4 * time.Second); time.Now().Before(end) && d.Sessions.Live()+d.Chats.Live() > 0; {
 		time.Sleep(100 * time.Millisecond)
 	}
+	return relaunchAfterTries(d, relaunch)
+}
+
+// relaunchAfterTries: the copies to try of the tasks' branches are stopped first, for relaunch replaces this process
+// (exec), so its defers never run: they would stay on their ports, unknown to the new Mako.
+func relaunchAfterTries(d interface{ StopTries() }, relaunch func() error) error {
+	d.StopTries()
 	return relaunch()
 }
 

@@ -50,15 +50,18 @@ func selfCheckStats(records []Record, since time.Time) SelfCheckStats {
 	return st
 }
 
+// fixWord: a label or a tracker's type that says bug fix, by the whole word: "bug", "Type: Bug", "type::fix",
+// not "debug" or "prefix". The same words as gitx.TaskType (it cannot be used here: gitx imports core).
+var fixWord = regexp.MustCompile(`\b(bug|bugs|bugfix|fix|hotfix|defect|incident)\b`)
+
 // isFix: the task is a bug fix, by its labels or its tracker's type ("Type: Bug").
 func isFix(r Record) bool {
 	for _, l := range r.Task.Labels {
-		if l = strings.ToLower(l); strings.Contains(l, "bug") || strings.Contains(l, "fix") {
+		if fixWord.MatchString(strings.ToLower(l)) {
 			return true
 		}
 	}
-	meta := strings.ToLower(r.Task.Meta)
-	return strings.Contains(meta, "bug") || strings.Contains(meta, "fix")
+	return fixWord.MatchString(strings.ToLower(r.Task.Meta))
 }
 
 // fixedAfter: one of fixes came after r was merged and names it: its issue (the whole id or its URL, or #N in the

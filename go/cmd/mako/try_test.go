@@ -34,3 +34,22 @@ func TestTryOnly(t *testing.T) {
 		}
 	}
 }
+
+// A restart replaces the process (exec): the copies to try are stopped before it, not by a defer that never runs.
+func TestRelaunchStopsTries(t *testing.T) {
+	var order []string
+	d := stopper(func() { order = append(order, "stop") })
+	err := relaunchAfterTries(d, func() error { order = append(order, "exec"); return nil })
+	if err != nil || len(order) != 2 || order[0] != "stop" || order[1] != "exec" {
+		t.Fatalf("order %v, err %v", order, err)
+	}
+	// A relaunch that fails still leaves the copies stopped: Mako goes on, or quits, without them.
+	order = nil
+	if err := relaunchAfterTries(d, func() error { return http.ErrAbortHandler }); err != http.ErrAbortHandler || len(order) != 1 {
+		t.Fatalf("failed relaunch: %v %v", order, err)
+	}
+}
+
+type stopper func()
+
+func (f stopper) StopTries() { f() }
