@@ -328,8 +328,10 @@ func (s *Server) Handler() http.Handler {
 		} else if t, ok := s.D.TaskChat(id); ok {
 			snap = t // a task whose agent is not running: its conversation so far
 		} else {
-			writeJSON(w, chat.Snapshot{State: "exited", Items: []chat.Item{}})
-			return
+			snap = chat.Snapshot{State: "exited", Items: []chat.Item{}}
+		}
+		if c == nil {
+			snap = s.D.WithLimit(id, snap) // cut by the limit before Mako restarted: it still goes on by itself
 		}
 		if strconv.Itoa(snap.Version) == r.URL.Query().Get("v") {
 			writeJSON(w, map[string]any{"version": snap.Version, "same": true})
@@ -655,6 +657,9 @@ func (s *Server) Handler() http.Handler {
 		case "say", "permit", "answer", "choose", "interrupt", "view", "mode", "plan":
 			var err error
 			c := s.D.Chats.Get(id)
+			if action == "interrupt" {
+				s.D.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
+			}
 			switch {
 			case action == "view":
 				// In the middle of a turn the switch waits for it to end, unless now=1 («Switch now»).

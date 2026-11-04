@@ -996,6 +996,27 @@ func TestReviewGhostButtonAligned(t *testing.T) {
 	}
 }
 
+// The Branch card's rows hold the 26px ✨ button (#630): the row is as tall as the button, rows have a gap so the
+// buttons do not touch, and the text and icon sit at the button's centre. The board has no browser tests, so this
+// holds the stylesheet's source.
+func TestBranchCardRowsFitFixButton(t *testing.T) {
+	css, err := os.ReadFile("style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		".br-card .mr-row { min-height: 26px; }",
+		".br-card .mr-row + .mr-row { margin-top: 4px; }",
+		".br-card .mr-row > a, .br-card .mr-row > span { padding: 3px 0; font-size: 12.5px; }",
+		".br-card .mr-row > svg, .br-card .mr-row > .mi { margin-top: 6px; }",
+		".br-card .mr-row > button { margin-top: 0; }",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("style.css lacks %q", want)
+		}
+	}
+}
+
 // The fix buttons of the merge's blockers (#561): «Resolve conflicts», «Fix CI» and «Fix comments» stand inside the
 // «What blocks the merge» block under their rows, and only for a live terminal agent; the header keeps Open MR.
 // The board has no script tests, so these hold the page's source.
@@ -1034,8 +1055,9 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 	}
 }
 
-// Open PR / Open MR in the task card's header is a secondary outline button with the host's logo (#586),
-// the same in every state; the page has no script tests, so this holds the source.
+// Open PR / Open MR in the task card's header is a secondary square outline button with only the host's logo
+// (#586, #631), the same in every state; the name is in the title and aria-label. The page has no script
+// tests, so this holds the source.
 func TestBoardOpenMRButtonSecondary(t *testing.T) {
 	src := string(board)
 	i := strings.Index(src, "const openMR = ")
@@ -1047,9 +1069,11 @@ func TestBoardOpenMRButtonSecondary(t *testing.T) {
 	for _, want := range []string{
 		`r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : ""`,
 		`TRACKER_ICON[host]`,
-		`title="Open on ${host}"`,
-		`class="btn open-mr"`,
-		`${ICON.external}</a>`,
+		`: ICON.external`,
+		`class="btn open-mr icon-only"`,
+		`title="${label}"`,
+		`aria-label="${label}"`,
+		`on ${host}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("openMR is missing %q", want)
@@ -1058,14 +1082,18 @@ func TestBoardOpenMRButtonSecondary(t *testing.T) {
 	if strings.Contains(body, "primary") {
 		t.Error("openMR is a primary button again")
 	}
+	if strings.Contains(body, ">Open ${") || strings.Contains(body, "${ICON.external}</a>") {
+		t.Error("openMR has visible text or the arrow again: it is only the logo")
+	}
 	if strings.Contains(src, `openMR(r, "primary")`) {
 		t.Error("a state of the header still asks for a primary Open MR")
 	}
 	css := string(style)
 	for _, want := range []string{
-		".d-head .actions > a.btn.open-mr { gap: 4px; }",
+		".d-head .actions > a.btn.open-mr { width: 32px; padding: 0; justify-content: center; }",
 		".d-head .actions > a.btn svg { flex: none; vertical-align: -3px; }",
-		"color: var(--mute)",
+		".d-head .actions > a.btn.open-mr > svg { width: 16px; height: 16px; }",
+		"details.more > summary.icon, .d-head .actions > a.btn.open-mr { width: 44px; }",
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("style.css is missing %q", want)

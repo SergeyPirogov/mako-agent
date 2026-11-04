@@ -107,11 +107,14 @@ type Options struct {
 	History   string // a Claude Code transcript: the conversation so far, shown before it continues
 	OnState   func()
 	OnLimits  func(Limits)
-	// OnResume: the limit cut a turn and has reset, and the session was asked to go on by itself: it hands over
-	// the message to say, the way your own message from the board goes (a closed agent is resumed by it). Nil: the
-	// session sends it itself.
-	OnResume  func(text string) error
-	OnSession func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
+	// OnLimit: the Claude limit cut the turn (until: when it resets, unix seconds; 0 when it is no longer cut: a
+	// message went on from it), or the choice to go on by itself changed. Mako keeps it, so the agent goes on after
+	// the reset even if Mako restarts meanwhile; the session itself sends nothing.
+	OnLimit func(until int64, resume bool)
+	// ResumeOnReset: the agent goes on by itself once the limit that cut it has reset (the settings', or the
+	// chat's own choice kept from before).
+	ResumeOnReset bool
+	OnSession     func(sessionID, model string) // model: the one Claude Code says it runs, "" if it did not
 	// OnCost: what a turn cost (USD) and the tokens its model calls read and wrote, so the task can add up its
 	// budget.
 	OnCost func(usd float64, u core.Usage)
@@ -149,12 +152,10 @@ type Session struct {
 	asleep   bool
 	idle     *time.Timer
 	// The Claude limit: limitHit is told by a rate-limit event of the turn going on; limitedUntil is when the limit
-	// that cut the turn resets; resumeTimer sends the message to go on then, if resumeOnReset.
+	// that cut the turn resets; resumeOnReset: Mako makes it go on then.
 	limitHit      bool
 	limitedUntil  int64
 	resumeOnReset bool
-	resumeTimer   *time.Timer
-	resumeGen     int // changes with every arming and disarming: a timer that fires late finds it is not its turn
 	lastLimits    Limits
 	sessionID     string
 	mode          string
@@ -187,7 +188,7 @@ var IdleAfter = 20 * time.Minute
 // Start runs the setup and then the agent, in the background: the conversation shows both.
 func Start(o Options) *Session {
 	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode, lineMax: maxLine, idleAfter: IdleAfter,
-		ended: make(chan struct{})}
+		ended: make(chan struct{}), resumeOnReset: o.ResumeOnReset}
 	if s.mode == "" {
 		s.mode = "auto" // a chat with no mode chosen: Claude decides what is safe, as everywhere in Mako
 	}
@@ -597,6 +598,7 @@ func (s *Session) handle(line []byte) {
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: cost, At: at})
 		if s.limitCut(e.IsError, e.Result) {
 			s.setState("limited")
+			s.limitChanged()
 		} else {
 			s.setState("done")
 		}
@@ -621,7 +623,7 @@ var limitText = regexp.MustCompile(`(?i)hit your .*limit`)
 
 // limitCut tells whether the turn that just ended was cut by the Claude limit: its error result follows a
 // rejected rate-limit event, or says so in words. It keeps when the limit resets (the reported window that is
-// fullest, when the event did not say) and starts the automatic continuation if it was asked for.
+// fullest, when the event did not say).
 func (s *Session) limitCut(isError bool, result string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -634,8 +636,17 @@ func (s *Session) limitCut(isError bool, result string) bool {
 	if s.limitedUntil == 0 {
 		s.limitedUntil = s.lastLimits.fullest()
 	}
-	s.armResumeLocked()
 	return true
+}
+
+// limitChanged tells Mako the limit the session is cut by and whether it goes on by itself after it.
+func (s *Session) limitChanged() {
+	s.mu.Lock()
+	until, resume, f := s.limitedUntil, s.resumeOnReset, s.o.OnLimit
+	s.mu.Unlock()
+	if f != nil {
+		f(until, resume)
+	}
 }
 
 // fullest: when the window that is the most used resets, 0 when none is known.
@@ -650,64 +661,21 @@ func (l Limits) fullest() int64 {
 	return at
 }
 
-// ResumeGrace: how long after the limit resets the session goes on by itself.
+// ResumeGrace: how long after the limit resets Mako makes the agent go on by itself.
 var ResumeGrace = 30 * time.Second
 
-// ResumeMessage: what the session says to itself to go on after the limit.
+// ResumeMessage: what Mako says to the agent to go on after the limit.
 const ResumeMessage = "Continue where you stopped: the usage limit has reset."
 
 // SetResumeOnReset makes the session go on by itself once the limit that cut its turn has reset (or takes it
-// back). It works on a closed session too: the message resumes the conversation.
+// back): only this chat's, Mako does the going on.
 func (s *Session) SetResumeOnReset(on bool) {
 	s.mu.Lock()
 	s.resumeOnReset = on
-	if on {
-		s.armResumeLocked()
-	} else {
-		s.disarmResumeLocked()
-	}
 	s.version++
 	s.mu.Unlock()
 	s.changed()
-}
-
-// armResumeLocked (s.mu held) starts the timer that sends the continuation, if the session is limited, knows
-// when the limit resets and was asked to go on.
-func (s *Session) armResumeLocked() {
-	s.disarmResumeLocked()
-	if !s.resumeOnReset || s.limitedUntil == 0 {
-		return
-	}
-	gen := s.resumeGen
-	wait := time.Until(time.Unix(s.limitedUntil, 0).Add(ResumeGrace))
-	s.resumeTimer = time.AfterFunc(max(wait, 0), func() { s.resumeNow(gen) })
-}
-
-// disarmResumeLocked (s.mu held) drops the timer: a message of yours, or Stop.
-func (s *Session) disarmResumeLocked() {
-	s.resumeGen++
-	if s.resumeTimer != nil {
-		s.resumeTimer.Stop()
-		s.resumeTimer = nil
-	}
-}
-
-// resumeNow is the timer's: the limit has reset, so it says "go on" the way a message from the board goes.
-func (s *Session) resumeNow(gen int) {
-	s.mu.Lock()
-	if gen != s.resumeGen { // taken back, or a message of yours came first
-		s.mu.Unlock()
-		return
-	}
-	s.resumeTimer = nil
-	s.mu.Unlock()
-	send := s.o.OnResume
-	if send == nil {
-		send = s.Send
-	}
-	if err := send(ResumeMessage); err != nil {
-		log.Printf("chat %s: could not go on after the limit: %v", s.ID, err)
-	}
+	s.limitChanged()
 }
 
 func textOf(raw json.RawMessage) string {
@@ -864,11 +832,13 @@ func (s *Session) Send(text string) error {
 	s.mu.Lock()
 	wasLimited, until := s.state == "limited", s.limitedUntil
 	s.limitedUntil, s.limitHit = 0, false
-	s.disarmResumeLocked()
 	s.mu.Unlock()
 	s.setState("working")
 	err := s.write(userMessage(text))
 	if err == nil {
+		if until != 0 {
+			s.limitChanged()
+		}
 		return nil
 	}
 	// It never reached the agent: take it back, so it does not show as sent (and again after a resume).
@@ -879,7 +849,6 @@ func (s *Session) Send(text string) error {
 		s.state, s.since = "done", time.Now()
 		if wasLimited { // still cut by the limit: the message did not go on from it
 			s.state, s.limitedUntil = "limited", until
-			s.armResumeLocked()
 		}
 	}
 	s.version++
@@ -1119,7 +1088,7 @@ func (s *Session) sleep() {
 	}
 	s.mu.Unlock()
 	if idle {
-		s.stop(true) // the continuation after the limit stays: it resumes the closed conversation
+		s.stop()
 	}
 }
 
@@ -1176,17 +1145,13 @@ func (s *Session) Interrupt() error {
 }
 
 // Stop ends the agent; the conversation stays in Claude Code's history (--continue).
-func (s *Session) Stop() { s.stop(false) }
+func (s *Session) Stop() { s.stop() }
 
-// stop is Stop; keepResume: a session closed for idleness still goes on after the limit.
-func (s *Session) stop(keepResume bool) {
+func (s *Session) stop() {
 	s.mu.Lock()
 	s.stopping = true
 	if s.idle != nil {
 		s.idle.Stop()
-	}
-	if !keepResume {
-		s.disarmResumeLocked()
 	}
 	pid, w := s.pid, s.stdin
 	s.mu.Unlock()

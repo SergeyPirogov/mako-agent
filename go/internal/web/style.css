@@ -133,7 +133,6 @@ header > button, header > a { flex: none; white-space: nowrap; }
 /* "Ready to merge": green, so the MRs a person can merge now do not get lost. */
 .group.merge, .group.merge:hover { color: var(--ok); }
 .group.merge .n { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); font-weight: 600; padding: 1px 7px; border-radius: 8px; }
-.sub.merge { color: var(--ok); font-weight: 600; }
 .proj-head .p-sum .ok { color: var(--ok); font-weight: 600; }
 /* By project: a group per project; its heading folds it, folded it says what is in it. */
 .proj { padding-bottom: 6px; }
@@ -159,6 +158,7 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .quiet .chev { flex: none; transform: rotate(-90deg); transition: transform .15s; }
 .quiet.open .chev { transform: none; }
 .quiet .n { margin-left: auto; color: var(--faint); font-weight: 500; }
+.quiet.merge, .quiet.merge:hover { color: var(--ok); font-weight: 600; }
 /* By status, several projects in a group: a thin label per project. */
 .sub { display: flex; align-items: center; gap: 6px; height: 24px; padding: 4px 12px 0 12px; font-size: 11.5px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub .n { margin-left: auto; color: var(--faint); font-weight: 500; }
@@ -641,9 +641,10 @@ section.ws #term-slot:has(.term-wrap) { padding: 0; }
 .branch-name:hover .bn-copy, .branch-name:focus-visible .bn-copy { opacity: 1; }
 .branch-name.copied { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .branch-name.copied .bn-pre, .branch-name.copied .bn-copy { color: var(--ok); }
-.br-card .mr-row { min-height: 22px; }
-.br-card .mr-row > a, .br-card .mr-row > span { padding: 2px 0; font-size: 12.5px; }
-.br-card .mr-row > svg, .br-card .mr-row > .mi { margin-top: 4px; }
+.br-card .mr-row { min-height: 26px; }
+.br-card .mr-row + .mr-row { margin-top: 4px; }
+.br-card .mr-row > a, .br-card .mr-row > span { padding: 3px 0; font-size: 12.5px; }
+.br-card .mr-row > svg, .br-card .mr-row > .mi { margin-top: 6px; }
 .br-card .mr-row > button { margin-top: 0; }
 .mr-h button.icon { width: 26px; height: 26px; }
 .mr-h button.icon.ready { color: var(--ok); }
@@ -1710,11 +1711,10 @@ section.ws .task-pane h1 { font-size: 19px; white-space: normal; margin: 6px 0 4
 .d-meta > .labels { flex-wrap: wrap; gap: 4px; }
 .d-meta .lbl { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; background: var(--hover); border: 1px solid var(--line); color: var(--mute); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
 .d-head .actions > button svg { vertical-align: -3px; margin-right: 4px; }
-/* Open PR / Open MR: a link, so the gap is the flex gap; the host logo is the size of the text, the ↗ is a quiet mark. */
-.d-head .actions > a.btn.open-mr { gap: 4px; }
+/* Open PR / Open MR: a square button with only the host's logo (the name is in the title); the height is the head's. */
+.d-head .actions > a.btn.open-mr { width: 32px; padding: 0; justify-content: center; }
 .d-head .actions > a.btn svg { flex: none; vertical-align: -3px; }
-.d-head .actions > a.btn.open-mr > svg:first-child { width: 16px; height: 16px; }
-.d-head .actions > a.btn.open-mr > svg:last-child { width: 12px; height: 12px; color: var(--mute); }
+.d-head .actions > a.btn.open-mr > svg { width: 16px; height: 16px; }
 /* The head's buttons are one height, whatever they are made of (the menus' own buttons are not in the list). */
 .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary),
 .ws-bar .actions > :is(button, a.btn), .ws-bar .actions > details > summary, .ws-bar .actions > .takesplit > :is(button, details > summary) { height: 32px; padding-block: 0; }
@@ -1821,7 +1821,7 @@ details.desc .r { flex: none; color: var(--accent) !important; }
   .d-head { flex-direction: column; }
   .d-head .actions { flex-wrap: wrap; }
   .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary) { height: 44px; padding-block: 0; }
-  details.more > summary.icon { width: 44px; }
+  details.more > summary.icon, .d-head .actions > a.btn.open-mr { width: 44px; }
   /* The strip scrolls sideways: every stage keeps its own width (its status wraps, it is not cut), the stages snap, and the
      shadow at an edge (and the card's colour covering it at the very end) says there is more on that side. */
   .stage-strip { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: 6px; overscroll-behavior-x: contain;

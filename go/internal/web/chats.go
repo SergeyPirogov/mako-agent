@@ -118,6 +118,7 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 	case "resume":
 		err = s.D.ResumeFree(id)
 	case "stop":
+		s.D.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
 		if c != nil {
 			c.Stop()
 		}
@@ -129,6 +130,9 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 			err = s.D.FreePlan(id, r.URL.Query().Get("req"), do, o)
 		}
 	case "permit", "answer", "choose", "interrupt", "mode":
+		if action == "interrupt" {
+			s.D.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
+		}
 		err = controlChat(c, action, r)
 	default:
 		http.Error(w, "not for a chat without a task", http.StatusBadRequest)

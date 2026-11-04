@@ -174,9 +174,10 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 	}
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: id, Worktree: worktree, Command: command, Args: args, Env: d.agentEnv(id), SetupDone: setup, Prompt: prompt, Mode: mode, History: history,
-		OnState:  func() { d.watchTerminals(time.Now()) },
-		OnLimits: d.limitsReported,
-		OnResume: d.afterLimit(id, func(text string) error { return d.say(id, text) }),
+		OnState:       func() { d.watchTerminals(time.Now()) },
+		OnLimits:      d.limitsReported,
+		OnLimit:       func(until int64, resume bool) { d.noteLimit(id, until, resume) },
+		ResumeOnReset: d.resumeFlag(id),
 		// The task keeps its session: a later resume goes on with exactly this conversation.
 		OnSession: func(sid, model string) {
 			d.Store.Update(id, func(r *core.Record) {
@@ -410,6 +411,7 @@ func (d *Dispatcher) NewConversation(id string) error {
 
 // StopTerminal ends the task's agent; its worktree stays.
 func (d *Dispatcher) StopTerminal(id string) {
+	d.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
 	if s := d.Sessions.Get(id); s != nil {
 		s.Stop()
 	}

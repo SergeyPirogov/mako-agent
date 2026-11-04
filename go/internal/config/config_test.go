@@ -184,6 +184,15 @@ func TestLimitPausePct(t *testing.T) {
 	}
 }
 
+// The agents the limit cut go on by themselves unless the settings say off.
+func TestResumeAfterLimit(t *testing.T) {
+	for raw, want := range map[string]bool{`{}`: true, `{"resumeAfterLimit": true}`: true, `{"resumeAfterLimit": false}`: false} {
+		if c, err := Parse([]byte(raw), nil); err != nil || c.ResumeAfterLimit != want {
+			t.Fatalf("%s: %v %v", raw, c.ResumeAfterLimit, err)
+		}
+	}
+}
+
 func TestParseDigest(t *testing.T) {
 	cfg, err := Parse([]byte(`{}`), nil)
 	if err != nil {

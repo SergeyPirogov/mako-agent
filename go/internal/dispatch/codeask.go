@@ -87,6 +87,9 @@ type CodeThread struct {
 	At  int64  `json:"at"` // the last question, unix ms
 	// Ticket: the task made from this chat; the chat is done. "" — it is not.
 	Ticket string `json:"ticket,omitempty"`
+	// LimitedUntil, ResumeAfterLimit: the Claude limit cut its agent (as in core.Record).
+	LimitedUntil     int64 `json:"limitedUntil,omitempty"`
+	ResumeAfterLimit bool  `json:"resumeAfterLimit,omitempty"`
 }
 
 // maxThreads: the questions a project keeps.
@@ -391,9 +394,10 @@ func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string, set
 	}
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: t.ID, Worktree: dir, Command: command, Args: args, Prompt: text, History: history, Gate: codeGate, SetupDone: setup,
-		OnLimits:  d.limitsReported,
-		OnResume:  d.afterLimit(t.Title, func(text string) error { _, err := d.AskCode(t.Project, t.ID, text); return err }),
-		OnSession: func(sid, _ string) { d.touchThread(t.ID, sid) },
+		OnLimits:      d.limitsReported,
+		OnLimit:       func(until int64, resume bool) { d.noteLimit(t.ID, until, resume) },
+		ResumeOnReset: d.resumeFlag(t.ID),
+		OnSession:     func(sid, _ string) { d.touchThread(t.ID, sid) },
 	}))
 	return nil
 }

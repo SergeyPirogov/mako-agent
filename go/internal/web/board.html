@@ -108,6 +108,8 @@ let groupBy = (() => { try { return localStorage.getItem("mako-group") === "stat
 let foldedProjects = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-projects") || "[]"); } catch { return []; } })());
 // "Postponed" and "Done" of a project, opened on their own ("project|column").
 const openQuiet = new Set();
+// The sections of a project (Ready to merge, In progress, New) the user folded ("project|section"); the others are open.
+let foldedSubs = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-subs") || "[]"); } catch { return []; } })());
 // Where the list was scrolled to: it is drawn again on every refresh, click and fold.
 let listTop = 0;
 // The projects of the board (sorted): each has its colour in the list.
@@ -667,7 +669,11 @@ function render() {
     render();
   };
   for (const b of $("list").querySelectorAll(".quiet")) b.onclick = () => {
-    openQuiet.has(b.dataset.key) ? openQuiet.delete(b.dataset.key) : openQuiet.add(b.dataset.key);
+    if (b.dataset.sub) {
+      if (showAll) return;
+      foldedSubs.has(b.dataset.sub) ? foldedSubs.delete(b.dataset.sub) : foldedSubs.add(b.dataset.sub);
+      try { localStorage.setItem("mako-folded-subs", JSON.stringify([...foldedSubs])); } catch {}
+    } else openQuiet.has(b.dataset.key) ? openQuiet.delete(b.dataset.key) : openQuiet.add(b.dataset.key);
     render();
   };
   renderDetail();
@@ -728,7 +734,8 @@ function lessonBadge(p, entries) {
   return tid ? `<span class="lesson-badge" data-lessons-of="${esc(`${tid}|${p}`)}" title="${esc(t("b.lessonOffer"))}">💡</span>` : "";
 }
 
-// By project: a group per project, its tasks in the order of the work; "Postponed" and "Done" each a folded line of its own.
+// By project: a group per project, its tasks in the order of the work; every section of it (Ready to merge, In progress, New, Postponed, Done)
+// folds by a click on its heading: "Postponed" and "Done" start folded, the others open.
 const QUIET = ["later", "done"], SUMMARY = { doing: "at work", blocked: "blocked", review: "in review", merge: "ready to merge", forme: "to review", new: "new", failed: "not done" };
 function listByProject(entries, showAll) {
   const by = new Map();
@@ -747,12 +754,14 @@ function listByProject(entries, showAll) {
       + lessonBadge(p, all)
       + (isFolded ? `<span class="p-sum">${summary}</span>` : "") + `<span class="n">${all.length}</span></button>`;
     if (!isFolded) {
-      // Ready to merge first, under a small green heading: the next action for a person.
+      // Ready to merge first, under a small green heading: the next action for a person; then what is in progress, then the new ones.
       const ready = active.filter((e) => e.g === "merge"), doing = active.filter((e) => e.g !== "merge" && e.g !== "new"), fresh = active.filter((e) => e.g === "new");
-      if (ready.length) html += `<div class="sub merge" title="CI passed, no conflicts or open threads: the MR can be merged">${COLUMNS.find(([c]) => c === "merge")[1]}</div>` + ready.map((e) => e.html).join("");
-      // The rest in two small groups: what is in progress, then the new ones.
-      for (const [title, rs] of [[t("b.inProgress"), doing], [COLUMNS.find(([c]) => c === "new")[1], fresh]]) {
-        if (rs.length) html += `<div class="sub">${title}<span class="n">${rs.length}</span></div>` + rs.map((e) => e.html).join("");
+      const MERGE_TIP = "CI passed, no conflicts or open threads: the MR can be merged";
+      for (const [id, title, rs, cls, tip] of [["merge", COLUMNS.find(([c]) => c === "merge")[1], ready, " merge", MERGE_TIP], ["work", t("b.inProgress"), doing, "", ""], ["new", COLUMNS.find(([c]) => c === "new")[1], fresh, "", ""]]) {
+        if (!rs.length) continue;
+        const key = `${p}|${id}`, isOpen = showAll || !foldedSubs.has(key);
+        html += `<button class="quiet${isOpen ? " open" : ""}${cls}" data-sub="${esc(key)}" aria-expanded="${isOpen}"${tip ? ` title="${esc(tip)}"` : ""}>${ICON.chevron}${title}<span class="n">${rs.length}</span></button>`;
+        if (isOpen) html += rs.map((e) => e.html).join("");
       }
       if (!active.length) html += `<div class="p-none">${t("b.nothingInWork")}</div>`;
       for (const g of QUIET) {
@@ -3784,11 +3793,13 @@ function metaLine(r) {
   return parts.length ? `<div class="d-meta">${parts.join(`<i>·</i>`)}</div>` : "";
 }
 
-// A secondary button in every state (the fix is in the blockers' block): the host's logo before the text, ↗ after it.
+// A secondary square button in every state (the fix is in the blockers' block): only the host's logo (↗ when the host is
+// unknown); the name of the PR/MR is in the tooltip and the aria-label.
 const openMR = (r) => {
   if (!r.prUrl) return "";
   const host = r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : "";
-  return `<a class="btn open-mr" href="${esc(r.prUrl)}" target="_blank" rel="noopener"${host ? ` title="Open on ${host}"` : ""}>${host ? TRACKER_ICON[host] : ""}Open ${esc(mrName(r.prUrl))}${ICON.external}</a>`;
+  const label = esc(`Open ${mrName(r.prUrl)}${host ? ` on ${host}` : ""}`);
+  return `<a class="btn open-mr icon-only" href="${esc(r.prUrl)}" target="_blank" rel="noopener" title="${label}" aria-label="${label}">${host ? TRACKER_ICON[host] : ICON.external}</a>`;
 };
 // The main action, as a button the card's handlers already know (data-a, data-merge), and the one next
 // to it when the state has a pair (Start + Snooze, Merge + Open MR).
@@ -4661,18 +4672,21 @@ function drawSend(v) {
   b.title = stop ? "Stop: interrupt the current step (Esc)" : "Send (Enter)";
   b.setAttribute("aria-label", stop ? "Stop" : "Send");
 }
-// The Claude limit cut the agent's turn: the chat says until when instead of «Your turn» and offers to go on, now
-// or by itself after the reset. A stopped agent shows it while the reset is ahead.
+// The Claude limit cut the agent's turn: the chat says when it goes on by itself (or that it does not, for this
+// chat) instead of «Your turn», and offers to go on now. A stopped agent shows it while the reset is ahead.
 const limitCut = (s) => s.state === "limited" || (s.limitedUntil * 1000 > Date.now() && s.state !== "working" && s.state !== "waiting");
 function limitText(s) {
   if (!s.limitedUntil) return t("b.limit.unknown");
-  return s.limitedUntil * 1000 > Date.now() ? t("b.limit.until", { time: fmtWhen(s.limitedUntil * 1000) }) : t("b.limit.reset");
+  const at = s.limitedUntil * 1000;
+  if (at > Date.now()) return t(s.resumeOnReset ? "b.limit.autoAt" : "b.limit.autoOff", { time: fmtWhen(at) });
+  // Reset, but it waits: for a slot of the WIP limit, or the week's limit past the threshold.
+  return t(s.resumeOnReset ? "b.limit.autoSoon" : "b.limit.reset");
 }
-// «Continue now» sends «continue»; «Continue after the reset» is a switch kept by the session (only while the reset is ahead).
+// «Continue now» sends «continue»; «Continue after the reset» is this chat's switch, on unless you turn it off
+// here (or the settings do for every chat).
 function limitButtons(s) {
-  const ahead = s.limitedUntil * 1000 > Date.now();
   return `<button type="button" class="chip pri" data-limit-go title="${esc(t("b.limit.nowHint"))}">${esc(t("b.limit.now"))}</button>`
-    + (ahead ? `<button type="button" class="chip${s.resumeOnReset ? " on" : ""}" role="switch" aria-checked="${s.resumeOnReset ? "true" : "false"}" data-limit-auto title="${esc(t("b.limit.autoHint"))}">${esc(t("b.limit.auto"))}</button>` : "");
+    + (s.limitedUntil ? `<button type="button" class="chip${s.resumeOnReset ? " on" : ""}" role="switch" aria-checked="${s.resumeOnReset ? "true" : "false"}" data-limit-auto title="${esc(t("b.limit.autoHint"))}">${esc(t("b.limit.auto"))}</button>` : "");
 }
 // The same two buttons in a chat of the board: ?on=1 asks, ?on=0 takes it back.
 const limitAuto = (id, on) => fetch(`/api/resumeonreset?id=${encodeURIComponent(id)}&on=${on ? 1 : 0}`, { method: "POST" })

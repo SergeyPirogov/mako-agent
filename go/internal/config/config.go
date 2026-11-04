@@ -44,6 +44,9 @@ type Config struct {
 	// LimitPausePct: at this share of a Claude usage limit (5 hours or the week) used, the queue waits for it
 	// to reset; 0: never.
 	LimitPausePct int
+	// ResumeAfterLimit: an agent the Claude limit cut goes on by itself once the limit has reset (on unless the
+	// settings say off; a chat can still turn it off for itself).
+	ResumeAfterLimit bool
 	// KeepAwake: the Mac does not fall asleep while an agent works (on unless the settings say off).
 	KeepAwake        bool
 	ArchiveAfterDays int
@@ -430,6 +433,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		LimitPausePct:    orInt(raw.LimitPausePct, 85),
 		ArchiveAfterDays: orInt(raw.ArchiveAfterDays, 2),
 		KeepAwake:        raw.KeepAwake == nil || *raw.KeepAwake,
+		ResumeAfterLimit: raw.ResumeAfterLimit == nil || *raw.ResumeAfterLimit,
 		ProjectsDir:      Expand(orStr(raw.ProjectsDir, DefaultProjectsDir)),
 		BranchPattern:    orStr(raw.BranchPattern, DefaultBranchPattern),
 		Env:              env,
@@ -747,6 +751,7 @@ type rawConfig struct {
 	WipLimit         *int                   `json:"wipLimit"`
 	WipAuto          bool                   `json:"wipAuto"`
 	LimitPausePct    *int                   `json:"limitPausePct"`
+	ResumeAfterLimit *bool                  `json:"resumeAfterLimit"`
 	ArchiveAfterDays *int                   `json:"archiveAfterDays"`
 	KeepAwake        *bool                  `json:"keepAwake"`
 	ProjectsDir      string                 `json:"projectsDir"`
