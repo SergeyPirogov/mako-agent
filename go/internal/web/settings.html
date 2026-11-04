@@ -1252,7 +1252,24 @@ function showProblems(list) {
 }
 
 async function load() {
-  const [r, ls] = await Promise.all([fetch("/api/settings").then((x) => x.json()), fetch("/api/settings/lessons").then((x) => x.json()).catch(() => []), loadI18n()]);
+  $("msg").className = "msg";
+  $("msg").textContent = "";
+  let failure = null;
+  const [r, ls] = await Promise.all([
+    fetch("/api/settings").then((x) => { if (!x.ok) throw new Error("HTTP " + x.status); return x.json(); }).catch((e) => { failure = e; return null; }),
+    fetch("/api/settings/lessons").then((x) => x.json()).catch(() => []),
+    loadI18n(),
+  ]);
+  if (failure || !r || typeof r !== "object") {
+    $("msg").className = "msg bad";
+    $("msg").textContent = t("s.noAnswer") + (failure ? ": " + failure.message : "") + " ";
+    const again = document.createElement("button");
+    again.id = "load-retry";
+    again.textContent = t("s.retry");
+    again.onclick = () => load();
+    $("msg").append(again);
+    return;
+  }
   lessons = Array.isArray(ls) ? ls : [];
   cfg = r.config ?? {};
   envSet = r.env;
