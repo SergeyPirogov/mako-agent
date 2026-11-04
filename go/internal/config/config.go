@@ -239,12 +239,17 @@ type Project struct {
 }
 
 // Watch: the project's default branch's CI and its security alerts, each making a task assigned to me when they
-// go wrong; AutoTake takes those tasks at once.
+// go wrong; AutoTake takes those tasks at once. MaxCost: the most Mako's agent may spend on a task the watch or a
+// routine wrote, USD; it is never off.
 type Watch struct {
 	CI       bool
 	Security bool
 	AutoTake bool
+	MaxCost  float64
 }
+
+// DefaultWatchMaxCost: the ceiling of a task Mako wrote itself when the config sets none, USD.
+const DefaultWatchMaxCost = 5.0
 
 // Routine: a task Mako writes by Cron, when the last one with its title is closed.
 type Routine struct {
@@ -497,8 +502,16 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 			return nil, fmt.Errorf("project %s: %w", key, err)
 		}
 		project := &Project{Key: key, Repos: map[string]*Repo{}, Default: p.Default}
+		project.Watch.MaxCost = DefaultWatchMaxCost
 		if p.Watch != nil {
-			project.Watch = Watch{CI: p.Watch.CI, Security: p.Watch.Security, AutoTake: p.Watch.AutoTake}
+			project.Watch = Watch{CI: p.Watch.CI, Security: p.Watch.Security, AutoTake: p.Watch.AutoTake, MaxCost: DefaultWatchMaxCost}
+			if p.Watch.MaxCost != nil && *p.Watch.MaxCost > 0 {
+				project.Watch.MaxCost = *p.Watch.MaxCost
+			}
+			if (p.Watch.CI || p.Watch.Security) && len(p.Repos) > 1 {
+				// The CI and the alerts are a repository's: with several, the project's key names none of them.
+				return nil, fmt.Errorf("project %s: watching the CI and the security alerts needs a project with one repository; set it on that repository's own project", key)
+			}
 		}
 		for i, r := range p.Routines {
 			cron, err := core.ParseCron(r.Cron)
@@ -809,9 +822,10 @@ type rawProject struct {
 }
 
 type rawWatch struct {
-	CI       bool `json:"ci"`
-	Security bool `json:"security"`
-	AutoTake bool `json:"autoTake"`
+	CI       bool     `json:"ci"`
+	Security bool     `json:"security"`
+	AutoTake bool     `json:"autoTake"`
+	MaxCost  *float64 `json:"maxCost"`
 }
 
 type rawRoutine struct {

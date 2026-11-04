@@ -189,6 +189,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 				}
 				r.AddSpend(phase, usd, tokens)
 			})
+			go d.checkCeiling(id)    // it stops this very agent: not from inside its own callback
 			d.recordContextLater(id) // the transcript may be long: not in the way of the conversation
 		},
 	}))

@@ -4,6 +4,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -669,6 +670,10 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 			}
 		})
 		notify.Inform(notify.Stopped, i18n.T(map[string]string{"orca": "notify.notHandedOrca", terminalExecutor: "notify.notHandedAgent"}[executor], id), err.Error(), d.BoardURL)
+	}
+	if over := ceilingSpent(r); over != "" {
+		fail(errors.New(over))
+		return
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {

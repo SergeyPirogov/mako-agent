@@ -20,12 +20,17 @@ type watchedGitLab struct {
 	logs   map[int64]string
 	vulns  []trackers.Vulnerability
 	ciErr  error
+	hang   bool // DefaultCI waits until it is given up
 	asked  int
 	vAsked int
 }
 
 func (w *watchedGitLab) DefaultCI(ctx context.Context, project string) (*trackers.BranchCI, error) {
 	w.asked++
+	if w.hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	ci := w.ci
 	return &ci, w.ciErr
 }
@@ -160,16 +165,76 @@ func TestWatchCIEvery(t *testing.T) {
 	}
 }
 
+// Taken at once by Mako's own agent, whose spending the ceiling stops; with Orca, which reports none, it waits
+// for «Take». Either way the task has the project's ceiling.
 func TestWatchCIAutoTake(t *testing.T) {
-	d, _, w := watchSetup(t, config.Watch{CI: true, AutoTake: true})
-	ctx := context.Background()
-	d.Watch(ctx, time.Now())
-	red(w, "Error: boom\n")
-	d.Watch(ctx, time.Now())
+	for _, executor := range []string{terminalExecutor, "orca"} {
+		d, _, w := watchSetup(t, config.Watch{CI: true, AutoTake: true, MaxCost: 3})
+		d.Cfg.Executor = executor
+		d.Hold = func() string { return "a test: nothing starts" } // taken stays queued
+		ctx := context.Background()
+		d.Watch(ctx, time.Now())
+		red(w, "Error: boom\n")
+		d.Watch(ctx, time.Now())
+		d.Wait()
+		got := made(d, "ci")
+		want := map[string]core.Status{terminalExecutor: core.Queued, "orca": core.Snoozed}[executor]
+		if len(got) != 1 || got[0].Status != want || got[0].CostCap != 3 {
+			t.Fatalf("%s: %+v", executor, got)
+		}
+	}
+}
+
+// The ceiling spent, the agent is stopped and the task fails; it does not start again either.
+func TestCostCeiling(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Store.Update("grp/app#5", func(r *core.Record) {
+		r.Task = core.Task{ID: "grp/app#5", TrackerID: d.TrackerList()[0].ID(), Project: "grp/app", Title: "x"}
+		r.Status, r.CostCap, r.Cost = core.HandedOff, 2, 1.5
+	})
+	d.checkCeiling("grp/app#5")
+	if r, _ := d.Store.Get("grp/app#5"); r.Status != core.HandedOff {
+		t.Fatalf("under the ceiling: %s", r.Status)
+	}
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Cost = 2.1 })
+	d.checkCeiling("grp/app#5")
+	r, _ := d.Store.Get("grp/app#5")
+	if r.Status != core.Failed || !strings.Contains(r.Error, "$2.10 of $2.00") {
+		t.Fatalf("over the ceiling: %s %q", r.Status, r.Error)
+	}
+	d.Store.Update("grp/app#5", func(r *core.Record) { r.Status, r.Error = core.Snoozed, "" })
+	d.Take(context.Background(), "grp/app#5")
 	d.Wait()
-	got := made(d, "ci")
-	if len(got) != 1 || got[0].Status == core.Snoozed {
-		t.Fatalf("auto-take: %+v", got)
+	if r, _ := d.Store.Get("grp/app#5"); r.Status != core.Failed || !strings.Contains(r.Error, "cost ceiling") {
+		t.Fatalf("taken again over the ceiling: %s %q", r.Status, r.Error)
+	}
+	// A task without a ceiling has none.
+	if ceilingSpent(core.Record{Cost: 100}) != "" {
+		t.Error("no ceiling")
+	}
+}
+
+// A failure whose log could not be read is the same as an open task of its job, and the other way round.
+func TestWatchCIWithoutLog(t *testing.T) {
+	d, _, w := watchSetup(t, config.Watch{CI: true})
+	ctx := context.Background()
+	now := time.Now()
+	d.Watch(ctx, now)
+	red(w, "") // the log is not there
+	d.Watch(ctx, now)
+	w.ci = trackers.BranchCI{Branch: "main", CI: "success"}
+	d.Watch(ctx, now)
+	red(w, "--- FAIL: TestSave\n") // the same failure, the log there this time
+	d.Watch(ctx, now)
+	if got := made(d, "ci"); len(got) != 1 {
+		t.Fatalf("without the log, then with it: %d tasks", len(got))
+	}
+	w.ci = trackers.BranchCI{Branch: "main", CI: "success"}
+	d.Watch(ctx, now)
+	red(w, "")
+	d.Watch(ctx, now)
+	if got := made(d, "ci"); len(got) != 1 {
+		t.Fatalf("with the log, then without it: %d tasks", len(got))
 	}
 }
 
@@ -197,16 +262,26 @@ func TestWatchSecurity(t *testing.T) {
 	if got := made(d, "security"); len(got) != 1 {
 		t.Fatalf("more alerts while the task is open: %d tasks", len(got))
 	}
-	// The task closed: the alerts already seen are no news, a new one is.
+	// The task closed: the alert that came while it was open is still news, with all of them in the task.
+	first := got[0].ID
 	closeIssue(f, got[0])
 	d.Watch(ctx, now)
-	if got := made(d, "security"); len(got) != 1 {
-		t.Fatalf("no new alerts: %d tasks", len(got))
+	got = made(d, "security")
+	if len(got) != 2 {
+		t.Fatalf("the alert that came while the task was open: %d tasks", len(got))
 	}
-	w.vulns = append(w.vulns, trackers.Vulnerability{ID: "4", Package: "ws", Summary: "DoS"})
+	for _, r := range got {
+		if r.ID != first && (r.Task.Title != "Оновити залежності: 3 вразливості" || !strings.Contains(r.Task.Description, "**qs**")) {
+			t.Fatalf("the new task: %q\n%s", r.Task.Title, r.Task.Description)
+		}
+	}
+	// Closed again with nothing new: the alerts seen are no news.
+	for _, r := range got {
+		closeIssue(f, r)
+	}
 	d.Watch(ctx, now)
 	if got := made(d, "security"); len(got) != 2 {
-		t.Fatalf("a new alert after the task was closed: %d tasks", len(got))
+		t.Fatalf("no new alerts: %d tasks", len(got))
 	}
 }
 
@@ -250,6 +325,20 @@ func TestWatchRoutine(t *testing.T) {
 	d.Watch(ctx, at("2026-12-07 10:00")) // three Mondays missed: one task
 	if got := made(d, "routine"); len(got) != 2 {
 		t.Fatalf("after the times missed: %d tasks", len(got))
+	}
+}
+
+// A code host that does not answer is given up: the round goes on.
+func TestWatchTimeout(t *testing.T) {
+	d, _, w := watchSetup(t, config.Watch{CI: true})
+	old := watchTimeout
+	watchTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { watchTimeout = old })
+	w.hang = true
+	start := time.Now()
+	d.Watch(context.Background(), time.Now())
+	if took := time.Since(start); took > 2*time.Second || w.asked != 1 {
+		t.Fatalf("took %s, asked %d", took, w.asked)
 	}
 }
 

@@ -117,8 +117,11 @@ type Record struct {
 	NoPlan bool `json:"noPlan,omitempty"`
 	// CreatedBy: Mako wrote the issue itself, watching the project: "ci" (its default branch went red), "security"
 	// (new vulnerabilities), "routine" (by a schedule); "" for the rest.
-	CreatedBy string  `json:"createdBy,omitempty"`
-	Cost      float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
+	CreatedBy string `json:"createdBy,omitempty"`
+	// CostCap: the most Mako's own agent may spend on the task over all its attempts, USD; reached, the agent is
+	// stopped and the task fails. 0: none (only the tasks Mako wrote itself have one for now, #502).
+	CostCap float64 `json:"costCap,omitempty"`
+	Cost    float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
 	// ViewNext: the view the agent moves to once its turn ends (asked for while it worked), "" when none.

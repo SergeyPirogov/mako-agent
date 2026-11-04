@@ -142,7 +142,8 @@
           "watch": {
             "ci": true,
             "security": true,
-            "autoTake": false
+            "autoTake": false,
+            "maxCost": 5
           },
           "routines": [
             {

@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
@@ -31,6 +33,10 @@ var (
 
 // ciLogLines: how much of a failed job's log goes into its task.
 const ciLogLines = 60
+
+// watchTimeout: how long one look at a project (its CI, its alerts, a routine's task) may take, so a slow code
+// host does not hold up the rest of the round.
+var watchTimeout = 30 * time.Second
 
 // watchState is what the watch remembers between restarts, kept in watch.json.
 type watchState struct {
@@ -122,16 +128,22 @@ func (d *Dispatcher) Watch(ctx context.Context, now time.Time) {
 		watcher, _ := t.(trackers.Watcher)
 		for _, p := range d.watchedProjects(t) {
 			if watcher != nil && p.watch.CI && w.due("ci|"+t.ID()+"|"+p.key, watchCIEvery, now) {
-				d.watchCI(ctx, t, watcher, p)
+				d.timed(ctx, func(ctx context.Context) { d.watchCI(ctx, t, watcher, p) })
 			}
 			if watcher != nil && p.watch.Security && w.due("security|"+t.ID()+"|"+p.key, watchSecurityEvery, now) {
-				d.watchSecurity(ctx, t, watcher, p)
+				d.timed(ctx, func(ctx context.Context) { d.watchSecurity(ctx, t, watcher, p) })
 			}
 			for _, r := range p.routines {
-				d.watchRoutine(ctx, t, p.key, r, now)
+				d.timed(ctx, func(ctx context.Context) { d.watchRoutine(ctx, t, p, r, now) })
 			}
 		}
 	}
+}
+
+func (d *Dispatcher) timed(ctx context.Context, look func(context.Context)) {
+	ctx, cancel := context.WithTimeout(ctx, watchTimeout)
+	defer cancel()
+	look(ctx)
 }
 
 func (d *Dispatcher) watchedProjects(t trackers.Tracker) []watched {
@@ -167,9 +179,15 @@ func (d *Dispatcher) openTask(ctx context.Context, t trackers.Tracker, key strin
 	return true
 }
 
-// writeTask writes a task of the watch and remembers it under key.
-func (d *Dispatcher) writeTask(ctx context.Context, t trackers.Tracker, key, by string, n trackers.NewIssue, take bool) bool {
-	id, err := d.createTask(ctx, t.ID(), n, take, false, by)
+// writeTask writes a task of the watch and remembers it under key; the task gets the project's cost ceiling.
+// Taken at once only by Mako's own agent: it alone reports what it spends, so the ceiling can stop it; an agent in
+// Orca is not watched, its task waits for «Take» in «New».
+func (d *Dispatcher) writeTask(ctx context.Context, t trackers.Tracker, key, by string, n trackers.NewIssue, take bool, w config.Watch) bool {
+	if take && d.Config().Executor != terminalExecutor {
+		take = false
+		d.Log(t.ID(), "«"+n.Title+"» is not taken at once: the cost ceiling needs Mako's own agent (Orca does not report its spending)")
+	}
+	id, err := d.createTask(ctx, t.ID(), n, take, false, by, w.MaxCost)
 	if err != nil {
 		d.Fault(t.ID(), "could not write the task «"+n.Title+"»", err)
 		return false
@@ -219,13 +237,13 @@ func (d *Dispatcher) watchCI(ctx context.Context, t trackers.Tracker, w trackers
 		}
 		first := firstErrorLine(log)
 		key := "ci|" + state + "|" + job.Name + "|" + errorKey(first)
-		if d.openTask(ctx, t, key) {
+		if d.ciTaskOpen(ctx, t, "ci|"+state+"|"+job.Name+"|", key) {
 			d.Log(t.ID(), "CI of "+p.key+" failed again in "+job.Name+": its task is still open")
 			continue
 		}
 		body := i18n.TA("watch.ciBody", ci.Branch, ci.URL, job.Name, orStr(job.URL, ci.URL), orStr(first, "—"), orStr(log, "—"))
 		n := trackers.NewIssue{Project: p.key, Title: i18n.TA("watch.ciTitle", ci.Branch, job.Name), Description: body, Bug: true}
-		if !d.writeTask(ctx, t, key, "ci", n, p.watch.AutoTake) {
+		if !d.writeTask(ctx, t, key, "ci", n, p.watch.AutoTake, p.watch) {
 			all = false
 		}
 	}
@@ -234,6 +252,28 @@ func (d *Dispatcher) watchCI(ctx context.Context, t trackers.Tracker, w trackers
 		d.watch.CI[state] = false
 		d.watch.save()
 	}
+}
+
+// ciTaskOpen: a task for this failure of the job is open. A failure whose log could not be read (key ends with
+// the bare job) is the same as any open one of the job, and the other way round: without its first line nobody
+// can tell them apart, and one task too few is better than one too many.
+func (d *Dispatcher) ciTaskOpen(ctx context.Context, t trackers.Tracker, job, key string) bool {
+	if key != job {
+		return d.openTask(ctx, t, key) || d.openTask(ctx, t, job)
+	}
+	keys := []string{}
+	for k := range d.watch.Open {
+		if strings.HasPrefix(k, job) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if d.openTask(ctx, t, k) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Dispatcher) watchSecurity(ctx context.Context, t trackers.Tracker, w trackers.Watcher, p watched) {
@@ -256,7 +296,11 @@ func (d *Dispatcher) watchSecurity(ctx context.Context, t trackers.Tracker, w tr
 	}
 	sort.Strings(ids)
 	key := "security|" + state
-	if fresh > 0 && !d.openTask(ctx, t, key) {
+	if fresh > 0 && d.openTask(ctx, t, key) {
+		// Its task is open: the new alerts stay new, so they make the next task once this one is closed.
+		return
+	}
+	if fresh > 0 {
 		lines := []string{}
 		for _, v := range vs {
 			line := "- "
@@ -273,7 +317,7 @@ func (d *Dispatcher) watchSecurity(ctx context.Context, t trackers.Tracker, w tr
 			lines = append(lines, line)
 		}
 		n := trackers.NewIssue{Project: p.key, Title: vulnTitle(len(vs)), Description: i18n.TA("watch.vulnBody", len(vs), strings.Join(lines, "\n"))}
-		if !d.writeTask(ctx, t, key, "security", n, p.watch.AutoTake) {
+		if !d.writeTask(ctx, t, key, "security", n, p.watch.AutoTake, p.watch) {
 			return // the alerts stay new: tried again on the next look
 		}
 	}
@@ -295,7 +339,8 @@ func vulnTitle(n int) string {
 	return i18n.TA("watch.vulnTitle"+form, n)
 }
 
-func (d *Dispatcher) watchRoutine(ctx context.Context, t trackers.Tracker, project string, r config.Routine, now time.Time) {
+func (d *Dispatcher) watchRoutine(ctx context.Context, t trackers.Tracker, p watched, r config.Routine, now time.Time) {
+	project := p.key
 	state := t.ID() + "|" + project + "|" + r.Title
 	last, ok := d.watch.Routines[state]
 	if !ok {
@@ -313,13 +358,35 @@ func (d *Dispatcher) watchRoutine(ctx context.Context, t trackers.Tracker, proje
 		d.Log(t.ID(), "routine «"+r.Title+"» of "+project+": the last one is still open")
 	} else {
 		body := strings.TrimSpace(r.Body + "\n\n" + i18n.TA("watch.routineNote", r.Cron.Spec))
-		if !d.writeTask(ctx, t, key, "routine", trackers.NewIssue{Project: project, Title: r.Title, Description: body}, r.AutoTake) {
+		if !d.writeTask(ctx, t, key, "routine", trackers.NewIssue{Project: project, Title: r.Title, Description: body}, r.AutoTake, p.watch) {
 			return // tried again on the next round
 		}
 	}
 	// The times missed meanwhile (the Mac slept) are one.
 	d.watch.Routines[state] = now.UnixMilli()
 	d.watch.save()
+}
+
+// ceilingSpent: why the task's agent may not work on it any more, its cost ceiling spent; "" when it may.
+func ceilingSpent(r core.Record) string {
+	if r.CostCap <= 0 || r.Cost < r.CostCap {
+		return ""
+	}
+	return fmt.Sprintf("the cost ceiling of the task is reached: $%.2f of $%.2f spent, the agent is stopped", r.Cost, r.CostCap)
+}
+
+// checkCeiling stops the task's agent and fails the task once it has spent its ceiling (#502 for the tasks Mako
+// wrote itself).
+func (d *Dispatcher) checkCeiling(id string) {
+	r, ok := d.Store.Get(id)
+	over := ceilingSpent(r)
+	if !ok || over == "" || r.Status == core.Failed {
+		return
+	}
+	d.Log(id, over)
+	d.StopTerminal(id)
+	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Failed, over, now() })
+	notify.Inform(notify.Stopped, i18n.T("notify.attention", id), over, d.BoardURL)
 }
 
 var (
