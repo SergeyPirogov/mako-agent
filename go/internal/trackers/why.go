@@ -224,12 +224,7 @@ func (j *Jira) Why(ctx context.Context, link string) (*core.Task, []Check, error
 	}
 	checks = append(checks, Check{OK: true, Text: "The task matches the JQL query"})
 	// FetchMine reads the first jiraMax of the search.
-	all, err := j.search(ctx, jql, jiraMax)
-	if err == nil {
-		in := false
-		for _, x := range all {
-			in = in || x.ID == key
-		}
+	if in, err := j.contains(ctx, jql, key); err == nil {
 		checks = append(checks, map[bool]Check{
 			true:  {OK: true, Text: fmt.Sprintf("The task is among the first %d the query returns", jiraMax)},
 			false: {Text: fmt.Sprintf("The query returns more than %d tasks and this one is not among the first %d: narrow the JQL", jiraMax, jiraMax)},

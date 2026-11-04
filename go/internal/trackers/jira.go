@@ -117,8 +117,12 @@ func (u *jiraUser) member(me string, assignees []string) bool {
 // jiraMax: as many issues as FetchMine reads, page by page, like GitHub's and GitLab's lists.
 const jiraMax = perPage * maxPages
 
-// search reads up to max issues of a query, a page after a page by nextPageToken.
-func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, error) {
+// jiraFields: what a task is made of.
+var jiraFields = []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}
+
+// pages reads up to max issues of a query with the given fields, a page after a page by nextPageToken, and stops
+// after the page for which done says so (nil: reads to the end).
+func (j *Jira) pages(ctx context.Context, jql string, max int, fields []string, done func([]jiraIssue) bool) ([]jiraIssue, error) {
 	var issues []jiraIssue
 	token := ""
 	for len(issues) < max {
@@ -127,7 +131,7 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 			NextPageToken string      `json:"nextPageToken"`
 			IsLast        bool        `json:"isLast"`
 		}
-		body := map[string]any{"jql": jql, "maxResults": min(max-len(issues), perPage), "fields": []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}}
+		body := map[string]any{"jql": jql, "maxResults": min(max-len(issues), perPage), "fields": fields}
 		if token != "" {
 			body["nextPageToken"] = token
 		}
@@ -135,13 +139,35 @@ func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, er
 			return nil, err
 		}
 		issues = append(issues, res.Issues...)
-		if res.IsLast || res.NextPageToken == "" || res.NextPageToken == token || len(res.Issues) == 0 {
+		if (done != nil && done(res.Issues)) || res.IsLast || res.NextPageToken == "" || res.NextPageToken == token || len(res.Issues) == 0 {
 			break
 		}
 		token = res.NextPageToken
 	}
 	if len(issues) > max {
 		issues = issues[:max]
+	}
+	return issues, nil
+}
+
+// contains: the query finds the issue among its first jiraMax; only the keys are read, and no page past the
+// one that has it.
+func (j *Jira) contains(ctx context.Context, jql, key string) (bool, error) {
+	found := false
+	_, err := j.pages(ctx, jql, jiraMax, []string{"summary"}, func(page []jiraIssue) bool {
+		for _, is := range page {
+			found = found || is.Key == key
+		}
+		return found
+	})
+	return found, err
+}
+
+// search reads up to max tasks of a query.
+func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, error) {
+	issues, err := j.pages(ctx, jql, max, jiraFields, nil)
+	if err != nil {
+		return nil, err
 	}
 	tasks := []core.Task{}
 	for _, is := range issues {

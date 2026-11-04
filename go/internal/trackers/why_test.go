@@ -116,3 +116,50 @@ func TestJiraWhy(t *testing.T) {
 		t.Errorf("PAY-8: %+v %v", checks, err)
 	}
 }
+
+// Why looks for the key in the query's pages by the keys alone, and reads no page past the one that has it.
+func TestJiraWhyReadsKeysOnly(t *testing.T) {
+	var searches []struct {
+		JQL           string
+		NextPageToken string
+		Fields        []string
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/3/search/jql":
+			var q struct {
+				JQL           string
+				NextPageToken string
+				Fields        []string
+			}
+			json.NewDecoder(r.Body).Decode(&q)
+			searches = append(searches, q)
+			issue := func(key string) string {
+				return `{"key":"` + key + `","fields":{"summary":"S","project":{"key":"PAY"},"issuetype":{"name":"Bug"}}}`
+			}
+			switch {
+			case strings.HasPrefix(q.JQL, "key = "): // the task itself, and whether the query matches it
+				w.Write([]byte(`{"issues":[` + issue("PAY-7") + `]}`))
+			case q.NextPageToken == "":
+				w.Write([]byte(`{"issues":[` + issue("PAY-7") + `],"nextPageToken":"t2"}`))
+			default:
+				t.Error("a page past the one with the key")
+				w.Write([]byte(`{"issues":[],"isLast":true}`))
+			}
+		case "/rest/api/3/issue/PAY-7":
+			w.Write([]byte(`{"fields":{"status":{"statusCategory":{"key":"indeterminate"}}}}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	j, _ := NewJira(&config.Tracker{ID: "jira", BaseURL: srv.URL}, "me@x", "tok")
+	_, checks, err := j.Why(context.Background(), srv.URL+"/browse/PAY-7")
+	if err != nil || !checks[len(checks)-1].OK || !strings.Contains(checks[len(checks)-1].Text, "among the first") {
+		t.Fatalf("%+v %v", checks, err)
+	}
+	last := searches[len(searches)-1]
+	if strings.HasPrefix(last.JQL, "key = ") || strings.Join(last.Fields, ",") != "summary" {
+		t.Errorf("the last search %+v", last)
+	}
+}
