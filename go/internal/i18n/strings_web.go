@@ -24,6 +24,8 @@ var webStrings = map[string]string{
 	"s.save":            "Save",
 	"s.revert":          "Discard changes",
 	"s.unsaved":         "There are unsaved changes",
+	"s.num.range":       "Enter a whole number from {min} to {max}",
+	"s.num.fix":         "Fix the number marked in red first: it is not saved as it is",
 	"s.saving":          "Saving…",
 	"s.saved":           "All changes are saved. Mako already works with them",
 	"s.savedProblems":   "Saved, but there is something to fix (at the top)",

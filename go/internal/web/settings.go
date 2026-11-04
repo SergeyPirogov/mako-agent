@@ -88,6 +88,10 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		in.Config = config.MigrateRaw(in.Config)
 		env := s.envWith(in.Env)
 		// Refuse what Mako could not read back, before anything is written.
+		if err := config.Check(in.Config); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
 		if _, err := config.Parse(in.Config, env); err != nil {
 			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 			return

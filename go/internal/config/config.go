@@ -406,6 +406,42 @@ func decodeEnv(v string) string {
 	return v
 }
 
+// The bounds of the numbers in the settings. Check refuses a number outside them; Parse, which reads files written
+// before the bounds, takes the default for it instead, so an old config still loads.
+const (
+	MinPollSec     = 5 // below this the polling loop would hammer the trackers and the CPU
+	MaxPollSec     = 86400
+	MaxWip         = 100
+	MaxArchiveDays = 3650
+	MaxSnoozeMin   = 10080 // a week
+)
+
+// Check refuses a config whose numbers are out of range, with what to enter instead. The settings page runs it
+// before saving; Parse does not fail on these, so a file already on disk keeps loading.
+func Check(data []byte) error {
+	var raw rawConfig
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("mako.config.json: %w", err)
+	}
+	for _, f := range []struct {
+		name     string
+		v        *int
+		min, max int
+		hint     string
+	}{
+		{"Look for tasks every, s", raw.PollIntervalSec, MinPollSec, MaxPollSec, ""},
+		{"Tasks in Orca at once (WIP)", raw.WipLimit, 0, MaxWip, "; leave it empty for no limit"},
+		{"Pause the queue near the Claude limit, %", raw.LimitPausePct, 0, 100, "; 0 turns the pause off"},
+		{"Archive finished ones after, days", raw.ArchiveAfterDays, 0, MaxArchiveDays, "; 0 means don't archive"},
+		{"«Later» without a choice, min", raw.Notifications.SnoozeMin, 1, MaxSnoozeMin, ""},
+	} {
+		if f.v != nil && (*f.v < f.min || *f.v > f.max) {
+			return fmt.Errorf("%s: %d is not allowed, enter a number from %d to %d%s", f.name, *f.v, f.min, f.max, f.hint)
+		}
+	}
+	return nil
+}
+
 // Parse turns the raw config into what the dispatcher needs and fills the defaults.
 func Parse(data []byte, env map[string]string) (*Config, error) {
 	var raw rawConfig
@@ -427,11 +463,11 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		AgentLanguage:    lang,
 		UnknownLanguage:  unknown,
 		StateDir:         Expand(raw.StateDir),
-		PollIntervalSec:  orInt(raw.PollIntervalSec, 60),
-		WipLimit:         orInt(raw.WipLimit, 0),
+		PollIntervalSec:  inRange(orInt(raw.PollIntervalSec, 60), MinPollSec, MaxPollSec, 60),
+		WipLimit:         inRange(orInt(raw.WipLimit, 0), 0, MaxWip, 0),
 		WipAuto:          raw.WipAuto,
-		LimitPausePct:    orInt(raw.LimitPausePct, 85),
-		ArchiveAfterDays: orInt(raw.ArchiveAfterDays, 2),
+		LimitPausePct:    inRange(orInt(raw.LimitPausePct, 85), 0, 100, 85),
+		ArchiveAfterDays: inRange(orInt(raw.ArchiveAfterDays, 2), 0, MaxArchiveDays, 2),
 		KeepAwake:        raw.KeepAwake == nil || *raw.KeepAwake,
 		ResumeAfterLimit: raw.ResumeAfterLimit == nil || *raw.ResumeAfterLimit,
 		ProjectsDir:      Expand(orStr(raw.ProjectsDir, DefaultProjectsDir)),
@@ -441,7 +477,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			Enabled:      raw.Notifications.Enabled == nil || *raw.Notifications.Enabled,
 			AutoTake:     raw.Notifications.AutoTake != nil && *raw.Notifications.AutoTake,
 			AutoTakeOnly: autoTakeOnly(raw.Notifications.AutoTakeOnly),
-			SnoozeMin:    orInt(raw.Notifications.SnoozeMin, 60),
+			SnoozeMin:    inRange(orInt(raw.Notifications.SnoozeMin, 60), 1, MaxSnoozeMin, 60),
 			Port:         orInt(raw.Notifications.InboxPort, 7777),
 			AwayHours:    orInt(raw.Notifications.AwayHours, 4),
 			Off:          map[string]bool{},
@@ -733,6 +769,14 @@ func orInt(v *int, def int) int {
 		return def
 	}
 	return *v
+}
+
+// inRange: v, or def when v is outside min..max.
+func inRange(v, min, max, def int) int {
+	if v < min || v > max {
+		return def
+	}
+	return v
 }
 
 // atLeast: v, or def when v is below min.

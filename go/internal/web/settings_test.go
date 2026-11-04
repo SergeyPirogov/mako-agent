@@ -10,14 +10,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/chromedp/chromedp"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
+	"github.com/SergeyPirogov/mako-agent/go/internal/shot"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
@@ -557,5 +562,118 @@ func TestSettingsLoadFailureShowsNoAnswer(t *testing.T) {
 				t.Errorf("failed load: %+v", got)
 			}
 		})
+	}
+}
+
+// A number out of its range does not reach mako.config.json: «ok: false» says why, and the old file stays.
+func TestSaveRefusesNumbersOutOfRange(t *testing.T) {
+	home := t.TempDir()
+	const before = `{"wipLimit": 3, "pollIntervalSec": 30}`
+	os.WriteFile(filepath.Join(home, "mako.config.json"), []byte(before), 0o644)
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	for body, want := range map[string]string{
+		`{"pollIntervalSec": 0}`:   "Look for tasks every",
+		`{"wipLimit": -3}`:         "Tasks in Orca at once",
+		`{"archiveAfterDays": -1}`: "Archive finished",
+	} {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/settings", strings.NewReader(`{"config": `+body+`, "env": {}}`))
+		req.Header.Set("Origin", srv.URL)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		json.NewDecoder(res.Body).Decode(&out)
+		res.Body.Close()
+		if out.OK || !strings.Contains(out.Error, want) {
+			t.Errorf("%s: %+v, want ok:false with %q", body, out, want)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, "mako.config.json")); string(b) != before {
+		t.Fatalf("a refused save changed the file:\n%s", b)
+	}
+}
+
+type settingsProbe struct {
+	Bad  string `json:"bad"`
+	Err  string `json:"err"`
+	Kept any    `json:"kept"`
+}
+
+// In the form, a number out of its range is not kept: the field says why and “Save” does not go on.
+func TestSettingsNumberOutOfRangeInBrowser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("a browser test")
+	}
+	chrome, err := shot.FindChrome()
+	if err != nil {
+		t.Skip(err)
+	}
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "mako.config.json"), []byte(`{"wipLimit": 3, "pollIntervalSec": 30}`), 0o644)
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: home}).Handler())
+	defer srv.Close()
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.ExecPath(chrome))
+	if goruntime.GOOS == "linux" {
+		opts = append(opts, chromedp.NoSandbox)
+	}
+	alloc, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+	ctx, cancel := chromedp.NewContext(alloc)
+	defer cancel()
+	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	if err := chromedp.Do(ctx, chromedp.Navigate(srv.URL+"/settings")); err != nil {
+		t.Fatal(err)
+	}
+	wait := func(cond string) {
+		t.Helper()
+		for end := time.Now().Add(20 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+			if ok, err := chromedp.Run(ctx, chromedp.Evaluate[bool](cond)); err == nil && ok {
+				return
+			}
+			if time.Now().After(end) {
+				t.Fatalf("never true: %s", cond)
+			}
+		}
+	}
+	// The limits are on the page's own page of settings; find the poll field by its label.
+	field := `[...document.querySelectorAll(".field")].find((f) => f.querySelector("label").textContent.startsWith("Look for tasks every")).querySelector("input")`
+	wait(`!!document.querySelector(".field input")`)
+	// the «Limits» section may sit behind a tab: open it by its button when there is one
+	chromedp.Run(ctx, chromedp.Evaluate[any](`[...document.querySelectorAll(".side button, nav button")].find((b) => /Limits|Queue|Tasks/i.test(b.textContent))?.click()`))
+	wait("!!(" + field + ")")
+	var got settingsProbe
+	set := func(v string) {
+		t.Helper()
+		js := `(() => { const i = ${field}; i.value = ${v}; i.dispatchEvent(new Event("input", { bubbles: true }));
+			const e = i.closest(".field").querySelector(".bad");
+			return { bad: i.getAttribute("aria-invalid"), err: e && !e.hidden ? e.textContent : "", kept: cfg.pollIntervalSec ?? null }; })()`
+		js = strings.NewReplacer("${field}", field, "${v}", v).Replace(js)
+		var err error
+		if got, err = chromedp.Run(ctx, chromedp.Evaluate[settingsProbe](js)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set(`"0"`)
+	if got.Bad != "true" || !strings.Contains(got.Err, "from 5 to") || got.Kept != float64(30) {
+		t.Fatalf("0 s: %+v", got)
+	}
+	msg, err := chromedp.Run(ctx, chromedp.Evaluate[string](`(document.getElementById("save").click(), document.getElementById("msg").textContent)`))
+	if err != nil || !strings.Contains(msg, "Fix the number") {
+		t.Fatalf("save went on: %q %v", msg, err)
+	}
+	set(`"45"`)
+	if got.Bad != "false" || got.Err != "" || got.Kept != float64(45) {
+		t.Fatalf("45 s: %+v", got)
 	}
 }
