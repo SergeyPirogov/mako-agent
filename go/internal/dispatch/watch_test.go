@@ -41,9 +41,9 @@ func (w *watchedGitLab) Vulnerabilities(ctx context.Context, project string) ([]
 
 func watchSetup(t *testing.T, watch config.Watch, routines ...config.Routine) (*Dispatcher, *fakeGitLab, *watchedGitLab) {
 	d, f, _ := setup(t)
-	oldCI, oldSec := watchCIEvery, watchSecurityEvery
+	oldCI, oldSecurity := watchCIEvery, watchSecurityEvery
 	watchCIEvery, watchSecurityEvery = 0, 0
-	t.Cleanup(func() { watchCIEvery, watchSecurityEvery = oldCI, oldSec })
+	t.Cleanup(func() { watchCIEvery, watchSecurityEvery = oldCI, oldSecurity })
 	p := d.Cfg.Trackers[0].Projects["grp/app"]
 	p.Watch, p.Routines = watch, routines
 	w := &watchedGitLab{GitLab: d.Trackers[0].(*trackers.GitLab), ci: trackers.BranchCI{Branch: "main", CI: "success", URL: "pipe1"}, logs: map[int64]string{}}
