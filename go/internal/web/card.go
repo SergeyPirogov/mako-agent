@@ -401,6 +401,6 @@ func routed(s *stageView, r core.Record, phase string) {
 		return // a stage that did not run shows no model
 	}
 	if route := r.RouteOf(phase); route.Model != "" {
-		s.Route, s.Why = route.Label(), route.Why
+		s.Route, s.Why = route.LabelWithMode(), route.Why
 	}
 }

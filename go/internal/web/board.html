@@ -3699,6 +3699,13 @@ function headHTML(r, title = true) {
     </div>`;
 }
 
+// routeLabel: the route's label, the same as core.Route.LabelWithMode: "opus · high", and "opus · high (quality)" when
+// the mode moved it (cost or quality; balanced or none adds nothing).
+function routeLabel(route) {
+  const label = [route.model, route.effort].filter(Boolean).join(" · ");
+  return label && (route.mode === "cost" || route.mode === "quality") ? `${label} (${route.mode})` : label;
+}
+
 // The task's facts in one muted line: repo · branch (copy) · model · assignees · priority · labels. The project is in
 // the number already, the worktree's path is in "⋯".
 function metaLine(r) {
@@ -3708,7 +3715,7 @@ function metaLine(r) {
   if (r.repo) parts.push(`<span title="Repository">${esc(r.repo)}</span>`);
   if (branch && r.column !== "done") parts.push(`<span title="Branch"><code>${esc(branch)}</code><button type="button" class="icon" data-copy="${esc(branch)}" title="Copy branch name" aria-label="Copy branch name">${ICON.copy}</button></span>`);
   if (r.agentRoute?.model && r.column !== "new") {
-    const route = [r.agentRoute.model, r.agentRoute.effort].filter(Boolean).join(" · ");
+    const route = routeLabel(r.agentRoute);
     parts.push(`<span title="The model and effort of the agent's run, and why${r.agentModel && r.agentModel !== r.agentRoute.model ? ` (${esc(r.agentModel)})` : ""}"><code>${esc(route)}</code>${r.agentRoute.why ? ` — ${esc(r.agentRoute.why)}` : ""}</span>`);
   } else if (r.agentModel && r.column !== "new") parts.push(`<span title="The model the agent worked with"><code>${esc(r.agentModel)}</code></span>`);
   if (t.assignees?.length) parts.push(`<span title="Assignees">${esc(t.assignees.join(", "))}</span>`);
