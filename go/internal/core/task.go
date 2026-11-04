@@ -114,8 +114,11 @@ type Record struct {
 	// PlanFirst: «план спочатку» picked on the card from the estimate: the agent starts with a plan.
 	PlanFirst bool `json:"planFirst,omitempty"`
 	// NoPlan: the task was made from a plan that is already written: its agent never starts in plan mode.
-	NoPlan bool    `json:"noPlan,omitempty"`
-	Cost   float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
+	NoPlan bool `json:"noPlan,omitempty"`
+	// CreatedBy: Mako wrote the issue itself, watching the project: "ci" (its default branch went red), "security"
+	// (new vulnerabilities), "routine" (by a schedule); "" for the rest.
+	CreatedBy string  `json:"createdBy,omitempty"`
+	Cost      float64 `json:"cost,omitempty"` // USD Mako's own agent spent on the task, over all attempts
 	// View: how Mako shows its own agent, "chat" or "terminal"; the same conversation either way.
 	View string `json:"view,omitempty"`
 	// ViewNext: the view the agent moves to once its turn ends (asked for while it worked), "" when none.

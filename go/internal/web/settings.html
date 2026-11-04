@@ -101,6 +101,11 @@ textarea { min-height: 120px; font: 12.5px/1.5 var(--mono); resize: vertical; }
 .routes td { padding: 3px 8px 3px 0; white-space: nowrap; }
 .routes td:first-child { padding-top: 8px; }
 .routes select { width: auto; min-width: 0; margin-right: 4px; }
+.projects .watch-row td { padding-bottom: 12px; }
+.projects .watch-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 12.5px; margin-bottom: 4px; }
+.projects .watch-checks .check { padding: 2px 0; gap: 6px; }
+.projects .watch-checks .check input { margin-top: 2px; }
+.projects .watch-row textarea { width: 100%; min-height: 34px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .projects .checks-row textarea { width: 100%; min-height: 34px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
@@ -514,6 +519,7 @@ function projectsTable(tk) {
       requestAnimationFrame(fit);
       body.append(cr);
     }
+    if (tk.type !== "jira") body.append(watchRow(tk, () => current));
   }
   wrap.insertAdjacentHTML("beforeend", lessonsHTML(tk));
   wireLessons(wrap);
@@ -526,6 +532,45 @@ function projectsTable(tk) {
     renderTrackers();
   };
   return wrap;
+}
+
+// The watch of a project (#527): its default branch's CI and its security alerts make tasks, and the routines are
+// tasks by a schedule, a line each: «cron | title | description | take».
+function watchRow(tk, key) {
+  const tr = document.createElement("tr");
+  tr.className = "watch-row";
+  const p = tk.projects[key()] ?? {};
+  const w = p.watch ?? {};
+  const box = (f, label, hint) => `<label class="check" title="${esc(hint)}"><input type="checkbox" data-w="${f}" ${w[f] ? "checked" : ""}><span>${label}</span></label>`;
+  tr.innerHTML = `<td colspan="6"><div class="watch-checks"><b>${t("s.pr.watch")}</b>${box("ci", t("s.pr.watchCi"), t("s.pr.watchCiHint"))}${box("security", t("s.pr.watchSecurity"), t("s.pr.watchSecurityHint"))}${box("autoTake", t("s.pr.watchAutoTake"), t("s.pr.watchAutoTakeHint"))}</div>
+    <textarea rows="1" placeholder="${esc(t("s.pr.routinesPh"))}" title="${esc(t("s.pr.routinesTitle"))}"></textarea></td><td></td>`;
+  for (const inp of tr.querySelectorAll("[data-w]")) {
+    inp.onchange = () => {
+      const pp = (tk.projects[key()] ??= {});
+      const ww = { ...(pp.watch ?? {}) };
+      if (inp.checked) ww[inp.dataset.w] = true; else delete ww[inp.dataset.w];
+      if (Object.keys(ww).length) pp.watch = ww; else delete pp.watch;
+      changed();
+    };
+  }
+  const ta = tr.querySelector("textarea");
+  ta.value = (p.routines ?? []).map((r) => [r.cron ?? "", r.title ?? "", r.body ?? "", r.autoTake ? "take" : ""].join(" | ").replace(/( \| )+$/, "")).join("\n");
+  const fit = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
+  ta.oninput = () => {
+    const list = ta.value.split("\n").map((x) => x.trim()).filter(Boolean).map((line) => {
+      const [cron = "", title = "", body = "", take = ""] = line.split("|").map((x) => x.trim());
+      const r = { cron, title };
+      if (body) r.body = body;
+      if (take.toLowerCase() === "take") r.autoTake = true;
+      return r;
+    });
+    const pp = (tk.projects[key()] ??= {});
+    if (list.length) pp.routines = list; else delete pp.routines;
+    fit();
+    changed();
+  };
+  requestAnimationFrame(fit);
+  return tr;
 }
 
 // The Orca executor: the default one, or the first; made when there is none.
