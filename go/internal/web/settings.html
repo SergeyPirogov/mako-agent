@@ -1090,7 +1090,10 @@ async function renderPhone(qr) {
   const ts = st.tailscale;
   const ok = (x) => `<span class="ok">✓</span> ${x}`;
   let step1;
-  if (!ts.installed) {
+  if (st.relay) {
+    // The relay's tunnel is up: the phone reaches Mako from any network, Tailscale is not needed.
+    step1 = ok(t("s.p.viaRelay", { url: `<code>${esc(st.relay.url)}</code>` }));
+  } else if (!ts.installed) {
     step1 = `${t("s.p.install")}
       <div class="row"><button data-p="refresh">${t("s.p.check")}</button></div>`;
   } else if (!ts.running) {
@@ -1130,7 +1133,7 @@ async function renderPhone(qr) {
   box.innerHTML = `${leftovers}<div class="card"><h3 class="step">${t("s.p.step1")}</h3>${step1}</div>
     <div class="card"><h3 class="step">${t("s.p.step2")}</h3>${step2}</div>
     <div class="card"><h3 class="step">${t("s.p.connected")}</h3>${devices}</div>`;
-  phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving ? t("s.p.ready") : "";
+  phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving || st.relay ? t("s.p.ready") : "";
   const copy = $("copy-link");
   if (copy) copy.onclick = async () => {
     try {

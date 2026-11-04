@@ -57,6 +57,9 @@ type Server struct {
 	Update *update.Updater
 	// Release: a newer release of Mako, for one installed from a release (no clone); nil otherwise.
 	Release *update.Releases
+	// Relay: the address phones reach this Mac at through the relay ("https://<id>.relay.example.com"), "" while
+	// its tunnel is down; nil when the relay is off (no MAKO_RELAY, docs/relay.md).
+	Relay func() string
 
 	cfgMu sync.Mutex // mako.config.json is read, changed and written by one request at a time
 
