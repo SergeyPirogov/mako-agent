@@ -29,6 +29,28 @@ func TestScreenshotsInPrompt(t *testing.T) {
 	if strings.Index(p, "Screenshots for UI") > strings.Index(p, "Finish with a merge request") {
 		t.Error("screenshots come after how to finish")
 	}
+	// The section is never left out: the repo's CI may fail a page change without it (pr-check.yml).
+	for _, want := range []string{"the screenshots heading of the\n   repository's merge request template, word for word",
+		"Never leave that section out", "if the change does not alter the\n   look, say so there and why"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("no %q in\n%s", want, p)
+		}
+	}
+}
+
+// The repository's own merge request template wins over Mako's sections, whether the agent opens the MR or
+// only writes it for you: an MR without the template's sections fails the CI that checks them.
+func TestPromptFollowsTheRepoMRTemplate(t *testing.T) {
+	j := Job{Task: core.Task{ID: "grp/app#5", Title: "Pay"}, Repo: &config.Repo{BaseBranch: "main"}, Branch: "feature/5"}
+	for _, by := range []string{"agent", "me"} {
+		p := FullPrompt(j, config.Orca{MRBy: by})
+		for _, want := range []string{"`.github/pull_request_template.md`", "`.gitlab/merge_request_templates/`",
+			"headings word for word and none left out"} {
+			if !strings.Contains(p, want) {
+				t.Errorf("MRBy %q: no %q in\n%s", by, want, p)
+			}
+		}
+	}
 }
 
 // The tracker's text comes to the agent as data: a comment that gives orders is fenced, and an outsider's is
