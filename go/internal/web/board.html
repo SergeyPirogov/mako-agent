@@ -100,6 +100,9 @@ function boardWords() {
 }
 boardWords();
 // The list's groups folded by a click on their heading (column → folded); "Snoozed", "Done" and "Not done" start folded.
+// localStorage may throw (blocked site data, private mode); a location.hash may not decode (#100%): both fall back to "".
+const lsGet = (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
+const hashId = () => { try { return decodeURIComponent(location.hash.slice(1)); } catch { return ""; } };
 const FOLDED_BY_DEFAULT = { later: true, done: true, failed: true };
 let folded = (() => { try { return { ...FOLDED_BY_DEFAULT, ...JSON.parse(localStorage.getItem("mako-folded") || "{}") }; } catch { return { ...FOLDED_BY_DEFAULT }; } })();
 // The list's filter.
@@ -121,10 +124,10 @@ const subFolded = (key, col) => key in foldedSubs ? !!foldedSubs[key] : !!FOLDED
 let listTop = 0;
 // The projects of the board (sorted): each has its colour in the list.
 let liveProjects = [];
-let statsDays = localStorage.getItem("mako-stats-days") || "";
+let statsDays = lsGet("mako-stats-days");
 // "Stats": the tab open and the project counted (none: all), remembered; the cut of "Breakdown" and "Heaviest",
 // and the days shown as a table.
-let statsTab = localStorage.getItem("mako-stats-tab") || "overview", statsProject = localStorage.getItem("mako-stats-project") || "";
+let statsTab = lsGet("mako-stats-tab") || "overview", statsProject = lsGet("mako-stats-project");
 let breakdownBy = "project", heavyBy = "files", trendTable = false, routesAll = false;
 // The list narrowed from "Needs attention" ({kind, reason}), until its chip is closed.
 let attention = null;
@@ -132,7 +135,7 @@ let attention = null;
 const narrow = matchMedia("(max-width: 760px)");
 // skew: how far this clock is from Mako's (a phone's may differ), for the times counted here.
 let skew = 0;
-let data = null, shown = "", selected = null, statsOpen = false, newOpen = false, project = localStorage.getItem("mako-project") || "", showArchive = false, logs = [], tab = "task";
+let data = null, shown = "", selected = null, statsOpen = false, newOpen = false, project = lsGet("mako-project"), showArchive = false, logs = [], tab = "task";
 // The last changes seen per task: a task opened again shows them at once, while the fresh ones load.
 const changesOf = new Map();
 // The task's work: its changed files, the files open in tabs over the terminal and their diffs.
@@ -5685,7 +5688,7 @@ function drawViewNext(el, r) {
 }
 
 // #digest:<ms>: the morning push's link, the digest from that time.
-const digestHash = () => { const h = decodeURIComponent(location.hash.slice(1)); return h.startsWith("digest:") ? h.slice(7) : null; };
+const digestHash = () => { const h = hashId(); return h.startsWith("digest:") ? h.slice(7) : null; };
 const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
@@ -5697,7 +5700,7 @@ else if (location.hash === "#stats") statsOpen = true;
 // #stats:cost: straight to a tab of "Stats".
 else if (STATS_TABS.some(([k]) => location.hash === `#stats:${k}`)) { statsOpen = true; statsTab = location.hash.slice(7); }
 // On a phone the board opens on the list: only a link to a task (#id) opens the task itself.
-else selected = startDigest ? null : decodeURIComponent(location.hash.slice(1)) || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
+else selected = startDigest ? null : hashId() || (narrow.matches ? null : (() => { try { return localStorage.getItem("mako-selected"); } catch { return null; } })());
 // A link to a task (from a notification or the menu) opens it even when the board is already open.
 // An open menu closes on a click anywhere else.
 document.addEventListener("click", (e) => {
@@ -5727,7 +5730,7 @@ document.addEventListener("click", (e) => {
 window.addEventListener("hashchange", () => {
   const since = digestHash();
   if (since) return loadDigest(since);
-  const id = decodeURIComponent(location.hash.slice(1));
+  const id = hashId();
   if (id === "new") return openNewTask();
   if (id === "code" || id === "chat" || id.startsWith("chat-") || id.startsWith("ask-")) return openFreeChat(id === "chat" || id === "code" ? "" : id);
   if (id && id !== selected) select(id);
