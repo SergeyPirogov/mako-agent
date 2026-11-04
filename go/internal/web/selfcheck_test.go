@@ -20,6 +20,7 @@ func TestBoardSelfCheckSteps(t *testing.T) {
 	for _, re := range []string{
 		`(?m)^const plural = .*$`, `(?s)\nconst MR_ICON = \{.*?\n\};\n`, `(?m)^const CHK = .*$`, `(?m)^const stepHTML = .*$`,
 		`(?s)\nfunction selfTitle\(.*?\n}\n`, `(?s)\nfunction selfBlock\(.*?\n}\n`, `(?s)\nfunction tryRow\(.*?\n}\n`, `(?s)\nfunction blockersHTML\(.*?\n}\n`, `(?m)^const mergeHeld = .*$`,
+		`(?m)^const meter = .*$`, `(?m)^const scard = .*$`, `(?s)\nfunction selfCheckCard\(.*?\n}\n`,
 	} {
 		m := regexp.MustCompile(re).FindString(src)
 		if m == "" {
@@ -48,6 +49,8 @@ const out = {
   tryOld: selfBlock(r({ steps, left: 2, canTry: true, try: { state: "running", url: "http://127.0.0.1:5000" } })),
   tryFailed: selfBlock(r({ steps, left: 2, canTry: true, try: { state: "failed", error: "exit 3 <boom>" } })),
   tryPhone: (data = { remote: true }, selfBlock(r({ steps, left: 2, canTry: true }))),
+  quality: selfCheckCard({ advised: 4, checked: 2, unchecked: 2, checkedFixed: 1, uncheckedFixed: 2 }),
+  qualityNone: selfCheckCard({ advised: 0 }),
   held: String(mergeHeld(r({ blocks: true }))),
   notHeld: String(mergeHeld(r({ blocks: false }))),
 };
@@ -99,6 +102,11 @@ console.log(JSON.stringify(out));
 	has("tryOld", "Try the new commits", "data-trystop")
 	has("tryFailed", "Try again", "exit 3 &lt;boom&gt;")
 	lacks("tryPhone", "data-try")
+	// Quality: the merged tasks with a check, checked or not, and their fixes after the merge.
+	has("quality", "Check it yourself", "4 tasks advised", "Checked before the merge", "Merged without the check", "1 of them needed a fix after the merge · 50%", "2 of them needed a fix after the merge · 100%")
+	if out["qualityNone"] != "" {
+		t.Errorf("no advice, a card: %q", out["qualityNone"])
+	}
 	has("blockers", "What blocks the merge", "Check it yourself: 2 of 3 steps left", "data-selfskip")
 	lacks("noBlockers", "Check it yourself")
 	if out["held"] != "true" || out["notHeld"] != "false" {

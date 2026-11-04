@@ -3347,7 +3347,18 @@ function modelsCard(s) {
 }
 
 function qualityTab(s) {
-  return `${reviewCard(s.review)}<div class="srow">${forecastCard(s.forecast)}${assessCard(s)}</div>${failuresCard(s)}`;
+  return `${reviewCard(s.review)}<div class="srow">${forecastCard(s.forecast)}${assessCard(s)}</div>${selfCheckCard(s.selfCheck)}${failuresCard(s)}`;
+}
+
+// "Check it yourself" on the merged tasks the agent advised to check by hand: checked before the merge or not, and
+// how many of each needed a fix after it. Whether the advice is worth following.
+function selfCheckCard(v) {
+  if (!v?.advised) return "";
+  const row = (what, n, fixed) => `<div class="hrow"><span>${what}</span>${meter(n / v.advised, "acc")}<b>${n}</b></div>`
+    + `<div class="snote">${n ? `${fixed} of them needed a fix after the merge · ${Math.round((fixed / n) * 100)}%` : "None"}</div>`;
+  return scard("Check it yourself", row("Checked before the merge", v.checked, v.checkedFixed) + row("Merged without the check", v.unchecked, v.uncheckedFixed)
+    + `<div class="snote">A fix: a later bug task that names the issue or its MR.</div>`,
+    `${v.advised} ${plural(v.advised, "task", "tasks")} advised`);
 }
 
 // The reviewer agent's rounds as a funnel: its remarks, the agent's answers, the next rounds' verdicts, converged.

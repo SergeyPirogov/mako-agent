@@ -80,6 +80,8 @@ type Stats struct {
 	WhatIfTasks  int                `json:"whatIfTasks"`
 	// Modes: by the routes' mode of the task's work.
 	Modes []ModeGroup `json:"modes"`
+	// SelfCheck: the merged tasks with «Check it yourself», checked or not, and their fixes after the merge.
+	SelfCheck SelfCheckStats `json:"selfCheck"`
 }
 
 // Day is how the tasks taken on one day went.
@@ -320,6 +322,7 @@ func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stat
 	st.LeadSeconds = median(lead)
 	st.Context = ctxs.done()
 	st.Review = revs.done()
+	st.SelfCheck = selfCheckStats(records, since)
 	routes.done(&st)
 	if st.Merged > 0 {
 		st.CIFixes /= float64(st.Merged)

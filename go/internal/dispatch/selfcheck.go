@@ -212,24 +212,8 @@ func (d *Dispatcher) SelfStep(id string, n int, on bool, why string) error {
 			return errNotTried
 		}
 	}
-	d.Store.Update(id, func(r *core.Record) {
-		sc := r.SelfCheck
-		if sc == nil {
-			sc = &core.SelfCheck{}
-		}
-		ticks := selfTicks(sc, steps)
-		if on {
-			ticks[n] = core.SelfStep{Text: ticks[n].Text, Done: true, Commit: head, At: now()}
-		} else {
-			ticks[n] = core.SelfStep{Text: ticks[n].Text}
-		}
-		sc.Steps = ticks
-		sc.At, sc.Commit = "", ""
-		if all := allAt(ticks, head); all && on {
-			sc.At, sc.Commit = now(), head
-		}
-		r.SelfCheck = sc
-	})
+	d.setTick(id, steps, n, on, head)
+	d.syncSelfNow(id)
 	switch {
 	case !on:
 		d.Log(id, fmt.Sprintf("self-check step %d cleared", n+1))
@@ -275,6 +259,7 @@ func (d *Dispatcher) SelfCheck(id string, checked bool) error {
 			}
 		})
 		d.Log(id, "self-check cleared")
+		d.syncSelfNow(id)
 		return nil
 	}
 	if !reviewable(r) {
@@ -298,6 +283,7 @@ func (d *Dispatcher) SelfCheck(id string, checked bool) error {
 		r.SelfCheck = sc
 	})
 	d.Log(id, "self-check set at "+head)
+	d.syncSelfNow(id)
 	return nil
 }
 
