@@ -61,14 +61,14 @@ func TestRouteForTable(t *testing.T) {
 // The mode moves the whole table a level; the repo's own mode wins over the global one.
 func TestRouteForMode(t *testing.T) {
 	cfg := &config.Config{EstimateModel: true, Routes: core.DefaultRoutes(), RouteMode: core.ModeCost}
-	if got := label(routeFor(cfg, routeTask("big"), core.PhaseWork, "")); got != "opus · medium" {
+	if got := label(routeFor(cfg, routeTask("big"), core.PhaseWork, "")); got != "opus · medium (cost)" {
 		t.Errorf("cost: %q", got)
 	}
-	if got := label(routeFor(cfg, routeTask("small"), core.PhaseEstimate, "")); got != "haiku · low" {
+	if got := label(routeFor(cfg, routeTask("small"), core.PhaseEstimate, "")); got != "haiku · low (cost)" {
 		t.Errorf("cost estimate: %q", got)
 	}
 	got := routeFor(cfg, routeTask("big"), core.PhaseWork, core.ModeQuality)
-	if got.Label() != "opus · xhigh" || got.Why != "big, quality" {
+	if got.Label() != "opus · xhigh (quality)" || got.Why != "big, quality" {
 		t.Errorf("repo quality: %+v", got)
 	}
 	if got := label(routeFor(cfg, routeTask("medium"), core.PhaseWork, core.ModeBalanced)); got != "sonnet · high" {

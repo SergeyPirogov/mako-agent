@@ -46,6 +46,7 @@ type routeChoices struct {
 	Models   []string        `json:"models"`
 	Efforts  []string        `json:"efforts"`
 	Modes    []string        `json:"modes"`
+	Shifts   map[string]int  `json:"shifts"` // how many levels each mode moves the table (core.ModeShift)
 }
 
 type settingsSave struct {
@@ -66,7 +67,7 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			raw = []byte("{}")
 		}
 		reply := settingsReply{Config: config.MigrateRaw(raw), Env: map[string]bool{}, JiraBase: cfg.Env["JIRA_BASE_URL"], Home: s.Home, AutoWip: config.AutoWip(),
-			Routes: routeChoices{Defaults: core.DefaultRoutes(), Phases: core.RoutePhases, Sizes: core.Sizes, Models: []string{"haiku", "sonnet", "opus"}, Efforts: core.Efforts, Modes: core.Modes}}
+			Routes: routeChoices{Defaults: core.DefaultRoutes(), Phases: core.RoutePhases, Sizes: core.Sizes, Models: []string{"haiku", "sonnet", "opus"}, Efforts: core.Efforts, Modes: core.Modes, Shifts: modeShifts()}}
 		for _, k := range secretKeys {
 			reply.Env[k] = cfg.Get(k) != ""
 		}
@@ -410,4 +411,13 @@ func (s *Server) setConfig(ctx context.Context, key string, value bool) error {
 		}
 		return nil
 	})
+}
+
+// modeShifts: the levels each route mode moves the table, for the page to show the effective routes.
+func modeShifts() map[string]int {
+	shifts := map[string]int{}
+	for _, m := range core.Modes {
+		shifts[m] = core.ModeShift(m)
+	}
+	return shifts
 }

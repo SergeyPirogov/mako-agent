@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
+	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
@@ -255,5 +257,102 @@ func TestLessonRuleIsTextarea(t *testing.T) {
 	}
 	if !strings.Contains(page, ".lesson-offer textarea { min-height: 0;") {
 		t.Error("the lesson's textarea does not reset the global textarea's min-height")
+	}
+}
+
+// The effective routes the settings show under the table (stepRoute in settings.html) are the ones core.Step gives a
+// started task: every model and effort, in every mode, moved the same way. The page's function is run with node
+// (skipped when there is none), with the ladders and shifts /api/settings sends.
+func TestSettingsEffectiveRoutes(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("no node to run the page's script")
+	}
+	page := string(settingsPage)
+	start := strings.Index(page, "function stepRoute(")
+	if start < 0 {
+		t.Fatal("no stepRoute in settings.html")
+	}
+	fn := page[start:]
+	fn = fn[:strings.Index(fn, "\n}\n")+3]
+
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Home: t.TempDir()}).Handler())
+	defer srv.Close()
+	res, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var reply struct {
+		Routes json.RawMessage `json:"routes"`
+	}
+	json.NewDecoder(res.Body).Decode(&reply)
+	var rc struct {
+		Models  []string       `json:"models"`
+		Efforts []string       `json:"efforts"`
+		Modes   []string       `json:"modes"`
+		Shifts  map[string]int `json:"shifts"`
+	}
+	if err := json.Unmarshal(reply.Routes, &rc); err != nil || len(rc.Shifts) != len(core.Modes) {
+		t.Fatalf("/api/settings routes: %v: %s", err, reply.Routes)
+	}
+
+	// Every route the table can hold, and ones Mako does not know, with each mode.
+	script := fn + `
+const rc = ` + string(reply.Routes) + `;
+const out = [];
+for (const model of [...rc.models, "gpt"]) for (const effort of [...rc.efforts, "turbo"])
+  for (const mode of rc.modes) out.push({ model, effort, mode, got: stepRoute({ model, effort }, rc.shifts[mode], rc) });
+console.log(JSON.stringify(out));`
+	file := filepath.Join(t.TempDir(), "step.js")
+	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(node, file).Output()
+	if err != nil {
+		t.Fatalf("node: %v", err)
+	}
+	var cases []struct {
+		Model, Effort, Mode string
+		Got                 struct{ Model, Effort string }
+	}
+	if err := json.Unmarshal(out, &cases); err != nil || len(cases) == 0 {
+		t.Fatalf("node's output: %v: %s", err, out)
+	}
+	for _, c := range cases {
+		want := core.Step(core.Route{Model: c.Model, Effort: c.Effort}, core.ModeShift(c.Mode))
+		if c.Got.Model != want.Model || c.Got.Effort != want.Effort {
+			t.Errorf("%s · %s in %s: page %s · %s, core.Step %s · %s", c.Model, c.Effort, c.Mode, c.Got.Model, c.Got.Effort, want.Model, want.Effort)
+		}
+	}
+	// The default Work route of a medium task, as the tooltip of a project's mode shows it: sonnet · high.
+	if cost := core.Step(core.DefaultRoutes()[core.PhaseWork]["medium"], core.ModeShift(core.ModeCost)); cost.Label() != "sonnet · medium" {
+		t.Errorf("cost work/medium: %s", cost.Label())
+	}
+}
+
+// The mode's hint says when it applies; the table redraws the effective routes on a change of the mode, and a project's
+// mode select carries the tooltip with its Work route. The settings have no script tests, so this checks the page's source.
+func TestSettingsModeShowsEffectiveRoutes(t *testing.T) {
+	page := string(settingsPage)
+	for _, want := range []string{
+		`addEventListener("change", () => { renderNav(); paintEffective(); })`,
+		`data-eff="${p}/${s}"`,
+		`data-f="routeMode" title="${esc(routeModeTip(p?.routeMode))}"`,
+		`inp.title = routeModeTip(pp.routeMode)`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("settings.html lacks %s", want)
+		}
+	}
+	if hint := i18n.T("s.r.modeHint"); !strings.HasPrefix(hint, "Applied when a task starts: each route in the table goes a level down (cost) or up (quality). The table keeps the base values") {
+		t.Errorf("modeHint: %q", hint)
+	}
+	for _, k := range []string{"s.r.effective", "s.r.effectiveHint", "s.pr.routeModeTip"} {
+		if i18n.T(k) == k {
+			t.Errorf("no %s", k)
+		}
 	}
 }

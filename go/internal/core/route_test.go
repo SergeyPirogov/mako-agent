@@ -46,6 +46,25 @@ func TestDefaultRoutes(t *testing.T) {
 	}
 }
 
+// The label names the mode only when it moved the route; balanced, or none, adds nothing.
+func TestRouteLabelMode(t *testing.T) {
+	for _, c := range []struct {
+		r    Route
+		want string
+	}{
+		{Route{Model: "opus", Effort: "high", Mode: ModeQuality}, "opus · high (quality)"},
+		{Route{Model: "haiku", Effort: "low", Mode: ModeCost}, "haiku · low (cost)"},
+		{Route{Model: "opus", Effort: "high", Mode: ModeBalanced}, "opus · high"},
+		{Route{Model: "opus", Effort: "high"}, "opus · high"},
+		{Route{Model: "opus", Mode: ModeQuality}, "opus (quality)"},
+		{Route{Mode: ModeQuality}, ""},
+	} {
+		if got := c.r.Label(); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.r, got, c.want)
+		}
+	}
+}
+
 // The routes are kept in the metrics, and a copy of the record does not share them.
 func TestSetRoute(t *testing.T) {
 	var r Record

@@ -58,15 +58,21 @@ type Route struct {
 // Escalated: the route was lifted above its own (BaseModel, BaseEffort).
 func (r Route) Escalated() bool { return r.BaseModel != "" || r.BaseEffort != "" }
 
-// Label: "opus · high", "" for none.
+// Label: "opus · high", "" for none; "opus · high (quality)" when the mode moved the route.
 func (r Route) Label() string {
+	var label string
 	switch {
 	case r.Model != "" && r.Effort != "":
-		return r.Model + " · " + r.Effort
+		label = r.Model + " · " + r.Effort
 	case r.Model != "":
-		return r.Model
+		label = r.Model
+	default:
+		label = r.Effort
 	}
-	return r.Effort
+	if label != "" && ModeShift(r.Mode) != 0 {
+		label += " (" + r.Mode + ")"
+	}
+	return label
 }
 
 // RouteTable: the route of each phase by size.
