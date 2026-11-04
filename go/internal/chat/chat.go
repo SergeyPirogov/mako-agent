@@ -565,7 +565,9 @@ func (s *Session) handle(line []byte) {
 		if s.idle != nil {
 			s.idle.Stop()
 		}
-		s.idle = time.AfterFunc(s.idleAfter, s.sleep)
+		if s.idleAfter > 0 { // 0: a session built without Start (a test's) never sleeps
+			s.idle = time.AfterFunc(s.idleAfter, s.sleep)
+		}
 		s.mu.Unlock()
 	}
 }
