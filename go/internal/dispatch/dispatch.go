@@ -305,21 +305,36 @@ func (d *Dispatcher) Run(ctx context.Context) {
 // Tick is one round: new tasks, the tasks the watched projects need, branches to check before their MR, hand-offs that got an MR, merges, where the
 // tasks' time goes, MRs to fix, issues closed meanwhile, the archive.
 func (d *Dispatcher) Tick(ctx context.Context) {
-	d.Poll(ctx)
-	d.Watch(ctx, time.Now())
-	d.CheckGates()
-	d.CheckHandoffs(ctx)
-	d.CheckMerges(ctx)
-	d.TrackStages(ctx, time.Now())
-	d.AutoRebase(ctx, time.Now())
-	d.AutoFix(ctx, time.Now())
-	d.CheckBlocked(ctx)
-	d.CheckGone(ctx)
+	start := time.Now()
+	var steps []string
+	step := func(name string, f func()) {
+		at := time.Now()
+		f()
+		if took := time.Since(at); took >= time.Second {
+			steps = append(steps, fmt.Sprintf("%s %s", name, took.Round(100*time.Millisecond)))
+		}
+	}
+	step("poll", func() { d.Poll(ctx) })
+	step("watch", func() { d.Watch(ctx, time.Now()) })
+	step("gates", d.CheckGates)
+	step("handoffs", func() { d.CheckHandoffs(ctx) })
+	step("merges", func() { d.CheckMerges(ctx) })
+	step("stages", func() { d.TrackStages(ctx, time.Now()) })
+	step("rebase", func() { d.AutoRebase(ctx, time.Now()) })
+	step("fix", func() { d.AutoFix(ctx, time.Now()) })
+	step("blocked", func() { d.CheckBlocked(ctx) })
+	step("gone", func() { d.CheckGone(ctx) })
 	d.AutoArchive(time.Now())
 	d.remind(time.Now())
 	d.morning(time.Now())
-	d.schedule(ctx)
+	step("schedule", func() { d.schedule(ctx) })
+	if took := time.Since(start); took >= slowTick {
+		log.Printf("the round took %s: %s", took.Round(time.Second), strings.Join(steps, ", "))
+	}
 }
+
+// slowTick: a round that takes longer is logged with its slow steps (a tracker that does not answer, say).
+var slowTick = 30 * time.Second
 
 func now() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 

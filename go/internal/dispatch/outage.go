@@ -48,10 +48,10 @@ func classify(err error) (reason string, outside bool) {
 	var he *trackers.HTTPError
 	if errors.As(err, &he) {
 		switch {
+		case he.Status == 429 || he.RateLimited:
+			return "too many requests, the service asks to wait", true
 		case he.Status == 401 || he.Status == 403:
 			return "access denied — check the token in the settings", false
-		case he.Status == 429:
-			return "too many requests, the service asks to wait", true
 		case he.Status >= 500:
 			return fmt.Sprintf("the service is down (%d), will try later", he.Status), true
 		}

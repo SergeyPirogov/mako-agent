@@ -24,6 +24,8 @@ func TestGitHubWatch(t *testing.T) {
 				{"id": 11, "name": "test", "status": "completed", "conclusion": "failure", "html_url": "run11"},
 				{"id": 12, "name": "lint", "status": "completed", "conclusion": "success"},
 			}})
+		case "/repos/me/app/commits/abc/status":
+			send(map[string]any{"state": "pending", "statuses": []any{}})
 		case "/repos/me/app/actions/jobs/11/logs":
 			w.Write([]byte("setup\n--- FAIL: TestSave\nexit 1\n"))
 		case "/repos/me/app/dependabot/alerts":
@@ -50,6 +52,10 @@ func TestGitHubWatch(t *testing.T) {
 	}
 	if log, err := g.BranchJobLog(ctx, "me/app", b.Failed[0], 2); err != nil || log != "--- FAIL: TestSave\nexit 1" {
 		t.Fatalf("log %q %v", log, err)
+	}
+	// A commit status has no ID and no Actions log: none is asked for.
+	if log, err := g.BranchJobLog(ctx, "me/app", Job{Name: "jenkins"}, 2); err != nil || log != "" {
+		t.Fatalf("status log %q %v", log, err)
 	}
 	vs, err := g.Vulnerabilities(ctx, "me/app")
 	if err != nil || len(vs) != 1 || vs[0] != (Vulnerability{ID: "3", Package: "lodash", Severity: "critical", Summary: "Prototype pollution", URL: "alert3"}) {

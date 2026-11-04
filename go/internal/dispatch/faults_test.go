@@ -146,6 +146,9 @@ func TestFaultsSkipTransient(t *testing.T) {
 		fmt.Errorf("Get x: %w", syscall.EADDRNOTAVAIL),
 		fmt.Errorf("claude: %w", context.Canceled),
 		&trackers.HTTPError{Status: 502},
+		// GitHub's 403 for its rate limit is the service's, not a bad token
+		&trackers.HTTPError{Status: 403, RateLimited: true},
+		&trackers.HostDown{Host: "git.example.com", Err: dnsErr},
 	}
 	for _, err := range outside {
 		d.Fault("gitlab", "search failed", err)

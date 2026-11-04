@@ -1,6 +1,8 @@
 package gitx
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -50,5 +52,26 @@ func TestRemoteProject(t *testing.T) {
 		if got := RemoteProject(remote); got != want {
 			t.Errorf("%s: %s, want %s", remote, got, want)
 		}
+	}
+}
+
+// A clone URL with a token reaches neither the log nor an error.
+func TestRedact(t *testing.T) {
+	cases := map[string]string{
+		"https://oauth2:glpat-SECRET@gitlab.com/grp/app.git":              "https://oauth2:***@gitlab.com/grp/app.git",
+		"fatal: unable to access 'https://ghp_SECRET@github.com/o/r/': x": "fatal: unable to access 'https://***@github.com/o/r/': x",
+		"clone HTTP://u:p@h/x and http://h/y":                             "clone HTTP://u:***@h/x and http://h/y",
+		"git@github.com:o/r.git":                                          "git@github.com:o/r.git",
+		"ssh://git@host/o/r.git":                                          "ssh://git@host/o/r.git",
+		"https://github.com/o/r a@b.c":                                    "https://github.com/o/r a@b.c",
+	}
+	for in, want := range cases {
+		if got := Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+	_, err := Run(context.Background(), t.TempDir(), "clone", "https://user:SECRET@127.0.0.1:1/o/r.git", "x")
+	if err == nil || strings.Contains(err.Error(), "SECRET") || !strings.Contains(err.Error(), "user:***@") {
+		t.Errorf("error %v", err)
 	}
 }

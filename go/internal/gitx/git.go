@@ -126,9 +126,24 @@ func Run(ctx context.Context, dir string, args ...string) (string, error) {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), lastLines(msg, 2))
+		return "", fmt.Errorf("git %s: %s", Redact(strings.Join(args, " ")), Redact(lastLines(msg, 2)))
 	}
 	return strings.TrimSpace(out.String()), nil
+}
+
+// userinfo: the credentials of a URL, «https://user:TOKEN@host» or «https://TOKEN@host».
+var userinfo = regexp.MustCompile(`(?i)\b(https?://)([^/@\s'"]+)@`)
+
+// Redact hides the credentials of the http(s) URLs in s: the password, or a token in place of the user, becomes
+// «***», so a clone URL with a token does not reach the log, an error or a report.
+func Redact(s string) string {
+	return userinfo.ReplaceAllStringFunc(s, func(m string) string {
+		sub := userinfo.FindStringSubmatch(m)
+		if user, _, ok := strings.Cut(sub[2], ":"); ok {
+			return sub[1] + user + ":***@"
+		}
+		return sub[1] + "***@"
+	})
 }
 
 // One git operation at a time per repo: two tasks starting together would race for .git/config.
@@ -155,12 +170,12 @@ func EnsureClone(ctx context.Context, r *config.Repo, log func(string)) error {
 		if err := os.MkdirAll(filepath.Dir(r.Path), 0o755); err != nil {
 			return err
 		}
-		log(fmt.Sprintf("cloning %s into %s", r.CloneURL, r.Path))
+		log(fmt.Sprintf("cloning %s into %s", Redact(r.CloneURL), r.Path))
 		cctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 		defer cancel()
 		if _, err := Run(cctx, filepath.Dir(r.Path), "-c", "core.sshCommand=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new", "clone", r.CloneURL, r.Path); err != nil {
 			_ = os.RemoveAll(r.Path)
-			return fmt.Errorf("failed to clone %s: %w", r.CloneURL, err)
+			return fmt.Errorf("failed to clone %s: %w", Redact(r.CloneURL), err)
 		}
 	}
 	if r.BaseBranch == "" {

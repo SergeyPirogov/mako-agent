@@ -3,6 +3,7 @@ package trackers
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -102,7 +103,7 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 			c.Jobs, c.Failed = jobs, failed
 		}
 	}
-	var discussions []struct {
+	type glDiscussion struct {
 		Notes []struct {
 			ID         int64  `json:"id"`
 			Body       string `json:"body"`
@@ -119,7 +120,10 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 			} `json:"position"`
 		} `json:"notes"`
 	}
-	if err := g.do(ctx, "GET", path+"/discussions?per_page=100", nil, &discussions); err == nil {
+	discussions, err := allPages(url.Values{}, func(query string, out *[]glDiscussion) error {
+		return g.do(ctx, "GET", path+"/discussions?"+query, nil, out)
+	})
+	if err == nil {
 		me, _ := g.Me(ctx)
 		for _, d := range discussions {
 			if len(d.Notes) == 0 || d.Notes[0].System || !d.Notes[0].Resolvable || d.Notes[0].Resolved {
@@ -148,7 +152,7 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 
 // pipelineJobs: a pipeline's jobs in run order, and the ones of them that failed and may not.
 func (g *GitLab) pipelineJobs(ctx context.Context, path string, pipeline int64) (jobs, failed []Job, err error) {
-	var list []struct {
+	type glJob struct {
 		ID           int64  `json:"id"`
 		Name         string `json:"name"`
 		Stage        string `json:"stage"`
@@ -156,7 +160,10 @@ func (g *GitLab) pipelineJobs(ctx context.Context, path string, pipeline int64) 
 		WebURL       string `json:"web_url"`
 		AllowFailure bool   `json:"allow_failure"`
 	}
-	if err := g.do(ctx, "GET", fmt.Sprintf("%s/pipelines/%d/jobs?per_page=100", project(path), pipeline), nil, &list); err != nil {
+	list, err := allPages(url.Values{}, func(query string, out *[]glJob) error {
+		return g.do(ctx, "GET", fmt.Sprintf("%s/pipelines/%d/jobs?%s", project(path), pipeline, query), nil, out)
+	})
+	if err != nil {
 		return nil, nil, err
 	}
 	jobs, failed = []Job{}, []Job{}
@@ -287,7 +294,10 @@ func (g *GitHub) JobLog(ctx context.Context, reviewURL string, job Job, lines in
 	if m == nil {
 		return "", fmt.Errorf("not a GitHub PR: %s", reviewURL)
 	}
-	// A check run of GitHub Actions is its job: the log is there; other checks have none.
+	// A check run of GitHub Actions is its job: the log is there; other checks have none, nor a commit status.
+	if job.ID == 0 {
+		return "", nil
+	}
 	var log string
 	if err := g.do(ctx, "GET", "/repos/"+m[1]+"/actions/jobs/"+strconv.FormatInt(job.ID, 10)+"/logs", nil, &log); err != nil {
 		return "", err

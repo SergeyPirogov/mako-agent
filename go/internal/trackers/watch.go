@@ -67,6 +67,9 @@ func (g *GitHub) DefaultCI(ctx context.Context, repo string) (*BranchCI, error) 
 }
 
 func (g *GitHub) BranchJobLog(ctx context.Context, repo string, job Job, lines int) (string, error) {
+	if job.ID == 0 {
+		return "", nil // a commit status (Jenkins, Travis) has no Actions log
+	}
 	var log string
 	if err := g.do(ctx, "GET", "/repos/"+repo+"/actions/jobs/"+strconv.FormatInt(job.ID, 10)+"/logs", nil, &log); err != nil {
 		return "", err

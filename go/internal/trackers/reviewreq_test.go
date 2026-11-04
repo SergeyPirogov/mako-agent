@@ -125,6 +125,8 @@ func TestGitHubToReview(t *testing.T) {
 			send(map[string]any{"check_runs": []any{map[string]any{"id": 1, "name": "test", "status": "completed", "conclusion": "failure"}}})
 		case "/repos/o/r/commits/s2/check-runs", "/repos/o/r/commits/s3/check-runs":
 			send(map[string]any{"check_runs": []any{}})
+		case "/repos/o/r/commits/s1/status", "/repos/o/r/commits/s2/status", "/repos/o/r/commits/s3/status":
+			send(map[string]any{"state": "pending", "statuses": []any{}})
 		case "/repos/o/r/pulls/2/reviews":
 			send([]any{map[string]any{"state": "CHANGES_REQUESTED", "user": map[string]any{"login": "serg"}},
 				map[string]any{"state": "APPROVED", "user": map[string]any{"login": "serg"}},
