@@ -1048,12 +1048,16 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 		`askBtn("conflicts", "Resolve conflicts"`,
 		`askBtn("ci", "Fix CI"`,
 		`askBtn("comments", "Fix comments"`,
-		`Passed to the agent`,
+		`<button type="button" class="asked" disabled title="Already passed to the agent">${ICON.check}Passed to the agent</button>`,
 		`isAsked(r.id, kind)`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("blockersHTML is missing %q", want)
 		}
+	}
+	// Pressed: a quiet mark with its check centred, not a greyed-out primary.
+	if !strings.Contains(string(style), ".tcard.blocker .mr-actions button.asked { display: inline-flex; align-items: center; gap: 5px;") {
+		t.Error("style.css has no compact «Passed to the agent» rule")
 	}
 	// The header: only Open MR for the fix states, no button with data-ask.
 	k := strings.Index(src, "function primaryHTML(")
