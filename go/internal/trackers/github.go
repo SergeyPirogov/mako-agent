@@ -169,7 +169,7 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 			return nil, err
 		}
 		for _, is := range issues {
-			if is.Repository != nil && g.cfg.Projects[is.Repository.FullName] == nil {
+			if is.Repository != nil && !g.cfg.HasProject(is.Repository.FullName) {
 				add(is.Repository.FullName, is)
 			}
 		}
@@ -185,7 +185,7 @@ func (g *GitHub) FetchMine(ctx context.Context) ([]core.Task, error) {
 		}
 		assignee = me
 	}
-	for repo := range g.cfg.Projects {
+	for _, repo := range g.cfg.ProjectKeys() {
 		q := url.Values{"state": {"open"}}
 		if g.cfg.Trigger != "" {
 			q.Set("labels", g.cfg.Trigger)

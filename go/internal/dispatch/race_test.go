@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -133,5 +134,33 @@ func TestEnsureProjectPicksOneFolderPerProject(t *testing.T) {
 		delete(tr.Config().Projects, a)
 		delete(tr.Config().Projects, b)
 		d.mu.Unlock()
+	}
+}
+
+// ensureProject adds projects while a poll (FetchMine) reads the tracker's projects, which holds no d.mu
+// (go test -race; a map write during a range is a fatal error in Go).
+func TestFetchMineBesideEnsureProject(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	d, _, _ := setup(t)
+	tr := d.TrackerList()[0]
+	tr.Config().AllProjects = true
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			d.ensureProject(tr, fmt.Sprintf("grp/app%d", i))
+		}()
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				tr.FetchMine(context.Background()) // errors do not matter: the projects are read either way
+			}
+		}()
+	}
+	wg.Wait()
+	if n := len(tr.Config().ProjectKeys()); n != 9 {
+		t.Fatalf("%d projects, want 9", n)
 	}
 }

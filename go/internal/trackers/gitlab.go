@@ -176,7 +176,7 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 			return nil, err
 		}
 		for _, is := range issues {
-			if p := issueProject(is); p != "" && g.cfg.Projects[p] == nil {
+			if p := issueProject(is); p != "" && !g.cfg.HasProject(p) {
 				_ = add(p, is)
 			}
 		}
@@ -192,7 +192,7 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 		}
 		assignee = me
 	}
-	for key := range g.cfg.Projects {
+	for _, key := range g.cfg.ProjectKeys() {
 		q := url.Values{"state": {"opened"}}
 		if g.cfg.Trigger != "" {
 			q.Set("labels", g.cfg.Trigger)
