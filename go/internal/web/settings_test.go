@@ -500,3 +500,62 @@ func TestSettingsModeHint(t *testing.T) {
 		t.Errorf("modeHint: %q", hint)
 	}
 }
+
+// settingsLoadRun runs the page's load() in node with a fake DOM and the given /api/settings answer; it returns
+// the #msg's class and text, whether the retry button is there, and how many times the page was drawn.
+func settingsLoadRun(t *testing.T, answer string, dirtyMsg bool) (out struct {
+	Class, Text string
+	Retry       bool
+	Rendered    int
+}) {
+	t.Helper()
+	page, err := os.ReadFile("settings.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runNode(t, `
+const els = {};
+const mk = (id) => (els[id] ??= { id, className: "", textContent: "", innerHTML: "", children: [], append(c) { this.children.push(c); } });
+const $ = mk;
+globalThis.document = { createElement: () => ({}) };
+const t = (k) => ({ "s.noAnswer": "Mako does not answer", "s.retry": "Try again" }[k] ?? k);
+const esc = (s) => String(s);
+let lessons = [], cfg = {}, env = {}, envSet = {}, jiraBase = "", autoWip = 1, dirty = true, routeChoices = {}, rendered = 0;
+const loadI18n = async () => {};
+const showProblems = () => {};
+const render = () => { rendered++; };
+const fetch = async (u) => (`+answer+`);
+async `+jsFunc(t, string(page), "load")+`
+(async () => {
+  if (`+map[bool]string{true: "true", false: "false"}[dirtyMsg]+`) { $("msg").className = "msg"; $("msg").textContent = "There are unsaved changes"; }
+  await load();
+  const m = $("msg");
+  console.log(JSON.stringify({ Class: m.className, Text: m.textContent, Retry: m.children.some((c) => c.id === "load-retry"), Rendered: rendered }));
+})();
+`, &out)
+	return out
+}
+
+// Discard changes clears «There are unsaved changes»; the page is drawn again.
+func TestSettingsRevertClearsMessage(t *testing.T) {
+	got := settingsLoadRun(t, `u === "/api/settings" ? { ok: true, json: async () => ({ config: {}, env: {}, home: "/h" }) } : { ok: true, json: async () => [] }`, true)
+	if got.Text != "" || got.Class != "msg" || got.Rendered != 1 || got.Retry {
+		t.Errorf("after revert: %+v", got)
+	}
+}
+
+// A failed first load (502, or not JSON) says so and offers to try again, instead of an empty page.
+func TestSettingsLoadFailureShowsNoAnswer(t *testing.T) {
+	for name, answer := range map[string]string{
+		"502":      `{ ok: false, status: 502, json: async () => ({}) }`,
+		"not JSON": `{ ok: true, json: async () => { throw new SyntaxError("Unexpected token <"); } }`,
+		"network":  `(() => { throw new TypeError("Failed to fetch"); })()`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := settingsLoadRun(t, answer, true)
+			if !strings.HasPrefix(got.Text, "Mako does not answer") || got.Class != "msg bad" || !got.Retry || got.Rendered != 0 {
+				t.Errorf("failed load: %+v", got)
+			}
+		})
+	}
+}

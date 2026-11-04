@@ -28,6 +28,7 @@ var webStrings = map[string]string{
 	"s.saved":           "All changes are saved. Mako already works with them",
 	"s.savedProblems":   "Saved, but there is something to fix (at the top)",
 	"s.noAnswer":        "Mako does not answer",
+	"s.retry":           "Try again",
 	"s.checking":        "Checking…",
 	"s.more":            "More",
 	"s.auto":            "automatically",
