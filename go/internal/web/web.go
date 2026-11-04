@@ -694,7 +694,7 @@ func (s *Server) Handler() http.Handler {
 					err = fmt.Errorf("unknown plan action %q", do)
 				}
 			default:
-				err = controlChat(c, action, r)
+				err = s.controlChat(c, action, r)
 			}
 			if err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})

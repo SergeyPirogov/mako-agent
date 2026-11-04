@@ -133,7 +133,7 @@ func (s *Server) freeChatAction(w http.ResponseWriter, r *http.Request, action, 
 		if action == "interrupt" {
 			s.D.ForgetLimit(id) // stopped by you: it does not go on by itself after the limit either
 		}
-		err = controlChat(c, action, r)
+		err = s.controlChat(c, action, r)
 	default:
 		http.Error(w, "not for a chat without a task", http.StatusBadRequest)
 		return
@@ -173,7 +173,7 @@ func decodeJSON(r *http.Request, limit int64, v any) error {
 
 // controlChat: the running agent's controls in its chat — an answer to its question, an option of one, the mode,
 // a tool permission, or stopping the current step (interrupt).
-func controlChat(c *chat.Session, action string, r *http.Request) error {
+func (s *Server) controlChat(c *chat.Session, action string, r *http.Request) error {
 	if c == nil {
 		return fmt.Errorf("the agent is not running")
 	}
@@ -195,7 +195,18 @@ func controlChat(c *chat.Session, action string, r *http.Request) error {
 	case "mode":
 		return c.SetMode(q.Get("to"))
 	case "permit":
-		return c.Permit(q.Get("req"), q.Get("decision"))
+		req, decision := q.Get("req"), q.Get("decision")
+		rules := c.AlwaysRules(req)
+		if err := c.Permit(req, decision); err != nil {
+			return err
+		}
+		// «Always» is for every agent after this one too: their Claude starts with the rules in --allowedTools.
+		if decision == "always" && len(rules) > 0 {
+			if err := s.allowTools(r.Context(), rules); err != nil {
+				return fmt.Errorf("allowed for this agent, but not saved for the next ones: %w", err)
+			}
+		}
+		return nil
 	default:
 		return c.Interrupt()
 	}
