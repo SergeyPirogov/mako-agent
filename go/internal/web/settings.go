@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -263,6 +264,9 @@ func (s *Server) setCodeModel(ctx context.Context, model string) error {
 	if model != "" {
 		if err := config.CheckModel(model); err != nil {
 			return err
+		}
+		if !slices.Contains(dispatch.CodeModels, model) {
+			return errors.New("unknown model")
 		}
 	}
 	return s.changeConfig(ctx, func(raw map[string]json.RawMessage) error {
