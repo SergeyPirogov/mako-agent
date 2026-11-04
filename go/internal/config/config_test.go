@@ -469,3 +469,49 @@ func TestParseWatchAndRoutines(t *testing.T) {
 		}
 	}
 }
+
+// A number the settings page would let through by mistake: Check refuses it and says what to enter.
+func TestCheckRefusesNumbersOutOfRange(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"pollIntervalSec": 0}`:                  "from 5 to",
+		`{"pollIntervalSec": 4}`:                  "from 5 to",
+		`{"wipLimit": -3}`:                        "from 0 to",
+		`{"wipLimit": 101}`:                       "from 0 to 100",
+		`{"limitPausePct": 101}`:                  "from 0 to 100",
+		`{"limitPausePct": -1}`:                   "from 0 to 100",
+		`{"archiveAfterDays": -1}`:                "from 0 to",
+		`{"notifications": {"snoozeMin": 0}}`:     "from 1 to",
+		`{"notifications": {"snoozeMin": -10}}`:   "from 1 to",
+		`{"notifications": {"snoozeMin": 99999}}`: "from 1 to",
+	} {
+		err := Check([]byte(raw))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want an error with %q", raw, err, want)
+		}
+	}
+	for _, raw := range []string{`{}`, `{"pollIntervalSec": 5, "wipLimit": 0, "limitPausePct": 0, "archiveAfterDays": 0, "notifications": {"snoozeMin": 1}}`,
+		`{"pollIntervalSec": 60, "wipLimit": 4, "limitPausePct": 100, "archiveAfterDays": 3650}`} {
+		if err := Check([]byte(raw)); err != nil {
+			t.Errorf("%s: %v", raw, err)
+		}
+	}
+	if err := Check([]byte(`{`)); err == nil {
+		t.Error("a broken file passed")
+	}
+}
+
+// A file written before the bounds still loads: the number out of range is replaced by its default, and the
+// trackers stay.
+func TestParseTakesDefaultForNumbersOutOfRange(t *testing.T) {
+	c, err := Parse([]byte(`{"pollIntervalSec": 0, "wipLimit": -3, "limitPausePct": 500, "archiveAfterDays": -2,
+		"notifications": {"snoozeMin": 0}, "trackers": [{"type": "github", "allProjects": true}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.PollIntervalSec != 60 || c.WipLimit != 0 || c.LimitPausePct != 85 || c.ArchiveAfterDays != 2 || c.Notifications.SnoozeMin != 60 || len(c.Trackers) != 1 {
+		t.Fatalf("%+v", c)
+	}
+	if c, _ := Parse([]byte(`{"pollIntervalSec": 5}`), nil); c.PollIntervalSec != 5 {
+		t.Fatalf("5 s is allowed: %d", c.PollIntervalSec)
+	}
+}

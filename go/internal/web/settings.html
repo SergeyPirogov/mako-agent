@@ -231,21 +231,34 @@ const NAMES = { gitlab: "GitLab", github: "GitHub", jira: "Jira Cloud" };
 function changed() { if (pane) renderNavSoon(); dirty = true; $("msg").className = "msg"; $("msg").textContent = t("s.unsaved"); }
 
 // Small form helpers bound to a path in an object: they write back on input.
-function text(obj, key, label, { hint = "", placeholder = "", type = "text", parse } = {}) {
+function text(obj, key, label, { hint = "", placeholder = "", type = "text", parse, min, max, step } = {}) {
   const id = "f" + Math.random().toString(36).slice(2);
   const el = document.createElement("div");
   el.className = "field";
   const v = obj[key];
-  el.innerHTML = `<label for="${id}">${label}</label><input id="${id}" type="${type}" placeholder="${esc(placeholder)}" value="${esc(v ?? "")}">${hint ? `<div class="hint">${hint}</div>` : ""}`;
-  el.querySelector("input").oninput = (e) => {
+  const bounds = type === "number" ? `${min !== undefined ? ` min="${min}"` : ""}${max !== undefined ? ` max="${max}"` : ""}${step !== undefined ? ` step="${step}"` : ""}` : "";
+  el.innerHTML = `<label for="${id}">${label}</label><input id="${id}" type="${type}"${bounds} placeholder="${esc(placeholder)}" value="${esc(v ?? "")}">${hint ? `<div class="hint">${hint}</div>` : ""}<div class="hint bad" role="alert" hidden></div>`;
+  const input = el.querySelector("input"), err = el.querySelector(".bad");
+  input.oninput = (e) => {
     const raw = e.target.value;
+    // A number out of its range is not kept: the field says why, and “Save” waits for a right one.
+    const problem = type === "number" && raw.trim() !== "" ? numProblem(Number(raw), min, max) : "";
+    input.setAttribute("aria-invalid", problem ? "true" : "false");
+    err.textContent = problem;
+    err.hidden = !problem;
+    if (problem) { changed(); return; }
     if (raw.trim() === "") delete obj[key];
     else obj[key] = parse ? parse(raw) : raw;
     changed();
   };
   return el;
 }
-const num = (obj, key, label, opts = {}) => text(obj, key, label, { ...opts, type: "number", parse: (x) => Number(x) });
+// numProblem: why n cannot be saved in a field with these bounds, "" when it can.
+function numProblem(n, min = -Infinity, max = Infinity) {
+  if (!Number.isInteger(n) || n < min || n > max) return t("s.num.range", { min: Number.isFinite(min) ? min : "…", max: Number.isFinite(max) ? max : "…" });
+  return "";
+}
+const num = (obj, key, label, opts = {}) => text(obj, key, label, { step: 1, ...opts, type: "number", parse: (x) => Number(x) });
 function check(obj, key, label, { hint = "", def = false } = {}) {
   const el = document.createElement("label");
   el.className = "check";
@@ -686,7 +699,7 @@ function renderOrca() {
     if (o.agent && !agents.some(([v]) => v === o.agent)) agents.push([o.agent, o.agent]);
     box.append(select(o, "agent", t("s.o.orcaAgent"), agents, { def: "claude" }));
   }
-  box.append(num(cfg, "limitPausePct", t("s.o.limitPause"), { placeholder: "85", hint: t("s.o.limitPauseHint") }));
+  box.append(num(cfg, "limitPausePct", t("s.o.limitPause"), { min: 0, max: 100, placeholder: "85", hint: t("s.o.limitPauseHint") }));
   box.append(check(cfg, "resumeAfterLimit", t("s.o.resumeAfterLimit"), { def: true, hint: t("s.o.resumeAfterLimitHint") }));
   box.append(select(o, "mrBy", t("s.o.mrBy"), [["agent", t("s.o.mrByAgent")], ["me", t(onTerminal() ? "s.o.mrByMe" : "s.o.mrByMeOrca")]], { def: "agent" }));
   box.append(localized(o, "instructions", t("s.o.instructions"), { area: true, hint: t("s.o.instructionsHint"),
@@ -829,10 +842,10 @@ function renderLimits() {
   box.innerHTML = "";
   box.append(check(cfg, "wipAuto", t("s.l.wipAuto"), { hint: t("s.l.wipAutoHint", { n: autoWip }) }));
   box.lastChild.querySelector("input").addEventListener("change", renderLimits);
-  if (!cfg.wipAuto) box.append(num(cfg, "wipLimit", t("s.l.wip"), { placeholder: t("s.l.wipPh"), hint: t("s.l.wipHint") }));
-  box.append(num(cfg, "pollIntervalSec", t("s.l.poll"), { placeholder: "60" }));
+  if (!cfg.wipAuto) box.append(num(cfg, "wipLimit", t("s.l.wip"), { min: 0, max: 100, placeholder: t("s.l.wipPh"), hint: t("s.l.wipHint") }));
+  box.append(num(cfg, "pollIntervalSec", t("s.l.poll"), { min: 5, max: 86400, placeholder: "60" }));
   box.append(check(cfg, "keepAwake", t("s.l.awake"), { def: true, hint: t("s.l.awakeHint") }));
-  box.append(num(cfg, "archiveAfterDays", t("s.l.archive"), { placeholder: "2", hint: t("s.l.archiveHint") }));
+  box.append(num(cfg, "archiveAfterDays", t("s.l.archive"), { min: 0, max: 3650, placeholder: "2", hint: t("s.l.archiveHint") }));
   box.append(text(cfg, "branchPattern", t("s.l.branch"), { placeholder: "{type}/{id}-{title}", hint: t("s.l.branchHint") }));
   box.append(text(cfg, "projectsDir", t("s.l.projectsDir"), { placeholder: "~/mako/projects" }));
 }
@@ -845,7 +858,7 @@ function renderNotifications() {
   box.append(check(n, "enabled", t("s.n.enabled"), { def: true }));
   box.append(check(n, "autoTake", t("s.n.autoTake")));
   box.append(select(n, "autoTakeOnly", t("s.n.autoTakeOnly"), [["all", t("s.n.all")], ["smallClear", t("s.n.smallClear")], ["small", t("s.n.small")]], { def: "all", hint: t("s.n.autoTakeOnlyHint") }));
-  box.append(num(n, "snoozeMin", t("s.n.snooze"), { placeholder: "60" }));
+  box.append(num(n, "snoozeMin", t("s.n.snooze"), { min: 1, max: 10080, placeholder: "60" }));
   box.append(text(n, "morningDigest", t("s.n.morning"), { placeholder: "09:00", hint: t("s.n.morningHint") }));
   box.append(num(n, "awayHours", t("s.n.away"), { placeholder: "4", hint: t("s.n.awayHint") }));
   box.append(num(n, "inboxPort", t("s.n.port"), { placeholder: "7777", hint: t("s.n.portHint") }));
@@ -1296,6 +1309,13 @@ for (const b of document.querySelectorAll("[data-add]")) {
 
 $("revert").onclick = () => load();
 $("save").onclick = async () => {
+  const wrong = document.querySelector('input[aria-invalid="true"]');
+  if (wrong) {
+    $("msg").className = "msg bad";
+    $("msg").textContent = t("s.num.fix");
+    wrong.focus();
+    return;
+  }
   $("save").disabled = true;
   $("msg").className = "msg";
   $("msg").textContent = t("s.saving");
