@@ -21,7 +21,12 @@ const (
 	alnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	upnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b64   = alnum + "+/"
+	b64u  = alnum + "-_"
+	hexa  = "0123456789abcdef"
 )
+
+// jwt: header.payload.signature, the first two base64url JSON.
+func jwt() string { return "eyJhbGciOiJIUzI1NiJ9.eyJ" + rnd(40, b64u) + "." + rnd(43, b64u) }
 
 func kinds(fs []Finding) string {
 	var k []string
@@ -51,6 +56,26 @@ func TestEachKind(t *testing.T) {
 		{"password in yaml", "config/prod.yml", `  db_password: ` + rnd(12, alnum), "password or secret in code (db_password)"},
 		{"secret in json", "settings.json", `"client_secret": "` + rnd(20, alnum) + `",`, "password or secret in code (client_secret)"},
 		{"high entropy", "app/keys.go", `var signing = []byte("` + rnd(48, b64) + `")`, "random string that looks like a key"},
+		{"jwt", "api/client.ts", `const auth = "Bearer ` + jwt() + `"`, "JWT"},
+		{"jwt in a test file", "api/client_test.go", `tok := "` + jwt() + `"`, "JWT"},
+		{"stripe test key", "pay.go", `stripe.Key = "sk_test_` + rnd(24, alnum) + `"`, "Stripe key"},
+		{"stripe restricted test key", "pay.py", `KEY = "rk_test_` + rnd(24, alnum) + `"`, "Stripe key"},
+		{"stripe webhook secret", "hooks.js", `const s = "whsec_` + rnd(32, alnum) + `"`, "Stripe webhook secret"},
+		{"slack app token", "bot.py", `APP = "xapp-1-A` + rnd(10, upnum) + "-" + rnd(13, "0123456789") + "-" + rnd(64, hexa) + `"`, "Slack token"},
+		{"connection string", "app/db.go", `dsn := "postgres://app:` + rnd(16, alnum) + `@db.internal:5432/app"`, "password in a connection string"},
+		{"connection string in yaml", "deploy/values.yaml", `  url: mongodb+srv://svc:` + rnd(12, alnum) + `@cluster0.mongodb.net/prod`, "password in a connection string"},
+		{"hex signing key", "app/webhook.go", `signingKey := "` + rnd(64, hexa) + `"`, "hex key (signingKey)"},
+		{"hex hmac", "config/app.yml", `hmac: ` + rnd(32, hexa), "hex key (hmac)"},
+		// Words, not letters: "sha" in shared, "id" in identity and paid are not the hashes sha and id.
+		{"hex shared hmac", "app/webhook.go", `shared_hmac = "` + rnd(64, hexa) + `"`, "hex key (shared_hmac)"},
+		{"hex identity key", "app/id.py", `identity_key = "` + rnd(32, hexa) + `"`, "hex key (identity_key)"},
+		{"hex paid salt", "app/billing.js", `const paidSalt = "` + rnd(40, hexa) + `"`, "hex key (paidSalt)"},
+		// A name with secret or token in it is caught by the password check, whatever else is in it.
+		{"hex shared secret", "app/webhook.go", `shared_secret = "` + rnd(64, hexa) + `"`, "password or secret in code (shared_secret)"},
+		{"hex camel signing key", "app/s.ts", `const idSigningKey = "` + rnd(64, hexa) + `"`, "hex key (idSigningKey)"},
+		{"hex master key", "app/crypto.py", `MASTER_KEY = "` + rnd(48, hexa) + `"`, "hex key (MASTER_KEY)"},
+		{"password with test inside", "db/conn.go", `password := "Latest2024pass!x"`, "password or secret in code (password)"},
+		{"secret with contest inside", "app/x.go", `secret := "contest-` + rnd(10, alnum) + `"`, "password or secret in code (secret)"},
 	} {
 		got := Line(c.file, c.line)
 		if len(got) != 1 || got[0].Kind != c.kind {
@@ -108,10 +133,50 @@ func TestFalsePositives(t *testing.T) {
 		{"fetch credentials", "web/sw.js", `fetch(url, { method: "POST", credentials: "same-origin" })`},
 		{"env var name", "ui/settings.js", `secretField(isLab ? "GITLAB_TOKEN" : "GITHUB_TOKEN", "Токен")`},
 		{"token kind", "auth.go", `tokenType := "bearer_token"`},
+		{"test value", "app/x.go", `secret := "my-test-secret-1"`},
+		{"fake value", "app/x.go", `token := "fake_token_value"`},
+		{"test name", "app/seed.go", `test_password := "Sup3rS3cret!"`},
+		{"camel test name", "app/seed.ts", `const testSecret = "Sup3rS3cret!"`},
+		{"mock name", "app/seed.py", `MOCK_API_KEY = "Sup3rS3cret!"`},
+		{"connection from env", "app/db.go", `dsn := "postgres://user:${DB_PASSWORD}@db/app"`},
+		{"connection default", "docker-compose.yml", `DATABASE_URL: postgres://postgres:postgres@localhost:5432/app`},
+		{"connection password word", "README", `postgres://user:password@localhost/app`},
+		{"connection placeholder", "app/db.go", `dsn := "mysql://root:<password>@localhost/app"`},
+		{"connection in a test", "app/db_test.go", `dsn := "postgres://app:Sup3rS3cret@localhost/app"`},
+		{"url with port and at", "app/x.go", `u := "https://host:8080/users/@me"`},
+		{"cache key md5", "app/cache.go", `cache_key = "` + rnd(32, hexa) + `"`},
+		{"etag", "app/http.go", `etag := "` + rnd(40, hexa) + `"`},
+		{"session id", "app/s.go", `session_id = "` + rnd(32, hexa) + `"`},
+		{"session id camel", "app/s.ts", `const sessionId = "` + rnd(32, hexa) + `"`},
+		{"commit sha", "app/v.go", `commit_sha = "` + rnd(40, hexa) + `"`},
+		{"sha256 key", "app/v.go", `key_sha256 = "` + rnd(64, hexa) + `"`},
+		{"cache key camel", "app/c.ts", `const cacheKey = "` + rnd(32, hexa) + `"`},
+		{"etag header key", "app/c.ts", `ETAG-KEY = "` + rnd(32, hexa) + `"`},
+		{"hex without a name", "CHANGELOG", `merged ` + rnd(40, hexa)},
+		{"hex test key", "app/x.go", `testKey := "` + rnd(64, hexa) + `"`},
+		{"minified", "web/app.js", strings.Repeat(`var a=function(b){return b+"`+rnd(48, b64)+`"};`, 120)},
 	} {
 		if got := Line(c.file, c.line); len(got) > 0 {
 			t.Errorf("%s: %q flagged as %s", c.name, c.line, kinds(got))
 		}
+	}
+}
+
+// A line too long for the generic checks still gets the known formats, wherever in it the token is: at the
+// start, in the middle, across the edge of a window.
+func TestLongLine(t *testing.T) {
+	token := "ghp_" + rnd(36, alnum)
+	pad := strings.Repeat("x=1;", 2500)
+	for _, at := range []int{0, len(pad) / 2, longLine - 20, longLine - overlap + 5, len(pad)} {
+		text := pad[:at] + `"` + token + `"` + pad[at:]
+		got := Line("web/bundle.js", text)
+		if len(got) != 1 || got[0].Kind != "GitHub token" {
+			t.Errorf("at %d: %s", at, kinds(got))
+		}
+	}
+	// The generic checks are off there: a random string in minified code is not reported.
+	if got := Line("web/bundle.js", pad+`password="`+rnd(14, alnum)+`"`+pad); len(got) != 0 {
+		t.Errorf("generic on a long line: %s", kinds(got))
 	}
 }
 

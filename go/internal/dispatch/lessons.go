@@ -14,6 +14,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
+	"github.com/SergeyPirogov/mako-agent/go/internal/secrets"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
@@ -150,6 +151,14 @@ func lessonToBase(ctx context.Context, repoPath, base, heading, rule, msg string
 	hash, err := commitLesson(ctx, wt, heading, rule, msg)
 	if err != nil || hash == "" {
 		return "", err
+	}
+	// The rule comes from a review: it is checked for secrets as any push is.
+	diff, err := pushDiff(ctx, wt, base)
+	if err != nil {
+		return "", fmt.Errorf("lesson not pushed: the secrets check failed: %w", err)
+	}
+	if found := secrets.Scan(diff, nil); len(found) > 0 {
+		return "", fmt.Errorf("lesson not pushed: it looks like it contains a secret:\n%s", findingsText(found, 5))
 	}
 	if _, err := gitx.Run(ctx, wt, "push", "origin", "HEAD:refs/heads/"+base); err != nil {
 		return "", fmt.Errorf("could not push to %s (protected branch?): %w", base, err)

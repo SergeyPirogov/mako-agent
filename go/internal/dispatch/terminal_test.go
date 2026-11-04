@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -34,6 +35,8 @@ func TestTerminalHandOff(t *testing.T) {
 	d.Cfg = &cfg
 	d.Sessions = term.NewManager(t.TempDir())
 	d.BoardURL = "http://127.0.0.1:1"
+	pushHooks = true // nothing is pushed here: the hook is only looked at
+	t.Cleanup(func() { pushHooks = false })
 
 	d.Poll(ctx)
 	d.Store.Update("grp/app#5", func(r *core.Record) { r.Model = "haiku" }) // picked on the card
@@ -50,6 +53,13 @@ func TestTerminalHandOff(t *testing.T) {
 		t.Fatalf("worktree %q", r.Worktree)
 	}
 	git(t, r.Worktree, "rev-parse", "--verify", "refs/heads/"+r.Branch)
+	// Before the agent runs, its worktree checks every push for secrets; the clone's checkout keeps its hooks.
+	if out := gitOut(t, r.Worktree, "config", "--get", "core.hooksPath"); strings.TrimSpace(out) != d.hookDir(r.ID) || d.pushToken(r.ID) == "" {
+		t.Fatalf("pre-push hook %q", out)
+	}
+	if out, _ := exec.Command("git", "-C", repo, "config", "--get", "core.hooksPath").Output(); len(out) != 0 {
+		t.Fatalf("the clone got the hook: %s", out)
+	}
 	s := d.Sessions.Get(r.ID)
 	if s == nil || !s.Running() {
 		t.Fatal("no agent running")

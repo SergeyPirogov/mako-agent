@@ -9,6 +9,7 @@ import (
 	"math"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -25,27 +26,31 @@ type Finding struct {
 	Key string `json:"key"`
 }
 
-// rule: a format of a known secret. group is the submatch with the value (0: the whole match).
+// rule: a format of a known secret. group is the submatch with the value (0: the whole match); body, when set,
+// the part of it the placeholder and entropy checks read: sk_test_… is a key, not a test value.
 type rule struct {
 	kind  string
 	re    *regexp.Regexp
 	group int
+	body  int
 }
 
 var rules = []rule{
-	{"private key", regexp.MustCompile(`-----BEGIN ((RSA|DSA|EC|OPENSSH|PGP|ENCRYPTED) )?PRIVATE KEY( BLOCK)?-----`), 0},
-	{"GitHub token", regexp.MustCompile(`\b(gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})\b`), 0},
-	{"GitLab token", regexp.MustCompile(`\bgl(pat|dt|rt|ptt|cbt|oas|ft|imt|agent|soat)-[A-Za-z0-9_\-]{20,}`), 0},
-	{"AWS access key", regexp.MustCompile(`\b(AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b`), 0},
-	{"AWS secret key", regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}?['"]?\s*[:=]\s*['"]?([A-Za-z0-9/+]{40})\b`), 1},
-	{"Slack token", regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`), 0},
-	{"Slack webhook", regexp.MustCompile(`https://hooks\.slack\.com/services/T[A-Za-z0-9_]+/B[A-Za-z0-9_]+/[A-Za-z0-9_]+`), 0},
-	{"Anthropic key", regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_\-]{20,}`), 0},
-	{"OpenAI key", regexp.MustCompile(`\bsk-(proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}T3BlbkFJ[A-Za-z0-9_\-]{20,}|\bsk-(proj-|svcacct-|admin-)[A-Za-z0-9_\-]{40,}`), 0},
-	{"Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_\-]{35}\b`), 0},
-	{"Stripe key", regexp.MustCompile(`\b[sr]k_live_[0-9A-Za-z]{20,}`), 0},
-	{"npm token", regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`), 0},
-	{"Telegram bot", regexp.MustCompile(`\b[0-9]{8,10}:AA[0-9A-Za-z_\-]{33}\b`), 0},
+	{"private key", regexp.MustCompile(`-----BEGIN ((RSA|DSA|EC|OPENSSH|PGP|ENCRYPTED) )?PRIVATE KEY( BLOCK)?-----`), 0, 0},
+	{"GitHub token", regexp.MustCompile(`\b(gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{50,255})\b`), 0, 0},
+	{"GitLab token", regexp.MustCompile(`\bgl(pat|dt|rt|ptt|cbt|oas|ft|imt|agent|soat)-[A-Za-z0-9_\-]{20,}`), 0, 0},
+	{"AWS access key", regexp.MustCompile(`\b(AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b`), 0, 0},
+	{"AWS secret key", regexp.MustCompile(`(?i)aws.{0,20}secret.{0,20}?['"]?\s*[:=]\s*['"]?([A-Za-z0-9/+]{40})\b`), 1, 0},
+	{"Slack token", regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}|\bxapp-[A-Za-z0-9-]{20,}`), 0, 0},
+	{"Slack webhook", regexp.MustCompile(`https://hooks\.slack\.com/services/T[A-Za-z0-9_]+/B[A-Za-z0-9_]+/[A-Za-z0-9_]+`), 0, 0},
+	{"Anthropic key", regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_\-]{20,}`), 0, 0},
+	{"OpenAI key", regexp.MustCompile(`\bsk-(proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}T3BlbkFJ[A-Za-z0-9_\-]{20,}|\bsk-(proj-|svcacct-|admin-)[A-Za-z0-9_\-]{40,}`), 0, 0},
+	{"Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_\-]{35}\b`), 0, 0},
+	{"Stripe key", regexp.MustCompile(`\b[sr]k_(?:live|test)_([0-9A-Za-z]{20,})`), 0, 1},
+	{"Stripe webhook secret", regexp.MustCompile(`\bwhsec_[A-Za-z0-9+/=]{24,}`), 0, 0},
+	{"JWT", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`), 0, 0},
+	{"npm token", regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`), 0, 0},
+	{"Telegram bot", regexp.MustCompile(`\b[0-9]{8,10}:AA[0-9A-Za-z_\-]{33}\b`), 0, 0},
 }
 
 // assignment: password=…, secret: "…", api_key = '…'. The name, the quote and the value.
@@ -54,8 +59,38 @@ var assignment = regexp.MustCompile(`(?i)([A-Za-z0-9_.\-]*(?:passw(?:or)?d|pwd|s
 // candidate: a long run of the characters keys are made of, for the entropy check.
 var candidate = regexp.MustCompile(`[A-Za-z0-9+/_\-=.]{32,}`)
 
-// Placeholders: what a value that is not a real secret looks like.
-var placeholder = regexp.MustCompile(`(?i)example|sample|dummy|fake|placeholder|redacted|changeme|change_me|your[_\-]|<|>|xxxx|\*\*\*|\.\.\.|…|test`)
+// Placeholders: what a value that is not a real secret looks like. "test" and "fake" only as a word of their
+// own (my-test-key, fake_token): "Latest2024", "contest", "attestation" are no placeholders.
+var placeholder = regexp.MustCompile(`(?i)example|sample|dummy|placeholder|redacted|changeme|change_me|your[_\-]|<|>|xxxx|\*\*\*|\.\.\.|…|(^|[^a-z0-9])(test|fake)([^a-z0-9]|$)`)
+
+// placeholderName: a name that says its value is made up: test_password, fakeToken, MOCK_SECRET, exampleKey.
+var placeholderName = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(^|[^a-z])(test|example|sample|dummy|fake|mock)`),
+	regexp.MustCompile(`[a-z](Test|Example|Sample|Dummy|Fake|Mock)([A-Z_.\-]|$)`),
+}
+
+func madeUpName(name string) bool {
+	return placeholderName[0].MatchString(name) || placeholderName[1].MatchString(name)
+}
+
+// connection: a URL with the password in it: postgres://app:s3cr3t@db/app. The user and the password.
+var connection = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.\-]*://([^/\s:@]+):([^@\s/]{6,})@`)
+
+// defaultPassword: a password a local setup uses and nobody keeps secret.
+var defaultPassword = regexp.MustCompile(`(?i)^(password|pass|passwd|secret|root|admin)$`)
+
+// hexKey: a hex string of a key's length under a name that says it is one: signing_key = "9f8e…".
+var hexKey = regexp.MustCompile(`(?i)([A-Za-z0-9_.\-]*(?:key|secret|token|signing|hmac|salt|auth|cred|session|private)[A-Za-z0-9_.\-]*)["']?\s*(?::=|=>|[:=])\s*["'` + "`" + `]?([0-9a-f]{32,64})\b`)
+
+// aboutHash: a name of a hash, an id or a version, whose hex value is public.
+var aboutHash = []string{"cache", "sha", "md5", "checksum", "digest", "etag", "commit", "fingerprint", "version", "integrity", "hash", "id", "uuid", "guid"}
+
+// longLine: a line longer than that is minified code or a data URI; only the known formats are looked for in
+// it, a window at a time, the windows overlapping by more than the longest token.
+const (
+	longLine = 4000
+	overlap  = 300
+)
 
 // reference: a value read from somewhere else, not written in: $VAR, ${…}, {{ … }}, %(…)s, os.Getenv(…).
 var reference = regexp.MustCompile(`^(\$|%|\{\{|#\{|@|env\b|process\.env|os\.|System\.|getenv|ENV\[|config\.|settings\.|secrets\.|vault:)`)
@@ -114,29 +149,26 @@ func Scan(diff string, allowed map[string]bool) []Finding {
 
 // Line: what of one line of the file looks like a secret; Line and Commit are left for the caller.
 func Line(file, text string) []Finding {
-	if len(text) > 4000 || skipFile(file) {
-		return nil // minified code, a data URI: not where someone writes a token
+	if skipFile(file) {
+		return nil
 	}
 	key := Key(file, text)
-	var out []Finding
 	taken := map[string]bool{}
-	for _, r := range rules {
-		for _, m := range r.re.FindAllStringSubmatch(text, -1) {
-			v := m[r.group]
-			if r.kind != "private key" && (placeholder.MatchString(v) || entropy(v) < 3) {
-				continue
+	if len(text) > longLine {
+		// Minified code, a data URI: the generic checks would see keys everywhere, the known formats do not.
+		var out []Finding
+		for at := 0; at < len(text); at += longLine - overlap {
+			out = append(out, known(file, key, text[at:min(len(text), at+longLine)], taken)...)
+			if at+longLine >= len(text) {
+				break
 			}
-			taken[v] = true
-			f := Finding{File: file, Kind: r.kind, Key: key}
-			if r.kind != "private key" {
-				f.Masked = Mask(v)
-			}
-			out = append(out, f)
 		}
-	}
-	if len(out) > 0 {
 		return out
 	}
+	if out := known(file, key, text, taken); len(out) > 0 {
+		return out
+	}
+	var out []Finding
 	// The generic checks: not in tests, fixtures and docs, where examples live.
 	if exampleFile(file) {
 		return nil
@@ -148,6 +180,23 @@ func Line(file, text string) []Finding {
 		}
 		taken[v] = true
 		out = append(out, Finding{File: file, Kind: "password or secret in code (" + name + ")", Masked: Mask(v), Key: key})
+	}
+	for _, m := range connection.FindAllStringSubmatch(text, -1) {
+		user, v := m[1], m[2]
+		if taken[v] || v == user || defaultPassword.MatchString(v) || reference.MatchString(v) || strings.HasPrefix(v, "${") ||
+			placeholder.MatchString(v) || entropy(v) < 2 {
+			continue
+		}
+		taken[v] = true
+		out = append(out, Finding{File: file, Kind: "password in a connection string", Masked: Mask(v), Key: key})
+	}
+	for _, m := range hexKey.FindAllStringSubmatch(text, -1) {
+		name, v := m[1], m[2]
+		if taken[v] || madeUpName(name) || hashName(name) || entropy(v) < 3 {
+			continue
+		}
+		taken[v] = true
+		out = append(out, Finding{File: file, Kind: "hex key (" + name + ")", Masked: Mask(v), Key: key})
 	}
 	if len(out) > 0 {
 		return out
@@ -163,9 +212,65 @@ func Line(file, text string) []Finding {
 	return out
 }
 
+// known: the tokens of the known formats in text.
+func known(file, key, text string, taken map[string]bool) []Finding {
+	var out []Finding
+	for _, r := range rules {
+		for _, m := range r.re.FindAllStringSubmatch(text, -1) {
+			v := m[r.group]
+			body := v
+			if r.body > 0 {
+				body = m[r.body]
+			}
+			if taken[v] || r.kind != "private key" && (placeholder.MatchString(body) || entropy(body) < 3) {
+				continue
+			}
+			taken[v] = true
+			f := Finding{File: file, Kind: r.kind, Key: key}
+			if r.kind != "private key" {
+				f.Masked = Mask(v)
+			}
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// hashName: cache_key, commit_sha, etag, session_id: the hex under it names something, it is no key. The name is
+// read by its words (shared_secret has "shared" and "secret", not "sha"), split at _ - . and at capitals.
+func hashName(name string) bool {
+	words := nameWords(name)
+	for i, w := range words {
+		// "id" names what the name is of only at its end: session_id, userId; not id_signing_key.
+		if w == "id" && i < len(words)-1 {
+			continue
+		}
+		if slices.Contains(aboutHash, w) || shaN.MatchString(w) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	shaN      = regexp.MustCompile(`^sha\d+$`) // sha1, sha256
+	wordParts = regexp.MustCompile(`[A-Z]+[a-z0-9]*|[a-z0-9]+`)
+)
+
+// nameWords: "sessionId" → session, id; "MASTER_KEY" → master, key; "x-cache.key" → x, cache, key.
+func nameWords(name string) []string {
+	var out []string
+	for _, part := range regexp.MustCompile(`[^A-Za-z0-9]+`).Split(name, -1) {
+		for _, w := range wordParts.FindAllString(part, -1) {
+			out = append(out, strings.ToLower(w))
+		}
+	}
+	return out
+}
+
 // literal: the value of password=… is written in, not taken from elsewhere, and is not a placeholder.
 func literal(file, name, quote, v string) bool {
-	if len(v) < 6 || reference.MatchString(v) || placeholder.MatchString(v) || naming.MatchString(v) || entropy(v) < 2 {
+	if len(v) < 6 || reference.MatchString(v) || placeholder.MatchString(v) || naming.MatchString(v) || entropy(v) < 2 || madeUpName(name) {
 		return false
 	}
 	lower := strings.ToLower(name)

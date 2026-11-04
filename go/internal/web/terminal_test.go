@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,6 +85,25 @@ func TestGuardNeedsToken(t *testing.T) {
 		res.Body.Close()
 		if res.StatusCode != 403 {
 			t.Errorf("%s: %d", q, res.StatusCode)
+		}
+	}
+}
+
+// The worktree's pre-push hook: a token Mako did not give stops the push, and the body says why.
+func TestPrePushNeedsToken(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d}).Handler())
+	defer srv.Close()
+	for _, q := range []string{"id=a%231", "id=a%231&token=", "id=a%231&token=bad"} {
+		res, err := http.Post(srv.URL+"/prepush?"+q, "text/plain", strings.NewReader("refs/heads/x 1 refs/heads/x 0\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != 403 || !strings.Contains(string(body), "Mako stopped the push") {
+			t.Errorf("%s: %d %q", q, res.StatusCode, body)
 		}
 	}
 }

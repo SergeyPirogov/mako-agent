@@ -81,6 +81,18 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 	}
 	gctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
+	// The update pushes the branch: what it carries is checked first, as any push is.
+	if found, err := d.CheckSecrets(gctx, r.ID); err != nil || len(found) > 0 {
+		why := fmt.Sprintf("branch not updated from %s: the changes look like they contain secrets", base)
+		if err != nil {
+			why = fmt.Sprintf("branch not updated from %s: the secrets check failed: %s", base, err)
+		}
+		if why != last.said {
+			d.Log(r.ID, why)
+			last.said = why
+		}
+		return
+	}
 	s, err := gitx.UpdateFromBase(gctx, wt, base, branchOf(r), mode)
 	if err != nil {
 		why := err.Error()
