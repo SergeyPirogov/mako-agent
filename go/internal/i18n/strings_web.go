@@ -11,6 +11,13 @@ var webStrings = map[string]string{
 	"b.confirm.ok":     "OK",
 	"b.confirm.cancel": "Cancel",
 
+	// A POST from the board that got no JSON answer.
+	"b.net.noAnswer":  "Mako did not answer. Try again in a moment.",
+	"b.say.failed":    "The message was not sent: Mako did not answer. It is back in the field, send it again.",
+	"b.say.gone":      "The message was not sent: the task is gone. It is back in the field.",
+	"b.attach.failed": "The picture did not upload.",
+	"b.attach.gone":   "The picture did not upload: the task is gone.",
+
 	// The settings page.
 	"s.title":           "Settings",
 	"s.toBoard":         "← Board",
