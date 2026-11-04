@@ -159,7 +159,8 @@ type Session struct {
 	limitHit      bool
 	limitedUntil  int64
 	resumeOnReset bool
-	authFailed    bool // a message of the turn going on said the login failed: the turn's result shows once, as an "auth" item
+	authFailed    bool   // a message of the turn going on said the login failed: the turn's result shows once, as an "auth" item
+	authSaid      string // ...and what it said, shown should the result not come
 	lastLimits    Limits
 	sessionID     string
 	mode          string
@@ -285,6 +286,7 @@ func (s *Session) run() {
 		}
 		s.add(Item{Kind: "error", Text: "agent exited: " + tail(msg, 600)})
 	}
+	s.authLost()
 	s.end()
 }
 
@@ -437,9 +439,16 @@ func (s *Session) handle(line []byte) {
 		}
 		json.Unmarshal(e.Message, &m)
 		if e.Error == "authentication_failed" {
-			// The login failed: its text comes again as the turn's result, which is shown as one card.
+			// The login failed: its text comes again as the turn's result, which is shown as one card. Kept meanwhile,
+			// so it is not lost if the result never comes.
+			var said strings.Builder
+			for _, c := range m.Content {
+				if c.Type == "text" {
+					said.WriteString(c.Text)
+				}
+			}
 			s.mu.Lock()
-			s.authFailed = true
+			s.authFailed, s.authSaid = true, strings.TrimSpace(said.String())
 			s.mu.Unlock()
 			return
 		}
@@ -577,10 +586,10 @@ func (s *Session) handle(line []byte) {
 			s.o.OnLimits(l)
 		}
 	case "result":
-		authCut := s.authCut(e.IsError, e.Result)
+		authCut, authShown := s.authCut(e.IsError, e.Result)
 		switch {
 		case authCut:
-			s.add(Item{Kind: "auth", Text: e.Result, At: at})
+			s.add(Item{Kind: "auth", Text: authShown, At: at})
 		case e.IsError && e.Result != "":
 			s.add(Item{Kind: "error", Text: e.Result, At: at})
 		}
@@ -616,7 +625,7 @@ func (s *Session) handle(line []byte) {
 		case authCut:
 			s.setState("auth")
 			if f := s.o.OnAuth; f != nil {
-				f(true, e.Result)
+				f(true, authShown)
 			}
 		case s.limitCut(e.IsError, e.Result):
 			s.setState("limited")
@@ -646,14 +655,37 @@ func (s *Session) armIdleLocked() {
 // authText: what Claude Code says when the login failed, should the message not be marked as such.
 var authText = regexp.MustCompile(`(?i)failed to authenticate|claude auth login|invalid api key|please run /login`)
 
-// authCut tells whether the turn that just ended failed on the Claude login: a synthetic message said so, or its
-// error result does in words. The flag of the turn is cleared either way.
-func (s *Session) authCut(isError bool, result string) bool {
+// authCut tells whether the turn that just ended failed on the Claude login, and what to show of it: a synthetic
+// message said so (whatever the result says: the login did fail), or the error result does in words. The flag of
+// the turn is cleared either way.
+func (s *Session) authCut(isError bool, result string) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	marked := s.authFailed
-	s.authFailed = false
-	return isError && (marked || authText.MatchString(result))
+	marked, said := s.authFailed, s.authSaid
+	s.authFailed, s.authSaid = false, ""
+	if marked {
+		if strings.TrimSpace(result) == "" {
+			result = said
+		}
+		return true, result
+	}
+	return isError && authText.MatchString(result), result
+}
+
+// authLost: the process ended in the middle of a turn whose login failure was told but whose result never came:
+// the failure is shown and told to Mako all the same.
+func (s *Session) authLost() {
+	s.mu.Lock()
+	marked, said := s.authFailed, s.authSaid
+	s.authFailed, s.authSaid = false, ""
+	s.mu.Unlock()
+	if !marked {
+		return
+	}
+	s.add(Item{Kind: "auth", Text: said})
+	if f := s.o.OnAuth; f != nil {
+		f(true, said)
+	}
 }
 
 // limitText: what Claude Code says when the limit cut the turn ("You've hit your session limit · resets 3pm").

@@ -142,3 +142,45 @@ func TestAuthStateIsIdle(t *testing.T) {
 		t.Fatalf("State %q, want auth", st)
 	}
 }
+
+// The marked message is not lost when the result does not confirm it: a result that is not an error still ends the
+// turn as a failed login, with the message's words.
+func TestAuthMarkedWithoutErrorResult(t *testing.T) {
+	var a authCalls
+	s, _ := limitSession(Options{OnAuth: a.on})
+	defer s.Stop()
+	s.handle([]byte(authAssistant))
+	s.handle([]byte(`{"type":"result","subtype":"success","is_error":false,"result":"","duration_ms":10}`))
+	n := itemKinds(s)
+	if n["auth"] != 1 || n["text"] != 0 || s.Snapshot().State != "auth" {
+		t.Fatalf("items %v, state %q", n, s.Snapshot().State)
+	}
+	for _, it := range s.Snapshot().Items {
+		if it.Kind == "auth" && !strings.Contains(it.Text, "Failed to authenticate") {
+			t.Fatalf("card text %q", it.Text)
+		}
+	}
+	if got := a.get(); len(got) != 1 || !strings.HasPrefix(got[0], "failed:") {
+		t.Fatalf("OnAuth calls %v", got)
+	}
+}
+
+// The process dies after the marked message, before any result: the failure is still shown and told to Mako.
+func TestAuthMarkedProcessEnds(t *testing.T) {
+	var a authCalls
+	s, _ := limitSession(Options{OnAuth: a.on})
+	defer s.Stop()
+	s.handle([]byte(authAssistant))
+	s.authLost() // what run does when the process has ended
+	n := itemKinds(s)
+	if n["auth"] != 1 || n["text"] != 0 {
+		t.Fatalf("items %v", n)
+	}
+	if got := a.get(); len(got) != 1 || !strings.Contains(got[0], "Failed to authenticate") {
+		t.Fatalf("OnAuth calls %v", got)
+	}
+	s.authLost() // once only
+	if n := itemKinds(s); n["auth"] != 1 || len(a.get()) != 1 {
+		t.Fatalf("told twice: %v %v", n, a.get())
+	}
+}
