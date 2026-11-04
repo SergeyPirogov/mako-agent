@@ -86,8 +86,9 @@ func (d *Dispatcher) pollReviews(ctx context.Context, t trackers.Tracker) {
 		d.Reviews.Update(f.ID, func(r *core.ReviewRequest) {
 			// New commits since it was last seen; a review asked again after it was done is news too.
 			updated := r.Updated || known && (reopened || prev.HeadSHA != "" && f.HeadSHA != prev.HeadSHA)
+			draft := r.Draft // Mako's, not the code host's: the search knows nothing of it
 			*r = f
-			r.Since, r.Updated, r.State = since, updated, "open"
+			r.Since, r.Updated, r.State, r.Draft = since, updated, "open", draft
 		})
 		if !known {
 			d.Log(f.ID, "you were assigned as reviewer: "+f.Title)
