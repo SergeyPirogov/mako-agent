@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,7 +19,17 @@ import (
 	"time"
 )
 
-var client = &http.Client{Timeout: 30 * time.Second}
+// client dials for dialTimeout at most: a host behind a VPN that is off, whose packets vanish, is told from a slow
+// answer by its dial failing (see hostBreakers); the request as a whole may take 30 s.
+var client = &http.Client{Timeout: 30 * time.Second, Transport: dialingTransport()}
+
+const dialTimeout = 10 * time.Second
+
+func dialingTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
+	return t
+}
 
 // HTTPError keeps the status, so callers can tell «deleted» (404) from a failure.
 type HTTPError struct {
@@ -62,7 +74,7 @@ func call(ctx context.Context, method, rawURL string, headers map[string]string,
 		return err
 	}
 	key := ""
-	if method == "GET" {
+	if _, text := out.(*string); method == "GET" && !text { // a job's log is hardly ever asked again unchanged
 		key = etagKey(rawURL, headers)
 	}
 	for attempt := 0; ; attempt++ {
@@ -87,7 +99,7 @@ func call(ctx context.Context, method, rawURL string, headers map[string]string,
 		}
 		res, err := client.Do(req)
 		if err != nil {
-			if ctx.Err() == nil {
+			if ctx.Err() == nil && noConnection(err) {
 				breakers.failed(host, err)
 			}
 			return err
@@ -205,9 +217,18 @@ func hostOf(raw string) string {
 
 // --- the hosts that do not answer
 
-// A host that failed to answer breakAfter requests in a row (no connection, a timeout) is not asked again for
-// breakFor: a dead host costs one timeout per minute, not one per task in every round of the dispatcher.
+// A host that could not be connected to breakAfter requests in a row (refused, unreachable, not found, a dial that
+// timed out) is not asked again for breakFor: a dead host costs one dial timeout per minute, not one per task in
+// every round of the dispatcher. A request that timed out after the connection (a big diff, a job's log) says the
+// endpoint is slow, not the host dead: it does not count, or two of them would shut out the comments and statuses.
 const breakAfter = 2
+
+// noConnection: the request did not get through to the host.
+func noConnection(err error) bool {
+	var dns *net.DNSError
+	var op *net.OpError
+	return errors.As(err, &dns) || errors.As(err, &op) && op.Op == "dial"
+}
 
 var breakFor = time.Minute
 
@@ -275,7 +296,8 @@ func (b *hostBreakers) answered(host string) {
 // the kept answer back. GitHub does not count a 304 against the rate limit.
 var etags = &etagCache{items: map[string]etagItem{}}
 
-const etagsMax, etagBodyMax = 512, 1 << 20
+// etagsMax answers, etagBodyMax bytes for one, etagBytesMax bytes for all: at most 32 MB are kept.
+const etagsMax, etagBodyMax, etagBytesMax = 512, 1 << 20, 32 << 20
 
 type etagItem struct {
 	tag  string
@@ -285,6 +307,7 @@ type etagItem struct {
 type etagCache struct {
 	mu    sync.Mutex
 	items map[string]etagItem
+	bytes int // the bodies kept
 }
 
 // etagKey: the URL and the credentials (another token may see other things).
@@ -313,10 +336,15 @@ func (c *etagCache) put(key, tag string, body []byte) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.items) >= etagsMax {
-		c.items = map[string]etagItem{} // full: begun anew rather than tracking which is oldest
+	if old, ok := c.items[key]; ok {
+		c.bytes -= len(old.body)
+		delete(c.items, key)
+	}
+	if len(c.items) >= etagsMax || c.bytes+len(body) > etagBytesMax {
+		c.items, c.bytes = map[string]etagItem{}, 0 // full: begun anew rather than tracking which is oldest
 	}
 	c.items[key] = etagItem{tag: tag, body: body}
+	c.bytes += len(body)
 }
 
 // multipartBody is a form with one file, for call: GitLab's uploads.

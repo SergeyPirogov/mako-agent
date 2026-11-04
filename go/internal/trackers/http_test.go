@@ -263,3 +263,75 @@ func TestAllPagesBounds(t *testing.T) {
 		t.Errorf("a failed page: %d %v", n, err)
 	}
 }
+
+// The ETags kept never weigh more than etagBytesMax, and a text answer (a job's log) is not kept at all.
+func TestETagCacheBounds(t *testing.T) {
+	c := &etagCache{items: map[string]etagItem{}}
+	body := make([]byte, etagBodyMax)
+	for i := 0; i < etagBytesMax/etagBodyMax; i++ {
+		c.put(fmt.Sprint(i), "t", body)
+	}
+	if len(c.items) != etagBytesMax/etagBodyMax || c.bytes != etagBytesMax {
+		t.Fatalf("full: %d answers, %d bytes", len(c.items), c.bytes)
+	}
+	c.put("one more", "t", body)
+	if len(c.items) != 1 || c.bytes != etagBodyMax {
+		t.Fatalf("over the limit: %d answers, %d bytes", len(c.items), c.bytes)
+	}
+	// The same URL again replaces its answer; a too big one is not kept.
+	c.put("one more", "t2", body[:10])
+	c.put("big", "t", make([]byte, etagBodyMax+1))
+	if it, _ := c.get("one more"); len(c.items) != 1 || c.bytes != 10 || it.tag != "t2" {
+		t.Fatalf("replaced: %d answers, %d bytes, %+v", len(c.items), c.bytes, it)
+	}
+
+	var full atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("If-None-Match") != "" {
+			t.Error("a text answer was asked again conditionally")
+		}
+		full.Add(1)
+		w.Header().Set("ETag", `"log"`)
+		w.Write([]byte("line"))
+	}))
+	defer srv.Close()
+	for i := 0; i < 2; i++ {
+		var log string
+		if err := call(context.Background(), "GET", srv.URL+"/log", nil, nil, &log, nil); err != nil || log != "line" {
+			t.Fatalf("%v %q", err, log)
+		}
+	}
+	if full.Load() != 2 {
+		t.Fatalf("asked %d times", full.Load())
+	}
+}
+
+// A request that timed out on a slow endpoint does not shut the host: only a failed connection counts.
+func TestSlowAnswerDoesNotRestHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(2 * time.Second):
+			}
+			return
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	old := client
+	client = &http.Client{Timeout: 50 * time.Millisecond}
+	t.Cleanup(func() { client = old })
+	host := hostOf(srv.URL)
+	for i := 0; i < breakAfter+2; i++ {
+		if err := call(context.Background(), "GET", srv.URL+"/slow", nil, nil, nil, nil); err == nil || errors.As(err, new(*HostDown)) {
+			t.Fatalf("try %d: %v", i, err)
+		}
+	}
+	if err := breakers.closed(host); err != nil {
+		t.Fatalf("the host rests after slow answers: %v", err)
+	}
+	if err := call(context.Background(), "GET", srv.URL+"/fast", nil, nil, nil, nil); err != nil {
+		t.Fatalf("a quick request after the slow ones: %v", err)
+	}
+}
