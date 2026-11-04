@@ -1117,8 +1117,8 @@ func TestBoardBlockerRowsOneLine(t *testing.T) {
 			t.Errorf("blockersHTML is missing %q", want)
 		}
 	}
-	if n := strings.Count(body, "blkRow("); n != 4 {
-		t.Errorf("blkRow wraps %d rows in blockersHTML, want 4 (conflicts, CI, comments, reviewer)", n)
+	if n := strings.Count(body, "blkRow("); n != 5 {
+		t.Errorf("blkRow wraps %d rows in blockersHTML, want 5 (conflicts, CI, comments, reviewer, check it yourself)", n)
 	}
 	css := string(style)
 	for _, want := range []string{

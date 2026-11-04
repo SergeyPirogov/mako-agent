@@ -314,6 +314,26 @@ func TestChecks(t *testing.T) {
 	}
 }
 
+// «Check it yourself»: advised by default and for a value Mako does not know; a repo's «Try this build» command
+// is kept trimmed.
+func TestSelfCheckAndTry(t *testing.T) {
+	for raw, want := range map[string]string{`{}`: "advised", `{"selfCheck":"always"}`: "always", `{"selfCheck":" off "}`: "off", `{"selfCheck":"sometimes"}`: "advised"} {
+		if c, err := Parse([]byte(raw), nil); err != nil || c.SelfCheck != want {
+			t.Errorf("%s: %q, %v; want %q", raw, c.SelfCheck, err, want)
+		}
+	}
+	cfg, err := Parse([]byte(`{"trackers": [{"type": "github", "projects": {"acme/web": {"try": " npm run dev -- --port $PORT "}, "acme/api": {}}}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if web := cfg.Trackers[0].Projects["acme/web"].Repos["web"]; web.Try != "npm run dev -- --port $PORT" {
+		t.Errorf("try %q", web.Try)
+	}
+	if api := cfg.Trackers[0].Projects["acme/api"].Repos["api"]; api.Try != "" {
+		t.Errorf("try %q", api.Try)
+	}
+}
+
 // Without a chosen mode the agent starts in auto, also with AutoTake and AutoFix; a chosen mode is kept (#588).
 func TestDefaultPermissionMode(t *testing.T) {
 	for raw, want := range map[string]string{

@@ -123,6 +123,8 @@ type recordView struct {
 	Reviewable bool `json:"reviewable,omitempty"`
 	// SelfCheckNew: how many commits the branch got after your «Check it yourself» tick; 0: up to date or no tick.
 	SelfCheckNew int `json:"selfCheckNew,omitempty"`
+	// Self: the «Check it yourself» steps and their ticks; nil when nothing is asked of you.
+	Self *dispatch.SelfCheckView `json:"self,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
 	// CIWait: the MR in review is open and its CI still runs.
@@ -263,6 +265,7 @@ func (s *Server) Handler() http.Handler {
 			v.ReviewBlocks = s.D.ReviewBlocks(rec)
 			v.Reviewable = s.D.Reviewable(rec)
 			v.SelfCheckNew = s.D.SelfCheckBehind(rec)
+			v.Self = s.D.SelfView(rec)
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
 				v.CIWait = s.D.CIWait(rec)
@@ -755,6 +758,23 @@ func (s *Server) Handler() http.Handler {
 		case "selfcheck":
 			// «Check it yourself»: the tick is the task's, with the branch's HEAD it was set at.
 			if err := s.D.SelfCheck(id, r.URL.Query().Get("on") == "1"); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "selfstep":
+			// A step of «Check it yourself»: n from 0; why, when it is ticked without «Try this build».
+			q := r.URL.Query()
+			n, err := strconv.Atoi(q.Get("n"))
+			if err == nil {
+				err = s.D.SelfStep(id, n, q.Get("on") == "1", strings.TrimSpace(q.Get("why")))
+			}
+			if err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "selfskip":
+			// «Skip» of the check: the merge goes on without it, for the reason given.
+			if err := s.D.SelfSkip(id, r.URL.Query().Get("why")); err != nil {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}

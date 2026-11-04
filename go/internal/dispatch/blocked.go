@@ -64,6 +64,9 @@ func (d *Dispatcher) MergeReady(r core.Record) bool {
 	if d.ReviewBlocks(r) {
 		return false
 	}
+	if _, _, blocks := d.SelfBlocks(r); blocks {
+		return false
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	l, ok := d.reviews[r.ID]

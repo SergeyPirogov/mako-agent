@@ -71,6 +71,8 @@ func TestCardByState(t *testing.T) {
 			return r
 		}(), nil), "merge", "skip skip done done now"},
 		{"MR, reviewer running", view(mr, func(v *recordView) { v.ReviewStep = "running" }), "open-mr", "skip skip done now todo"},
+		{"MR, check it yourself left", view(mr, func(v *recordView) { v.Self = &dispatch.SelfCheckView{Required: true, Left: 1, Blocks: true} }), "open-mr", "skip skip done done now"},
+		{"MR, checked yourself", view(mr, func(v *recordView) { v.Self = &dispatch.SelfCheckView{Required: true, Done: true} }), "merge", "skip skip done done now"},
 		{"MR, agent fixing the remarks", view(func() core.Record {
 			r := mr
 			r.AgentReviews = []core.AgentReview{{State: "notes", Sent: true}}

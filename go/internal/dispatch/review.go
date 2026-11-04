@@ -274,6 +274,10 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	if Assessing(r) {
 		return fmt.Errorf("the agent is still judging whether a review is needed: you can merge once it decides")
 	}
+	if left, total, blocks := d.SelfBlocks(r); blocks {
+		return fmt.Errorf("check it yourself: %d of %d %s left: tick them or skip the check", left, total, map[bool]string{true: "step", false: "steps"}[total == 1])
+	}
+	checked := d.selfAtMerge(r)
 	desk, err := d.desk(ctx, id)
 	if err != nil {
 		return err
@@ -287,6 +291,7 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 		return err
 	}
 	d.forgetReview(id)
+	d.Store.UpdateIfExists(id, func(r *core.Record) { r.CheckedAtMerge = checked })
 	d.Log(id, "MR merged from the board")
 	d.Wake()
 	return nil

@@ -701,6 +701,16 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .mr-advice.self.done .chk { background: var(--ok); border-color: var(--ok); }
 .mr-advice.self.done b { font-size: 12px; font-weight: 500; color: var(--mute); }
 .mr-advice.self.done .mr-why { color: var(--faint); opacity: 1; }
+.mr-advice.self > .mi { margin-top: 2px; }
+/* The steps: a box to tick on the left of each, the step's text beside it. */
+.self-steps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.self-steps .st { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.45; }
+.self-steps .st-t { min-width: 0; overflow-wrap: anywhere; }
+.self-steps .st-exp { color: var(--mute); }
+.self-steps .st-stale { display: block; color: var(--warn); font-size: 11.5px; }
+.self-steps .st.on .chk { background: var(--ok); border-color: var(--ok); }
+.self-steps .st.on .st-t { color: var(--mute); }
+.mr-advice.self.done .self-steps .st-t { color: var(--faint); }
 .mi.eye { color: var(--warn); }
 .mi { flex: none; }
 .mi.bad { color: var(--err); } .mi.ok { color: var(--ok); } .mi.run { color: var(--accent); } .mi.idle { color: var(--faint); } .mi.talk { color: var(--warn); }
@@ -1545,6 +1555,7 @@ section.ws > .code-ask { flex: 1; min-height: 0; display: flex; flex-direction: 
 .confirm-box { padding: 18px 20px; }
 .confirm-dlg p { margin: 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .confirm-a { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.confirm-in { display: block; width: 100%; margin-top: 12px; box-sizing: border-box; }
 .confirm-a button.danger { color: #fff; background: var(--err); border-color: var(--err); font-weight: 600; }
 .confirm-a button.danger:hover { opacity: .9; background: var(--err); }
 /* Merge in the dialog: an outline in the ready-to-merge green, like .merge-go on the task card. */

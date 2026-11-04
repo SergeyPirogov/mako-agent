@@ -38,6 +38,7 @@
   "codeAsk": {
     "model": "haiku"
   },
+  "selfCheck": "advised",
   "agentReview": {
     "model": "",
     "comments": "mr",
@@ -117,6 +118,7 @@
               "setup": "npm install",
               "branchPattern": "{type}/{id}-{title}",
               "checks": ["npm run lint", "npm test"],
+              "try": "npm run dev -- --port $PORT",
               "routeMode": "quality"
             },
             "web": {

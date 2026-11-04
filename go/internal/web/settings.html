@@ -110,6 +110,7 @@ textarea { min-height: 120px; font: 12.5px/1.5 var(--mono); resize: vertical; }
 .projects .watch-checks .cost { display: inline-flex; align-items: center; gap: 6px; }
 .projects .watch-checks .cost input { width: 64px; }
 .projects .watch-row textarea { width: 100%; min-height: 34px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.projects .checks-row .try-in { width: 100%; margin-top: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .projects .checks-row textarea { width: 100%; min-height: 34px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
@@ -510,7 +511,14 @@ function projectsTable(tk) {
     if (!multi) {
       const cr = document.createElement("tr");
       cr.className = "checks-row";
-      cr.innerHTML = `<td colspan="6"><textarea rows="1" placeholder="${esc(t("s.pr.checksPh"))}" title="${esc(t("s.pr.checksTitle"))}"></textarea></td><td></td>`;
+      cr.innerHTML = `<td colspan="6"><textarea rows="1" placeholder="${esc(t("s.pr.checksPh"))}" title="${esc(t("s.pr.checksTitle"))}"></textarea>
+        <input type="text" class="try-in" data-try placeholder="${esc(t("s.pr.tryPh"))}" title="${esc(t("s.pr.tryTitle"))}" value="${esc(p?.try ?? "")}"></td><td></td>`;
+      const tryIn = cr.querySelector("[data-try]");
+      tryIn.oninput = () => {
+        const pp = (tk.projects[current] ??= {});
+        if (tryIn.value.trim()) pp.try = tryIn.value.trim(); else delete pp.try;
+        changed();
+      };
       const ta = cr.querySelector("textarea");
       ta.value = (p?.checks ?? []).join("\n");
       const fit = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
@@ -679,6 +687,7 @@ function renderOrca() {
     cfg.agentReview ??= {};
     const ar = cfg.agentReview;
     box.append(text(ar, "model", t("s.o.reviewer"), { placeholder: t("s.o.reviewerPh"), hint: t("s.o.reviewerHint") }));
+    box.append(select(cfg, "selfCheck", t("s.o.selfCheck"), [["advised", t("s.o.selfCheckAdvised")], ["always", t("s.o.selfCheckAlways")], ["off", t("s.o.selfCheckOff")]], { def: "advised", hint: t("s.o.selfCheckHint") }));
     box.append(select(ar, "comments", t("s.o.reviewComments"), [["", t("s.o.reviewCommentsOff")], ["issue", t("s.o.reviewCommentsIssue")], ["mr", t("s.o.reviewCommentsMR")], ["both", t("s.o.reviewCommentsBoth")]], { hint: t("s.o.reviewCommentsHint") }));
   }
   const more = document.createElement("details");
