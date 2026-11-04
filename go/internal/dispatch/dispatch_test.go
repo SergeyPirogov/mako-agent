@@ -317,6 +317,36 @@ func TestTaskLifecycle(t *testing.T) {
 	}
 }
 
+// A cause is written with its kind, so the statistics count it once whatever language the text is in; starting
+// the task again clears it with the error.
+func TestFailureKindIsWritten(t *testing.T) {
+	d, f, _ := setup(t)
+	ctx := context.Background()
+	d.Poll(ctx)
+	id := "grp/app#5"
+	d.Take(ctx, id)
+	d.Wait()
+	r, _ := d.Store.Get(id)
+	f.mu.Lock()
+	f.mrs = append(f.mrs, map[string]any{"iid": 9, "state": "opened", "web_url": f.base + "/grp/app/-/merge_requests/9",
+		"source_branch": r.Branch, "title": "Fix", "description": "## What changed\n- x\n"})
+	f.mu.Unlock()
+	d.CheckHandoffs(ctx)
+	f.mu.Lock()
+	f.mrs[0]["state"] = "closed"
+	f.mu.Unlock()
+	d.CheckMerges(ctx)
+	r, _ = d.Store.Get(id)
+	if r.Status != core.Failed || r.ErrorKind != core.KindMRClosed {
+		t.Fatalf("closed MR: status %s, error %q, kind %q", r.Status, r.Error, r.ErrorKind)
+	}
+
+	d.Cancel(id)
+	if r, _ = d.Store.Get(id); r.Status != core.Cancelled || r.ErrorKind != core.KindCancelled {
+		t.Fatalf("cancel: status %s, error %q, kind %q", r.Status, r.Error, r.ErrorKind)
+	}
+}
+
 // The issue goes to review only after CI: in work while it runs, «Заблоковані» on the board when it fails, and
 // the tracker's review status with the comment once it passes.
 func TestReviewWaitsForCI(t *testing.T) {

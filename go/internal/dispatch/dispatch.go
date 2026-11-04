@@ -469,7 +469,7 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 	case r.Status == core.Cancelled && r.Gone != "":
 		d.Log(task.ID, "reopened in the tracker")
 		d.Store.Update(task.ID, func(r *core.Record) {
-			r.Task, r.Status, r.SnoozedUntil, r.PostponedByYou, r.Gone, r.Error, r.ArchivedAt = withComments(task, r.Task), core.Snoozed, 0, false, "", "", 0
+			r.Task, r.Status, r.SnoozedUntil, r.PostponedByYou, r.Gone, r.Error, r.ErrorKind, r.ArchivedAt = withComments(task, r.Task), core.Snoozed, 0, false, "", "", "", 0
 		})
 		d.maybeEstimate(task.ID)
 	case r.Status == core.Asking || r.Status == core.Snoozed:
@@ -576,7 +576,7 @@ func (d *Dispatcher) take(ctx context.Context, id, said string) {
 		return
 	}
 	d.Store.Update(id, func(r *core.Record) {
-		r.Status, r.Error, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt, r.AutoSkip = core.Queued, "", 0, false, 0, ""
+		r.Status, r.Error, r.ErrorKind, r.SnoozedUntil, r.PostponedByYou, r.ArchivedAt, r.AutoSkip = core.Queued, "", "", 0, false, 0, ""
 	})
 	d.Log(id, said)
 	d.schedule(ctx)
@@ -840,7 +840,7 @@ func (d *Dispatcher) refuseRussian(ctx context.Context, t trackers.Tracker, id s
 	refused := false
 	d.Store.Update(id, func(r *core.Record) {
 		if r.Status == core.Queued {
-			r.Status, r.Error, r.FinishedAt = core.Failed, why, now()
+			r.Status, r.Error, r.ErrorKind, r.FinishedAt = core.Failed, why, core.KindRussian, now()
 			refused = true
 		}
 	})
@@ -987,7 +987,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 			if r.Worktree != "" && !exists(r.Worktree) {
 				d.Log(r.ID, "workspace deleted, no MR")
 				d.Store.Update(r.ID, func(r *core.Record) {
-					r.Status, r.Error, r.FinishedAt = core.Cancelled, "Workspace deleted ("+r.Worktree+"), MR not opened", now()
+					r.Status, r.Error, r.ErrorKind, r.FinishedAt = core.Cancelled, "Workspace deleted ("+r.Worktree+"), MR not opened", core.KindWorkspaceGone, now()
 				})
 				notify.Inform(notify.Stopped, i18n.T("notify.handoffCancelled", r.ID), i18n.T("notify.handoffCancelledText"), d.BoardURL)
 			}
@@ -1131,7 +1131,7 @@ func (d *Dispatcher) CheckMerges(ctx context.Context) {
 		case "closed":
 			d.Log(r.ID, "MR closed without merging")
 			d.Store.Update(r.ID, func(r *core.Record) {
-				r.ReviewState, r.Status, r.Error = "closed", core.Failed, "MR closed without merging"
+				r.ReviewState, r.Status, r.Error, r.ErrorKind = "closed", core.Failed, "MR closed without merging", core.KindMRClosed
 			})
 		}
 	}
@@ -1160,13 +1160,15 @@ func (d *Dispatcher) CheckGone(ctx context.Context) {
 }
 
 func (d *Dispatcher) markGone(r core.Record, st string) {
-	what := "Task closed in the tracker"
+	what, kind := "Task closed in the tracker", core.KindTrackerClosed
 	if st == "deleted" {
-		what = "Task deleted in the tracker"
+		what, kind = "Task deleted in the tracker", core.KindTrackerGone
 	}
 	d.Log(r.ID, what)
 	if r.Status == core.Asking || r.Status == core.Snoozed || r.Status == core.Queued {
-		d.Store.Update(r.ID, func(r *core.Record) { r.Status, r.Gone, r.Error, r.FinishedAt = core.Cancelled, st, what, now() })
+		d.Store.Update(r.ID, func(r *core.Record) {
+			r.Status, r.Gone, r.Error, r.ErrorKind, r.FinishedAt = core.Cancelled, st, what, kind, now()
+		})
 		return
 	}
 	d.Store.Update(r.ID, func(r *core.Record) { r.Gone = st })
@@ -1246,7 +1248,9 @@ func (d *Dispatcher) Cancel(id string) {
 		d.Log(id, "cancelled during start")
 	}
 	d.StopTerminal(id)
-	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Cancelled, "Cancelled", now() })
+	d.Store.Update(id, func(r *core.Record) {
+		r.Status, r.Error, r.ErrorKind, r.FinishedAt = core.Cancelled, "Cancelled", core.KindCancelled, now()
+	})
 }
 
 // Retry hands a failed or cancelled task to Orca again, on a new branch (-try2).

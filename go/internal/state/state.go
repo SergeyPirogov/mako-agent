@@ -43,6 +43,12 @@ func Open(dir string) (*Store, error) {
 			log.Printf("state.json: CANNOT BE READ (%v): kept as %s, Mako starts with an empty board", err, s.Broken)
 		}
 	}
+	// Records from before ErrorKind: the cause is told from the text, in either language.
+	for _, r := range s.records {
+		if r.Error != "" && r.ErrorKind == "" {
+			r.ErrorKind = core.ErrorKindFromText(r.Error)
+		}
+	}
 	// A notification left on screen when Mako stopped: ask again.
 	for _, r := range s.records {
 		if r.Status == core.Asking {

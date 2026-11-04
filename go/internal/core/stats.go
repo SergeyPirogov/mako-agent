@@ -160,6 +160,8 @@ func ModelFamily(model string) string {
 const unclear = 2
 
 type Reason struct {
+	// Key: what the failures are counted by: their ErrorKind, else the first line of their error.
+	Key   string `json:"key"`
 	Text  string `json:"text"`
 	Count int    `json:"count"`
 }
@@ -177,7 +179,7 @@ func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stat
 		st.Forecast.Matrix[i] = make([]int, len(Sizes))
 		st.BySize[i].Size = size
 	}
-	reasons := map[string]int{}
+	reasons := map[string]*Reason{}
 	projects, executors, authors, models := map[string]*Group{}, map[string]*Group{}, map[string]*Group{}, map[string]*Group{}
 	var took, lead []float64
 	var review time.Duration
@@ -263,14 +265,14 @@ func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stat
 			if day != nil {
 				day.Failed++
 			}
-			why := reason(r.Error)
 			if cancelled(r) {
 				st.Cancelled++
-				if r.Status != Cancelled || cancelMark(r.Error) {
-					why = "Cancelled"
-				}
 			}
-			reasons[why]++
+			key, text := reasonOf(r)
+			if reasons[key] == nil {
+				reasons[key] = &Reason{Key: key, Text: text}
+			}
+			reasons[key].Count++
 			for _, g := range groups {
 				g.Failed++
 			}
@@ -357,8 +359,8 @@ func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stat
 		}
 	}
 	st.Projects, st.Executors, st.Authors, st.Models = sorted(projects), sorted(executors), sorted(authors), sorted(models)
-	for text, n := range reasons {
-		st.Reasons = append(st.Reasons, Reason{Text: text, Count: n})
+	for _, x := range reasons {
+		st.Reasons = append(st.Reasons, *x)
 	}
 	sort.Slice(st.Reasons, func(i, j int) bool {
 		a, b := st.Reasons[i], st.Reasons[j]
@@ -441,12 +443,7 @@ func clean(r Record) bool {
 
 // cancelled: stopped on purpose, from the board or in Orca, rather than gone wrong.
 func cancelled(r Record) bool {
-	return r.Status == Cancelled && cancelMark(r.Error) || strings.Contains(strings.ToLower(r.Error), "cancelled by the developer")
-}
-
-// cancelMark: the error text of a cancel from the board; "Скасовано" is how older records have it.
-func cancelMark(e string) bool {
-	return e == "Cancelled" || e == "Скасовано" // cyrillic-ok
+	return ErrorKindOf(r) == KindCancelled
 }
 
 // trend: an empty day for each day the trend shows, by its local date: the period's (at least one, so "today"
@@ -524,6 +521,16 @@ func sorted(groups map[string]*Group) []Group {
 		return out[i].Taken > out[j].Taken || out[i].Taken == out[j].Taken && out[i].Name < out[j].Name
 	})
 	return out
+}
+
+// reasonOf: what a failed record is counted by, and the words for it: a known cause by its kind in the interface's
+// language, however its error was worded; any other by the first line of its error.
+func reasonOf(r Record) (key, text string) {
+	if label := KindLabel(ErrorKindOf(r)); label != "" {
+		return ErrorKindOf(r), label
+	}
+	text = reason(r.Error)
+	return text, text
 }
 
 // reason: the first line of the error, short, so the same failure counts once.

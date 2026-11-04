@@ -103,6 +103,9 @@ type Record struct {
 	// AwaitingCI: the MR's CI failed when it appeared; the issue moves to review (with the comment) once CI passes.
 	AwaitingCI bool   `json:"awaitingCi,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// ErrorKind: why the task ended badly, in a key that does not depend on the language of Error (see
+	// KindCancelled and the like); "" when the error is not one Mako knows.
+	ErrorKind string `json:"errorKind,omitempty"`
 	// WorktreeKept: the uncommitted files that kept the worktree of a finished task from being cleaned up;
 	// the board asks whether to remove it anyway.
 	WorktreeKept int    `json:"worktreeKept,omitempty"`

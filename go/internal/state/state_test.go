@@ -230,3 +230,34 @@ func TestBrokenStateKeepsEarlierCopy(t *testing.T) {
 		t.Fatalf("the second copy = %q", b)
 	}
 }
+
+// Records from before ErrorKind get it from their text, in either language; one that already has it, or whose
+// text Mako does not know, stays as it is.
+func TestOpenFillsErrorKindOfOldRecords(t *testing.T) {
+	dir := t.TempDir()
+	old := `{
+	  "a": {"id":"a","status":"failed","error":"MR closed without merging"},
+	  "b": {"id":"b","status":"failed","error":"MR закрито без мерджу"},
+	  "c": {"id":"c","status":"cancelled","error":"Скасовано"},
+	  "d": {"id":"d","status":"failed","error":"clone failed"},
+	  "e": {"id":"e","status":"failed","error":"anything","errorKind":"mr-closed"},
+	  "f": {"id":"f","status":"done"}
+	}`
+	os.WriteFile(filepath.Join(dir, "state.json"), []byte(old), 0o600)
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"a": core.KindMRClosed, "b": core.KindMRClosed, "c": core.KindCancelled, "d": "", "e": core.KindMRClosed, "f": ""} {
+		if r, _ := s.Get(id); r.ErrorKind != want {
+			t.Errorf("%s: ErrorKind %q, want %q", id, r.ErrorKind, want)
+		}
+	}
+	again, err := Open(dir) // saved: the next start reads it back
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := again.Get("b"); r.ErrorKind != core.KindMRClosed {
+		t.Fatalf("not saved: %q", r.ErrorKind)
+	}
+}

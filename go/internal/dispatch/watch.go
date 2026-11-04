@@ -385,7 +385,9 @@ func (d *Dispatcher) checkCeiling(id string) {
 	}
 	d.Log(id, over)
 	d.StopTerminal(id)
-	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.FinishedAt = core.Failed, over, now() })
+	d.Store.Update(id, func(r *core.Record) {
+		r.Status, r.Error, r.ErrorKind, r.FinishedAt = core.Failed, over, core.KindCostCeiling, now()
+	})
 	notify.Inform(notify.Stopped, i18n.T("notify.attention", id), over, d.BoardURL)
 }
 

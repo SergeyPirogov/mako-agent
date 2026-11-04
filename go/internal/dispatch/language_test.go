@@ -20,8 +20,8 @@ func TestRussianTaskRefused(t *testing.T) {
 	d.Take(ctx, "grp/app#5")
 	d.Wait()
 	r, _ := d.Store.Get("grp/app#5")
-	if r.Status != core.Failed || r.Error != i18n.T("task.russian") {
-		t.Fatalf("status %s, error %q", r.Status, r.Error)
+	if r.Status != core.Failed || r.Error != i18n.T("task.russian") || r.ErrorKind != core.KindRussian {
+		t.Fatalf("status %s, error %q, kind %q", r.Status, r.Error, r.ErrorKind)
 	}
 	if len(*jobs) != 0 {
 		t.Fatalf("handed to an agent: %+v", *jobs)
