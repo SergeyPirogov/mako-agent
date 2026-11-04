@@ -32,9 +32,11 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: go test -race ./...
 
-  # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them.
+  # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them. The tests run on Linux
+  # above (none is macOS-only): here only vet and the builds, so a slow or stuck Mac runner holds nothing up for long.
   go-mac:
     runs-on: macos-15
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: go
@@ -45,6 +47,5 @@ jobs:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
       - run: go vet ./...
-      - run: go test -race ./...
       - run: CGO_ENABLED=1 GOARCH=amd64 go build -o /dev/null ./cmd/mako
       - run: go build -o mako ./cmd/mako && ls -la mako
