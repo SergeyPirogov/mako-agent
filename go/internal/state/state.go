@@ -43,6 +43,12 @@ func Open(dir string) (*Store, error) {
 			log.Printf("state.json: CANNOT BE READ (%v): kept as %s, Mako starts with an empty board", err, s.Broken)
 		}
 	}
+	// Records from before ErrorKind: the cause is told from the text, in either language.
+	for _, r := range s.records {
+		if r.Error != "" && r.ErrorKind == "" {
+			r.ErrorKind = core.ErrorKindFromText(r.Error)
+		}
+	}
 	// A notification left on screen when Mako stopped: ask again.
 	for _, r := range s.records {
 		if r.Status == core.Asking {
@@ -86,6 +92,17 @@ func (s *Store) All() []core.Record {
 	return out
 }
 
+// changeKeepingKind applies a change and, when it set a new Error without its ErrorKind, tells the kind from the
+// text (and drops the old kind when the error went), so the kind never stays from an earlier failure and the
+// board and the statistics read the same cause.
+func changeKeepingKind(r *core.Record, change func(r *core.Record)) {
+	was, kind := r.Error, r.ErrorKind
+	change(r)
+	if r.Error != was && r.ErrorKind == kind {
+		r.ErrorKind = core.ErrorKindFromText(r.Error)
+	}
+}
+
 // Update changes a record (or makes it) under the lock and saves.
 func (s *Store) Update(id string, change func(r *core.Record)) core.Record {
 	out, err := s.update(id, change)
@@ -101,7 +118,7 @@ func (s *Store) update(id string, change func(r *core.Record)) (core.Record, err
 		r = &core.Record{ID: id, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 		s.records[id] = r
 	}
-	change(r)
+	changeKeepingKind(r, change)
 	r.ID = id
 	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	return r.Clone(), s.saveLocked()
@@ -116,7 +133,7 @@ func (s *Store) UpdateIfExists(id string, change func(r *core.Record)) bool {
 		s.mu.Unlock()
 		return false
 	}
-	change(r)
+	changeKeepingKind(r, change)
 	r.ID = id
 	r.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	err := s.saveLocked()

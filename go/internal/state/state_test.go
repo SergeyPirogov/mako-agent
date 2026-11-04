@@ -230,3 +230,67 @@ func TestBrokenStateKeepsEarlierCopy(t *testing.T) {
 		t.Fatalf("the second copy = %q", b)
 	}
 }
+
+// Records from before ErrorKind get it from their text, in either language; one that already has it, or whose
+// text Mako does not know, stays as it is.
+func TestOpenFillsErrorKindOfOldRecords(t *testing.T) {
+	dir := t.TempDir()
+	old := `{
+	  "a": {"id":"a","status":"failed","error":"MR closed without merging"},
+	  "b": {"id":"b","status":"failed","error":"MR закрито без мерджу"},
+	  "c": {"id":"c","status":"cancelled","error":"Скасовано"},
+	  "d": {"id":"d","status":"failed","error":"clone failed"},
+	  "e": {"id":"e","status":"failed","error":"anything","errorKind":"mr-closed"},
+	  "f": {"id":"f","status":"done"}
+	}`
+	os.WriteFile(filepath.Join(dir, "state.json"), []byte(old), 0o600)
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"a": core.KindMRClosed, "b": core.KindMRClosed, "c": core.KindCancelled, "d": "", "e": core.KindMRClosed, "f": ""} {
+		if r, _ := s.Get(id); r.ErrorKind != want {
+			t.Errorf("%s: ErrorKind %q, want %q", id, r.ErrorKind, want)
+		}
+	}
+	again, err := Open(dir) // saved: the next start reads it back
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := again.Get("b"); r.ErrorKind != core.KindMRClosed {
+		t.Fatalf("not saved: %q", r.ErrorKind)
+	}
+}
+
+// A change that sets an Error without its ErrorKind gets the kind told from the text at once, not only at the
+// next start; one that clears the Error, or sets a text Mako does not know, drops the kind of the earlier failure.
+func TestUpdateKeepsErrorKindWithError(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind := func() string { r, _ := s.Get("t"); return r.ErrorKind }
+
+	s.Update("t", func(r *core.Record) { r.Status, r.Error = core.Failed, "Session cancelled by the developer" })
+	if kind() != core.KindCancelled {
+		t.Fatalf("kind from the text: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Error = "MR закрито без мерджу" })
+	if kind() != core.KindMRClosed {
+		t.Fatalf("kind after another error: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Error = "clone failed" })
+	if kind() != "" {
+		t.Fatalf("kind of an unknown error: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Error, r.ErrorKind = "Cancelled", core.KindCancelled })
+	s.Update("t", func(r *core.Record) { r.Error = "" })
+	if kind() != "" {
+		t.Fatalf("kind stayed after the error went: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Status = core.Queued }) // no error change: the kind is not touched
+	s.Update("t", func(r *core.Record) { r.ErrorKind = core.KindMRClosed })
+	if kind() != core.KindMRClosed {
+		t.Fatalf("a kind set on its own: %q", kind())
+	}
+}

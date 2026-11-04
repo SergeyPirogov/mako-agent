@@ -43,7 +43,7 @@ func TestSummarize(t *testing.T) {
 	if st.Cost != 4 || st.Priced != 3 {
 		t.Fatalf("cost %v over %d", st.Cost, st.Priced)
 	}
-	want := []Reason{{"MR закрито без мерджу", 2}, {"Cancelled", 1}, {"не вдалось клонувати", 1}}
+	want := []Reason{{"mr-closed", "MR closed without merging", 2}, {"cancelled", "Cancelled", 1}, {"не вдалось клонувати", "не вдалось клонувати", 1}}
 	if len(st.Reasons) != len(want) {
 		t.Fatalf("reasons %+v", st.Reasons)
 	}
@@ -213,7 +213,7 @@ func TestSummarizeFlow(t *testing.T) {
 	if st.Ended != 5 || st.Clean != 1 || st.Cancelled != 2 || st.LeadSeconds != 3*3600 {
 		t.Fatalf("ended %d, clean %d, cancelled %d, lead %v", st.Ended, st.Clean, st.Cancelled, st.LeadSeconds)
 	}
-	if st.Reasons[0] != (Reason{"Cancelled", 2}) {
+	if st.Reasons[0] != (Reason{"cancelled", "Cancelled", 2}) {
 		t.Fatalf("reasons %+v", st.Reasons)
 	}
 	if len(st.Days) != 14 || st.Days[0].Date != "2026-09-25" {
@@ -241,7 +241,7 @@ func TestSummarizeCancelledBothSpellings(t *testing.T) {
 	if st.Cancelled != 2 {
 		t.Fatalf("cancelled %d", st.Cancelled)
 	}
-	if len(st.Reasons) != 1 || st.Reasons[0] != (Reason{"Cancelled", 2}) {
+	if len(st.Reasons) != 1 || st.Reasons[0] != (Reason{"cancelled", "Cancelled", 2}) {
 		t.Fatalf("reasons %+v", st.Reasons)
 	}
 }
@@ -341,5 +341,63 @@ func TestIsFix(t *testing.T) {
 	notFix := Record{ID: "o/r#2", Task: Task{ID: "o/r#2", Project: "o/r", Title: "Після #1", Labels: []string{"debug"}, Meta: "Type: Prefix"}, CreatedAt: at(5)}
 	if s := Summarize([]Record{merged, notFix}, time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC), time.Time{}).SelfCheck; s.CheckedFixed != 0 || s.Checked != 1 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// The same cause written in English and in Ukrainian is one line, under the interface's wording, and the line is
+// kept by the kind a record carries as well as by the text older records have.
+func TestSummarizeOneReasonInBothLanguages(t *testing.T) {
+	app := Task{Project: "g/app"}
+	at := "2026-10-02T10:00:00Z"
+	st := Summarize([]Record{
+		{Status: Failed, Task: app, StartedAt: at, ReviewState: "closed", Error: "MR closed without merging"},
+		{Status: Failed, Task: app, StartedAt: at, ReviewState: "closed", Error: "MR закрито без мерджу"},
+		{Status: Failed, Task: app, StartedAt: at, ReviewState: "closed", Error: "MR closed without merging", ErrorKind: KindMRClosed},
+		{Status: Failed, Task: app, StartedAt: at, Error: "whatever the text says", ErrorKind: KindMRClosed},
+		{Status: Cancelled, Task: app, StartedAt: at, Error: "Cancelled"},
+		{Status: Cancelled, Task: app, StartedAt: at, Error: "Скасовано"},
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	want := []Reason{{"mr-closed", "MR closed without merging", 4}, {"cancelled", "Cancelled", 2}}
+	if len(st.Reasons) != len(want) || st.Reasons[0] != want[0] || st.Reasons[1] != want[1] {
+		t.Fatalf("reasons %+v", st.Reasons)
+	}
+}
+
+func TestErrorKindFromText(t *testing.T) {
+	for text, want := range map[string]string{
+		"MR closed without merging":                      KindMRClosed,
+		"MR закрито без мерджу":                          KindMRClosed,
+		"Cancelled":                                      KindCancelled,
+		"Скасовано":                                      KindCancelled,
+		"Workspace deleted (/w/x), MR not opened":        KindWorkspaceGone,
+		"Workspace видалено (/w/x), MR не відкрито":      KindWorkspaceGone,
+		"Task closed in the tracker":                     KindTrackerClosed,
+		"Задачу закрито в трекері":                       KindTrackerClosed,
+		"Task deleted in the tracker":                    KindTrackerGone,
+		"Задачу видалено в трекері":                      KindTrackerGone,
+		"the cost ceiling of the task is reached: $2.00": KindCostCeiling,
+		"clone failed\nfatal: x":                         "",
+		"":                                               "",
+	} {
+		if got := ErrorKindFromText(text); got != want {
+			t.Errorf("%q: %q, want %q", text, got, want)
+		}
+	}
+}
+
+// A failed task whose error only reads "Cancelled" is not a cancel (the board's cancel ends in the cancelled
+// status): it counts as failed, under the same line as the cancels; "cancelled by the developer" in any status is one.
+func TestSummarizeCancelledNeedsTheStatus(t *testing.T) {
+	app := Task{Project: "g/app"}
+	at := "2026-10-02T10:00:00Z"
+	st := Summarize([]Record{
+		{Status: Failed, Task: app, StartedAt: at, Error: "Cancelled"},
+		{Status: Failed, Task: app, StartedAt: at, Error: "Session cancelled by the developer"},
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	if st.Failed != 2 || st.Cancelled != 1 {
+		t.Fatalf("failed %d, cancelled %d", st.Failed, st.Cancelled)
+	}
+	if len(st.Reasons) != 1 || st.Reasons[0] != (Reason{"cancelled", "Cancelled", 2}) {
+		t.Fatalf("reasons %+v", st.Reasons)
 	}
 }

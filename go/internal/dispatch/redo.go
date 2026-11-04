@@ -45,7 +45,7 @@ func (d *Dispatcher) Redo(ctx context.Context, id, note, model string) error {
 	d.starting[id] = true
 	d.mu.Unlock()
 	note, model = strings.TrimSpace(note), strings.TrimSpace(model)
-	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.ArchivedAt = core.Queued, "", 0 })
+	d.Store.Update(id, func(r *core.Record) { r.Status, r.Error, r.ErrorKind, r.ArchivedAt = core.Queued, "", "", 0 })
 	d.Log(id, "retrying differently"+map[bool]string{true: ": " + clipText(firstLine(note), 120)}[note != ""])
 	go func() {
 		ctx := context.WithoutCancel(ctx)

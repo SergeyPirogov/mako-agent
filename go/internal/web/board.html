@@ -675,7 +675,7 @@ function render() {
   // Narrowed from "Stats" → "Needs attention": a chip says to what, its × shows all the tasks again.
   const need = attention && NEEDS[attention.kind];
   if (!need) attention = null;
-  const chip = need ? `<span class="chip need-chip" title="${esc(attention.reason || "")}">Needs attention: ${esc(attention.reason ? `failed · ${attention.reason}` : need.label)}`
+  const chip = need ? `<span class="chip need-chip" title="${esc(attention.label || "")}">Needs attention: ${esc(attention.reason ? `failed · ${attention.label}` : need.label)}`
     + `<button type="button" class="icon" id="need-clear" aria-label="Show all tasks" title="Show all tasks">×</button></span>` : "";
   if ($("need-chip").dataset.html !== chip) $("need-chip").innerHTML = $("need-chip").dataset.html = chip;
   $("need-chip").hidden = !need;
@@ -3232,12 +3232,10 @@ function attentionTasks(f) {
   return data.records.filter((r) => (!statsProject || projectOf(r) === statsProject) && (need.now || inPeriod(r)) && need.test(r)
     && (!f.reason || failReason(r) === f.reason));
 }
-// Why a task failed, in the words Summarize counts it by (stats.go: reason, cancelled).
-const cancelMark = (e) => e === "Cancelled" || e === "\u0421\u043a\u0430\u0441\u043e\u0432\u0430\u043d\u043e"; // older records' «cancelled»
+// Why a task failed, in the key Summarize counts it by (stats.go: reasonOf): its error kind, else the error's first line.
 function failReason(r) {
+  if (r.errorKind) return r.errorKind;
   const e = r.error || "";
-  const cancelled = r.status === "cancelled" && cancelMark(e) || e.toLowerCase().includes("cancelled by the developer");
-  if (cancelled && (r.status !== "cancelled" || cancelMark(e))) return "Cancelled";
   const line = e.trim().split("\n")[0].trim();
   if (!line) return "No reason";
   const cs = [...line];
@@ -3538,7 +3536,7 @@ function failuresCard(s) {
   const rs = s.reasons || [];
   if (!rs.length) return scard("Why tasks failed", `<div class="muted pad">No failures</div>`);
   const top = Math.max(...rs.map((x) => x.count));
-  const row = (x) => `<a href="#" class="hrow link-row" data-need="failed" data-reason="${esc(x.text)}" title="${esc(x.text)}"><span class="clip">${esc(x.text)}</span>${meter(x.count / top, "err")}<b>${x.count}</b></a>`;
+  const row = (x) => `<a href="#" class="hrow link-row" data-need="failed" data-reason="${esc(x.key)}" data-label="${esc(x.text)}" title="${esc(x.text)}"><span class="clip">${esc(x.text)}</span>${meter(x.count / top, "err")}<b>${x.count}</b></a>`;
   return scard("Why tasks failed", rs.map(row).join(""), `${s.failed} of ${s.taken} · ${Math.round((s.failed / s.taken) * 100)}%`);
 }
 
@@ -3702,7 +3700,7 @@ function bindStats() {
   for (const b of d.querySelectorAll("#heavy-by button")) b.onclick = () => { heavyBy = b.dataset.v; render(); };
   if ($("routes-all")) $("routes-all").onclick = () => { routesAll = !routesAll; render(); };
   if ($("trend-table")) $("trend-table").onclick = () => { trendTable = !trendTable; render(); };
-  for (const a of d.querySelectorAll("[data-need]")) a.onclick = (e) => { e.preventDefault(); openAttention({ kind: a.dataset.need, reason: a.dataset.reason }); };
+  for (const a of d.querySelectorAll("[data-need]")) a.onclick = (e) => { e.preventDefault(); openAttention({ kind: a.dataset.need, reason: a.dataset.reason, label: a.dataset.label }); };
 }
 
 // Mako's own errors, one row per kind: "Send for analysis" writes them into an issue in Mako's repository.
