@@ -84,6 +84,7 @@ func TestTryBuildCommand(t *testing.T) {
 	if v.State != "running" || !v.Fresh || !strings.HasPrefix(v.URL, "http://127.0.0.1:") {
 		t.Fatalf("try %+v", v)
 	}
+	waitFor(t, func() bool { return len(pages()) > 0 }, "the copy was not opened")
 	if p := pages(); len(p) != 1 || p[0] != v.URL+"/settings" {
 		t.Fatalf("opened %v", p)
 	}
@@ -176,6 +177,7 @@ func TestTryBuildMako(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { v := tryState(d, id); return v != nil && v.State == "running" }, "Mako's copy did not come up")
+	waitFor(t, func() bool { return len(pages()) > 0 }, "Mako's copy was not opened")
 	if p := pages(); len(p) != 1 || p[0] != "http://127.0.0.1:1/" {
 		t.Fatalf("opened %v", p)
 	}
