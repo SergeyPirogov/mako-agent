@@ -2,8 +2,12 @@ package dispatch
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -20,6 +24,11 @@ import (
 // Code's PreToolUse hook asks Mako. Mako reads what the push would carry and refuses it when something looks
 // like a secret: the agent gets the list and the request to take them out, the card and a notification show
 // where they are. «Це не секрет» on the card lets a line through.
+
+// The command check above sees only what the Bash command says; eval, a git alias or a script that pushes get
+// past it. So the task's worktree has a pre-push hook of Mako's too (gitx.InstallHooks): git asks Mako before
+// any push from there, the agent's, a person's or Mako's own, and the push is stopped when Mako finds secrets,
+// cannot check, or does not answer.
 
 // pushCommand: git push (git -C dir push, git -c k=v push too), gh pr create, glab mr create.
 var pushCommand = regexp.MustCompile(`\bgit(\s+(-C|-c)\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+push\b|\bgh\s+pr\s+create\b|\bglab\s+mr\s+create\b`)
@@ -57,7 +66,8 @@ func (d *Dispatcher) GuardPush(ctx context.Context, id string, hook []byte) map[
 	}
 	found, err := d.CheckSecrets(ctx, id)
 	if err != nil {
-		d.Log(id, "the secrets check failed, push not stopped: "+err.Error())
+		d.Log(id, "the secrets check failed, push stopped: "+err.Error())
+		return hookDecision("deny", checkFailed(err))
 	}
 	if len(found) > 0 {
 		return hookDecision("deny", secretsRequest(found))
@@ -103,6 +113,76 @@ func hookDecision(decision, reason string) map[string]any {
 	}}
 }
 
+// checkFailed: what the agent is told when the push could not be checked: it is not let through unchecked.
+func checkFailed(err error) string {
+	return "Mako stopped the push: it could not check the branch changes for secrets (" + err.Error() + "). " +
+		"Make sure the worktree is in order (no rebase or merge in progress) and try to push again."
+}
+
+// hookDir: the folder of the task's worktree hooks, next to its agent settings.
+func (d *Dispatcher) hookDir(id string) string {
+	return filepath.Join(d.Sessions.Dir, "hooks", unsafeChars.ReplaceAllString(id, "_"))
+}
+
+var unsafeChars = regexp.MustCompile(`[^\w.-]`)
+
+// pushHooks: the worktrees get the pre-push hook; off in the tests whose board answers nobody.
+var pushHooks = true
+
+// installPushHook gives the task's worktree Mako's pre-push hook. Its token stays the same across agent starts
+// and Mako's restarts: a push from the worktree is checked whenever Mako runs.
+func (d *Dispatcher) installPushHook(ctx context.Context, id, worktree string) error {
+	if !pushHooks || d.BoardURL == "" || worktree == "" {
+		return nil
+	}
+	dir := d.hookDir(id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	token := d.pushToken(id)
+	if token == "" {
+		token = randomToken()
+		if err := os.WriteFile(filepath.Join(dir, ".token"), []byte(token), 0o600); err != nil {
+			return err
+		}
+	}
+	url := fmt.Sprintf("%s/prepush?id=%s&token=%s", d.BoardURL, escapeQuery(id), token)
+	if err := gitx.WriteHooks(dir, url); err != nil {
+		return err
+	}
+	return gitx.InstallHooks(ctx, worktree, dir)
+}
+
+// pushToken: the token of the task's pre-push hook, "" when it has none.
+func (d *Dispatcher) pushToken(id string) string {
+	b, err := os.ReadFile(filepath.Join(d.hookDir(id), ".token"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// PrePush answers the worktree's pre-push hook: 204 lets the push go, anything else stops it with the reason
+// for whoever pushed. A check that fails stops it too.
+func (d *Dispatcher) PrePush(ctx context.Context, id, token string) (int, string) {
+	want := d.pushToken(id)
+	if want == "" || subtle.ConstantTimeCompare([]byte(want), []byte(token)) != 1 {
+		return http.StatusForbidden, "Mako stopped the push: the worktree's hook is not known to Mako, so the changes were not checked for secrets."
+	}
+	found, err := d.CheckSecrets(ctx, id)
+	if err != nil {
+		d.Log(id, "the secrets check failed, push stopped: "+err.Error())
+		return http.StatusConflict, checkFailed(err)
+	}
+	if len(found) > 0 {
+		return http.StatusConflict, secretsRequest(found)
+	}
+	return http.StatusNoContent, ""
+}
+
+// pushDiff: what a push would carry; the tests make it fail.
+var pushDiff = gitx.PushDiff
+
 // CheckSecrets scans what a push of the task's branch would carry and keeps the result on the card: the
 // findings, or nothing once the changes are clean. A new set of findings is logged and notified.
 func (d *Dispatcher) CheckSecrets(ctx context.Context, id string) ([]secrets.Finding, error) {
@@ -110,7 +190,7 @@ func (d *Dispatcher) CheckSecrets(ctx context.Context, id string) ([]secrets.Fin
 	if err != nil {
 		return nil, err
 	}
-	diff, err := gitx.PushDiff(ctx, wt, base)
+	diff, err := pushDiff(ctx, wt, base)
 	if err != nil {
 		return nil, err
 	}

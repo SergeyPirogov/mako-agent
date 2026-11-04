@@ -113,6 +113,10 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		}
 	})
 	d.Log(id, "the agent runs with "+route.Label()+" ("+phase+": "+route.Why+")")
+	// Before the agent can push: its worktree checks every push for secrets, however it is made.
+	if err := d.installPushHook(context.Background(), id, worktree); err != nil {
+		d.Fault(id, "the pre-push secrets hook was not installed", err)
+	}
 	again := []string{"--continue"}
 	if orca.HasSession(worktree, r.SessionID) {
 		again = []string{"--resume", r.SessionID}

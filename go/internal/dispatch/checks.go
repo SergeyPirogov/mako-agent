@@ -179,10 +179,19 @@ func (d *Dispatcher) openMR(ctx context.Context, id string, repo *config.Repo, b
 	branch := branchOf(r)
 	// Mako's own push goes past the agent's push guard: the same look for secrets first. «Це не секрет» on the
 	// card lets the next round push; a new commit is checked again.
-	if found, err := d.CheckSecrets(ctx, id); err == nil && len(found) > 0 {
-		const held = "push stopped: the changes look like they contain secrets"
+	// A check that failed holds the push too: nothing goes out unchecked.
+	if found, err := d.CheckSecrets(ctx, id); err != nil || len(found) > 0 {
+		held, request := "push stopped: the changes look like they contain secrets", ""
+		if err != nil {
+			held, request = "push stopped: the secrets check failed", checkFailed(err)
+		} else {
+			request = secretsRequest(found)
+		}
 		if r.Checks == nil || r.Checks.Error != held {
-			if err := d.tellAgent(id, secretsRequest(found)); err != nil {
+			if err != nil {
+				d.Log(id, "the secrets check failed, push stopped: "+err.Error())
+			}
+			if err := d.tellAgent(id, request); err != nil {
 				d.Fault(id, "secret-scan findings not sent to the agent", err)
 			}
 		}

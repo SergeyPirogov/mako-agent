@@ -49,6 +49,20 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	// The worktree's pre-push hook: git asks before any push from a task's worktree; anything but 204 stops it,
+	// the body says why.
+	mux.HandleFunc("POST /prepush", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+		code, reason := s.D.PrePush(r.Context(), q.Get("id"), q.Get("token"))
+		if code == http.StatusNoContent {
+			w.WriteHeader(code)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(code)
+		io.WriteString(w, reason)
+	})
 	// The bar over the terminal: what the agent does, its turn so far, its plan and context.
 	mux.HandleFunc("GET /api/termstat", func(w http.ResponseWriter, r *http.Request) {
 		st, ok := s.D.TerminalStatus(r.URL.Query().Get("id"))
