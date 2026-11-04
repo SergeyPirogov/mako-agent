@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,9 +20,12 @@ type GitLab struct {
 	api     string // https://gitlab.example.com/api/v4
 	headers map[string]string
 
-	mu       sync.Mutex
-	me       *glUser
-	statuses []string
+	mu sync.Mutex
+	me *glUser
+	// statuses: the work item statuses of each project, by its path; a failed read is not kept.
+	statuses map[string][]string
+	// comments: the issues' comments (notes) as the last poll read them, by task ID.
+	comments map[string]commentMemo
 	// memos: the MRs to review as the last poll read them, by their API path.
 	memos map[string]reviewMemo
 	// members: whether a user (by id) is a developer or more of a project (by path), as GitLab said.
@@ -45,6 +49,7 @@ type glIssue struct {
 	Assignees   []glUser `json:"assignees"`
 	Author      glUser   `json:"author"`
 	NotesCount  int      `json:"user_notes_count"`
+	UpdatedAt   string   `json:"updated_at"`
 	References  struct {
 		Full string `json:"full"`
 	} `json:"references"`
@@ -119,6 +124,10 @@ func (g *GitLab) user(ctx context.Context) (*glUser, error) {
 func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 	seen := map[string]bool{}
 	var tasks []core.Task
+	g.mu.Lock()
+	old := g.comments
+	g.mu.Unlock()
+	memos := map[string]commentMemo{}
 	add := func(projectPath string, is glIssue) error {
 		t := g.toTask(projectPath, is)
 		if seen[t.ID] {
@@ -127,8 +136,10 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 		seen[t.ID] = true
 		me, _ := g.Me(ctx)
 		t.AuthorMember = byProject(t.Author, me, t.Assignees) || g.member(ctx, projectPath, is.Author.ID)
-		if is.NotesCount > 0 {
-			var notes []struct {
+		if m := old[t.ID]; is.NotesCount > 0 && m.holds(is.UpdatedAt, is.NotesCount) {
+			t.Comments, memos[t.ID] = slices.Clone(m.comments), m
+		} else if is.NotesCount > 0 {
+			type glNote struct {
 				System bool   `json:"system"`
 				Body   string `json:"body"`
 				Author struct {
@@ -137,13 +148,17 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 					Username string `json:"username"`
 				} `json:"author"`
 			}
-			if err := g.do(ctx, "GET", fmt.Sprintf("%s/issues/%d/notes?sort=asc&per_page=100", project(projectPath), is.IID), nil, &notes); err == nil {
+			notes, err := allPages(url.Values{"sort": {"asc"}}, func(query string, out *[]glNote) error {
+				return g.do(ctx, "GET", fmt.Sprintf("%s/issues/%d/notes?%s", project(projectPath), is.IID, query), nil, out)
+			})
+			if err == nil {
 				for _, n := range notes {
 					if !n.System {
 						member := ofTask(n.Author.Username, me, t) || g.member(ctx, projectPath, n.Author.ID)
 						t.Comments = append(t.Comments, core.Comment{Author: n.Author.Name, Body: n.Body, Member: member})
 					}
 				}
+				memos[t.ID] = commentMemo{updated: is.UpdatedAt, count: is.NotesCount, comments: t.Comments}
 			} else {
 				t.CommentsUnread = true
 			}
@@ -195,6 +210,9 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 			_ = add(key, is)
 		}
 	}
+	g.mu.Lock()
+	g.comments = memos
+	g.mu.Unlock()
 	return tasks, nil
 }
 
@@ -368,13 +386,18 @@ func pick(set *string, guess func() string) string {
 
 func (g *GitLab) guess(ctx context.Context, t core.Task, pattern *regexp.Regexp, exact string) string {
 	g.mu.Lock()
-	known := g.statuses
+	known, ok := g.statuses[t.Project]
 	g.mu.Unlock()
-	if known == nil {
-		known, _ = g.listStatuses(ctx, t.Project)
-		g.mu.Lock()
-		g.statuses = orEmpty(known)
-		g.mu.Unlock()
+	if !ok {
+		var err error
+		if known, err = g.listStatuses(ctx, t.Project); err == nil {
+			g.mu.Lock()
+			if g.statuses == nil {
+				g.statuses = map[string][]string{}
+			}
+			g.statuses[t.Project] = known
+			g.mu.Unlock()
+		}
 	}
 	for _, s := range known {
 		if strings.EqualFold(s, exact) {

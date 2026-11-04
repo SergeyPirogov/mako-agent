@@ -1,0 +1,5 @@
+# Only the relay's image is built from here (cmd/relay/Dockerfile): the Mac's builds stay out of it.
+dist/
+mako
+relay
+*.log

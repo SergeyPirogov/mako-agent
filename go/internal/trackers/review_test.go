@@ -85,6 +85,8 @@ func TestReviewHeldWhileCIRuns(t *testing.T) {
 			send(map[string]any{"number": 5, "state": "open", "mergeable": true, "mergeable_state": "unstable", "head": map[string]any{"sha": "abc"}})
 		case "/repos/o/r/commits/abc/check-runs":
 			send(map[string]any{"check_runs": []map[string]any{{"id": 1, "name": "test", "status": "in_progress"}}})
+		case "/repos/o/r/commits/abc/status":
+			send(map[string]any{"state": "pending", "statuses": []any{}})
 		default:
 			send([]any{})
 		}

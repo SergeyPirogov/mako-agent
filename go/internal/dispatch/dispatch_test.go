@@ -190,6 +190,10 @@ func git(t *testing.T, dir string, args ...string) {
 func TestMain(m *testing.M) {
 	// Once, before any test: the goroutines a test leaves behind read it.
 	notify.Enabled = false
+	trackers.RetryBase = time.Millisecond // a 5xx of a fake tracker is tried again at once
+	// The tests' board is at 127.0.0.1:1, nobody answers there: the pre-push hook would stop every push the
+	// tests make themselves. The hook's own tests turn it on.
+	pushHooks = false
 	i18n.SetAgentLanguage(i18n.UK) // the tests' tasks and what the agent writes are Ukrainian
 	os.Exit(m.Run())
 }

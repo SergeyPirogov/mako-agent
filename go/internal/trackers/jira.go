@@ -114,16 +114,63 @@ func (u *jiraUser) member(me string, assignees []string) bool {
 	return byProject(u.AccountID, me, assignees) || u.AccountType == "atlassian"
 }
 
-func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, error) {
-	var res struct {
-		Issues []jiraIssue `json:"issues"`
+// jiraMax: as many issues as FetchMine reads, page by page, like GitHub's and GitLab's lists.
+const jiraMax = perPage * maxPages
+
+// jiraFields: what a task is made of.
+var jiraFields = []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}
+
+// pages reads up to max issues of a query with the given fields, a page after a page by nextPageToken, and stops
+// after the page for which done says so (nil: reads to the end).
+func (j *Jira) pages(ctx context.Context, jql string, max int, fields []string, done func([]jiraIssue) bool) ([]jiraIssue, error) {
+	var issues []jiraIssue
+	token := ""
+	for len(issues) < max {
+		var res struct {
+			Issues        []jiraIssue `json:"issues"`
+			NextPageToken string      `json:"nextPageToken"`
+			IsLast        bool        `json:"isLast"`
+		}
+		body := map[string]any{"jql": jql, "maxResults": min(max-len(issues), perPage), "fields": fields}
+		if token != "" {
+			body["nextPageToken"] = token
+		}
+		if err := j.do(ctx, "POST", "/rest/api/3/search/jql", body, &res); err != nil {
+			return nil, err
+		}
+		issues = append(issues, res.Issues...)
+		if (done != nil && done(res.Issues)) || res.IsLast || res.NextPageToken == "" || res.NextPageToken == token || len(res.Issues) == 0 {
+			break
+		}
+		token = res.NextPageToken
 	}
-	body := map[string]any{"jql": jql, "maxResults": max, "fields": []string{"summary", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}}
-	if err := j.do(ctx, "POST", "/rest/api/3/search/jql", body, &res); err != nil {
+	if len(issues) > max {
+		issues = issues[:max]
+	}
+	return issues, nil
+}
+
+// contains: the query finds the issue among its first jiraMax; only the keys are read, and no page past the
+// one that has it.
+func (j *Jira) contains(ctx context.Context, jql, key string) (bool, error) {
+	found := false
+	_, err := j.pages(ctx, jql, jiraMax, []string{"summary"}, func(page []jiraIssue) bool {
+		for _, is := range page {
+			found = found || is.Key == key
+		}
+		return found
+	})
+	return found, err
+}
+
+// search reads up to max tasks of a query.
+func (j *Jira) search(ctx context.Context, jql string, max int) ([]core.Task, error) {
+	issues, err := j.pages(ctx, jql, max, jiraFields, nil)
+	if err != nil {
 		return nil, err
 	}
 	tasks := []core.Task{}
-	for _, is := range res.Issues {
+	for _, is := range issues {
 		t := core.Task{
 			ID: is.Key, Slug: is.Key, TrackerID: j.cfg.ID, Project: is.Fields.Project.Key,
 			Title: is.Fields.Summary, Description: strings.TrimSpace(adfToText(is.Fields.Description)),
@@ -160,7 +207,7 @@ func (j *Jira) FetchMine(ctx context.Context) ([]core.Task, error) {
 	if strings.TrimSpace(jql) == "" {
 		jql = `assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`
 	}
-	return j.search(ctx, jql, 50)
+	return j.search(ctx, jql, jiraMax)
 }
 
 func (j *Jira) AssignToMe(ctx context.Context, t core.Task) error {

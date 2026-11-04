@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,5 +165,75 @@ func TestAutoRebase(t *testing.T) {
 	}
 	if r, _ := d.Store.Get(id); r.BaseConflict != nil {
 		t.Fatal("conflict still recorded")
+	}
+}
+
+// The update from the base branch pushes the branch: commits with a secret the agent has not pushed yet, or a
+// check that fails, keep Mako from pushing them.
+func TestAutoRebaseHoldsSecrets(t *testing.T) {
+	for _, k := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(k, "t@t")
+	}
+	d, _, _ := setup(t)
+	ctx := context.Background()
+	cfg := *d.Config()
+	cfg.StateDir, cfg.Terminal.AutoRebase = t.TempDir(), "rebase"
+	d.Cfg = &cfg
+	dir := t.TempDir()
+	remote, other, wt := filepath.Join(dir, "origin.git"), filepath.Join(dir, "other"), filepath.Join(dir, "wt")
+	git(t, dir, "init", "-q", "--bare", "-b", "main", remote)
+	git(t, dir, "clone", "-q", remote, other)
+	commitIn := func(repo, file, body string) {
+		os.WriteFile(filepath.Join(repo, file), []byte(body), 0o644)
+		git(t, repo, "add", ".")
+		git(t, repo, "commit", "-q", "-m", "Change "+file)
+	}
+	commitIn(other, "a.txt", "one\n")
+	git(t, other, "push", "-q", "origin", "HEAD")
+	git(t, dir, "clone", "-q", remote, wt)
+	git(t, wt, "checkout", "-q", "-b", "fix/5-knopka")
+	commitIn(wt, "b.txt", "mine\n")
+	git(t, wt, "push", "-q", "origin", "HEAD")
+	// Not pushed yet: a commit with a token.
+	commitIn(wt, "conf.go", "package app\n\nconst tok = \"ghp_"+"Zq3"+strings.Repeat("aB9xK", 6)+"Lm7\"\n")
+	commitIn(other, "c.txt", "theirs\n")
+	git(t, other, "push", "-q", "origin", "HEAD")
+
+	id := "grp/app#5"
+	d.Store.Update(id, func(r *core.Record) {
+		r.Status, r.Executor, r.Worktree = core.Done, "terminal", wt
+		r.Task = core.Task{ID: id, TrackerID: "gitlab", Project: "grp/app", Title: "Кнопка"}
+		r.PRURL, r.Branch = "https://gitlab.example/grp/app/-/merge_requests/1", "fix/5-knopka"
+	})
+	round := func() {
+		d.mu.Lock()
+		d.reviews[id] = reviewLook{at: time.Now(), check: &trackers.ReviewCheck{State: "open"}}
+		delete(d.rebased, id)
+		d.mu.Unlock()
+		d.AutoRebase(ctx, time.Now())
+	}
+	pushed := func() bool {
+		out, _ := exec.Command("git", "-C", remote, "ls-tree", "--name-only", "fix/5-knopka").Output()
+		return strings.Contains(string(out), "conf.go")
+	}
+	logged := func(s string) bool {
+		for _, l := range d.Logs(id) {
+			if strings.Contains(l.Text, s) {
+				return true
+			}
+		}
+		return false
+	}
+
+	round()
+	if pushed() || !logged("branch not updated from main: the changes look like they contain secrets") {
+		t.Fatalf("pushed %v, logs %+v", pushed(), d.Logs(id))
+	}
+	old := pushDiff
+	t.Cleanup(func() { pushDiff = old })
+	pushDiff = func(context.Context, string, string) (string, error) { return "", errors.New("git log: broken") }
+	round()
+	if pushed() || !logged("the secrets check failed: git log: broken") {
+		t.Fatalf("pushed %v, logs %+v", pushed(), d.Logs(id))
 	}
 }

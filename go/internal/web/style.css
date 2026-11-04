@@ -316,6 +316,9 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .stable td.w { width: 34%; min-width: 150px; }
 .stable td.low { color: var(--warn); font-weight: 600; }
 .stable tr.raise td { background: color-mix(in srgb, var(--warn) 8%, var(--card)); }
+.stable th .info { vertical-align: -2px; margin-left: 4px; }
+@media (max-width: 760px) { .stable .noun { display: none; } }
+.scard.routing h4.phase { margin: 0; padding: 14px 18px 6px; font-size: 12.5px; font-weight: 650; color: var(--fg); }
 .scard.routing .sub { margin: 0; padding: 14px 18px 6px; font-size: 13px; font-weight: 650; color: var(--mute); }
 .scard.routing .metrics { margin: 0 0 8px; }
 .scard.routing .pad .snote { padding: 0; }
@@ -1024,6 +1027,13 @@ button.step-h:not(:disabled):hover { background: var(--hover); }
 .chat-status.limited .dot { background: var(--warn); }
 .chat-status b { font-weight: 600; flex: none; }
 .chat-status b[hidden] { display: none; }
+.chat-bg { display: flex; align-items: center; gap: 8px; max-width: 780px; margin: 0 auto 6px; font-size: 12px; color: var(--mute); min-width: 0; }
+.chat-bg[hidden] { display: none; }
+.chat-bg b { font-weight: 600; flex: none; color: var(--fg); }
+.chat-bg .bg-list { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-card.sub.background, .tool-card.sub.running { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.tool-card.sub .sub-note { flex: none; }
+.tool-card.sub .badge { flex: none; }
 .st-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The input: the text above, its controls in a row under it. */
 .chat-box.composer { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 12px; border-radius: 12px; }

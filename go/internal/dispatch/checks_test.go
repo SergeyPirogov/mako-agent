@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,6 +200,27 @@ func TestChecksPassedButSecretsStopPush(t *testing.T) {
 	}
 	idle()
 	if s := said(t, wt); !strings.Contains(s, "secrets") {
+		t.Fatalf("the agent was not told: %s", s)
+	}
+}
+
+// The checks pass but the secrets check fails: Mako does not push unchecked, and the agent hears why.
+func TestChecksPassedButSecretsCheckFails(t *testing.T) {
+	d, _, repo, id, wt, origin, idle := checksSetup(t, nil, "true")
+	commit(t, wt, "pay.go")
+	old := pushDiff
+	t.Cleanup(func() { pushDiff = old })
+	pushDiff = func(context.Context, string, string) (string, error) { return "", errors.New("git log: broken") }
+	checkNow(t, d, id)
+	r, _ := d.Store.Get(id)
+	if r.Checks.State != "passed" || r.Checks.Error != "push stopped: the secrets check failed" {
+		t.Fatalf("checks %+v", r.Checks)
+	}
+	if out := gitOut(t, repo.Path, "ls-remote", origin, "fix/5-pay"); strings.TrimSpace(out) != "" {
+		t.Fatalf("Mako pushed unchecked: %s", out)
+	}
+	idle()
+	if s := said(t, wt); !strings.Contains(s, "could not check") {
 		t.Fatalf("the agent was not told: %s", s)
 	}
 }

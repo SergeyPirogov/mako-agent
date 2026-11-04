@@ -103,6 +103,7 @@ textarea { min-height: 120px; font: 12.5px/1.5 var(--mono); resize: vertical; }
 .routes td { padding: 3px 8px 3px 0; white-space: nowrap; }
 .routes td:first-child { padding-top: 8px; }
 .routes select { width: auto; min-width: 0; margin-right: 4px; }
+.routes .effective { font-size: 12px; color: var(--mute); margin-top: 1px; min-height: 0; }
 .projects .watch-row td { padding-bottom: 12px; }
 .projects .watch-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 12.5px; margin-bottom: 4px; }
 .projects .watch-checks .check { padding: 2px 0; gap: 6px; }
@@ -465,6 +466,19 @@ function wireLessons(wrap) {
   };
 }
 
+// routeModeTip: the route a medium task's work gets under a project's mode ("" or none: the global one), and, when the
+// project's mode is its own and differs, the global one's: to see what the project's mode changes.
+function routeModeTip(mode) {
+  const global = cfg.routes?.mode || "balanced", own = mode || global;
+  const route = (m) => routeText(effectiveRoute("work", "medium", m));
+  const tip = t("s.pr.routeModeTip", { route: route(own), mode: t("s.r.mode." + own) });
+  return own === global ? tip : tip + t("s.pr.routeModeVs", { route: route(global), mode: t("s.r.mode." + global) });
+}
+// The tips of the projects' mode selects follow the table and the global mode, which they depend on.
+function paintRouteModeTips() {
+  for (const sel of document.querySelectorAll('select[data-f="routeMode"]')) sel.title = routeModeTip(sel.value);
+}
+
 function projectsTable(tk) {
   tk.projects ??= {};
   const wrap = document.createElement("div");
@@ -486,7 +500,7 @@ function projectsTable(tk) {
            <td><input type="text" placeholder="${tk.type === "jira" ? "git@host:group/app.git" : t("s.auto")}" value="${esc(p?.cloneUrl ?? "")}" data-f="cloneUrl"></td>
            <td><input type="text" placeholder="${esc(t("s.pr.asOrigin"))}" value="${esc(p?.baseBranch ?? "")}" data-f="baseBranch"></td>
            <td><input type="text" placeholder="${esc(t("s.pr.common"))}" title="${esc(t("s.pr.dashNothing"))}" value="${esc(p?.setup ?? "")}" data-f="setup"></td>
-           <td><select data-f="routeMode">${[["", t("s.pr.routeModeGlobal")], ...routeChoices.modes.map((m) => [m, t("s.r.mode." + m)])].map(([v, l]) => `<option value="${v}" ${(p?.routeMode ?? "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>`) +
+           <td><select data-f="routeMode" title="${esc(routeModeTip(p?.routeMode))}">${[["", t("s.pr.routeModeGlobal")], ...routeChoices.modes.map((m) => [m, t("s.r.mode." + m)])].map(([v, l]) => `<option value="${v}" ${(p?.routeMode ?? "") === v ? "selected" : ""}>${l}</option>`).join("")}</select></td>`) +
       `<td><button class="ghost danger" title="${esc(t("s.pr.remove"))}">✕</button></td>`;
     let current = key;
     tr.querySelector("[data-key]").onchange = (e) => {
@@ -502,6 +516,7 @@ function projectsTable(tk) {
         const pp = (tk.projects[current] ??= {});
         if (inp.value.trim()) pp[inp.dataset.f] = inp.value.trim();
         else delete pp[inp.dataset.f];
+        if (inp.dataset.f === "routeMode") inp.title = routeModeTip(pp.routeMode);
         changed();
       };
     }
@@ -727,6 +742,35 @@ function renderLanguage() {
   }
 }
 
+// stepRoute: the same as core.Step in Go: a route moved n levels. Up, the effort rises to xhigh, then the model goes
+// up; on the top model the effort goes on to max. Down, the effort falls to low, then the model goes down. A model
+// or an effort not on the ladders is left as it is. rc: the ladders (models cheapest first, efforts lowest first).
+function stepRoute(route, n, rc) {
+  let { model, effort } = route;
+  const ms = rc.models, es = rc.efforts, xhigh = es.indexOf("xhigh");
+  for (; n > 0; n--) {
+    const m = ms.indexOf(model), e = es.indexOf(effort);
+    if (e >= 0 && e < xhigh) effort = es[e + 1];
+    else if (m >= 0 && m < ms.length - 1) model = ms[m + 1];
+    else if (e >= 0 && e < es.length - 1) effort = es[e + 1];
+  }
+  for (; n < 0; n++) {
+    const m = ms.indexOf(model), e = es.indexOf(effort);
+    if (e > 0) effort = es[e - 1];
+    else if (m > 0) model = ms[m - 1];
+  }
+  return { model, effort };
+}
+// effectiveRoute: the route a task gets in the mode, as the table stands now (saved or not): the table's value
+// moved by the mode's shift, the way a started task's is.
+function effectiveRoute(phase, size, mode, rc = routeChoices) {
+  const def = rc.defaults[phase]?.[size] ?? {}, own = cfg.routes?.table?.[phase]?.[size] ?? {};
+  return stepRoute({ model: own.model ?? def.model, effort: own.effort ?? def.effort }, rc.shifts?.[mode] ?? 0, rc);
+}
+function routeText(r) {
+  return [r.model, r.effort].filter(Boolean).join(" · ");
+}
+
 // The routes: the model and the effort of each phase by the task's size. Only what differs from the defaults is
 // kept in the config.
 function renderRoutes() {
@@ -735,14 +779,14 @@ function renderRoutes() {
   cfg.routes ??= {};
   const rc = routeChoices;
   box.append(select(cfg.routes, "mode", t("s.r.mode"), rc.modes.map((m) => [m, t("s.r.mode." + m)]), { def: "balanced", hint: t("s.r.modeHint") }));
-  box.lastChild.querySelector("select").addEventListener("change", () => renderNav());
+  box.lastChild.querySelector("select").addEventListener("change", () => { renderNav(); paintEffective(); });
   const opts = (list, cur) => list.map((v) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(v)}</option>`).join("");
   const wrap = document.createElement("div");
   wrap.className = "routes-box";
   wrap.innerHTML = `<b style="font-size:13px">${t("s.r.table")}</b><table class="projects routes"><thead><tr><th></th>${rc.sizes.map((s) => `<th>${t("s.r.size." + s)}</th>`).join("")}</tr></thead><tbody>` +
     rc.phases.map((p) => `<tr><td title="${esc(t("s.r.phaseHint." + p))}">${t("s.r.phase." + p)}</td>${rc.sizes.map((s) => {
       const def = rc.defaults[p]?.[s] ?? {}, own = cfg.routes.table?.[p]?.[s] ?? {};
-      return `<td><select data-p="${p}" data-s="${s}" data-k="model">${opts(rc.models, own.model ?? def.model)}</select><select data-p="${p}" data-s="${s}" data-k="effort">${opts(rc.efforts, own.effort ?? def.effort)}</select></td>`;
+      return `<td><select data-p="${p}" data-s="${s}" data-k="model">${opts(rc.models, own.model ?? def.model)}</select><select data-p="${p}" data-s="${s}" data-k="effort">${opts(rc.efforts, own.effort ?? def.effort)}</select><div class="effective" data-eff="${p}/${s}"></div></td>`;
     }).join("")}</tr>`).join("") + `</tbody></table><div class="hint">${t("s.r.tableHint")}</div>`;
   for (const sel of wrap.querySelectorAll("select")) {
     sel.onchange = () => {
@@ -755,9 +799,23 @@ function renderRoutes() {
       if (Object.keys(row).length) table[p] = row; else delete table[p];
       if (!Object.keys(table).length) delete cfg.routes.table;
       changed();
+      paintEffective();
     };
   }
+  // Under each pair of selects, in a mode other than balanced: the route a task gets, the table's value moved by the
+  // mode. Redrawn at once when the mode or a select changes, saved or not.
+  const paintEffective = () => {
+    const mode = cfg.routes.mode ?? "balanced";
+    for (const el of wrap.querySelectorAll("[data-eff]")) {
+      const [p, s] = el.dataset.eff.split("/");
+      const shown = (rc.shifts?.[mode] ?? 0) !== 0;
+      el.textContent = shown ? t("s.r.effective", { route: routeText(effectiveRoute(p, s, mode, rc)) }) : "";
+      el.title = shown ? t("s.r.effectiveHint") : "";
+    }
+    paintRouteModeTips();
+  };
   box.append(wrap);
+  paintEffective();
   const reset = document.createElement("button");
   reset.className = "ghost";
   reset.textContent = t("s.r.reset");
@@ -1099,7 +1157,10 @@ async function renderPhone(qr) {
   const ts = st.tailscale;
   const ok = (x) => `<span class="ok">✓</span> ${x}`;
   let step1;
-  if (!ts.installed) {
+  if (st.relay) {
+    // The relay's tunnel is up: the phone reaches Mako from any network, Tailscale is not needed.
+    step1 = ok(t("s.p.viaRelay", { url: `<code>${esc(st.relay.url)}</code>` }));
+  } else if (!ts.installed) {
     step1 = `${t("s.p.install")}
       <div class="row"><button data-p="refresh">${t("s.p.check")}</button></div>`;
   } else if (!ts.running) {
@@ -1139,7 +1200,7 @@ async function renderPhone(qr) {
   box.innerHTML = `${leftovers}<div class="card"><h3 class="step">${t("s.p.step1")}</h3>${step1}</div>
     <div class="card"><h3 class="step">${t("s.p.step2")}</h3>${step2}</div>
     <div class="card"><h3 class="step">${t("s.p.connected")}</h3>${devices}</div>`;
-  phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving ? t("s.p.ready") : "";
+  phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving || st.relay ? t("s.p.ready") : "";
   const copy = $("copy-link");
   if (copy) copy.onclick = async () => {
     try {

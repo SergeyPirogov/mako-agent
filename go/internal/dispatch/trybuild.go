@@ -48,9 +48,9 @@ const tryIdle = 90 * time.Second
 // tryWait: how long a project's try command may take to listen on its port.
 const tryWait = 2 * time.Minute
 
-// ServeMako builds the Mako of the worktree and runs it as a copy to try with a copy of the data in home; a
-// variable for tests.
-var ServeMako = func(ctx context.Context, worktree, home string) (url string, stop func(), err error) {
+// serveMako builds the Mako of the worktree and runs it as a copy to try with a copy of the data in home
+// (Dispatcher.ServeMako in its place, in tests).
+func serveMako(ctx context.Context, worktree, home string) (url string, stop func(), err error) {
 	url, cleanup, err := shot.ServeWorktree(ctx, worktree, "", home, shot.Try)
 	if err != nil && cleanup != nil {
 		cleanup()
@@ -58,9 +58,6 @@ var ServeMako = func(ctx context.Context, worktree, home string) (url string, st
 	}
 	return url, cleanup, err
 }
-
-// OpenTry opens the copy's page in the browser; a variable for tests.
-var OpenTry = notify.Open
 
 // RunTry starts a project's try command in its worktree with port in $PORT and returns once something listens
 // there; stop ends the command with all it started. A variable for tests.
@@ -207,7 +204,11 @@ func (d *Dispatcher) TryBuild(id string) error {
 		var stop func()
 		var err error
 		if mako {
-			url, stop, err = ServeMako(ctx, r.Worktree, d.Config().Home)
+			serve := serveMako
+			if d.ServeMako != nil {
+				serve = d.ServeMako
+			}
+			url, stop, err = serve(ctx, r.Worktree, d.Config().Home)
 		} else {
 			var port int
 			if port, err = shot.FreePort(); err == nil {
@@ -253,7 +254,11 @@ func (d *Dispatcher) openTry(r core.Record, url string) {
 			break
 		}
 	}
-	OpenTry(strings.TrimRight(url, "/") + page)
+	open := notify.Open
+	if d.OpenTry != nil {
+		open = d.OpenTry
+	}
+	open(strings.TrimRight(url, "/") + page)
 }
 
 // end stops the copy, or its start.

@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,5 +139,37 @@ func TestLessons(t *testing.T) {
 	}
 	if r, _ := d.Store.Get(id); r.Lesson != nil || len(d.Lessons()) != 2 {
 		t.Fatalf("after «Ні»: %+v, %d", r.Lesson, len(d.Lessons()))
+	}
+}
+
+// A lesson goes straight to the base branch: a token in it, or a check that fails, keeps it from being pushed.
+func TestLessonToBaseHoldsSecrets(t *testing.T) {
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
+		t.Setenv(k, v)
+	}
+	ctx := context.Background()
+	repo := filepath.Join(t.TempDir(), "app")
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	git(t, filepath.Dir(origin), "init", "-q", "--bare", "-b", "main", origin)
+	git(t, filepath.Dir(repo), "clone", "-q", origin, repo)
+	os.WriteFile(filepath.Join(repo, "CLAUDE.md"), []byte("# App\n"), 0o644)
+	git(t, repo, "add", "CLAUDE.md")
+	git(t, repo, "commit", "-q", "-m", "init")
+	git(t, repo, "push", "-q", "origin", "HEAD:main")
+	head := gitOut(t, origin, "rev-parse", "main")
+
+	tok := "ghp_" + "Zq3" + strings.Repeat("aB9xK", 6) + "Lm7"
+	_, err := lessonToBase(ctx, repo, "main", LessonsHeading, "Токен для CI: "+tok, "lesson")
+	if err == nil || !strings.Contains(err.Error(), "GitHub token") || strings.Contains(err.Error(), tok) {
+		t.Fatalf("lesson with a token: %v", err)
+	}
+	old := pushDiff
+	t.Cleanup(func() { pushDiff = old })
+	pushDiff = func(context.Context, string, string) (string, error) { return "", errors.New("git log: broken") }
+	if _, err := lessonToBase(ctx, repo, "main", LessonsHeading, "Тести — поруч з кодом", "lesson"); err == nil || !strings.Contains(err.Error(), "secrets check failed") {
+		t.Fatalf("failed check: %v", err)
+	}
+	if got := gitOut(t, origin, "rev-parse", "main"); got != head {
+		t.Fatal("a lesson reached main")
 	}
 }

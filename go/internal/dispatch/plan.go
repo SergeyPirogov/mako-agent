@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
@@ -83,8 +84,10 @@ func (d *Dispatcher) ApprovePlan(id, requestID string, o PlanApproval) error {
 	if model != "" && c.Model() != model {
 		model = "" // it did not reach the agent: the run goes on with the one it has
 	}
+	approvedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	d.Store.Update(id, func(r *core.Record) {
 		r.Planning = false
+		r.PlanApprovedAt = approvedAt
 		// The same session goes on: its route stays the plan's, with the model picked on approval.
 		if r.AgentRoute != nil || model != "" {
 			route := core.Route{}
@@ -148,6 +151,7 @@ func (d *Dispatcher) RevisePlan(id, requestID, notes string) error {
 	if err := c.RevisePlan(requestID, notes); err != nil {
 		return err
 	}
+	d.Store.Update(id, func(r *core.Record) { r.PlanRevisions++ })
 	d.Log(id, "plan sent back for changes: "+clipText(firstLine(notes), 120))
 	return nil
 }

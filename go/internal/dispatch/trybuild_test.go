@@ -41,13 +41,11 @@ func setTry(cfg *config.Config, command string) {
 	}
 }
 
-// opened: the pages «Try this build» opened, instead of the browser.
-func opened(t *testing.T) func() []string {
+// opened: the pages «Try this build» of d opened, instead of the browser.
+func opened(d *Dispatcher) func() []string {
 	var mu sync.Mutex
 	var pages []string
-	old := OpenTry
-	OpenTry = func(url string) { mu.Lock(); pages = append(pages, url); mu.Unlock() }
-	t.Cleanup(func() { OpenTry = old })
+	d.OpenTry = func(url string) { mu.Lock(); pages = append(pages, url); mu.Unlock() }
 	return func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), pages...) }
 }
 
@@ -59,8 +57,8 @@ func tryState(d *Dispatcher, id string) *TryView {
 // A project's try command runs in the task's worktree on $PORT; the copy opens on the first step's page, a tick
 // needs it (or a reason), «Try this build» again only opens it, Stop and a closed card end it.
 func TestTryBuildCommand(t *testing.T) {
-	pages := opened(t)
 	d, cfg, id, wt, _ := selfSetup(t, threeSteps, func(c *config.Config) { setTry(c, helperTry()) })
+	pages := opened(d)
 	t.Cleanup(d.StopTries)
 	r, _ := d.Store.Get(id)
 	if v := d.SelfView(r); !v.CanTry || v.Tried || v.Try != nil {
@@ -149,8 +147,8 @@ func TestTryBuildCommand(t *testing.T) {
 // Mako's own repository tries its build without a command: ServeMako, the board's main page when no step names
 // one; a project with neither has no «Try this build».
 func TestTryBuildMako(t *testing.T) {
-	pages := opened(t)
 	d, _, id, wt, _ := selfSetup(t, []core.CheckStep{{Do: "Глянути"}})
+	pages := opened(d)
 	t.Cleanup(d.StopTries)
 	r, _ := d.Store.Get(id)
 	if d.SelfView(r).CanTry {
@@ -161,10 +159,8 @@ func TestTryBuildMako(t *testing.T) {
 	}
 	os.MkdirAll(wt+"/go/cmd/mako", 0o755)
 	os.WriteFile(wt+"/go/cmd/mako/main.go", []byte("package main"), 0o644)
-	old := ServeMako
-	t.Cleanup(func() { ServeMako = old })
 	stopped := make(chan struct{})
-	ServeMako = func(ctx context.Context, worktree, home string) (string, func(), error) {
+	d.ServeMako = func(ctx context.Context, worktree, home string) (string, func(), error) {
 		if worktree != wt {
 			t.Errorf("built %s", worktree)
 		}

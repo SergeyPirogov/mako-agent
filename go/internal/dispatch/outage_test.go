@@ -1,12 +1,16 @@
 package dispatch
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,6 +90,23 @@ func TestPollKeepsWhenTrackerWentDown(t *testing.T) {
 	if again := d.Searches()["gitlab"]; !again.Since.Equal(first.Since) || !again.At.After(first.At) {
 		t.Errorf("still down since the first failure: %+v, first %+v", again, first)
 	}
+	// Two failures in a row: the host is given a rest, and the board still says why it is down.
+	start := time.Now()
+	d.Poll(ctx)
+	rest := d.Searches()["gitlab"]
+	if !strings.Contains(rest.Error, "does not answer") || !strings.Contains(rest.Down, "refuses connections") || time.Since(start) > time.Second {
+		t.Errorf("resting host: %+v", rest)
+	}
+}
+
+func TestRateLimitIsAnOutage(t *testing.T) {
+	gl := gitlabAt(t, "https://git.example.app")
+	if got := outage(gl, &trackers.HTTPError{Status: 403, RateLimited: true}); !strings.Contains(got, "too many requests") {
+		t.Errorf("403 rate limit: %q", got)
+	}
+	if got := outage(gl, &trackers.HTTPError{Status: 403}); !strings.Contains(got, "check the token") {
+		t.Errorf("403: %q", got)
+	}
 }
 
 // GitHub answers a search for an unknown assignee with 422: the board names the login, not «помилка 422».
@@ -103,4 +124,42 @@ func TestOutageNamesUnknownAssignee(t *testing.T) {
 	if got := outage(gh, err); !strings.Contains(got, "user \"SergeyPirgov\" does not exist") {
 		t.Errorf("got %q (%v)", got, err)
 	}
+}
+
+// A slow round is logged with how long it took: a tracker that does not answer shows in the log.
+func TestSlowTickLogged(t *testing.T) {
+	d, _, _ := setup(t)
+	buf := &lockedBuffer{}
+	log.SetOutput(buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	old := slowTick
+	t.Cleanup(func() { slowTick = old })
+
+	d.Tick(context.Background())
+	if strings.Contains(buf.String(), "the round took") {
+		t.Fatalf("a quick round logged: %s", buf.String())
+	}
+	slowTick = 0
+	d.Tick(context.Background())
+	if !strings.Contains(buf.String(), "the round took") {
+		t.Fatalf("a slow round not logged: %s", buf.String())
+	}
+}
+
+// lockedBuffer: a log's output read while other goroutines may still write to it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

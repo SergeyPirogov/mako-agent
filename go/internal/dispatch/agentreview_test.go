@@ -272,6 +272,8 @@ func TestFixSuggestions(t *testing.T) {
 	if !awaitsReply(r) && lastReview(r).ReplyAt == "" {
 		t.Fatal("a clean round sent to the agent awaits its report")
 	}
+	// Its report is read first: a turn without one makes Mako ask for it, and the agent works again meanwhile.
+	replied(t, d, id)
 	idle()
 	if err := d.FixReview(id); err == nil || !strings.Contains(err.Error(), "already sent") {
 		t.Fatalf("sent twice: %v", err)
@@ -279,7 +281,6 @@ func TestFixSuggestions(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(wt, "said.json")); !strings.Contains(string(b), "назва функції незрозуміла") {
 		t.Fatalf("the agent got %s", b)
 	}
-	replied(t, d, id)
 
 	// Nothing to pass on a clean round with no suggestions.
 	suggest = false

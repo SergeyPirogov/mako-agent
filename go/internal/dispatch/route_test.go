@@ -97,6 +97,18 @@ func TestRouteForPicked(t *testing.T) {
 	}
 }
 
+// A model picked for the task replaces the route's model, but the mode still moved its effort: the route keeps the
+// mode (the stats and the card count it under it), so the card's label says "(quality)" for the effort's step.
+func TestRoutePickedKeepsMode(t *testing.T) {
+	cfg := &config.Config{EstimateModel: true, Routes: core.DefaultRoutes(), RouteMode: core.ModeQuality}
+	r := routeTask("big")
+	r.Model = "sonnet"
+	got := routeFor(cfg, r, core.PhaseWork, "")
+	if got.Label() != "sonnet · xhigh" || got.LabelWithMode() != "sonnet · xhigh (quality)" || got.Mode != core.ModeQuality || got.Why != "big, quality, model picked" {
+		t.Errorf("picked in quality: %+v", got)
+	}
+}
+
 // Escalation lifts the agent's runs, not the estimate, the reviewer or the assessment.
 func TestRouteForEscalated(t *testing.T) {
 	cfg := &config.Config{EstimateModel: true, Routes: core.DefaultRoutes()}

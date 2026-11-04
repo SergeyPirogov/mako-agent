@@ -117,3 +117,16 @@ func uploadPath(project, name string) string {
 	}
 	return fmt.Sprintf(".mako/uploads/%s/%s-%s", project, time.Now().UTC().Format("20060102-150405.000"), name)
 }
+
+// commentMemo is an issue's comments as the last poll read them: kept while the issue's updated_at and its
+// number of comments stay the same, so a poll does not read the comments of every issue again.
+type commentMemo struct {
+	updated  string
+	count    int
+	comments []core.Comment
+}
+
+// holds: the memo is still the issue's comments (an issue without updated_at is read anew).
+func (m commentMemo) holds(updated string, count int) bool {
+	return updated != "" && m.updated == updated && m.count == count
+}

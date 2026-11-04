@@ -124,6 +124,15 @@ func TestCardStageMetrics(t *testing.T) {
 	if got["work"].Route != "opus · high" || got["work"].Why != "big, escalated: CI red ×2" || got["checks"].Route != "CI fix: sonnet · medium" || got["plan"].Route != "" {
 		t.Errorf("stage routes: %+v", got)
 	}
+	// A route the mode moved says so on the card; a balanced one does not.
+	r.Metrics.Routes = map[string]core.Route{core.PhaseWork: {Model: "opus", Effort: "high", Mode: core.ModeQuality, Why: "big, quality"}, core.PhaseCIFix: {Model: "sonnet", Effort: "medium", Mode: core.ModeBalanced}}
+	got = map[string]stageView{}
+	for _, s := range stagesOf(recordView{Record: r, Column: r.Column(now.UnixMilli())}, now) {
+		got[s.Key] = s
+	}
+	if got["work"].Route != "opus · high (quality)" || got["checks"].Route != "CI fix: sonnet · medium" {
+		t.Errorf("stage routes with a mode: %+v", got)
+	}
 	n := recordView{Record: core.Record{Status: core.Asking, Estimate: &core.Estimate{State: "done", Questions: "1. a?\n2. b?\n   more of b\n3) c?"}}, Column: "new"}
 	if s := stagesOf(n, now)[0]; s.Note != "3 questions" {
 		t.Errorf("estimate note %q", s.Note)

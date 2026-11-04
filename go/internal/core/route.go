@@ -69,6 +69,16 @@ func (r Route) Label() string {
 	return r.Effort
 }
 
+// LabelWithMode: Label, and "opus · high (quality)" when the mode moved the route; for the card, where the mode is
+// not told otherwise. The logs keep Label: the route's Why there already names the mode.
+func (r Route) LabelWithMode() string {
+	label := r.Label()
+	if label != "" && ModeShift(r.Mode) != 0 {
+		label += " (" + r.Mode + ")"
+	}
+	return label
+}
+
 // RouteTable: the route of each phase by size.
 type RouteTable map[string]map[string]Route
 

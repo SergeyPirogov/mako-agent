@@ -106,6 +106,15 @@ func TestSelfListSyncGitLab(t *testing.T) {
 	}
 }
 
+func (d *Dispatcher) mustWorktree(t *testing.T, id string) string {
+	t.Helper()
+	wt, _, err := d.workOf(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wt
+}
+
 // hostOf: the task's code host, as the dispatcher finds it.
 func (d *Dispatcher) hostOf(t *testing.T, id string) trackers.CodeHost {
 	t.Helper()
@@ -166,10 +175,8 @@ func TestSelfListSyncGitHub(t *testing.T) {
 	if v := d.SelfView(r); !v.Steps[1].Done || v.Steps[0].Done {
 		t.Fatalf("board after the PR: %+v", v)
 	}
-	if err := d.SelfStep(id, 0, true, ""); err != nil {
-		t.Fatal(err)
-	}
-	settleSync(t, d, id)
+	// Ticked on the board (as SelfStep does, without its sync through the repo's GitLab origin): ticked in the PR.
+	d.setTick(id, threeSteps[:2], 0, true, headIn(t, d.mustWorktree(t, id)))
 	if err := d.syncSelfList(ctx, gh, id); err != nil {
 		t.Fatal(err)
 	}
