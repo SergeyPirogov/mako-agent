@@ -1058,7 +1058,8 @@ async function renderPhone(qr) {
     : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR"><ol>
         <li>${t("s.p.qr1")}</li>
         <li>${t("s.p.qr2")}</li>
-        <li>${t("s.p.qr3")}</li></ol></div>`
+        <li>${t("s.p.qr3")}</li>
+        <li>${t("s.p.qr4")} <button id="copy-link">${t("s.p.copyLink")}</button></li></ol></div>`
     : `<div class="row"><button class="primary" data-p="pairing">${t("s.p.showQr")}</button></div>`;
   const devices = st.devices.length
     ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">${t("s.p.device", { created: new Date(d.created).toLocaleDateString(LANG), seen: new Date(d.lastSeen).toLocaleString(LANG) })}</span>
@@ -1072,6 +1073,15 @@ async function renderPhone(qr) {
     <div class="card"><h3 class="step">${t("s.p.step2")}</h3>${step2}</div>
     <div class="card"><h3 class="step">${t("s.p.connected")}</h3>${devices}</div>`;
   phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving ? t("s.p.ready") : "";
+  const copy = $("copy-link");
+  if (copy) copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(qr.url);
+      copy.textContent = t("s.p.copied");
+    } catch {
+      prompt(t("s.p.copyLink"), qr.url);
+    }
+  };
   for (const b of box.querySelectorAll("[data-p]")) {
     b.onclick = async () => {
       const action = b.dataset.p;

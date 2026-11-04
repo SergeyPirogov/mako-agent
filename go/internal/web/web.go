@@ -59,6 +59,9 @@ type Server struct {
 	Release *update.Releases
 
 	cfgMu sync.Mutex // mako.config.json is read, changed and written by one request at a time
+
+	tunMu   sync.Mutex
+	tunnels map[string]*tunnel // the phones' end-to-end tunnels, by device: one each
 }
 
 type stateReply struct {
@@ -80,6 +83,7 @@ type stateReply struct {
 	Hold           *dispatch.LimitHold        `json:"limitHold,omitempty"` // the queue waits for a Claude limit to reset
 	LimitPct       int                        `json:"limitPausePct"`       // the threshold of the settings, 0: none
 	Remote         bool                       `json:"remote"`              // the page is open on a phone
+	E2E            bool                       `json:"e2e,omitempty"`       // …through its sealed tunnel (docs/relay-e2e.md)
 	Stats          core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
 	NavRetros      []dispatch.NavRetroState   `json:"navRetros,omitempty"` // the navigation retros of the stats' project
 	Update         *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
@@ -213,6 +217,7 @@ func (s *Server) Handler() http.Handler {
 		if reply.Remote {
 			reply.Editor = "" // the editor opens on the Mac: a phone gets no button for it
 		}
+		reply.E2E = tunneled(r) != nil
 		// seen=1: the board is on screen (not a hidden tab), so you are back; from the board itself only.
 		if r.URL.Query().Get("seen") == "1" && fromMako(r) {
 			reply.Digest = s.D.Seen(time.Now())
@@ -727,7 +732,10 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
-	return s.guard(mux)
+	h := s.guard(mux)
+	// The sealed requests go through the guard as well, as the device's own.
+	mux.Handle("GET /e2e", s.tunnelRoute(h))
+	return h
 }
 
 // makoHeader: what the board's own requests (and Mako's command line) carry. Another site in the browser cannot

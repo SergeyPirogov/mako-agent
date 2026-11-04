@@ -14,3 +14,34 @@ type Sealed struct {
 	N uint64 `json:"n"`           // the sender's counter: it grows with every frame in a direction
 	C []byte `json:"c"`           // ciphertext ‖ GCM tag
 }
+
+// Frame types of the tunnel, after the pairing. Each request, answer or stream message is one Sealed frame; its
+// I is the request's or the stream's id, random so a replayed old answer finds nobody waiting for it.
+const (
+	TypeRequest  = "req" // phone → Mac: an HTTP request (Request)
+	TypeResponse = "res" // Mac → phone: its answer (Response), with the request's I
+	TypeOpen     = "wso" // phone → Mac: open a WebSocket stream (Request with U only)
+	TypeMessage  = "wsm" // either way: a message of the stream (Message)
+	TypeClose    = "wsc" // either way: the stream ends
+)
+
+// Request is what a "req" or "wso" frame carries: what would be seen in HTTP, now inside the ciphertext.
+type Request struct {
+	M   string            `json:"m,omitempty"`   // the method; GET when empty
+	U   string            `json:"u"`             // the path and query
+	H   map[string]string `json:"h,omitempty"`   // the headers
+	B   []byte            `json:"b,omitempty"`   // the body
+	Nav bool              `json:"nav,omitempty"` // a page navigation: may come from another site's link
+}
+
+// Response is the Mac's answer to a Request.
+type Response struct {
+	S int               `json:"s"` // the status
+	H map[string]string `json:"h,omitempty"`
+	B []byte            `json:"b,omitempty"`
+}
+
+// Message is one WebSocket message of a stream.
+type Message struct {
+	WS []byte `json:"ws"`
+}

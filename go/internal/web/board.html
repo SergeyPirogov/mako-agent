@@ -5233,10 +5233,47 @@ function answerTerm(v, key, text) {
   v.dock.hidden = true;
   if (!narrow.matches) v.term.focus();
 }
+// A WebSocket to Mako, with WebSocket's onopen/onmessage/onclose/send/close. A phone paired end to end has no
+// way to the Mac but its service worker's sealed tunnel (sw.js): the stream goes there through a MessagePort. On
+// the Mac itself, and on a phone paired the old way, a plain WebSocket.
+function makoSocket(path) {
+  const sw = navigator.serviceWorker?.controller;
+  if (!data?.e2e || !sw) return new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${path}`);
+  const ch = new MessageChannel();
+  const port = ch.port1;
+  let seen = Date.now();
+  const sock = {
+    readyState: 0, onopen: null, onmessage: null, onclose: null,
+    send(d) { if (sock.readyState === 1) port.postMessage({ t: "s", d }); },
+    close() { if (sock.readyState < 2) port.postMessage({ t: "c" }); end(); },
+  };
+  const end = () => {
+    if (sock.readyState === 3) return;
+    sock.readyState = 3;
+    clearInterval(timer);
+    port.close();
+    sock.onclose?.({});
+  };
+  // The worker may be stopped while idle: the message to it keeps it, and a ping with no answer means it is gone.
+  const timer = setInterval(() => {
+    if (Date.now() - seen > 40000) return end();
+    navigator.serviceWorker.controller?.postMessage({ t: "alive" });
+    port.postMessage({ t: "p" });
+  }, 15000);
+  port.onmessage = (e) => {
+    const m = e.data || {};
+    seen = Date.now();
+    if (m.t === "o" && sock.readyState === 0) { sock.readyState = 1; sock.onopen?.({}); }
+    else if (m.t === "m") sock.onmessage?.({ data: m.d });
+    else if (m.t === "c") end();
+  };
+  sw.postMessage({ t: "wso", u: path }, [ch.port2]);
+  return sock;
+}
 function connect(v) {
   v.gone = false;
   v.ws?.close();
-  const ws = (v.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/term?id=${encodeURIComponent(v.id)}`));
+  const ws = (v.ws = makoSocket(`/ws/term?id=${encodeURIComponent(v.id)}`));
   ws.onopen = () => v.resize();
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
@@ -5349,6 +5386,10 @@ function setupPhone() {
   document.body.classList.add("phone");
   $("settings-link").hidden = true;
   $("awake").hidden = true; // the Mac's own sleep: its settings, not the phone's
+  if (data.e2e) {
+    checkShell();
+    navigator.serviceWorker?.addEventListener("controllerchange", checkShell);
+  }
   // The hint to install the app: once closed with «×», not shown again on this phone.
   const hintHidden = (() => { try { return localStorage.getItem("mako-hint-hidden") === "1"; } catch { return false; } })();
   const hint = (body) => {
@@ -5359,7 +5400,9 @@ function setupPhone() {
   if (!standalone && ios) {
     // iOS gives pushes only to an app added to the home screen.
     if (!hintHidden) hint(`Add Mako to your Home Screen: ${iosAddHome()}
-      <div class="muted">Then open Mako from its icon: that is the only way notifications arrive.</div>`);
+      <div class="muted">Then open Mako from its icon: that is the only way notifications arrive.${data.e2e
+        ? " The app keeps its own storage, so it asks to connect once more: on the Mac, Settings → Phone → «Show the QR code» → «Copy the link», and paste it in the app."
+        : ""}</div>`);
     return;
   }
   if (!standalone && !hintHidden) {
@@ -5374,7 +5417,7 @@ function setupPhone() {
     };
   }
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-  navigator.serviceWorker.register("/sw.js").then(async (reg) => {
+  navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(async (reg) => {
     const sub = await reg.pushManager.getSubscription();
     if (sub && Notification.permission === "granted") return subscribe(sub);
     $("bell").hidden = false;
@@ -5393,6 +5436,21 @@ function setupPhone() {
       alert("Could not enable notifications: " + e.message);
     }
   };
+}
+// The service worker comes from the relay in the clear, the board sealed from the Mac: the board compares the two.
+// It only tells, it cannot stop a worker already running (docs/relay-e2e.md, the limits).
+async function checkShell() {
+  try {
+    const [{ sw }, code] = await Promise.all([
+      fetch("/api/shell").then((r) => r.json()),
+      fetch("/sw.js", { cache: "no-store" }).then((r) => r.arrayBuffer()),
+    ]);
+    const sum = [...new Uint8Array(await crypto.subtle.digest("SHA-256", code))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (!sw || sum === sw) return;
+    $("shell-warn")?.remove();
+    $("phone-hint").insertAdjacentHTML("beforebegin", `<div class="banner" id="shell-warn"><b>The app's code is not the one Mako on your Mac sent.</b>
+      Whoever carries the connection (the relay) may have changed it. Do not use Mako on this phone: remove the site's data in the browser's settings and connect it again, best through a relay of your own.</div>`);
+  } catch {}
 }
 const subscribe = (sub) => fetch("/api/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub) });
 function urlKey(b64) {

@@ -71,18 +71,39 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /ws/term", ws)
 }
 
-// terminal: what the agent shows goes out, what you type comes in. {"t":"init","d":…} first, then {"t":"o"}
+// termConn is the terminal's way to the page: a WebSocket, or a stream of the phone's sealed tunnel.
+type termConn interface {
+	Send(v any) error         // one JSON message out
+	Receive() (string, error) // the next message in
+	Close() error
+}
+
+type wsTerm struct{ c *websocket.Conn }
+
+func (w wsTerm) Send(v any) error { return websocket.JSON.Send(w.c, v) }
+func (w wsTerm) Receive() (string, error) {
+	var raw string
+	err := websocket.Message.Receive(w.c, &raw)
+	return raw, err
+}
+func (w wsTerm) Close() error { return w.c.Close() }
+
+func (s *Server) terminal(c *websocket.Conn) {
+	s.termStream(c.Request().URL.Query().Get("id"), wsTerm{c})
+}
+
+// termStream: what the agent shows goes out, what you type comes in. {"t":"init","d":…} first, then {"t":"o"}
 // for output and {"t":"x"} when the agent ends; in: {"t":"i","d":…} keys, {"t":"s","d":…} a line typed and Enter
 // (the phone's input, /compact), {"t":"r","cols":…,"rows":…} size.
-func (s *Server) terminal(c *websocket.Conn) {
+func (s *Server) termStream(id string, c termConn) {
 	defer c.Close()
-	sess := s.D.Sessions.Get(c.Request().URL.Query().Get("id"))
+	sess := s.D.Sessions.Get(id)
 	if sess == nil {
-		websocket.JSON.Send(c, map[string]any{"t": "init", "d": "", "gone": true})
+		c.Send(map[string]any{"t": "init", "d": "", "gone": true})
 		return
 	}
 	past, events := sess.Subscribe()
-	if err := websocket.JSON.Send(c, map[string]any{"t": "init", "d": past, "gone": events == nil}); err != nil || events == nil {
+	if err := c.Send(map[string]any{"t": "init", "d": past, "gone": events == nil}); err != nil || events == nil {
 		return
 	}
 	defer sess.Unsubscribe(events)
@@ -96,8 +117,8 @@ func (s *Server) terminal(c *websocket.Conn) {
 				D          string `json:"d"`
 				Cols, Rows int
 			}
-			var raw string
-			if err := websocket.Message.Receive(c, &raw); err != nil {
+			raw, err := c.Receive()
+			if err != nil {
 				c.Close()
 				return
 			}
@@ -117,7 +138,7 @@ func (s *Server) terminal(c *websocket.Conn) {
 	for {
 		select {
 		case e, ok := <-events:
-			if !ok || websocket.JSON.Send(c, e) != nil {
+			if !ok || c.Send(e) != nil {
 				return
 			}
 		case <-done:

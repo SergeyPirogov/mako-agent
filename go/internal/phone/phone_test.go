@@ -224,6 +224,15 @@ func TestPairSealed(t *testing.T) {
 	if _, err := p.Pair(code, "iPhone", origin); err == nil {
 		t.Fatal("a used code paired the old way")
 	}
+	// Paired end to end: found by its id (its frames), never by its token, which the phone was not given.
+	if !d.E2E || p.ByID(d.ID) == nil || p.ByToken(d.Token) != nil {
+		t.Fatalf("an end-to-end device: e2e %v, by id %v, by token %v", d.E2E, p.ByID(d.ID), p.ByToken(d.Token))
+	}
+	// Paired the old way: the other way round.
+	old, _ := p.Pair(p.NewPairing(), "Android", origin)
+	if old.E2E || p.ByID(old.ID) != nil || p.ByToken(old.Token) == nil {
+		t.Fatal("a device paired the old way")
+	}
 }
 
 // The counters live in phones.json: after a restart the Mac neither reuses a nonce nor takes an old frame again,
