@@ -16,8 +16,8 @@ import (
 
 // «Check it yourself»: the assessment's advice on what to look at yourself before the merge, as steps to tick.
 // A tick belongs to the branch's HEAD it was given at: new commits make it stale. Once every step is ticked at the
-// same HEAD the check is done; when the setting asks for it (selfCheck: "advised" or "always"), the merge waits
-// for that, or for you to skip the check with a reason.
+// same HEAD the check is done. The steps are advice ("advised", the default); with selfCheck "always" the merge
+// waits for them, or for you to skip the check with a reason.
 
 // SelfCheckView is the check as the board shows it.
 type SelfCheckView struct {
@@ -63,9 +63,10 @@ func (d *Dispatcher) checkSteps(r core.Record) []core.CheckStep {
 	return nil
 }
 
-// selfRequired: the merge of the task waits for the check: Mako's own agent with an open MR.
+// selfRequired: the merge of the task waits for the check: selfCheck "always", Mako's own agent with an open MR.
+// The agent's advice alone ("advised") does not hold an MR that is otherwise ready.
 func (d *Dispatcher) selfRequired(r core.Record, steps []core.CheckStep) bool {
-	return len(steps) > 0 && d.selfMode() != config.SelfCheckOff && reviewable(r) && r.Status == core.Done
+	return len(steps) > 0 && d.selfMode() == config.SelfCheckAlways && reviewable(r) && r.Status == core.Done
 }
 
 // selfMode: the selfCheck setting ("advised" with no config, as in tests of other things).

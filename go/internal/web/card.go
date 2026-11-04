@@ -60,6 +60,9 @@ func blockedBy(v recordView) string {
 	return ""
 }
 
+// selfHolds: «Check it yourself» holds the merge now (selfCheck "always", steps left, not skipped).
+func selfHolds(v recordView) bool { return v.Self != nil && v.Self.Blocks }
+
 func primaryAction(v recordView) string {
 	r := v.Record
 	terminal := r.Executor == "terminal"
@@ -237,6 +240,9 @@ func stagesOf(v recordView, now time.Time) []stageView {
 		ci.State, ci.Note = "fail", "CI failed"
 	case col == "review" && v.CIWait != "":
 		ci.State, ci.Note = "now", "running"
+	case col == "review" && selfHolds(v):
+		// Your own check is a check too: the stage is not passed while it holds the merge.
+		ci.State, ci.Note = "now", fmt.Sprintf("check it yourself · %d left", v.Self.Left)
 	case col == "review":
 		ci.State = "done"
 		if ci.Seconds < 1 {
@@ -255,7 +261,7 @@ func stagesOf(v recordView, now time.Time) []stageView {
 		merge.State = "done"
 	case r.ReviewState == "closed":
 		merge.State, merge.Note = "fail", "closed"
-	case col == "review" && blockedBy(v) == "" && v.CIWait == "":
+	case col == "review" && blockedBy(v) == "" && v.CIWait == "" && !selfHolds(v):
 		merge.State = "now"
 		if merge.Seconds < 60 {
 			merge.Note = "waiting for you"
@@ -308,6 +314,9 @@ func checksOf(ci, rev stageView) stageView {
 		c = "CI green"
 	case "now":
 		c = "CI running"
+		if strings.HasPrefix(ci.Note, "check it yourself") {
+			c = "CI green · " + ci.Note
+		}
 	case "fail":
 		c = "CI failed"
 		switch ci.Note {

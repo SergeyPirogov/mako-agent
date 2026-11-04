@@ -16,7 +16,8 @@ import (
 // selfSetup: Mako's agent on grp/app#5 with its branch pushed, an open MR in the fake GitLab and an assessment
 // that asks to check steps; the MR looks ready to merge to the board.
 func selfSetup(t *testing.T, steps []core.CheckStep, prep ...func(*config.Config)) (d *Dispatcher, cfg *config.Config, id, wt string, f *fakeGitLab) {
-	d, cfg, id, wt, _, f = reviewSetup(t, prep...)
+	// The gate: "always" holds the merge; the default ("advised") only advises (TestSelfCheckModes).
+	d, cfg, id, wt, _, f = reviewSetup(t, append([]func(*config.Config){func(c *config.Config) { c.SelfCheck = config.SelfCheckAlways }}, prep...)...)
 	git(t, wt, "commit", "-q", "--allow-empty", "-m", "Pay")
 	git(t, wt, "push", "-q", "origin", "fix/5-pay")
 	// From now on the repository's origin is the fake GitLab, which has the MR (the pushes are done).
@@ -190,7 +191,14 @@ func TestSelfCheckModes(t *testing.T) {
 	if v := d.SelfView(r); v == nil || v.Required || v.Blocks || !d.MergeReady(r) {
 		t.Fatalf("off: %+v", v)
 	}
+	// Advised (the default): the agent's steps are on the card, but an MR otherwise ready is not held.
 	cfg.SelfCheck = config.SelfCheckAdvised
+	if r, _ = d.Store.Get(id); d.SelfView(r) == nil || d.SelfView(r).Required || d.SelfView(r).Blocks || d.SelfView(r).Left != 1 || !d.MergeReady(r) {
+		t.Fatalf("advised: %+v", d.SelfView(r))
+	}
+	if _, _, blocks := d.SelfBlocks(r); blocks {
+		t.Fatal("advised: the steps block the merge")
+	}
 	d.Store.Update(id, func(r *core.Record) { r.Assessment.Review = &core.ReviewAdvice{Need: true, Why: "ризиково"} })
 	if r, _ = d.Store.Get(id); d.SelfView(r) != nil || !d.MergeReady(r) {
 		t.Fatalf("advised, no advice: %+v", d.SelfView(r))
