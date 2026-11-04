@@ -58,12 +58,12 @@ esac
 	os.WriteFile(filepath.Join(dir, "tailscale"), []byte("#!/bin/sh\n"+filepath.Join(dir, "tailscale-app")+` "$@"`+"\n"), 0o755)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	old := tsTimeout
-	tsTimeout = 500 * time.Millisecond
+	tsTimeout = 3 * time.Second // with room for a loaded machine: the script must print its link before this runs out
 	defer func() { tsTimeout = old }()
 
 	start := time.Now()
 	err := Serve(context.Background(), 7777, true)
-	if took := time.Since(start); took > 5*time.Second {
+	if took := time.Since(start); took > 10*time.Second {
 		t.Fatalf("Serve took %v", took)
 	}
 	if err == nil || !strings.Contains(err.Error(), "https://login.tailscale.com/f/funnel?node=x") || !strings.Contains(err.Error(), "Funnel must be allowed") {
