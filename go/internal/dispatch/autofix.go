@@ -40,8 +40,8 @@ func (d *Dispatcher) AutoFix(ctx context.Context, now time.Time) {
 		if reviewing {
 			continue
 		}
-		// Working, or waiting for your answer: not now. Done or closed: its turn is over.
-		if st := d.lookTerminal(r, now).State; st != "done" && st != "stopped" {
+		// Working, or waiting for your answer: not now. Done or closed: its turn is over. Cut by the Claude limit: a message only runs into it again.
+		if !d.lookTerminal(r, now).turnOver() {
 			continue
 		}
 		c, err := d.Review(ctx, r.ID)

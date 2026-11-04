@@ -63,3 +63,44 @@ eq(fmtDur(3600, { fine: 600 }), "1 h", "fine: past the limit");
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
+
+// The chat's Claude-limit banner: when a chat counts as cut by the limit, what it says and which buttons it offers.
+// The block that defines them runs here in Node, with the page's t, esc and fmtWhen stood in.
+func TestChatLimitBanner(t *testing.T) {
+	src := string(board)
+	from, to := strings.Index(src, "// limit:begin"), strings.Index(src, "// limit:end")
+	if from < 0 || to < from {
+		t.Fatal("board.html has no limit:begin … limit:end block")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	script := `const words = { "b.limit.until": "Claude limit until {time}", "b.limit.reset": "Claude limit has reset", "b.limit.unknown": "Claude limit reached", "b.limit.now": "Continue now", "b.limit.nowHint": "now", "b.limit.auto": "Continue after the reset", "b.limit.autoHint": "auto" };
+const t = (k, v = {}) => words[k].replace(/\{(\w+)\}/g, (m, n) => v[n]);
+const esc = (x) => String(x);
+const fmtWhen = (ms) => "HH:MM";
+` + src[from:to] + `
+const eq = (got, want, what) => { if (got !== want) { console.log(what + ": got " + JSON.stringify(got) + ", want " + JSON.stringify(want)); process.exitCode = 1; } };
+const ahead = Math.floor(Date.now() / 1000) + 3600, past = Math.floor(Date.now() / 1000) - 3600;
+eq(limitCut({ state: "limited", limitedUntil: ahead }), true, "limited");
+eq(limitCut({ state: "limited" }), true, "limited, reset unknown");
+eq(limitCut({ state: "exited", limitedUntil: ahead }), true, "closed, the reset is ahead");
+eq(limitCut({ state: "exited", limitedUntil: past }), false, "closed, a limit long reset: nothing to show");
+eq(limitCut({ state: "done" }), false, "an ordinary turn");
+eq(limitCut({ state: "working", limitedUntil: ahead }), false, "working");
+eq(limitCut({ state: "waiting", limitedUntil: ahead }), false, "waiting");
+eq(limitText({ limitedUntil: ahead }), "Claude limit until HH:MM", "until");
+eq(limitText({ limitedUntil: past }), "Claude limit has reset", "reset");
+eq(limitText({}), "Claude limit reached", "unknown");
+const open = limitButtons({ limitedUntil: ahead, resumeOnReset: false });
+eq(open.includes("data-limit-go") && open.includes("data-limit-auto") && open.includes('aria-checked="false"') && !open.includes(" on"), true, "both buttons, switch off: " + open);
+eq(limitButtons({ limitedUntil: ahead, resumeOnReset: true }).includes('aria-checked="true"'), true, "switch on");
+const after = limitButtons({ limitedUntil: past });
+eq(after.includes("data-limit-go") && !after.includes("data-limit-auto"), true, "after the reset only «Continue now»: " + after);
+`
+	out, err := exec.Command(node, "-e", script).CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}

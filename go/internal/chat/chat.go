@@ -144,6 +144,7 @@ type Session struct {
 	// The Claude limit: limitHit is told by a rate-limit event of the turn going on; limitedUntil is when the limit
 	// that cut the turn resets; resumeTimer sends the message to go on then, if resumeOnReset.
 	limitHit      bool
+	limitReset    int64 // when the rejected event said the limit resets: it becomes limitedUntil once the turn ends by it
 	limitedUntil  int64
 	resumeOnReset bool
 	resumeTimer   *time.Timer
@@ -515,7 +516,7 @@ func (s *Session) handle(line []byte) {
 		if r.Status == "rejected" {
 			s.limitHit = true
 			if r.ResetsAt > 0 {
-				s.limitedUntil = r.ResetsAt
+				s.limitReset = r.ResetsAt
 			}
 		}
 		s.mu.Unlock()
@@ -556,6 +557,10 @@ func (s *Session) handle(line []byte) {
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: cost, At: at})
 		if s.limitCut(e.IsError, e.Result) {
 			s.setState("limited")
+			// Only now: a reset already past sends the continuation at once, and it must find the state set.
+			s.mu.Lock()
+			s.armResumeLocked()
+			s.mu.Unlock()
 		} else {
 			s.setState("done")
 		}
@@ -573,20 +578,20 @@ var limitText = regexp.MustCompile(`(?i)hit your .*limit`)
 
 // limitCut tells whether the turn that just ended was cut by the Claude limit: its error result follows a
 // rejected rate-limit event, or says so in words. It keeps when the limit resets (the reported window that is
-// fullest, when the event did not say) and starts the automatic continuation if it was asked for.
+// fullest, when the event did not say). The caller sets the state and then arms the continuation.
 func (s *Session) limitCut(isError bool, result string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	hit := s.limitHit
-	s.limitHit = false
+	hit, reset := s.limitHit, s.limitReset
+	s.limitHit, s.limitReset = false, 0
 	if !isError || !(hit || limitText.MatchString(result)) {
 		s.limitedUntil = 0
 		return false
 	}
+	s.limitedUntil = reset
 	if s.limitedUntil == 0 {
 		s.limitedUntil = s.lastLimits.fullest()
 	}
-	s.armResumeLocked()
 	return true
 }
 
@@ -798,16 +803,20 @@ var ErrClosed = errors.New("agent is not running")
 func (s *Session) Send(text string) error {
 	s.mu.Lock()
 	closed := s.exited || s.stopping // stdin is closed as soon as it stops, before the process has exited
-	s.mu.Unlock()
 	if closed {
+		// The caller resumes the conversation with this message in a new session: the continuation of this one
+		// would say «go on» a second time.
+		s.disarmResumeLocked()
+		s.mu.Unlock()
 		return ErrClosed
 	}
+	s.mu.Unlock()
 	// Working before Claude reads it: a turn it ends at once must not be set back to working.
 	at := s.add(Item{Kind: "user", Text: text})
 	// A message of yours goes on from the limit by itself: nothing is left to wait for.
 	s.mu.Lock()
 	wasLimited, until := s.state == "limited", s.limitedUntil
-	s.limitedUntil, s.limitHit = 0, false
+	s.limitedUntil, s.limitHit, s.limitReset = 0, false, 0
 	s.disarmResumeLocked()
 	s.mu.Unlock()
 	s.setState("working")
@@ -823,7 +832,9 @@ func (s *Session) Send(text string) error {
 		s.state, s.since = "done", time.Now()
 		if wasLimited { // still cut by the limit: the message did not go on from it
 			s.state, s.limitedUntil = "limited", until
-			s.armResumeLocked()
+			if !closed && !errors.Is(err, os.ErrClosed) && !errors.Is(err, syscall.EPIPE) { // else it is resumed elsewhere
+				s.armResumeLocked()
+			}
 		}
 	}
 	s.version++

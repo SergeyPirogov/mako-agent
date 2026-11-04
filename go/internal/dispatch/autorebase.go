@@ -49,8 +49,8 @@ func (d *Dispatcher) AutoRebase(ctx context.Context, now time.Time) {
 		if reviewing {
 			continue
 		}
-		// Working, or waiting for your answer: its branch is its own now.
-		if st := d.lookTerminal(r, now).State; st != "done" && st != "stopped" {
+		// Working, or waiting for your answer: its branch is its own now (or cut by the Claude limit, which a message only runs into again).
+		if !d.lookTerminal(r, now).turnOver() {
 			continue
 		}
 		if c := r.BaseConflict; c != nil && gitx.Contains(ctx, r.Worktree, c.Base) {

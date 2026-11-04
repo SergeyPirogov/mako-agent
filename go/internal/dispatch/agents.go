@@ -61,6 +61,9 @@ type Agent struct {
 	// Terminal: the agent runs in Mako's own terminal; Live: its process is there to type into.
 	Terminal bool `json:"terminal,omitempty"`
 	Live     bool `json:"live,omitempty"`
+	// Limited: the Claude limit cut its turn (State is "stopped"): it is not finished, and a message to it only
+	// runs into the limit again, so nothing Mako sends by itself goes to it.
+	Limited bool `json:"limited,omitempty"`
 	// Asked: the request a chat agent waits on, which a notification can answer.
 	Asked *chat.Item `json:"-"`
 }
@@ -434,3 +437,7 @@ func orBlank(prefix, s string) string {
 	}
 	return prefix + s
 }
+
+// turnOver: the agent's turn is over and it can be told something: it is done or closed, not working, waiting for
+// you, or cut by the Claude limit.
+func (a Agent) turnOver() bool { return (a.State == "done" || a.State == "stopped") && !a.Limited }

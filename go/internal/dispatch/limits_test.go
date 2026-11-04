@@ -14,6 +14,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
+	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
 func TestLimitHold(t *testing.T) {
@@ -168,5 +169,49 @@ func TestResumeOnResetNoSession(t *testing.T) {
 	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
 	if err := d.SetResumeOnReset("chat-none", true); err == nil {
 		t.Fatal("no error for a chat with no session")
+	}
+}
+
+// An agent the Claude limit cut is not "done" for what Mako sends by itself: a fix for the MR would only run into
+// the limit again, and clear the state that tells you of it.
+func TestAutoFixSkipsLimitedAgent(t *testing.T) {
+	d, _, _ := setup(t)
+	d.Chats = chat.NewManager(filepath.Join(t.TempDir(), "limits.json"))
+	cfg := *d.Config()
+	cfg.Terminal.AutoFix = true
+	d.Cfg = &cfg
+	wt := t.TempDir()
+	id := "grp/app#5"
+	d.Store.Update(id, func(r *core.Record) {
+		r.Status, r.Executor, r.Worktree, r.View = core.Done, "terminal", wt, "chat"
+		r.Task = core.Task{ID: id, TrackerID: "gitlab", Project: "grp/app", Title: "Кнопка"}
+		r.PRURL, r.Branch = "https://gitlab.example/grp/app/-/merge_requests/1", "fix/5-knopka"
+	})
+	s := limitedChat(t, d, id, time.Now().Add(time.Hour).Unix(), chat.Options{})
+	if a := d.lookTerminal(core.Record{ID: id, View: "chat"}, time.Now()); !a.Limited || a.turnOver() {
+		t.Fatalf("agent %+v", a)
+	}
+	d.mu.Lock()
+	d.reviews[id] = reviewLook{at: time.Now(), check: &trackers.ReviewCheck{State: "open", Conflicts: true}}
+	d.mu.Unlock()
+	d.AutoFix(context.Background(), time.Now())
+	for _, it := range s.Snapshot().Items {
+		if it.Kind == "user" && strings.Contains(it.Text, "конфліктує") {
+			t.Fatalf("the limited agent was asked to fix: %q", it.Text)
+		}
+	}
+	if st, _, _ := s.State(); st != "limited" {
+		t.Fatalf("state %q", st)
+	}
+	// An agent that finished, or was closed, is told.
+	for _, state := range []string{"done", "stopped"} {
+		if !(Agent{State: state}).turnOver() {
+			t.Fatalf("%s: not over", state)
+		}
+	}
+	for _, state := range []string{"working", "waiting"} {
+		if (Agent{State: state}).turnOver() {
+			t.Fatalf("%s: over", state)
+		}
 	}
 }

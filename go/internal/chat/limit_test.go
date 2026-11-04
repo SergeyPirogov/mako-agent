@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,13 +14,22 @@ import (
 
 // pipe: the stdin of a session with no process; what Send writes can be read back.
 type pipe struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	fail error // what Write answers instead, when set
 }
 
-func (p *pipe) Write(b []byte) (int, error) { p.mu.Lock(); defer p.mu.Unlock(); return p.buf.Write(b) }
-func (p *pipe) Close() error                { return nil }
-func (p *pipe) String() string              { p.mu.Lock(); defer p.mu.Unlock(); return p.buf.String() }
+func (p *pipe) Write(b []byte) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.fail != nil {
+		return 0, p.fail
+	}
+	return p.buf.Write(b)
+}
+func (p *pipe) failWith(err error) { p.mu.Lock(); p.fail = err; p.mu.Unlock() }
+func (p *pipe) Close() error       { return nil }
+func (p *pipe) String() string     { p.mu.Lock(); defer p.mu.Unlock(); return p.buf.String() }
 
 // limitSession: a session in the middle of a turn that is fed claude's lines by hand.
 func limitSession(o Options) (*Session, *pipe) {
@@ -97,13 +107,11 @@ func shortGrace(t *testing.T) {
 	t.Cleanup(func() { ResumeGrace = old })
 }
 
-func limited(t *testing.T, s *Session, reset int64) {
-	t.Helper()
+// limited feeds the turn the limit cuts. It does not check the state: with a reset already past and the
+// continuation asked for, the session goes on at once.
+func limited(s *Session, reset int64) {
 	s.handle([]byte(rejected(reset)))
 	s.handle([]byte(limitResult))
-	if st, _, _ := s.State(); st != "limited" {
-		t.Fatalf("state %q", st)
-	}
 }
 
 // «Continue after the reset»: the session says «go on» by itself once the limit has reset.
@@ -116,7 +124,7 @@ func TestResumeOnReset(t *testing.T) {
 	if !s.Snapshot().ResumeOnReset {
 		t.Fatal("the choice is not in the snapshot")
 	}
-	limited(t, s, time.Now().Unix())
+	limited(s, time.Now().Unix())
 	select {
 	case text := <-said:
 		if text != ResumeMessage {
@@ -133,8 +141,8 @@ func TestNoResumeWithoutChoiceOrBeforeReset(t *testing.T) {
 	said := make(chan string, 4)
 	s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
 	defer s.Stop()
-	limited(t, s, time.Now().Unix()) // reset already, but nobody asked
-	s.SetResumeOnReset(true)         // asked now: it goes on at once
+	limited(s, time.Now().Unix()) // reset already, but nobody asked
+	s.SetResumeOnReset(true)      // asked now: it goes on at once
 	select {
 	case <-said:
 	case <-time.After(5 * time.Second):
@@ -143,7 +151,7 @@ func TestNoResumeWithoutChoiceOrBeforeReset(t *testing.T) {
 	s2, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
 	defer s2.Stop()
 	s2.SetResumeOnReset(true)
-	limited(t, s2, time.Now().Add(time.Hour).Unix())
+	limited(s2, time.Now().Add(time.Hour).Unix())
 	select {
 	case <-said:
 		t.Fatal("went on before the limit reset")
@@ -162,7 +170,7 @@ func TestResumeCancelled(t *testing.T) {
 		said := make(chan string, 4)
 		s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
 		s.SetResumeOnReset(true)
-		limited(t, s, time.Now().Add(150*time.Millisecond).Unix()-1) // due within the grace
+		limited(s, time.Now().Add(150*time.Millisecond).Unix()-1) // due within the grace
 		cancel(s)
 		select {
 		case <-said:
@@ -179,7 +187,7 @@ func TestResumeSurvivesSleep(t *testing.T) {
 	said := make(chan string, 4)
 	s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
 	s.SetResumeOnReset(true)
-	limited(t, s, time.Now().Add(200*time.Millisecond).Unix())
+	limited(s, time.Now().Add(200*time.Millisecond).Unix())
 	s.sleep()
 	if !s.Snapshot().ResumeOnReset || s.asleep != true {
 		t.Fatal("it did not sleep")
@@ -197,7 +205,7 @@ func TestResumeSendsItself(t *testing.T) {
 	s, in := limitSession(Options{})
 	defer s.Stop()
 	s.SetResumeOnReset(true)
-	limited(t, s, time.Now().Unix())
+	limited(s, time.Now().Unix())
 	eventually(t, func() bool { return strings.Contains(in.String(), ResumeMessage) }, func() string { return "nothing written: " + in.String() })
 	if st, _, _ := s.State(); st != "working" {
 		t.Fatalf("state %q", st)
@@ -213,5 +221,90 @@ func TestReplayLimited(t *testing.T) {
 	snap := ReplayIn("x", "", path)
 	if snap.State != "exited" || snap.LimitedUntil != reset {
 		t.Fatalf("state %q until %d, want until %d", snap.State, snap.LimitedUntil, reset)
+	}
+}
+
+// A reset already past with the continuation asked for: the session goes on at once, and what it ends in is
+// «working», not the «limited» it was just set to.
+func TestResumeAtOnceKeepsWorking(t *testing.T) {
+	old := ResumeGrace
+	ResumeGrace = 0
+	defer func() { ResumeGrace = old }()
+	s, in := limitSession(Options{})
+	defer s.Stop()
+	s.SetResumeOnReset(true)
+	limited(s, time.Now().Add(-time.Minute).Unix())
+	eventually(t, func() bool { return strings.Contains(in.String(), ResumeMessage) }, func() string { return "nothing written" })
+	time.Sleep(100 * time.Millisecond)
+	if snap := s.Snapshot(); snap.State != "working" || snap.LimitedUntil != 0 {
+		t.Fatalf("after going on: state %q until %d", snap.State, snap.LimitedUntil)
+	}
+}
+
+// The choice made while the limit is only reported, in the middle of the turn: the turn may still succeed, so
+// nothing is armed until it ends by the limit.
+func TestResumeNotArmedMidTurn(t *testing.T) {
+	shortGrace(t)
+	said := make(chan string, 4)
+	s, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
+	defer s.Stop()
+	s.handle([]byte(rejected(time.Now().Add(-time.Minute).Unix())))
+	if snap := s.Snapshot(); snap.LimitedUntil != 0 {
+		t.Fatalf("limited before the turn ended: %d", snap.LimitedUntil)
+	}
+	s.SetResumeOnReset(true)
+	time.Sleep(300 * time.Millisecond)
+	s.handle([]byte(`{"type":"result","subtype":"success","duration_ms":10}`))
+	select {
+	case <-said:
+		t.Fatal("went on though the turn succeeded")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if st, _, _ := s.State(); st != "done" {
+		t.Fatalf("state %q", st)
+	}
+}
+
+// A message that could not be written leaves the session limited, with the continuation still to come; one to a
+// closed session is refused and its continuation dropped, since the caller resumes with the message.
+func TestSendFailureWhileLimited(t *testing.T) {
+	shortGrace(t)
+	said := make(chan string, 4)
+	s, in := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
+	defer s.Stop()
+	s.SetResumeOnReset(true)
+	reset := time.Now().Add(300 * time.Millisecond).Unix()
+	limited(s, reset)
+	in.failWith(errors.New("boom"))
+	if err := s.Send("again"); err == nil || errors.Is(err, ErrClosed) {
+		t.Fatalf("send: %v", err)
+	}
+	snap := s.Snapshot()
+	if snap.State != "limited" || snap.LimitedUntil != reset {
+		t.Fatalf("after the failed send: state %q until %d", snap.State, snap.LimitedUntil)
+	}
+	for _, it := range snap.Items {
+		if it.Kind == "user" && it.Text == "again" {
+			t.Fatal("the failed message is shown as sent")
+		}
+	}
+	select {
+	case <-said:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the continuation was lost with the failed send")
+	}
+
+	// Closed (asleep): the message is refused, and the continuation would only repeat what the resume says.
+	s2, _ := limitSession(Options{OnResume: func(text string) error { said <- text; return nil }})
+	s2.SetResumeOnReset(true)
+	limited(s2, time.Now().Add(300*time.Millisecond).Unix())
+	s2.sleep()
+	if err := s2.Send("wake"); !errors.Is(err, ErrClosed) {
+		t.Fatalf("send to a sleeping session: %v", err)
+	}
+	select {
+	case <-said:
+		t.Fatal("a sleeping session went on after its message resumed the conversation")
+	case <-time.After(800 * time.Millisecond):
 	}
 }

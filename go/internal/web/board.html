@@ -4401,6 +4401,7 @@ function drawSend(v) {
   b.title = stop ? "Stop: interrupt the current step (Esc)" : "Send (Enter)";
   b.setAttribute("aria-label", stop ? "Stop" : "Send");
 }
+// limit:begin — a test runs this block in Node.
 // The Claude limit cut the agent's turn: the chat says until when instead of «Your turn» and offers to go on, now
 // or by itself after the reset. A stopped agent shows it while the reset is ahead.
 const limitCut = (s) => s.state === "limited" || (s.limitedUntil * 1000 > Date.now() && s.state !== "working" && s.state !== "waiting");
@@ -4414,6 +4415,7 @@ function limitButtons(s) {
   return `<button type="button" class="chip pri" data-limit-go title="${esc(t("b.limit.nowHint"))}">${esc(t("b.limit.now"))}</button>`
     + (ahead ? `<button type="button" class="chip${s.resumeOnReset ? " on" : ""}" role="switch" aria-checked="${s.resumeOnReset ? "true" : "false"}" data-limit-auto title="${esc(t("b.limit.autoHint"))}">${esc(t("b.limit.auto"))}</button>` : "");
 }
+// limit:end
 // The same two buttons in a chat of the board: ?on=1 asks, ?on=0 takes it back.
 const limitAuto = (id, on) => fetch(`/api/resumeonreset?id=${encodeURIComponent(id)}&on=${on ? 1 : 0}`, { method: "POST" })
   .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));

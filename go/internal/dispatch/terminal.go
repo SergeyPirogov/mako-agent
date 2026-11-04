@@ -644,7 +644,7 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 		a.State = "done"
 	case state == "limited":
 		// The Claude limit cut the turn: it is not finished, so nothing that waits for a finished turn goes on.
-		a.State, a.Reason = "stopped", limitReason(s.Snapshot().LimitedUntil)
+		a.State, a.Reason, a.Limited = "stopped", limitReason(s.Snapshot().LimitedUntil), true
 	default:
 		a.State, a.Tool = "working", tool
 	}
