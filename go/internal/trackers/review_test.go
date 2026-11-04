@@ -111,3 +111,37 @@ func TestGitHubFindReviewWithoutOwner(t *testing.T) {
 		}
 	}
 }
+
+// A check run again on the same commit (the description edited, a job re-run) is told by its latest run: an older
+// failure of «description» does not fail a CI whose last run passed; the latest failure of another still does.
+func TestGitHubCILatestRunOfEachCheck(t *testing.T) {
+	runs := []map[string]any{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		send := func(v any) { json.NewEncoder(w).Encode(v) }
+		switch r.URL.EscapedPath() {
+		case "/repos/o/r/pulls/5":
+			send(map[string]any{"number": 5, "state": "open", "mergeable": true, "mergeable_state": "clean", "head": map[string]any{"sha": "abc"}})
+		case "/repos/o/r/commits/abc/check-runs":
+			send(map[string]any{"total_count": len(runs), "check_runs": runs})
+		case "/repos/o/r/commits/abc/status":
+			send(map[string]any{"state": "success", "statuses": []any{}})
+		default:
+			send([]any{})
+		}
+	}))
+	defer srv.Close()
+	gh, _ := NewGitHub(&config.Tracker{APIURL: srv.URL}, "tok")
+	run := func(id int, name, conclusion string) map[string]any {
+		return map[string]any{"id": id, "name": name, "status": "completed", "conclusion": conclusion}
+	}
+	// Newest first, as GitHub lists them, and out of order too: the ID says which is the latest.
+	runs = []map[string]any{run(30, "description", "success"), run(12, "go", "success"), run(10, "description", "failure"), run(20, "description", "failure")}
+	c, err := gh.CheckReview(context.Background(), "https://github.com/o/r/pull/5")
+	if err != nil || c.CI != "success" || len(c.Jobs) != 2 || len(c.Failed) != 0 {
+		t.Fatalf("an old failure counts: %+v %v", c, err)
+	}
+	runs = []map[string]any{run(31, "description", "failure"), run(30, "description", "success"), run(12, "go", "success")}
+	if c, err = gh.CheckReview(context.Background(), "https://github.com/o/r/pull/5"); err != nil || c.CI != "failed" || len(c.Failed) != 1 {
+		t.Fatalf("the latest failure is lost: %+v %v", c, err)
+	}
+}
