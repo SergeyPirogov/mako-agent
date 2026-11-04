@@ -1034,6 +1034,25 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 	}
 }
 
+// The fix buttons of the blocker block are compact and on the right (#575), while the shared .mr-actions keeps
+// stretching the «Run AI review» + Skip pair across the panel. The page has no style tests: this holds the source.
+func TestBoardBlockerFixButtonCompact(t *testing.T) {
+	css := string(style)
+	for _, want := range []string{
+		".tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; }",
+		".tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; }",
+		// The shared rules stay as they were: the review pair still shares the width.
+		".mr-actions button { flex: 1; height: 32px; padding: 0 10px; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %q", want)
+		}
+	}
+	if strings.Contains(string(board), "the block's full width") {
+		t.Error("board.html still says the fix button is the block's full width")
+	}
+}
+
 // After the merge is confirmed, the Merge button stays disabled through the redraws (the polling, loadWork) until
 // the merge fails. The board has no script tests, so this checks the page's source for each piece of that.
 func TestBoardMergeHeldAfterConfirm(t *testing.T) {

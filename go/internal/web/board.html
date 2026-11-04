@@ -3671,7 +3671,7 @@ function nowHTML(r, card, bar) {
 // An MR waiting for the merge: what holds it up, on top.
 function blockersHTML(r) {
   const c = review?.review, details = [];
-  // A fix button under its row, the block's full width: only Mako's own running agent hears it (as in card.go's
+  // A fix button under its row, a compact button on the right: only Mako's own running agent hears it (as in card.go's
   // "fix-*"); a stopped one is resumed from the header. Once pressed it stays a disabled check (isAsked).
   const live = r.executor === "terminal" && r.worktree && r.live;
   const askBtn = (kind, label, title) => !live ? ""
