@@ -1760,8 +1760,11 @@ details.desc .r { flex: none; color: var(--accent) !important; }
 .tcard.blocker .tcard-h { color: var(--err); }
 .tcard.blocker .tcard-b { display: grid; gap: 8px; }
 /* A fix button in the blocker block: compact, on the right (the shared .mr-actions stretches it for the review pair). */
-.tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; }
-.tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; }
+.tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; flex: none; }
+.tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; white-space: nowrap; }
+/* A reason and its fix button on one row: the text (and the file list under it) takes the rest, the button keeps its size. */
+.tcard.blocker .blk-row { display: flex; align-items: center; gap: 12px; }
+.tcard.blocker .blk-text { flex: 1; min-width: 0; display: grid; gap: 8px; overflow-wrap: anywhere; }
 .tcard.blocker.wait { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .mono-list { font: 12.5px var(--mono); color: var(--mute); }
 .sum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; margin-bottom: 14px; }

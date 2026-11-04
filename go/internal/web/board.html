@@ -3683,20 +3683,23 @@ function nowHTML(r, card, bar) {
 // An MR waiting for the merge: what holds it up, on top.
 function blockersHTML(r) {
   const c = review?.review, details = [];
-  // A fix button under its row, a compact button on the right: only Mako's own running agent hears it (as in card.go's
+  // A fix button on the right of its row (blkRow), compact: only Mako's own running agent hears it (as in card.go's
   // "fix-*"); a stopped one is resumed from the header. Once pressed it stays a disabled check (isAsked).
   const live = r.executor === "terminal" && r.worktree && r.live;
   const askBtn = (kind, label, title) => !live ? ""
     : isAsked(r.id, kind) ? `<div class="mr-actions"><button type="button" class="primary" disabled title="Already passed to the agent">${ICON.check}Passed to the agent</button></div>`
     : `<div class="mr-actions"><button type="button" class="primary" data-ask="${kind}" title="${esc(title)}">${label}</button></div>`;
+  // The reason on the left (the text, then a file list under it), its fix button on the right of the same row; with no
+  // button (no live agent) it is the bare text, as before.
+  const blkRow = (text, btn) => btn ? `<div class="blk-row"><div class="blk-text">${text}</div>${btn}</div>` : text;
   if (c?.conflicts || r.baseConflict?.files?.length) {
     const files = r.baseConflict?.files ?? [];
-    details.push(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
-      + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : "")
-      + askBtn("conflicts", "Resolve conflicts", "The agent will rebase on the main branch, resolve the conflicts and push"));
+    details.push(blkRow(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
+      + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : ""),
+      askBtn("conflicts", "Resolve conflicts", "The agent will rebase on the main branch, resolve the conflicts and push")));
   }
-  if (c?.ci === "failed" && c.failed?.length) details.push(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>` + askBtn("ci", "Fix CI", "The agent will look at the failed jobs, fix them and push"));
-  if (c?.threads?.length) details.push(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>` + askBtn("comments", "Fix comments", "The agent will fix the review comments and push"));
+  if (c?.ci === "failed" && c.failed?.length) details.push(blkRow(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>`, askBtn("ci", "Fix CI", "The agent will look at the failed jobs, fix them and push")));
+  if (c?.threads?.length) details.push(blkRow(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>`, askBtn("comments", "Fix comments", "The agent will fix the review comments and push")));
   // The bold reason repeats the details (“CI failed”, “the MR has conflicts”), so it is shown only when there
   // are no details yet (the review is not loaded) or when it says what they do not: the agent's state.
   const lines = [];
@@ -3710,8 +3713,8 @@ function blockersHTML(r) {
     // The Fix is here too, next to what asks for it: the panel with the reviewer's rounds may be far away (on a
     // phone, far below). Only when "Fix" is possible now (the same step as the reviewer's row). There is no "Skip
     // review" here: the remarks are pending, and SkipReview refuses until they are sent.
-    lines.push(`<div>The reviewer left ${n ? `${n} ${plural(n, "blocker", "blockers")}` : "remarks"}: press Fix to hand ${n === 1 ? "it" : "them"} to the agent</div>`);
-    if (r.reviewStep === "notes") lines.push(`<div class="mr-actions">${reviewFixBtn(true, n)}</div>`);
+    lines.push(blkRow(`<div>The reviewer left ${n ? `${n} ${plural(n, "blocker", "blockers")}` : "remarks"}: press Fix to hand ${n === 1 ? "it" : "them"} to the agent</div>`,
+      r.reviewStep === "notes" ? `<div class="mr-actions">${reviewFixBtn(true, n)}</div>` : ""));
   }
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
   return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
