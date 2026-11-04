@@ -32,9 +32,38 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: go test -race ./...
 
+  # Whether a pull request touches what only a Mac compiles: GitHub's macOS runners queue for minutes and are at times
+  # never given (the job is cancelled), so the pull requests that cannot break the Mac build do not wait for one.
+  # The Mac-only files (*_darwin.go, internal/desktop) use internal/i18n and internal/notify; everything else
+  # builds on Linux above. Every push to main is built on a Mac all the same.
+  mac-needed:
+    runs-on: ubuntu-latest
+    outputs:
+      mac: ${{ steps.diff.outputs.mac }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then echo "mac=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          changed=$(git diff --name-only "$BASE"...HEAD)
+          printf '%s\n' "$changed"
+          if printf '%s\n' "$changed" | grep -Eq '_darwin(_test)?\.go$|\.(m|h|c)$|^go/internal/(desktop|i18n|notify)/|^go/cmd/mako/|^go/go\.(mod|sum)$|^\.github/workflows/test\.yml$'; then
+            echo "mac=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "mac=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # The menu bar and the board's window are Objective-C (cgo): only a Mac compiles them. The tests run on Linux
   # above (none is macOS-only): here only vet and the builds, so a slow or stuck Mac runner holds nothing up for long.
+  # Skipped (not failed) when the pull request does not touch them: Mako and GitHub count a skipped job as passed.
   go-mac:
+    needs: mac-needed
+    if: needs.mac-needed.outputs.mac == 'true'
     runs-on: macos-15
     timeout-minutes: 10
     defaults:
