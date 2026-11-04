@@ -16,6 +16,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -248,6 +249,38 @@ type Tracker struct {
 	ReviewRequests bool
 	Transitions    Transitions
 	Projects       map[string]*Project
+
+	// projMu guards Projects against the one writer that runs while a poll reads it (ProjectKeys, HasProject,
+	// AddProject). The other readers hold the dispatcher's lock, which the writer holds too.
+	projMu sync.RWMutex
+}
+
+// HasProject: the project is in the config. Safe against a concurrent AddProject.
+func (t *Tracker) HasProject(key string) bool {
+	t.projMu.RLock()
+	defer t.projMu.RUnlock()
+	return t.Projects[key] != nil
+}
+
+// ProjectKeys: a snapshot of the projects' keys, safe to range over while AddProject runs.
+func (t *Tracker) ProjectKeys() []string {
+	t.projMu.RLock()
+	defer t.projMu.RUnlock()
+	keys := make([]string, 0, len(t.Projects))
+	for k := range t.Projects {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// AddProject adds p under key.
+func (t *Tracker) AddProject(key string, p *Project) {
+	t.projMu.Lock()
+	defer t.projMu.Unlock()
+	if t.Projects == nil {
+		t.Projects = map[string]*Project{}
+	}
+	t.Projects[key] = p
 }
 
 type Project struct {

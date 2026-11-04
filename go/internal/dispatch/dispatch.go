@@ -486,7 +486,7 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 // existing clone if there is one, else ~/mako/projects/<name>, cloned on «Взяти в роботу».
 func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 	tc := t.Config()
-	missing := func() bool { return tc.Projects[project] == nil && tc.AllProjects && strings.Contains(project, "/") }
+	missing := func() bool { return !tc.HasProject(project) && tc.AllProjects && strings.Contains(project, "/") }
 	d.mu.Lock()
 	ok := missing()
 	d.mu.Unlock()
@@ -519,10 +519,7 @@ func (d *Dispatcher) ensureProject(t trackers.Tracker, project string) {
 		}
 	}
 	repo := d.Config().NewRepo(name, existing, config.DefaultCloneURL(tc, project), "", "")
-	if tc.Projects == nil {
-		tc.Projects = map[string]*config.Project{}
-	}
-	tc.Projects[project] = &config.Project{Key: project, Repos: map[string]*config.Repo{name: repo}}
+	tc.AddProject(project, &config.Project{Key: project, Repos: map[string]*config.Repo{name: repo}})
 	where := repo.Path + " (will clone on handoff)"
 	if existing != "" {
 		where = "your clone " + existing
