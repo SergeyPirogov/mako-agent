@@ -314,7 +314,7 @@ func TestChecks(t *testing.T) {
 	}
 }
 
-// Every agent works in auto unless the settings choose the mode themselves, unattended (AutoTake, AutoFix) too.
+// Without a chosen mode the agent starts in auto, also with AutoTake and AutoFix; a chosen mode is kept (#588).
 func TestDefaultPermissionMode(t *testing.T) {
 	for raw, want := range map[string]string{
 		`{}`: "auto",
@@ -323,6 +323,7 @@ func TestDefaultPermissionMode(t *testing.T) {
 		`{"notifications":{"autoTake":true},"executors":{"t":{"type":"terminal"}}}`:                            "auto",
 		`{"executors":{"t":{"type":"terminal","autoFix":true}}}`:                                               "auto",
 		`{"executors":{"t":{"type":"terminal","autoFix":true,"permissionMode":"acceptEdits"}}}`:                "acceptEdits",
+		`{"executors":{"t":{"type":"terminal","autoFix":true,"permissionMode":"auto"}}}`:                       "auto",
 		`{"notifications":{"autoTake":true},"executors":{"t":{"type":"terminal","permissionMode":"default"}}}`: "default",
 	} {
 		c, err := Parse([]byte(raw), nil)
@@ -398,5 +399,44 @@ func TestParsePrices(t *testing.T) {
 	want.Input, want.Output = 5, 25
 	if c.Prices["opus"] != want || c.Prices["sonnet"] != core.DefaultPrices()["sonnet"] {
 		t.Fatalf("changed %+v", c.Prices)
+	}
+}
+
+func TestParseWatchAndRoutines(t *testing.T) {
+	c, err := Parse([]byte(`{"trackers":[{"type":"github","projects":{
+		"me/app":{"watch":{"ci":true,"security":true,"autoTake":true,"maxCost":2.5},"routines":[{"cron":"0 9 * * 1","title":" Update dependencies ","body":"npm outdated","autoTake":true}]},
+		"me/many":{"default":"api","repos":{"api":{},"web":{}},"routines":[{"cron":"0 9 * * 1","title":"Weekly"}]},
+		"me/web":{}}}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := c.Trackers[0].Projects
+	if w := ps["me/app"].Watch; !w.CI || !w.Security || !w.AutoTake || w.MaxCost != 2.5 {
+		t.Errorf("watch %+v", w)
+	}
+	if rs := ps["me/app"].Routines; len(rs) != 1 || rs[0].Title != "Update dependencies" || rs[0].Body != "npm outdated" || !rs[0].AutoTake || rs[0].Cron.Spec != "0 9 * * 1" {
+		t.Errorf("routines %+v", rs)
+	}
+	if len(ps["me/many"].Routines) != 1 || len(ps["me/many"].Repos) != 2 {
+		t.Errorf("several repos: %+v", ps["me/many"])
+	}
+	if w := ps["me/web"].Watch; w != (Watch{MaxCost: DefaultWatchMaxCost}) || len(ps["me/web"].Routines) != 0 {
+		t.Errorf("off by default, the ceiling on: %+v", ps["me/web"])
+	}
+	// The CI of a project with several repositories is none of theirs: not accepted.
+	_, err = Parse([]byte(`{"trackers":[{"type":"github","projects":{"me/many":{"repos":{"api":{},"web":{}},"watch":{"security":true}}}}]}`), nil)
+	if err == nil || !strings.Contains(err.Error(), "one repository") {
+		t.Errorf("several repos with a watch: %v", err)
+	}
+	// No ceiling or a zero one is the default: never off.
+	c, _ = Parse([]byte(`{"trackers":[{"type":"github","projects":{"me/app":{"watch":{"ci":true,"maxCost":0}}}}]}`), nil)
+	if c.Trackers[0].Projects["me/app"].Watch.MaxCost != DefaultWatchMaxCost {
+		t.Errorf("a zero ceiling: %+v", c.Trackers[0].Projects["me/app"].Watch)
+	}
+	for _, bad := range []string{`{"cron":"0 9 * *","title":"x"}`, `{"cron":"0 9 * * 1","title":" "}`} {
+		_, err := Parse([]byte(`{"trackers":[{"type":"github","projects":{"me/app":{"routines":[`+bad+`]}}}]}`), nil)
+		if err == nil || !strings.Contains(err.Error(), "me/app: routine 1") {
+			t.Errorf("%s: %v", bad, err)
+		}
 	}
 }

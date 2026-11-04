@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"errors"
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
@@ -83,4 +84,37 @@ func (d *Dispatcher) working() int {
 		}
 	}
 	return n
+}
+
+// afterLimit: what a chat's agent does once the Claude limit that cut its turn has reset and it was asked to go on
+// by itself: say gives it the message the way yours goes (resuming a closed agent); then you are told. name is
+// what the notification calls the chat.
+func (d *Dispatcher) afterLimit(name string, say func(text string) error) func(string) error {
+	return func(text string) error {
+		if err := say(text); err != nil {
+			return err
+		}
+		d.Log("mako", "the Claude limit has reset, the agent of "+name+" goes on")
+		notify.Inform(notify.Limits, i18n.T("notify.limitContinuedTitle"), i18n.T("notify.limitContinuedText", name), d.BoardURL)
+		return nil
+	}
+}
+
+// limitReason: why an agent whose turn the Claude limit cut is stopped.
+func limitReason(until int64) string {
+	if until == 0 {
+		return "the Claude limit"
+	}
+	return "the Claude limit until " + time.Unix(until, 0).Format("15:04")
+}
+
+// SetResumeOnReset: «Продовжити після скидання» on the chat of a task, a free chat or a question: whether its
+// agent goes on by itself once the limit has reset.
+func (d *Dispatcher) SetResumeOnReset(id string, on bool) error {
+	s := d.Chats.Get(id)
+	if s == nil {
+		return errors.New("the agent is not running: Mako was restarted, write to it to continue the conversation")
+	}
+	s.SetResumeOnReset(on)
+	return nil
 }

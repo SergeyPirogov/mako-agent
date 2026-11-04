@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
@@ -22,10 +25,35 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 )
 
-// recorder is an evil relay's tape: every byte it passes, both ways.
+// recorder is an evil relay's tape: every byte it passes, both ways, a WebSocket's frames too.
 type recorder struct {
-	mu   sync.Mutex
-	tape bytes.Buffer
+	mu      sync.Mutex
+	tape    bytes.Buffer
+	lines   []string    // the HTTP requests it passed, "GET /path"
+	sockets []*wsTape   // the WebSockets it carried
+	tamper  atomic.Bool // hand out a changed /sw.js
+}
+
+// wsTape: the bytes of one WebSocket, up (phone → Mac, masked) and down.
+type wsTape struct {
+	io.ReadWriteCloser
+	rec      *recorder
+	up, down bytes.Buffer
+}
+
+func (w *wsTape) Read(p []byte) (int, error) {
+	n, err := w.ReadWriteCloser.Read(p)
+	w.rec.mu.Lock()
+	w.down.Write(p[:n])
+	w.rec.mu.Unlock()
+	return n, err
+}
+
+func (w *wsTape) Write(p []byte) (int, error) {
+	w.rec.mu.Lock()
+	w.up.Write(p)
+	w.rec.mu.Unlock()
+	return w.ReadWriteCloser.Write(p)
 }
 
 func (rec *recorder) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -34,12 +62,70 @@ func (rec *recorder) RoundTrip(r *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	in, _ := httputil.DumpResponse(res, true)
 	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	rec.lines = append(rec.lines, r.Method+" "+r.URL.RequestURI())
 	rec.tape.Write(out)
+	if res.StatusCode == http.StatusSwitchingProtocols {
+		in, _ := httputil.DumpResponse(res, false)
+		rec.tape.Write(in)
+		ws := &wsTape{ReadWriteCloser: res.Body.(io.ReadWriteCloser), rec: rec}
+		rec.sockets = append(rec.sockets, ws)
+		res.Body = ws
+		return res, nil
+	}
+	if r.URL.Path == "/sw.js" && rec.tamper.Load() {
+		body, _ := io.ReadAll(res.Body)
+		body = append(body, "\n// the relay was here\n"...)
+		res.Body = io.NopCloser(bytes.NewReader(body))
+		res.ContentLength = int64(len(body))
+		res.Header.Del("Content-Length")
+	}
+	in, _ := httputil.DumpResponse(res, true)
 	rec.tape.Write(in)
-	rec.mu.Unlock()
 	return res, nil
+}
+
+// wsFrames: the payloads of the data frames in one direction of a WebSocket's bytes, unmasked.
+func wsFrames(b []byte) [][]byte {
+	var out [][]byte
+	for len(b) >= 2 {
+		op, masked, n := b[0]&0x0f, b[1]&0x80 != 0, uint64(b[1]&0x7f)
+		h := 2
+		switch n {
+		case 126:
+			if len(b) < 4 {
+				return out
+			}
+			n, h = uint64(binary.BigEndian.Uint16(b[2:])), 4
+		case 127:
+			if len(b) < 10 {
+				return out
+			}
+			n, h = binary.BigEndian.Uint64(b[2:]), 10
+		}
+		var key []byte
+		if masked {
+			if len(b) < h+4 {
+				return out
+			}
+			key, h = b[h:h+4], h+4
+		}
+		if uint64(len(b)-h) < n {
+			return out
+		}
+		payload := bytes.Clone(b[h : h+int(n)])
+		for i := range payload {
+			if key != nil {
+				payload[i] ^= key[i%4]
+			}
+		}
+		if op == 1 || op == 2 || op == 0 {
+			out = append(out, payload)
+		}
+		b = b[h+int(n):]
+	}
+	return out
 }
 
 // A phone pairs end to end through a relay that records all the traffic: it gets its device back sealed, with no

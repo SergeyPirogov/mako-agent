@@ -63,6 +63,11 @@ func (d *Dispatcher) CreateTask(ctx context.Context, trackerID string, n tracker
 // CreateTaskWith is CreateTask for a task made from a plan (noPlan): its description already holds the plan, so the
 // agent does not start in plan mode again.
 func (d *Dispatcher) CreateTaskWith(ctx context.Context, trackerID string, n trackers.NewIssue, take, noPlan bool) (string, error) {
+	return d.createTask(ctx, trackerID, n, take, noPlan, "", 0)
+}
+
+// createTask: by is core.Record.CreatedBy, "" for a task you wrote; costCap its core.Record.CostCap.
+func (d *Dispatcher) createTask(ctx context.Context, trackerID string, n trackers.NewIssue, take, noPlan bool, by string, costCap float64) (string, error) {
 	n.Title, n.Project = strings.TrimSpace(n.Title), strings.TrimSpace(n.Project)
 	if n.Title == "" {
 		return "", fmt.Errorf("enter a task title")
@@ -79,8 +84,14 @@ func (d *Dispatcher) CreateTaskWith(ctx context.Context, trackerID string, n tra
 		return "", err
 	}
 	d.ensureProject(t, task.Project)
-	d.Store.Update(task.ID, func(r *core.Record) { r.Task, r.Status, r.NoPlan = task, core.Snoozed, noPlan })
-	d.Log(task.ID, "created from the board: "+task.Title)
+	d.Store.Update(task.ID, func(r *core.Record) {
+		r.Task, r.Status, r.NoPlan, r.CreatedBy, r.CostCap = task, core.Snoozed, noPlan, by, costCap
+	})
+	if by == "" {
+		d.Log(task.ID, "created from the board: "+task.Title)
+	} else {
+		d.Log(task.ID, "created by Mako ("+by+"): "+task.Title)
+	}
 	if take {
 		d.Take(ctx, task.ID)
 	} else {

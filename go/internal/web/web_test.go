@@ -1029,8 +1029,47 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 	if strings.Contains(head, "data-ask") {
 		t.Error("primaryHTML still has a fix button: it is in the blockers' block now")
 	}
-	if !strings.Contains(head, `case "fix-conflicts": case "fix-ci": return openMR(r, "primary");`) {
+	if !strings.Contains(head, `case "fix-conflicts": case "fix-ci": return openMR(r);`) {
 		t.Error("the header does not keep Open MR for the fix states")
+	}
+}
+
+// Open PR / Open MR in the task card's header is a secondary outline button with the host's logo (#586),
+// the same in every state; the page has no script tests, so this holds the source.
+func TestBoardOpenMRButtonSecondary(t *testing.T) {
+	src := string(board)
+	i := strings.Index(src, "const openMR = ")
+	j := strings.Index(src[i:], "\n};\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no openMR in board.html")
+	}
+	body := src[i : i+j]
+	for _, want := range []string{
+		`r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : ""`,
+		`TRACKER_ICON[host]`,
+		`title="Open on ${host}"`,
+		`class="btn open-mr"`,
+		`${ICON.external}</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("openMR is missing %q", want)
+		}
+	}
+	if strings.Contains(body, "primary") {
+		t.Error("openMR is a primary button again")
+	}
+	if strings.Contains(src, `openMR(r, "primary")`) {
+		t.Error("a state of the header still asks for a primary Open MR")
+	}
+	css := string(style)
+	for _, want := range []string{
+		".d-head .actions > a.btn.open-mr { gap: 4px; }",
+		".d-head .actions > a.btn svg { flex: none; vertical-align: -3px; }",
+		"color: var(--mute)",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css is missing %q", want)
+		}
 	}
 }
 
@@ -1039,8 +1078,8 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 func TestBoardBlockerFixButtonCompact(t *testing.T) {
 	css := string(style)
 	for _, want := range []string{
-		".tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; }",
-		".tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; }",
+		".tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; flex: none; }",
+		".tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; white-space: nowrap; }",
 		// The shared rules stay as they were: the review pair still shares the width.
 		".mr-actions button { flex: 1; height: 32px; padding: 0 10px; }",
 	} {
@@ -1050,6 +1089,45 @@ func TestBoardBlockerFixButtonCompact(t *testing.T) {
 	}
 	if strings.Contains(string(board), "the block's full width") {
 		t.Error("board.html still says the fix button is the block's full width")
+	}
+}
+
+// A blocker's reason and its fix button stand on one row (#583): the text, with the file list under it, on the left in
+// .blk-text, the button on the right, for the conflicts, CI, comments and the reviewer's Fix alike. Without a button
+// (no live agent) the reason stays the bare text. The page has no script or style tests: this holds the source.
+func TestBoardBlockerRowsOneLine(t *testing.T) {
+	src := string(board)
+	i := strings.Index(src, "function blockersHTML(")
+	j := strings.Index(src[i:], "\n}\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no blockersHTML in board.html")
+	}
+	body := src[i : i+j]
+	for _, want := range []string{
+		`const blkRow = (text, btn) => btn ? ` + "`" + `<div class="blk-row"><div class="blk-text">${text}</div>${btn}</div>` + "`" + ` : text;`,
+		`details.push(blkRow(`,
+		`<div class="mono-list">${files.map(esc).join("<br>")}</div>` + "`" + ` : ""),`,
+		`askBtn("conflicts", "Resolve conflicts"`,
+		`askBtn("ci", "Fix CI"`,
+		`askBtn("comments", "Fix comments"`,
+		`lines.push(blkRow(`,
+		`r.reviewStep === "notes" ? ` + "`" + `<div class="mr-actions">${reviewFixBtn(true, n)}</div>` + "`" + ` : ""));`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("blockersHTML is missing %q", want)
+		}
+	}
+	if n := strings.Count(body, "blkRow("); n != 4 {
+		t.Errorf("blkRow wraps %d rows in blockersHTML, want 4 (conflicts, CI, comments, reviewer)", n)
+	}
+	css := string(style)
+	for _, want := range []string{
+		".tcard.blocker .blk-row { display: flex; align-items: center; gap: 12px; }",
+		".tcard.blocker .blk-text { flex: 1; min-width: 0; display: grid; gap: 8px; overflow-wrap: anywhere; }",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css lacks %q", want)
+		}
 	}
 }
 
@@ -1081,6 +1159,10 @@ func TestBoardMergeHeldAfterConfirm(t *testing.T) {
 	if !strings.Contains(css, ".merge-go.busy") || !strings.Contains(css, ".icon[data-merge].busy") {
 		t.Error("style.css has no .busy style for the merge button and icon")
 	}
+	// The disabled «Merging…» button is enough: the icon must not spin.
+	if strings.Contains(css, ".merge-go.busy svg") || strings.Contains(css, ".icon[data-merge].busy svg") {
+		t.Error("style.css animates the icon of a busy merge button: it must stay still")
+	}
 }
 
 // The style sheet's braces balance: a missing "}" once swallowed everything below the reduced-motion media block.
@@ -1100,5 +1182,37 @@ func TestStyleBracesBalance(t *testing.T) {
 	}
 	if o, c := strings.Count(css, "{"), strings.Count(css, "}"); o != c {
 		t.Errorf("style.css has %d \"{\" and %d \"}\"", o, c)
+	}
+}
+
+// «Continue» is among the hints after the agent's turn (#582): a quick message, placed after the actions that follow
+// the task's state and before «What else could break?», so it is the main one only when nothing else is offered.
+// The board has no script tests, so this holds the page's source.
+func TestBoardNextActionsContinue(t *testing.T) {
+	src := string(board)
+	i := strings.Index(src, "function nextActions(")
+	j := strings.Index(src[i:], "\n}\n")
+	if i < 0 || j < 0 {
+		t.Fatal("no nextActions in board.html")
+	}
+	body := src[i : i+j]
+	cont := strings.Index(body, `{ label: "Continue", quick: "Continue where you left off." }`)
+	if cont < 0 {
+		t.Fatal(`nextActions has no «Continue» hint with the quick message "Continue where you left off."`)
+	}
+	if diff := strings.Index(body, `label: "Show the diff"`); diff < 0 || diff > cont {
+		t.Error("«Continue» must come after the actions by the task's state")
+	}
+	if more := strings.Index(body, `label: "What else could break?"`); more < cont {
+		t.Error("«Continue» must come before «What else could break?»")
+	}
+	// The hints are hidden while the agent works or waits, so «Continue» is never offered then.
+	k := strings.Index(src, "function drawNextActions(")
+	l := strings.Index(src[k:], "\n}\n")
+	if k < 0 || l < 0 {
+		t.Fatal("no drawNextActions in board.html")
+	}
+	if !strings.Contains(src[k:k+l], `box.hidden = s.state === "working" || s.state === "waiting"`) {
+		t.Error("the hints are no longer hidden while the agent works or waits")
 	}
 }

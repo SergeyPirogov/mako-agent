@@ -392,6 +392,7 @@ func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string, set
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: t.ID, Worktree: dir, Command: command, Args: args, Prompt: text, History: history, Gate: codeGate, SetupDone: setup,
 		OnLimits:  d.limitsReported,
+		OnResume:  d.afterLimit(t.Title, func(text string) error { _, err := d.AskCode(t.Project, t.ID, text); return err }),
 		OnSession: func(sid, _ string) { d.touchThread(t.ID, sid) },
 	}))
 	return nil

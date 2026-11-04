@@ -97,25 +97,9 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 	c := &ReviewCheck{State: mrState(mr.State), Jobs: []Job{}, Failed: []Job{}, Threads: []Thread{}}
 	if p := mr.HeadPipeline; p != nil {
 		c.CI, c.CIURL = p.Status, p.WebURL
-		var jobs []struct {
-			ID           int64  `json:"id"`
-			Name         string `json:"name"`
-			Stage        string `json:"stage"`
-			Status       string `json:"status"`
-			WebURL       string `json:"web_url"`
-			AllowFailure bool   `json:"allow_failure"`
-		}
 		m := mrURL.FindStringSubmatch(reviewURL)
-		if err := g.do(ctx, "GET", fmt.Sprintf("%s/pipelines/%d/jobs?per_page=100", project(m[1]), p.ID), nil, &jobs); err == nil {
-			// GitLab lists the newest first: in run order, the stages come in the pipeline's order.
-			for i := len(jobs) - 1; i >= 0; i-- {
-				j := jobs[i]
-				job := Job{ID: j.ID, Name: j.Name, URL: j.WebURL, Stage: j.Stage, Status: j.Status, AllowFailure: j.AllowFailure}
-				c.Jobs = append(c.Jobs, job)
-				if j.Status == "failed" && !j.AllowFailure {
-					c.Failed = append(c.Failed, job)
-				}
-			}
+		if jobs, failed, err := g.pipelineJobs(ctx, m[1], p.ID); err == nil {
+			c.Jobs, c.Failed = jobs, failed
 		}
 	}
 	var discussions []struct {
@@ -160,6 +144,32 @@ func (g *GitLab) CheckReview(ctx context.Context, reviewURL string) (*ReviewChec
 	}
 	holdForCI(c)
 	return c, nil
+}
+
+// pipelineJobs: a pipeline's jobs in run order, and the ones of them that failed and may not.
+func (g *GitLab) pipelineJobs(ctx context.Context, path string, pipeline int64) (jobs, failed []Job, err error) {
+	var list []struct {
+		ID           int64  `json:"id"`
+		Name         string `json:"name"`
+		Stage        string `json:"stage"`
+		Status       string `json:"status"`
+		WebURL       string `json:"web_url"`
+		AllowFailure bool   `json:"allow_failure"`
+	}
+	if err := g.do(ctx, "GET", fmt.Sprintf("%s/pipelines/%d/jobs?per_page=100", project(path), pipeline), nil, &list); err != nil {
+		return nil, nil, err
+	}
+	jobs, failed = []Job{}, []Job{}
+	// GitLab lists the newest first: in run order, the stages come in the pipeline's order.
+	for i := len(list) - 1; i >= 0; i-- {
+		j := list[i]
+		job := Job{ID: j.ID, Name: j.Name, URL: j.WebURL, Stage: j.Stage, Status: j.Status, AllowFailure: j.AllowFailure}
+		jobs = append(jobs, job)
+		if j.Status == "failed" && !j.AllowFailure {
+			failed = append(failed, job)
+		}
+	}
+	return jobs, failed, nil
 }
 
 func (g *GitLab) JobLog(ctx context.Context, reviewURL string, job Job, lines int) (string, error) {

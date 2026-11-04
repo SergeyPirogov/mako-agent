@@ -87,6 +87,8 @@ select { appearance: none; -webkit-appearance: none; padding-right: 28px; backgr
 input:focus, select:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: 0; border-color: var(--accent); }
 input[type=number] { width: 120px; }
 textarea { min-height: 120px; font: 12.5px/1.5 var(--mono); resize: vertical; }
+/* The reviewer's lesson rule is prose, shown whole: a few plain lines, not the 120px monospace of the config fields */
+.lesson-offer textarea { min-height: 0; font: inherit; font-size: 12.5px; resize: vertical; }
 .projects { width: 100%; border-collapse: collapse; margin-top: 4px; }
 .projects th { text-align: left; font-weight: 500; font-size: 12px; color: var(--mute); padding: 4px 6px; }
 .projects td { padding: 3px 6px 3px 0; vertical-align: top; }
@@ -101,6 +103,13 @@ textarea { min-height: 120px; font: 12.5px/1.5 var(--mono); resize: vertical; }
 .routes td { padding: 3px 8px 3px 0; white-space: nowrap; }
 .routes td:first-child { padding-top: 8px; }
 .routes select { width: auto; min-width: 0; margin-right: 4px; }
+.projects .watch-row td { padding-bottom: 12px; }
+.projects .watch-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 12.5px; margin-bottom: 4px; }
+.projects .watch-checks .check { padding: 2px 0; gap: 6px; }
+.projects .watch-checks .check input { margin-top: 2px; }
+.projects .watch-checks .cost { display: inline-flex; align-items: center; gap: 6px; }
+.projects .watch-checks .cost input { width: 64px; }
+.projects .watch-row textarea { width: 100%; min-height: 34px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .projects .checks-row textarea { width: 100%; min-height: 34px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 details { margin-top: 8px; }
 summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
@@ -425,7 +434,7 @@ function lessonsHTML(tk) {
       <b>${esc(l.project)}</b>${l.repo ? ` <span style="color:var(--mute)">· ${esc(l.repo)}</span>` : ""}
       <div style="color:var(--mute);margin:2px 0">${t("s.lessons.evidence", { tasks: (l.tasks ?? []).map((x) => esc(short(l, x))).join(", ") })}</div>
       ${(l.examples ?? []).length ? `<ul style="margin:2px 0 4px;padding-left:18px;color:var(--mute)">${l.examples.map((e) => `<li>${esc(short(l, e))}</li>`).join("")}</ul>` : ""}
-      <input type="text" value="${esc(l.rule)}" aria-label="${esc(t("s.lessons.ruleLabel"))}" style="width:100%">
+      <textarea rows="3" aria-label="${esc(t("s.lessons.ruleLabel"))}">${esc(l.rule)}</textarea>
       <div style="margin-top:4px;display:flex;gap:6px;align-items:center"><button type="button" class="primary" data-answer="base">${t("s.lessons.save")}</button>
         <button type="button" class="ghost" data-answer="no">${t("s.lessons.dismiss")}</button><span class="msg" data-msg></span></div></div>`).join("");
   if (saved.length) html += h3("s.lessons.title") + `<div style="font-size:12.5px;color:var(--mute)">${t("s.lessons.hint")}</div>` +
@@ -441,7 +450,7 @@ function wireLessons(wrap) {
     box.querySelector("[data-msg]").textContent = btn.dataset.answer === "base" ? t("s.lessons.saving") : "";
     let r;
     try {
-      r = await (await fetch(`/api/settings/lessons/answer?id=${encodeURIComponent(box.dataset.offer)}&to=${btn.dataset.answer}`, { method: "POST", body: box.querySelector("input").value })).json();
+      r = await (await fetch(`/api/settings/lessons/answer?id=${encodeURIComponent(box.dataset.offer)}&to=${btn.dataset.answer}`, { method: "POST", body: box.querySelector("textarea").value })).json();
     } catch {
       r = { ok: false, error: t("s.noAnswer") };
     }
@@ -515,6 +524,7 @@ function projectsTable(tk) {
       requestAnimationFrame(fit);
       body.append(cr);
     }
+    if (tk.type !== "jira") body.append(watchRow(tk, () => current, multi));
   }
   wrap.insertAdjacentHTML("beforeend", lessonsHTML(tk));
   wireLessons(wrap);
@@ -527,6 +537,57 @@ function projectsTable(tk) {
     renderTrackers();
   };
   return wrap;
+}
+
+// The watch of a project (#527): its default branch's CI and its security alerts make tasks, and the routines are
+// tasks by a schedule, a line each: «cron | title | description | take». The CI and the alerts are a repository's:
+// a project of several repos has only its routines. maxCost is the ceiling of every task Mako writes there.
+function watchRow(tk, key, multi) {
+  const tr = document.createElement("tr");
+  tr.className = "watch-row";
+  const p = tk.projects[key()] ?? {};
+  const w = p.watch ?? {};
+  const box = (f, label, hint) => `<label class="check" title="${esc(hint)}"><input type="checkbox" data-w="${f}" ${w[f] ? "checked" : ""}><span>${label}</span></label>`;
+  const boxes = multi ? "" : box("ci", t("s.pr.watchCi"), t("s.pr.watchCiHint")) + box("security", t("s.pr.watchSecurity"), t("s.pr.watchSecurityHint"));
+  tr.innerHTML = `<td colspan="6"><div class="watch-checks"><b>${t("s.pr.watch")}</b>${boxes}${box("autoTake", t("s.pr.watchAutoTake"), t("s.pr.watchAutoTakeHint"))}
+      <label class="cost" title="${esc(t("s.pr.watchMaxCostHint"))}">${t("s.pr.watchMaxCost")} <input type="number" min="0" step="0.5" placeholder="5" value="${esc(w.maxCost ?? "")}" data-cost></label></div>
+    <textarea rows="1" placeholder="${esc(t("s.pr.routinesPh"))}" title="${esc(t("s.pr.routinesTitle"))}"></textarea></td><td></td>`;
+  const setWatch = (change) => {
+    const pp = (tk.projects[key()] ??= {});
+    const ww = { ...(pp.watch ?? {}) };
+    change(ww);
+    if (Object.keys(ww).length) pp.watch = ww; else delete pp.watch;
+    changed();
+  };
+  for (const inp of tr.querySelectorAll("[data-w]")) {
+    inp.onchange = () => setWatch((ww) => { if (inp.checked) ww[inp.dataset.w] = true; else delete ww[inp.dataset.w]; });
+  }
+  tr.querySelector("[data-cost]").oninput = (e) => setWatch((ww) => {
+    const v = Number(e.target.value);
+    if (e.target.value.trim() && v > 0) ww.maxCost = v; else delete ww.maxCost;
+  });
+  const ta = tr.querySelector("textarea");
+  // A description keeps its «|» (only the first two and a last «take» split the line) and its lines, as «\n».
+  ta.value = (p.routines ?? []).map((r) => [r.cron ?? "", r.title ?? "", (r.body ?? "").replace(/\n/g, "\\n"), r.autoTake ? "take" : ""].join(" | ").replace(/( \| )+$/, "")).join("\n");
+  const fit = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
+  ta.oninput = () => {
+    const list = ta.value.split("\n").map((x) => x.trim()).filter(Boolean).map((line) => {
+      const [cron = "", title = "", ...rest] = line.split("|");
+      const take = rest.length > 0 && rest[rest.length - 1].trim().toLowerCase() === "take";
+      if (take) rest.pop();
+      const body = rest.join("|").trim().replace(/\\n/g, "\n");
+      const r = { cron: cron.trim(), title: title.trim() };
+      if (body) r.body = body;
+      if (take) r.autoTake = true;
+      return r;
+    });
+    const pp = (tk.projects[key()] ??= {});
+    if (list.length) pp.routines = list; else delete pp.routines;
+    fit();
+    changed();
+  };
+  requestAnimationFrame(fit);
+  return tr;
 }
 
 // The Orca executor: the default one, or the first; made when there is none.
@@ -577,10 +638,7 @@ function renderOrca() {
     box.append(select(tm, "view", t("s.o.view"), [["chat", t("s.o.viewChat")], ["terminal", t("s.o.viewTerminal")]], { def: "chat", hint: t("s.o.viewHint") }));
     box.append(text(tm, "command", t("s.o.command"), { placeholder: "claude", hint: t("s.o.commandHint") }));
     box.append(text(tm, "setupCommand", t("s.o.setup"), { placeholder: t("s.o.setupPh"), hint: t("s.o.setupHint") }));
-    // Unset, as Mako reads it (config.DefaultPermissionMode): acceptEdits while nobody looks at what the agent does.
-    // A choice is kept as made: turning AutoTake or AutoFix on later in the same visit does not change it.
-    const unattended = cfg.notifications?.autoTake || tm.autoFix;
-    box.append(select(tm, "permissionMode", t("s.o.perm"), [["auto", t("s.o.permAuto")], ["acceptEdits", t("s.o.permEdits")], ["default", t("s.o.permDefault")], ["bypassPermissions", t("s.o.permBypass")]], { def: unattended ? "acceptEdits" : "auto", keep: true, hint: t("s.o.permHint") }));
+    box.append(select(tm, "permissionMode", t("s.o.perm"), [["auto", t("s.o.permAuto")], ["acceptEdits", t("s.o.permEdits")], ["default", t("s.o.permDefault")], ["bypassPermissions", t("s.o.permBypass")]], { def: "auto", keep: true, hint: t("s.o.permHint") }));
     const tools = document.createElement("div");
     tools.className = "field";
     tools.innerHTML = `<label>${t("s.o.tools")}</label><textarea placeholder="Bash(npm test:*)\nBash(git push:*)"></textarea>
@@ -1058,7 +1116,8 @@ async function renderPhone(qr) {
     : qr ? `<div class="qr"><img src="${qr.qr}" alt="QR"><ol>
         <li>${t("s.p.qr1")}</li>
         <li>${t("s.p.qr2")}</li>
-        <li>${t("s.p.qr3")}</li></ol></div>`
+        <li>${t("s.p.qr3")}</li>
+        <li>${t("s.p.qr4")} <button id="copy-link">${t("s.p.copyLink")}</button></li></ol></div>`
     : `<div class="row"><button class="primary" data-p="pairing">${t("s.p.showQr")}</button></div>`;
   const devices = st.devices.length
     ? st.devices.map((d) => `<div class="device"><div><b>${esc(d.name)}</b> <span class="muted">${t("s.p.device", { created: new Date(d.created).toLocaleDateString(LANG), seen: new Date(d.lastSeen).toLocaleString(LANG) })}</span>
@@ -1072,6 +1131,15 @@ async function renderPhone(qr) {
     <div class="card"><h3 class="step">${t("s.p.step2")}</h3>${step2}</div>
     <div class="card"><h3 class="step">${t("s.p.connected")}</h3>${devices}</div>`;
   phoneNote = st.devices.length ? t("s.p.note", { n: st.devices.length }) : ts.serving ? t("s.p.ready") : "";
+  const copy = $("copy-link");
+  if (copy) copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(qr.url);
+      copy.textContent = t("s.p.copied");
+    } catch {
+      prompt(t("s.p.copyLink"), qr.url);
+    }
+  };
   for (const b of box.querySelectorAll("[data-p]")) {
     b.onclick = async () => {
       const action = b.dataset.p;

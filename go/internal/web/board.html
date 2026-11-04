@@ -224,6 +224,8 @@ const ICON = {
   unwatch: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13 13 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M2 2l20 20"/></svg>`,
 };
 const kind = (r) => `<span class="kind ${r.type}">${r.type === "fix" ? "bug" : "task"}</span>`;
+// «by Mako»: a task Mako wrote itself, watching the project (#527): its default branch's CI, its alerts, a routine.
+const byMako = (r) => r.createdBy ? `<span class="kind mako" title="${esc({ ci: t("b.byMakoCi"), security: t("b.byMakoSecurity"), routine: t("b.byMakoRoutine") }[r.createdBy] ?? "")}">${t("b.byMako")}</span>` : "";
 // The list group a task sits in: a held-up task under "Blocked", a postponed one under "Snoozed".
 // An MR that can be merged gets a group of its own under "In review".
 const groupOf = (r) => (r.blocked ? "blocked" : state(r) === "later" ? "later" : !r.error && r.status !== "cancelled" && readyToMerge(r) ? "merge" : r.column);
@@ -687,7 +689,7 @@ function taskRow(r) {
   // A plain status that only repeats the column's name, which already is the group heading, says nothing: leave it out.
   const redundant = groupBy !== "project" && !tone && say0 === LABEL[r.column];
   const own = !merge && !redundant && (!!tone || say.length > 14 || !!badges);
-  const tags = `${prioBadge(r.task)}${r.type === "fix" ? kind(r) : ""}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}`;
+  const tags = `${prioBadge(r.task)}${byMako(r)}${r.type === "fix" ? kind(r) : ""}${r.column === "new" && estimated(r) ? `<span class="size ${esc(r.estimate.size)}" title="Estimate in advance:  ${esc(SIZE_NAMES[r.estimate.size] ?? "")}, description ${r.estimate.clarity?.value || 0}/5">${SIZE_NAMES[r.estimate.size] ?? ""}</span>` : ""}`;
   return `<button class="item ${r.id === selected ? "sel" : ""} ${st === "later" ? "later" : ""} ${merge ? "merge" : ""}" data-id="${esc(r.id)}" title="${esc(r.id)} · ${esc(r.task.title)}">
     <span class="t">${esc(r.task.title)}</span>
     <span class="m"><span class="s ${r.error && r.status !== "cancelled" ? "failed" : st}"></span>${showTrackerMark() ? trackerMark(r.task) : ""}<span class="num" title="${esc(r.id)}">${esc(shortId(r.id))}</span>${own || merge || redundant ? "" : `<span class="say ${tone}" title="${esc(why)}">${esc(say)}</span>`}${badges}<span class="ago" title="${esc(ago(r.updatedAt))}">${agoShort(r.updatedAt)}</span></span>${tags ? `<span class="tags">${tags}</span>` : ""}${own ? `<span class="st2 ${tone}" title="${esc(why)}">${esc(say)}</span>` : ""}</button>`;
@@ -776,7 +778,103 @@ function reviewAskRow(q) {
   const since = q.state === "open" ? q.since : q.doneAt;
   return `<button class="item rq ${q.id === selected ? "sel" : ""}" data-id="${esc(q.id)}" title="${esc(q.project)}${esc(q.ref)} · ${esc(q.title)}">
     <span class="t">${esc(q.title)}</span>
-    <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${showTrackerMark() ? trackerMark(q) : ""}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="New commits since you last looked">updated</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Waiting " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
+    <span class="m"><span class="s ${q.state === "open" ? "review" : "done"}"></span>${showTrackerMark() ? trackerMark(q) : ""}<span class="say">${esc(say)}</span>${q.updated ? `<span class="updated" title="New commits since you last looked">updated</span>` : ""}${q.draft?.stale ? `<span class="updated" title="New commits since Mako prepared your review">changed since review</span>` : ""}${q.state === "open" ? sizeHTML(q) + ciDot(q.ci) : ""}<span class="ago" title="${q.state === "open" ? "Waiting " : ""}${esc(ago(since))}">${agoShort(since)}</span></span></button>`;
+}
+
+// «Prepare review»: Mako's reviewer drafts my review of the MR (q.draft): a summary, the comments to send, what
+// to check by hand, a verdict. askEdits: the comments' texts being edited, not saved yet ("<mr> <comment>");
+// askSkip: the comments taken out of «Send selected».
+let askEdits = {}, askSkip = new Set();
+const DRAFT_VERDICT = { merge: ["✅", "can be merged"], fix: ["❌", "fix first"], discuss: ["◐", "talk to the author"] };
+const draftKey = (q, c) => `${q.id} ${c.id}`;
+// The comments «Send selected» sends: not struck out, not sent, not taken out.
+const draftToSend = (q) => (q.draft?.comments || []).filter((c) => (c.state === "draft" || c.state === "failed") && !askSkip.has(draftKey(q, c)));
+function draftCommentHTML(q, c) {
+  const key = draftKey(q, c), sent = c.state === "sent", dropped = c.state === "dropped";
+  const where = c.file ? `<code class="rm-at">${esc(c.file)}${c.line ? `:${c.line}` : ""}</code>` : `<span class="rm-at">on the MR</span>`;
+  const st = sent ? `<a class="rm-chip ok" href="${esc(c.url)}" target="_blank" rel="noopener">✅ sent ↗</a>`
+    : c.state === "failed" ? chip("", ["❌", "not sent"], c.error) : dropped ? chip("", ["", "struck out"]) : "";
+  const pick = sent || dropped ? "" : `<input type="checkbox" class="dc-pick" data-c="${esc(c.id)}" ${askSkip.has(key) ? "" : "checked"} title="Send this comment with «Send selected»">`;
+  const drop = sent ? "" : `<button type="button" class="ghost dc-drop" data-c="${esc(c.id)}" data-dropped="${dropped ? 0 : 1}" title="${dropped ? "Bring the comment back" : "Strike the comment out: it is not sent"}">${dropped ? "↺" : "✕"}</button>`;
+  const body = sent || dropped ? `<div class="rm-t">${inlineCode(c.text)}</div>`
+    : `<textarea class="dc-text" data-c="${esc(c.id)}" rows="${Math.min(8, Math.max(2, Math.ceil((askEdits[key] ?? c.text).length / 90)))}" aria-label="Comment ${esc(c.id)}">${esc(askEdits[key] ?? c.text)}</textarea>`;
+  return `<li class="rm dc ${esc(c.weight)} ${esc(c.state)}"><div class="rm-h">${pick}<span class="rm-w">${WEIGHT_ICON[c.weight] ?? ""} ${WEIGHT[c.weight] ?? esc(c.weight)}</span>${where}<span class="rm-st">${st}${drop}</span></div>${body}</li>`;
+}
+function draftHTML(q, card) {
+  const dr = q.draft, open = q.state === "open";
+  const prepare = !open ? "" : dr?.state === "running" ? `<button disabled>Reviewer is reading the MR…</button>`
+    : `<button class="${dr ? "ghost" : "primary"}" id="rq-prepare" title="Mako's reviewer reads the MR in a read-only worktree and drafts your review">${dr ? "Prepare again" : "Prepare review"}</button>`;
+  if (!dr) return card("Mako review", `<div class="tcard-b dr-empty"><span class="muted">Mako's reviewer reads the MR for you: what it changes and why, its risks as comments you can send, what to check by hand, whether to merge it.</span>${prepare}</div>`);
+  const note = [dr.cost ? `$${dr.cost.toFixed(2)}` : "", dr.at ? esc(ago(dr.at)) : ""].filter(Boolean).join(" · ");
+  if (dr.state === "running") return card("Mako review", `<div class="tcard-b dr-empty"><span class="muted">The reviewer is reading the MR: the new draft shows here when it is done${(dr.comments || []).some((c) => c.state === "sent") ? "; the comments already sent stay in it" : ""}.</span>${prepare}</div>`, note);
+  const parts = [];
+  if (dr.state === "failed") parts.push(`<div class="notice">${linkify(`The reviewer failed: ${dr.error || "no answer"}`)}</div>`);
+  if (dr.stale) parts.push(`<div class="notice warn">Changed since this review: the MR has new commits after ${esc((dr.commit || "").slice(0, 8))}. Comments on lines may go to the MR as general ones; Prepare again to review the new code.</div>`);
+  if (dr.limited) parts.push(`<div class="notice warn">No local clone of ${esc(q.project)}: the reviewer read the diff only.</div>`);
+  if (dr.verdict) parts.push(`<div class="dr-verdict">${chip("Verdict:", DRAFT_VERDICT[dr.verdict] ?? ["", dr.verdict])}${dr.verdictNote ? ` <span>${inlineCode(dr.verdictNote)}</span>` : ""}</div>`);
+  if (dr.summary) parts.push(`<div class="md">${md(dr.summary)}</div>`);
+  if (dr.manual?.length) parts.push(`<div class="dr-h">Check by hand</div><ul class="dr-manual">${dr.manual.map((m) => `<li>${inlineCode(m)}</li>`).join("")}</ul>`);
+  const comments = dr.comments || [];
+  if (comments.length) parts.push(`<div class="dr-h">Comments · ${comments.length}</div><ol class="rm-list">${comments.map((c) => draftCommentHTML(q, c)).join("")}</ol>`);
+  else if (dr.state === "ready") parts.push(`<div class="muted">No comments: the reviewer found nothing worth pointing out.</div>`);
+  const n = draftToSend(q).length;
+  const acts = [comments.length && open ? `<button class="primary" id="rq-send" ${n ? "" : "disabled"} title="Post the chosen comments to the MR from you">Send selected (${n})</button>` : "",
+    open ? `<button id="rq-approve" title="Approve the MR from you">Approve</button>` : "", prepare].filter(Boolean).join("");
+  return card("Mako review", `<div class="tcard-b dr">${parts.join("")}${acts ? `<div class="dr-acts">${acts}</div>` : ""}</div>`, note);
+}
+// The draft's buttons: their request, then the board again; a failure is a toast.
+async function draftAction(q, action, body) {
+  const res = await fetch(`/api/review-request/${action}?id=${encodeURIComponent(q.id)}`, {
+    method: "POST", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined,
+  }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message }));
+  if (res.ok === false) toast(`⚠ ${res.error}`, true);
+  await load();
+  return res;
+}
+function bindDraft(q) {
+  const box = $("detail");
+  const prep = $("rq-prepare");
+  if (prep) prep.onclick = () => {
+    // The comments not sent yet give way to the new review's; the sent ones stay on the card.
+    const unsent = (q.draft?.comments || []).filter((c) => c.state === "draft" || c.state === "failed").length;
+    if (unsent && !confirm(`Prepare the review again? The ${unsent} unsent ${plural(unsent, "comment", "comments")} will be replaced by the new review's; the sent ones stay.`)) return;
+    prep.disabled = true;
+    draftAction(q, "prepare");
+  };
+  const send = $("rq-send");
+  if (send) send.onclick = async () => {
+    const ids = draftToSend(q).map((c) => c.id);
+    if (!ids.length || !confirm(`Send ${ids.length} ${plural(ids.length, "comment", "comments")} to ${q.ref} as you?`)) return;
+    send.disabled = true;
+    const res = await draftAction(q, "send", { ids });
+    if (res.ok) {
+      const failed = (res.draft?.comments || []).filter((c) => ids.includes(c.id) && c.state === "failed").length;
+      toast(failed ? `⚠ ${failed} of ${ids.length} not sent` : `Sent ${ids.length} ${plural(ids.length, "comment", "comments")}`, failed > 0);
+    }
+  };
+  const approve = $("rq-approve");
+  if (approve) approve.onclick = async () => {
+    if (!confirm(`Approve ${q.ref} as you?`)) return;
+    approve.disabled = true;
+    if ((await draftAction(q, "approve")).ok) toast(`Approved ${q.ref}`);
+  };
+  for (const el of box.querySelectorAll(".dc-pick")) el.onchange = () => {
+    const key = `${q.id} ${el.dataset.c}`;
+    if (el.checked) askSkip.delete(key); else askSkip.add(key);
+    shown = ""; renderAsk(q);
+  };
+  for (const el of box.querySelectorAll(".dc-drop")) el.onclick = () => {
+    const key = `${q.id} ${el.dataset.c}`, c = q.draft.comments.find((x) => x.id === el.dataset.c);
+    draftAction(q, "draft", { comment: el.dataset.c, text: askEdits[key] ?? c?.text ?? "", dropped: el.dataset.dropped === "1" }).then((res) => { if (res.ok) delete askEdits[key]; });
+  };
+  for (const el of box.querySelectorAll(".dc-text")) {
+    const key = `${q.id} ${el.dataset.c}`;
+    el.oninput = () => { askEdits[key] = el.value; };
+    // Saved when it is left: the board's next look at the MR has it.
+    el.onchange = async () => {
+      if ((await draftAction(q, "draft", { comment: el.dataset.c, text: el.value, dropped: false })).ok) delete askEdits[key];
+    };
+  }
 }
 
 // The open MR to review as its code host has it now ({check, files, item} or {error}), and the files unfolded.
@@ -827,13 +925,17 @@ function renderAsk(q) {
     </div>
     ${v?.error ? `<div class="notice">${linkify(v.error)}</div>` : ""}
     <div class="tchips">${chips.join("")}</div>
+    ${draftHTML(q, card)}
     ${card("Description",  `<div class="tcard-b md">${q.description?.trim() ? md(q.description) : `<span style="color:var(--mute)">No description</span>`}</div>`, `from ${esc(host)}`)}
     ${card("CI", `<div class="tcard-b">${ci}</div>`)}
     ${card(`Discussions${c?.threads?.length ? ` · ${c.threads.length}` : ""}`, threads)}
     ${card(`Changes${files.length ? ` · ${files.length} ${plural(files.length, "file", "files")}` : ""}`, filesHTML)}
     ${logs.length ? `<details class="journal"><summary>Journal ·  ${logs.length}</summary><div class="log">${logs.map((l) => `${fmtWhen(l.at)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   if (html === shown) return;
+  // A comment being typed is not drawn over: the card is drawn again once it is left.
+  if (document.activeElement?.classList.contains("dc-text") && $("detail").contains(document.activeElement)) return;
   $("detail").innerHTML = shown = html;
+  bindDraft(q);
   $("back").onclick = () => { selected = null; history.replaceState(null, "", location.pathname); try { localStorage.removeItem("mako-selected"); } catch {} render(); };
   $("ask-open").onclick = () => window.open(q.url, "_blank", "noopener");
   for (const d of $("detail").querySelectorAll(".rq-file")) d.ontoggle = () => {
@@ -2522,6 +2624,15 @@ function mountQuestion(id) {
   el.querySelector(".chat-stop").onclick = () => fetch(`/api/code/stop?id=${encodeURIComponent(v.thread)}`, { method: "POST" });
   $("ca-task").onclick = toTask;
   v.list.onclick = (e) => {
+    // The limit cut the answer: go on now, or by itself after the reset.
+    const lb = e.target.closest("[data-limit-go], [data-limit-auto]");
+    if (lb) {
+      const go = lb.dataset.limitGo !== undefined;
+      (go ? fetch("/api/code/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: v.project, thread: v.thread, text: "continue" }) })
+        .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message })) : limitAuto(v.thread, lb.getAttribute("aria-checked") !== "true"))
+        .then((r) => { keys.classList.toggle("err", r.ok === false); keys.textContent = r.ok === false ? `⚠ ${r.error}` : idle; if (go && !v.snap?.live) v.version = -1; pollCode(); });
+      return;
+    }
     const tk = e.target.closest("[data-ticket]");
     if (tk) { const d = v.drafts?.[tk.dataset.ticket]; if (d) toTicket(d, tk.dataset.ticket); return; }
     const pb = e.target.closest("[data-plan-block]");
@@ -2591,8 +2702,8 @@ function ticketCard(d, i, thread) {
   const link = done ? madeLink(done) : "";
   return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Ticket draft</span></div>
     <b>${esc(d.title)}</b><div class="md ca-ticket-body">${md(d.description)}</div>
-    <div class="ca-ticket-foot">${done ? `<span class="muted">Task ${link}</span>` : `<span class="muted">You can edit it and pick a tracker before creating</span>`}<span class="spacer"></span>
-      ${done ? `<button type="button" disabled>Ticket created</button>` : `<button type="button" class="primary" data-ticket="${i}">Create ticket</button>`}</div></div>`;
+    <div class="ca-ticket-foot">${done ? `<span class="muted">Ticket created</span>` : `<span class="muted">You can edit it and pick a tracker before creating</span>`}<span class="spacer"></span>
+      ${done ? `<span class="ca-ticket-link">${link}</span>` : `<button type="button" class="primary" data-ticket="${i}">Create ticket</button>`}</div></div>`;
 }
 
 // "Create ticket": the agent's draft goes to the new task form over the chat, to be edited, given a tracker and created.
@@ -2651,8 +2762,8 @@ function planBlockCard(p, i, thread) {
   const done = made && made.title === (p.title || planTitle(p.plan)) ? made.id : null;
   return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Plan</span></div>
     ${p.title ? `<b>${esc(p.title)}</b>` : ""}<div class="md ca-ticket-body">${md(p.plan)}</div>
-    <div class="ca-ticket-foot">${done ? `<span class="muted">${done.startsWith("chat-") ? "Sent to chat" : "Task"} ${madeLink(done)}</span>` : `<span class="muted">${data?.remote ? "Plans are handed over from the Mac" : "Hand it over to a new or an existing session"}</span>`}<span class="spacer"></span>
-      ${done ? `<button type="button" disabled>Plan sent</button>` : data?.remote ? "" : `<button type="button" class="primary" data-plan-block="${i}">Send plan to…</button>`}</div></div>`;
+    <div class="ca-ticket-foot">${done ? `<span class="muted">Plan sent to ${done.startsWith("chat-") ? "chat" : "task"}</span>` : `<span class="muted">${data?.remote ? "Plans are handed over from the Mac" : "Hand it over to a new or an existing session"}</span>`}<span class="spacer"></span>
+      ${done ? `<span class="ca-ticket-link">${madeLink(done)}</span>` : data?.remote ? "" : `<button type="button" class="primary" data-plan-block="${i}">Send plan to…</button>`}</div></div>`;
 }
 
 // «Send plan to…»: the plan's text (not a path to its file) goes to another session; the plan's own session stays as it
@@ -2782,7 +2893,8 @@ function renderCode() {
     <button type="button" data-open-ticket>${toChat ? "Open chat" : "Open task"}</button><button type="button" data-ca-delete>Delete question</button></div>` : "";
   v.list.innerHTML = `<div class="chat-col">${done}${chatTurns(s, { id: v.thread, flip: v.flip, code: true, drafts: v.drafts, plans: v.plans, snap: s, ticket: v.ticket }) ||
       `<div class="files-empty">Loading the conversation…</div>`}
-    ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}</div>`;
+    ${s?.state === "working" ? `<div class="chat-working"><span class="pulse"></span>Searching the code…</div>` : ""}
+    ${s && limitCut(s) ? `<div class="ca-limit" role="status"><b>${esc(limitText(s))}</b>${limitButtons(s)}</div>` : ""}</div>`;
   linkSources(v.list);
   if (atEnd || v.version <= 1) v.list.scrollTop = v.list.scrollHeight;
   v.el.querySelector(".chat-stop").hidden = s?.state !== "working";
@@ -3443,7 +3555,7 @@ function bindFaults() {
 
 const SIZE_NAMES = { small: "small", medium: "medium", big: "big" };
 const STAGE_NAMES = { agent: "agent working", you: "waiting for you", ci: "waiting for CI", review: "waiting for review" };
-const PHASE_NAMES = { estimate: "estimate", plan: "plan", work: "work", review: "agent review", assess: "assessment and retro" };
+const PHASE_NAMES = { estimate: "estimate", plan: "plan", work: "work", review: "agent review", assess: "assessment and retro", forme: "review for me" };
 
 // A time in seconds, short: 42 min, 3 h 5 min, 2 d 4 h.
 function durText(sec) {
@@ -3509,7 +3621,7 @@ function headHTML(r, title = true) {
   const t = r.task, st = state(r), [text, cls, tip] = cardStatus(r);
   return `<div class="d-head">
       <div class="d-main">
-        <div class="d-id">${trackerIcon(t)}${r.type === "fix" ? kind(r) : ""}<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span class="s ${st} ${cls}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(text)}</span></div>
+        <div class="d-id">${trackerIcon(t)}${byMako(r)}${r.type === "fix" ? kind(r) : ""}<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(r.id)}</a><span class="s ${st} ${cls}"${tip ? ` title="${esc(tip)}"` : ""}>${esc(text)}</span></div>
         ${title ? `<h1>${esc(t.title)}</h1>${metaLine(r)}` : ""}
       </div>
       <div class="actions">${primaryHTML(r)}${moreMenu(r)}</div>
@@ -3538,7 +3650,12 @@ function metaLine(r) {
   return parts.length ? `<div class="d-meta">${parts.join(`<i>·</i>`)}</div>` : "";
 }
 
-const openMR = (r, cls = "") => r.prUrl ? `<a class="btn ${cls}" href="${esc(r.prUrl)}" target="_blank" rel="noopener">Open ${esc(mrName(r.prUrl))}${ICON.external}</a>` : "";
+// A secondary button in every state (the fix is in the blockers' block): the host's logo before the text, ↗ after it.
+const openMR = (r) => {
+  if (!r.prUrl) return "";
+  const host = r.prUrl.includes("/pull/") ? "GitHub" : r.prUrl.includes("merge_requests") ? "GitLab" : "";
+  return `<a class="btn open-mr" href="${esc(r.prUrl)}" target="_blank" rel="noopener"${host ? ` title="Open on ${host}"` : ""}>${host ? TRACKER_ICON[host] : ""}Open ${esc(mrName(r.prUrl))}${ICON.external}</a>`;
+};
 // The main action, as a button the card's handlers already know (data-a, data-merge), and the one next
 // to it when the state has a pair (Start + Snooze, Merge + Open MR).
 function primaryHTML(r) {
@@ -3552,11 +3669,11 @@ function primaryHTML(r) {
     case "resume": return b("resume", `${ICON.play}Resume`, "primary", "", "Continue the conversation");
     case "focus": return b("focus", "Show in Orca", agentOf(r)?.state === "waiting" ? "primary" : "");
     // The fix buttons are in the "What blocks the merge" block, under their rows (blockersHTML); the header has the MR.
-    case "fix-conflicts": case "fix-ci": return openMR(r, "primary");
+    case "fix-conflicts": case "fix-ci": return openMR(r);
     case "merge": return isAsked(r.id, "merge") ? `<button class="merge-go busy" disabled title="Merging…">${ICON.merge}Merging…</button>` + openMR(r)
       : `<button class="merge-go" data-merge>${ICON.merge}Merge</button>` + openMR(r);
     // CI still running, or the agent is in Orca: the MR is where to look.
-    case "open-mr": return openMR(r, "primary");
+    case "open-mr": return openMR(r);
     case "retry": return b("retry", "Retry", "primary");
     case "unarchive": return b("unarchive", `${ICON.unarchive}Restore from archive`);
     case "archive": return b("archive", `${ICON.archive}Archive`);
@@ -3671,20 +3788,23 @@ function nowHTML(r, card, bar) {
 // An MR waiting for the merge: what holds it up, on top.
 function blockersHTML(r) {
   const c = review?.review, details = [];
-  // A fix button under its row, a compact button on the right: only Mako's own running agent hears it (as in card.go's
+  // A fix button on the right of its row (blkRow), compact: only Mako's own running agent hears it (as in card.go's
   // "fix-*"); a stopped one is resumed from the header. Once pressed it stays a disabled check (isAsked).
   const live = r.executor === "terminal" && r.worktree && r.live;
   const askBtn = (kind, label, title) => !live ? ""
     : isAsked(r.id, kind) ? `<div class="mr-actions"><button type="button" class="primary" disabled title="Already passed to the agent">${ICON.check}Passed to the agent</button></div>`
     : `<div class="mr-actions"><button type="button" class="primary" data-ask="${kind}" title="${esc(title)}">${label}</button></div>`;
+  // The reason on the left (the text, then a file list under it), its fix button on the right of the same row; with no
+  // button (no live agent) it is the bare text, as before.
+  const blkRow = (text, btn) => btn ? `<div class="blk-row"><div class="blk-text">${text}</div>${btn}</div>` : text;
   if (c?.conflicts || r.baseConflict?.files?.length) {
     const files = r.baseConflict?.files ?? [];
-    details.push(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
-      + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : "")
-      + askBtn("conflicts", "Resolve conflicts", "The agent will rebase on the main branch, resolve the conflicts and push"));
+    details.push(blkRow(`<div>${esc(mrName(r.prUrl))} conflicts with ${r.baseConflict?.base ? `<code>${esc(r.baseConflict.base.slice(0, 8))}</code> of ` : ""}the main branch${files.length ? ` in ${files.length} ${plural(files.length, "file", "files")}:` : ""}</div>`
+      + (files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : ""),
+      askBtn("conflicts", "Resolve conflicts", "The agent will rebase on the main branch, resolve the conflicts and push")));
   }
-  if (c?.ci === "failed" && c.failed?.length) details.push(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>` + askBtn("ci", "Fix CI", "The agent will look at the failed jobs, fix them and push"));
-  if (c?.threads?.length) details.push(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>` + askBtn("comments", "Fix comments", "The agent will fix the review comments and push"));
+  if (c?.ci === "failed" && c.failed?.length) details.push(blkRow(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>`, askBtn("ci", "Fix CI", "The agent will look at the failed jobs, fix them and push")));
+  if (c?.threads?.length) details.push(blkRow(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>`, askBtn("comments", "Fix comments", "The agent will fix the review comments and push")));
   // The bold reason repeats the details (“CI failed”, “the MR has conflicts”), so it is shown only when there
   // are no details yet (the review is not loaded) or when it says what they do not: the agent's state.
   const lines = [];
@@ -3698,8 +3818,8 @@ function blockersHTML(r) {
     // The Fix is here too, next to what asks for it: the panel with the reviewer's rounds may be far away (on a
     // phone, far below). Only when "Fix" is possible now (the same step as the reviewer's row). There is no "Skip
     // review" here: the remarks are pending, and SkipReview refuses until they are sent.
-    lines.push(`<div>The reviewer left ${n ? `${n} ${plural(n, "blocker", "blockers")}` : "remarks"}: press Fix to hand ${n === 1 ? "it" : "them"} to the agent</div>`);
-    if (r.reviewStep === "notes") lines.push(`<div class="mr-actions">${reviewFixBtn(true, n)}</div>`);
+    lines.push(blkRow(`<div>The reviewer left ${n ? `${n} ${plural(n, "blocker", "blockers")}` : "remarks"}: press Fix to hand ${n === 1 ? "it" : "them"} to the agent</div>`,
+      r.reviewStep === "notes" ? `<div class="mr-actions">${reviewFixBtn(true, n)}</div>` : ""));
   }
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
   return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
@@ -4256,6 +4376,11 @@ function chatFor(id) {
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.quick) { say(b.dataset.quick); return; }
+    if (b.dataset.limitGo !== undefined) { say("continue"); return; }
+    if (b.dataset.limitAuto !== undefined) {
+      limitAuto(id, b.getAttribute("aria-checked") !== "true").then((r) => { warn(r.ok === false ? r.error : ""); pollChat(); });
+      return;
+    }
     const next = b.dataset.next;
     if (next === "open" || next === "push") {
       fetch(`/api/ask?id=${encodeURIComponent(id)}&kind=${next}`, { method: "POST" }).then((x) => x.json()).catch(() => ({}))
@@ -4393,6 +4518,22 @@ function drawSend(v) {
   b.title = stop ? "Stop: interrupt the current step (Esc)" : "Send (Enter)";
   b.setAttribute("aria-label", stop ? "Stop" : "Send");
 }
+// The Claude limit cut the agent's turn: the chat says until when instead of «Your turn» and offers to go on, now
+// or by itself after the reset. A stopped agent shows it while the reset is ahead.
+const limitCut = (s) => s.state === "limited" || (s.limitedUntil * 1000 > Date.now() && s.state !== "working" && s.state !== "waiting");
+function limitText(s) {
+  if (!s.limitedUntil) return t("b.limit.unknown");
+  return s.limitedUntil * 1000 > Date.now() ? t("b.limit.until", { time: fmtWhen(s.limitedUntil * 1000) }) : t("b.limit.reset");
+}
+// «Continue now» sends «continue»; «Continue after the reset» is a switch kept by the session (only while the reset is ahead).
+function limitButtons(s) {
+  const ahead = s.limitedUntil * 1000 > Date.now();
+  return `<button type="button" class="chip pri" data-limit-go title="${esc(t("b.limit.nowHint"))}">${esc(t("b.limit.now"))}</button>`
+    + (ahead ? `<button type="button" class="chip${s.resumeOnReset ? " on" : ""}" role="switch" aria-checked="${s.resumeOnReset ? "true" : "false"}" data-limit-auto title="${esc(t("b.limit.autoHint"))}">${esc(t("b.limit.auto"))}</button>` : "");
+}
+// The same two buttons in a chat of the board: ?on=1 asks, ?on=0 takes it back.
+const limitAuto = (id, on) => fetch(`/api/resumeonreset?id=${encodeURIComponent(id)}&on=${on ? 1 : 0}`, { method: "POST" })
+  .then((x) => x.json()).catch((err) => ({ ok: false, error: err.message }));
 function renderChat(v) {
   const s = v.snap, list = v.list;
   const live = s.state === "working" || s.state === "waiting";
@@ -4426,9 +4567,10 @@ function renderChat(v) {
   const st = v.el.querySelector(".chat-status"), t = s.turn ?? {};
   // The panel waiting on you says it itself, with its own Stop.
   st.hidden = !s.live && !s.asleep && !s.items.length || !!asked;
-  st.className = `chat-status ${s.state}`;
+  st.className = `chat-status ${limitCut(s) ? "limited" : s.state}`;
   // Working says nothing: the active tool card already reads «Running».
-  const stText = { working: "", waiting: "Waiting for you", done: "Your turn" }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
+  const cut = limitCut(s);
+  const stText = cut ? limitText(s) : { working: "", waiting: "Waiting for you", done: "Your turn" }[s.state] ?? (s.asleep ? "Asleep · a message wakes it up" : "Stopped");
   const stEl = st.querySelector(".st");
   stEl.textContent = stText; stEl.hidden = !stText;
   const more = [];
@@ -4479,6 +4621,7 @@ function nextActions(v) {
     out.push({ label: "Open the MR", href: r.prUrl });
   }
   if (r && ch?.files?.length) out.push({ label: "Show the diff", next: "diff" });
+  out.push({ label: "Continue", quick: "Continue where you left off." });
   out.push({ label: "What else could break?", quick: "What else could break because of these changes? Check the places that depend on them and tell me what you find." });
   return out;
 }
@@ -4488,6 +4631,8 @@ function drawNextActions(v) {
   // The hints follow the conversation: an empty chat has nothing to build on (#515).
   box.hidden = s.state === "working" || s.state === "waiting" || !s.items.length;
   if (box.hidden) return;
+  // The limit cut the turn: no hints to build on, only going on.
+  if (limitCut(s)) { box.innerHTML = limitButtons(s); return; }
   box.innerHTML = nextActions(v).map((a, i) => {
     const cls = `chip${i === 0 && !a.href ? " pri" : ""}`;
     return a.href ? `<a class="${cls}" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.label)}</a>`
@@ -5245,10 +5390,47 @@ function answerTerm(v, key, text) {
   v.dock.hidden = true;
   if (!narrow.matches) v.term.focus();
 }
+// A WebSocket to Mako, with WebSocket's onopen/onmessage/onclose/send/close. A phone paired end to end has no
+// way to the Mac but its service worker's sealed tunnel (sw.js): the stream goes there through a MessagePort. On
+// the Mac itself, and on a phone paired the old way, a plain WebSocket.
+function makoSocket(path) {
+  const sw = navigator.serviceWorker?.controller;
+  if (!data?.e2e || !sw) return new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${path}`);
+  const ch = new MessageChannel();
+  const port = ch.port1;
+  let seen = Date.now();
+  const sock = {
+    readyState: 0, onopen: null, onmessage: null, onclose: null,
+    send(d) { if (sock.readyState === 1) port.postMessage({ t: "s", d }); },
+    close() { if (sock.readyState < 2) port.postMessage({ t: "c" }); end(); },
+  };
+  const end = () => {
+    if (sock.readyState === 3) return;
+    sock.readyState = 3;
+    clearInterval(timer);
+    port.close();
+    sock.onclose?.({});
+  };
+  // The worker may be stopped while idle: the message to it keeps it, and a ping with no answer means it is gone.
+  const timer = setInterval(() => {
+    if (Date.now() - seen > 40000) return end();
+    navigator.serviceWorker.controller?.postMessage({ t: "alive" });
+    port.postMessage({ t: "p" });
+  }, 15000);
+  port.onmessage = (e) => {
+    const m = e.data || {};
+    seen = Date.now();
+    if (m.t === "o" && sock.readyState === 0) { sock.readyState = 1; sock.onopen?.({}); }
+    else if (m.t === "m") sock.onmessage?.({ data: m.d });
+    else if (m.t === "c") end();
+  };
+  sw.postMessage({ t: "wso", u: path }, [ch.port2]);
+  return sock;
+}
 function connect(v) {
   v.gone = false;
   v.ws?.close();
-  const ws = (v.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/term?id=${encodeURIComponent(v.id)}`));
+  const ws = (v.ws = makoSocket(`/ws/term?id=${encodeURIComponent(v.id)}`));
   ws.onopen = () => v.resize();
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
@@ -5361,6 +5543,10 @@ function setupPhone() {
   document.body.classList.add("phone");
   $("settings-link").hidden = true;
   $("awake").hidden = true; // the Mac's own sleep: its settings, not the phone's
+  if (data.e2e) {
+    checkShell();
+    navigator.serviceWorker?.addEventListener("controllerchange", checkShell);
+  }
   // The hint to install the app: once closed with «×», not shown again on this phone.
   const hintHidden = (() => { try { return localStorage.getItem("mako-hint-hidden") === "1"; } catch { return false; } })();
   const hint = (body) => {
@@ -5371,7 +5557,9 @@ function setupPhone() {
   if (!standalone && ios) {
     // iOS gives pushes only to an app added to the home screen.
     if (!hintHidden) hint(`Add Mako to your Home Screen: ${iosAddHome()}
-      <div class="muted">Then open Mako from its icon: that is the only way notifications arrive.</div>`);
+      <div class="muted">Then open Mako from its icon: that is the only way notifications arrive.${data.e2e
+        ? " The app keeps its own storage, so it asks to connect once more: on the Mac, Settings → Phone → «Show the QR code» → «Copy the link», and paste it in the app."
+        : ""}</div>`);
     return;
   }
   if (!standalone && !hintHidden) {
@@ -5386,7 +5574,7 @@ function setupPhone() {
     };
   }
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-  navigator.serviceWorker.register("/sw.js").then(async (reg) => {
+  navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(async (reg) => {
     const sub = await reg.pushManager.getSubscription();
     if (sub && Notification.permission === "granted") return subscribe(sub);
     $("bell").hidden = false;
@@ -5405,6 +5593,21 @@ function setupPhone() {
       alert("Could not enable notifications: " + e.message);
     }
   };
+}
+// The service worker comes from the relay in the clear, the board sealed from the Mac: the board compares the two.
+// It only tells, it cannot stop a worker already running (docs/relay-e2e.md, the limits).
+async function checkShell() {
+  try {
+    const [{ sw }, code] = await Promise.all([
+      fetch("/api/shell").then((r) => r.json()),
+      fetch("/sw.js", { cache: "no-store" }).then((r) => r.arrayBuffer()),
+    ]);
+    const sum = [...new Uint8Array(await crypto.subtle.digest("SHA-256", code))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (!sw || sum === sw) return;
+    $("shell-warn")?.remove();
+    $("phone-hint").insertAdjacentHTML("beforebegin", `<div class="banner" id="shell-warn"><b>The app's code is not the one Mako on your Mac sent.</b>
+      Whoever carries the connection (the relay) may have changed it. Do not use Mako on this phone: remove the site's data in the browser's settings and connect it again, best through a relay of your own.</div>`);
+  } catch {}
 }
 const subscribe = (sub) => fetch("/api/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(sub) });
 function urlKey(b64) {

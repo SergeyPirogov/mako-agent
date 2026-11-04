@@ -1,8 +1,11 @@
 package web
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -26,11 +29,20 @@ var icons embed.FS
 //go:embed sw.js
 var serviceWorker []byte
 
+// The service worker carries the pairing page, to show it itself on a phone paired end to end.
+func init() {
+	page, _ := json.Marshal(pairPage)
+	serviceWorker = bytes.Replace(serviceWorker, []byte(`/*pair page*/ ""`), page, 1)
+}
+
 const deviceCookie = "mako_device"
 
 // remote: the request did not come from this Mac directly. Through `tailscale serve` it arrives from 127.0.0.1
 // too, but with forwarding headers.
 func remote(r *http.Request) bool {
+	if tunneled(r) != nil {
+		return true
+	}
 	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "Forwarded", "Tailscale-User-Login"} {
 		if r.Header.Get(h) != "" {
 			return true
@@ -58,8 +70,12 @@ func loopbackHost(h string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// device: the paired phone a remote request comes from, nil when none.
+// device: the paired phone a remote request comes from, nil when none: the one whose sealed frame carried it, or
+// the one whose key is in the cookie (paired the old way).
 func (s *Server) device(r *http.Request) *phone.Device {
+	if d := tunneled(r); d != nil {
+		return d
+	}
 	if s.Phones == nil {
 		return nil
 	}
@@ -70,10 +86,11 @@ func (s *Server) device(r *http.Request) *phone.Device {
 	return s.Phones.ByToken(c.Value)
 }
 
-// What a phone may open without a key: the pairing and what installing the app needs.
+// What a phone may open without a key: the pairing, what installing the app needs, and the tunnel, whose frames
+// prove the device themselves.
 func publicPath(p string) bool {
 	return strings.HasPrefix(p, "/pair") || strings.HasPrefix(p, "/icons/") ||
-		p == "/manifest.webmanifest" || p == "/sw.js" || p == "/style.css" || p == "/theme.js"
+		p == "/manifest.webmanifest" || p == "/sw.js" || p == "/style.css" || p == "/theme.js" || p == "/e2e"
 }
 
 // Settings and pairing stay on the Mac, and Terminal.app, Finder and the editor open there: a phone gets the board
@@ -104,8 +121,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 				http.Error(w, "phone not paired", http.StatusUnauthorized)
 				return
 			}
-			page(w, http.StatusUnauthorized, "Phone not connected",
-				"Open on the Mac: Mako → Settings → Phone, and scan the QR code with the iPhone camera.")
+			notConnected(w)
 			return
 		}
 		if macOnly(r.URL.Path) {
@@ -129,25 +145,88 @@ func page(w http.ResponseWriter, status int, title, text string) {
 <h1 style="font-size:20px">%s</h1><p style="color:var(--mute)">%s</p></div></body></html>`, html.EscapeString(title), html.EscapeString(text))
 }
 
+// notConnected: a phone with no key. Paired end to end, it has one only in its service worker: a page the worker did
+// not load (opened before it took over) reloads once through it. The app from the Home Screen pairs on /pair.
+func notConnected(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusUnauthorized)
+	io.WriteString(w, notConnectedPage)
+}
+
+const notConnectedPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mako</title><link rel="stylesheet" href="/style.css"></head><body style="display:block">
+<div style="max-width:420px;margin:15vh auto;padding:0 20px;text-align:center"><div style="font-size:48px">🦈</div>
+<h1 style="font-size:20px">Phone not connected</h1><p style="color:var(--mute)">Open on the Mac: Mako → Settings → Phone, and scan the QR code with the phone's camera.</p>
+<p><a class="button primary" href="/pair">I have a link</a></p></div>
+<script>
+navigator.serviceWorker && navigator.serviceWorker.getRegistration().then(function (r) {
+  try {
+    if (!r || !r.active || navigator.serviceWorker.controller || sessionStorage.getItem("mako-reloaded")) return;
+    sessionStorage.setItem("mako-reloaded", "1");
+    location.reload();
+  } catch (e) {}
+});
+</script></body></html>`
+
 const pairPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mako</title><link rel="stylesheet" href="/style.css"></head><body style="display:block">
 <div style="max-width:420px;margin:15vh auto;padding:0 20px;text-align:center"><div style="font-size:48px">🦈</div>
-<h1 id="t" style="font-size:20px">Connecting…</h1><p id="m" style="color:var(--mute)"></p></div>
+<h1 id="t" style="font-size:20px">Connecting…</h1><p id="m" style="color:var(--mute)"></p>
+<form id="paste" hidden><p style="color:var(--mute)">Mako on the Mac → Settings → Phone → «Show the QR code» → «Copy the link», then paste it here.</p>
+<input id="link" type="url" placeholder="https://…/pair#code=…" style="width:100%;box-sizing:border-box" autocomplete="off">
+<p><button class="primary" type="submit">Connect</button></p></form></div>
 <script>
 (function () {
-  // The fragment also carries k, the secret the device's end-to-end keys come from. It is never sent, to Mako
-  // neither: only the phone's encrypted client derives keys from it. Until that client is here (#475: it reads k
-  // here and keeps the keys in IndexedDB), this page pairs the old way, with the code alone.
-  var code = new URLSearchParams(location.hash.slice(1)).get("code") || "";
+  // The fragment carries the code and k, the secret the device's end-to-end keys come from; a browser never sends
+  // it. The service worker derives the keys, pairs with a sealed frame, keeps the keys in IndexedDB, and from then
+  // on everything to Mako goes through it, sealed (docs/relay-e2e.md).
+  var q = new URLSearchParams(location.hash.slice(1));
   history.replaceState(null, "", "/pair");
-  function fail(text) {
-    document.getElementById("t").textContent = "Could not connect";
-    document.getElementById("m").textContent = text;
+  function say(title, text) {
+    document.getElementById("t").textContent = title;
+    document.getElementById("m").textContent = text || "";
   }
-  if (!code) return fail("Scan the QR code from Mako on the Mac again.");
-  fetch("/pair", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"}, body: "code=" + encodeURIComponent(code)})
-    .then(function (r) { return r.ok ? location.replace("/?paired=1") : r.text().then(fail); })
-    .catch(function () { fail("Cannot reach Mako."); });
+  function fail(text) { say("Could not connect", text); }
+  // Paired the old way, with the code alone: no service worker or no WebCrypto here.
+  function plain(code) {
+    fetch("/pair", {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"}, body: "code=" + encodeURIComponent(code)})
+      .then(function (r) { return r.ok ? location.replace("/?paired=1") : r.text().then(fail); })
+      .catch(function () { fail("Cannot reach Mako."); });
+  }
+  function sealed(code, k) {
+    navigator.serviceWorker.register("/sw.js", {updateViaCache: "none"})
+      .then(function () { return navigator.serviceWorker.ready; })
+      .then(function (reg) {
+        return new Promise(function (ok) {
+          var ch = new MessageChannel();
+          ch.port1.onmessage = function (e) { ok(e.data || {}); };
+          reg.active.postMessage({t: "pair", code: code, k: k}, [ch.port2]);
+        });
+      })
+      .then(function (r) { return r.ok ? location.replace("/?paired=1") : fail(r.error); })
+      .catch(function (e) { fail("Cannot pair: " + (e && e.message || e)); });
+  }
+  function start(code, k) {
+    if (!code) return fail("Scan the QR code from Mako on the Mac again.");
+    say("Connecting…");
+    if (k && navigator.serviceWorker && window.crypto && crypto.subtle && window.indexedDB) return sealed(code, k);
+    plain(code);
+  }
+  if (q.get("code")) return start(q.get("code"), q.get("k"));
+  // No link: the app from the Home Screen, which keeps its own storage apart from the browser's.
+  say("Connect the phone");
+  var form = document.getElementById("paste");
+  form.hidden = false;
+  form.onsubmit = function (e) {
+    e.preventDefault();
+    var u;
+    try { u = new URL(document.getElementById("link").value.trim()); } catch (x) { return fail("That is not a link from Mako."); }
+    if (u.host !== location.host) return fail("This link is for " + u.host + ", the app is at " + location.host + ".");
+    var p = new URLSearchParams(u.hash.slice(1));
+    form.hidden = true;
+    start(p.get("code"), p.get("k"));
+  };
 })();
 </script></body></html>`
 
@@ -191,7 +270,7 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 	// apart from Safari's) signs itself in.
 	mux.HandleFunc("GET /manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
 		start := "/"
-		if d := s.device(r); d != nil {
+		if d := s.device(r); d != nil && !d.E2E {
 			start = "/pair/d/" + d.Token
 		}
 		w.Header().Set("Content-Type", "application/manifest+json")
@@ -254,6 +333,13 @@ func (s *Server) phoneRoutes(mux *http.ServeMux) {
 		}
 		setDeviceCookie(w, r, r.PathValue("token"))
 		http.Redirect(w, r, "/", http.StatusFound)
+	})
+
+	// The service worker Mako sends, as a hash: the board, which came sealed from the Mac, compares it with the
+	// /sw.js the relay hands out in the clear (docs/relay-e2e.md, the limits).
+	mux.HandleFunc("GET /api/shell", func(w http.ResponseWriter, r *http.Request) {
+		sum := sha256.Sum256(serviceWorker)
+		writeJSON(w, map[string]string{"sw": hex.EncodeToString(sum[:])})
 	})
 
 	// Pushes: the app subscribes with Mako's key after the user allows notifications.

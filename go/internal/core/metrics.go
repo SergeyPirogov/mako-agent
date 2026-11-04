@@ -24,6 +24,8 @@ const (
 	PhaseWork     = "work"     // the agent's work
 	PhaseReview   = "review"   // the reviewer agent
 	PhaseAssess   = "assess"   // the rating and the look back after
+	// PhaseForMe: the reviewer over someone else's MR, «Рев'ю для мене»: no task's, kept apart (ForMeSpend).
+	PhaseForMe = "forme"
 )
 
 // Phases: in the order the board shows them.

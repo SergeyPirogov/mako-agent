@@ -28,11 +28,20 @@ func sizeOf(cfg *config.Config, r core.Record) (string, bool) {
 
 // routeFor: the route of the task's phase. mode: the routes' mode of the task's repo ("" the global one).
 func routeFor(cfg *config.Config, r core.Record, phase, mode string) core.Route {
+	size, estimated := sizeOf(cfg, r)
+	sized := size
+	if !estimated {
+		sized = "medium (no estimate)"
+	}
+	return routeAt(cfg, r, phase, mode, size, sized)
+}
+
+// routeAt: the route of the phase for the size, sized saying how the size was told (the route's why).
+func routeAt(cfg *config.Config, r core.Record, phase, mode, size, sized string) core.Route {
 	table := cfg.Routes
 	if table == nil {
 		table = core.DefaultRoutes()
 	}
-	size, estimated := sizeOf(cfg, r)
 	route := table[phase][size]
 	if mode == "" {
 		mode = cfg.RouteMode
@@ -42,10 +51,7 @@ func routeFor(cfg *config.Config, r core.Record, phase, mode string) core.Route 
 	if route.Mode == "" {
 		route.Mode = core.ModeBalanced
 	}
-	why := []string{size}
-	if !estimated {
-		why[0] = "medium (no estimate)"
-	}
+	why := []string{sized}
 	if mode == core.ModeCost || mode == core.ModeQuality {
 		why = append(why, mode)
 	}

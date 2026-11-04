@@ -4,6 +4,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -88,6 +89,10 @@ type Dispatcher struct {
 	lessonAnswering map[string]bool
 	// reviewing: the tasks whose branch the reviewer agent reads now.
 	reviewing map[string]bool
+	// preparing: the MRs to review («Рев'ю для мене») the reviewer reads for me now.
+	preparing map[string]bool
+	// Spends: what the reviewer over others' MRs cost (PhaseForMe): no task's.
+	Spends *state.Spends
 	// branches: the tasks' branches as the board's reviewer row last looked at them (lookBranch).
 	branches map[string]branchLook
 	// selfBehind: how many commits the branch got past a «Check it yourself» tick, per task (selfCheckBehind).
@@ -125,6 +130,8 @@ type Dispatcher struct {
 	// Hold: why no new agent may start now ("" none): Mako waits to update itself. Set by main.
 	Hold    func() string
 	absence absence // when the board was last seen, the morning digest last sent
+	// watch: what the watch of the projects' default branches and routines remembers (watch.go).
+	watch watchState
 
 	lessonsMu sync.Mutex // lessons.json
 	navMu     sync.Mutex // navretro.json
@@ -145,7 +152,7 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
 		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, repoLessoning: map[string]bool{}, repoLessoned: map[string]time.Time{}, lessonAnswering: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]selfLook{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
-		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery,
+		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery, preparing: map[string]bool{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove
@@ -157,8 +164,14 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 	if rs, err := state.OpenReviewRequests(cfg.StateDir); err == nil {
 		rs.OnSaveError = func(err error) { go d.Fault("mako", "review requests not saved", err) }
 		d.Reviews = rs
+		d.interruptedDrafts()
 	} else {
 		log.Printf("review-requests.json: %v", err)
+	}
+	if sp, err := state.OpenSpends(cfg.StateDir, forMeSpendFile); err == nil {
+		d.Spends = sp
+	} else {
+		log.Printf("%s: %v", forMeSpendFile, err)
 	}
 	return d
 }
@@ -289,10 +302,11 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
-// Tick is one round: new tasks, branches to check before their MR, hand-offs that got an MR, merges, where the
+// Tick is one round: new tasks, the tasks the watched projects need, branches to check before their MR, hand-offs that got an MR, merges, where the
 // tasks' time goes, MRs to fix, issues closed meanwhile, the archive.
 func (d *Dispatcher) Tick(ctx context.Context) {
 	d.Poll(ctx)
+	d.Watch(ctx, time.Now())
 	d.CheckGates()
 	d.CheckHandoffs(ctx)
 	d.CheckMerges(ctx)
@@ -672,6 +686,10 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 			}
 		})
 		notify.Inform(notify.Stopped, i18n.T(map[string]string{"orca": "notify.notHandedOrca", terminalExecutor: "notify.notHandedAgent"}[executor], id), err.Error(), d.BoardURL)
+	}
+	if over := ceilingSpent(r); over != "" {
+		fail(errors.New(over))
+		return
 	}
 	t := d.tracker(r.Task.TrackerID)
 	if t == nil {

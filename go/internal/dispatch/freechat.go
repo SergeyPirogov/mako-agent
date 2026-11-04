@@ -304,6 +304,7 @@ func (d *Dispatcher) startFree(c FreeChat, text string, setup *chat.SetupResult)
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: c.ID, Worktree: c.Dir, Command: command, Args: args, Env: d.agentEnv(c.ID), SetupDone: setup, Prompt: text, Mode: mode, History: history,
 		OnLimits:  d.limitsReported,
+		OnResume:  d.afterLimit(c.Title, func(text string) error { return d.SayFree(c.ID, text) }),
 		OnSession: func(sid, _ string) { d.touchChat(c.ID, sid) },
 	}))
 	return nil

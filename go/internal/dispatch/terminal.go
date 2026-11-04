@@ -172,6 +172,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 		ID: id, Worktree: worktree, Command: command, Args: args, Env: d.agentEnv(id), SetupDone: setup, Prompt: prompt, Mode: mode, History: history,
 		OnState:  func() { d.watchTerminals(time.Now()) },
 		OnLimits: d.limitsReported,
+		OnResume: d.afterLimit(id, func(text string) error { return d.say(id, text) }),
 		// The task keeps its session: a later resume goes on with exactly this conversation.
 		OnSession: func(sid, model string) {
 			d.Store.Update(id, func(r *core.Record) {
@@ -189,6 +190,7 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 				}
 				r.AddSpend(phase, usd, tokens)
 			})
+			go d.checkCeiling(id)    // it stops this very agent: not from inside its own callback
 			d.recordContextLater(id) // the transcript may be long: not in the way of the conversation
 		},
 	}))
@@ -641,6 +643,9 @@ func (d *Dispatcher) lookChat(r core.Record, a Agent) Agent {
 		a.State, a.Reason, a.Asked = "waiting", "permission for "+tool, s.Asked()
 	case state == "done":
 		a.State = "done"
+	case state == "limited":
+		// The Claude limit cut the turn: it is not finished, so nothing that waits for a finished turn goes on.
+		a.State, a.Reason = "stopped", limitReason(s.Snapshot().LimitedUntil)
 	default:
 		a.State, a.Tool = "working", tool
 	}
