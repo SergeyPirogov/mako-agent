@@ -2,6 +2,7 @@
 package core
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -166,6 +167,9 @@ type Record struct {
 	// SelfCheck: you looked at the branch yourself, as the assessment's review advice asks («Check it yourself»);
 	// nil until you tick it. It goes stale when the branch gets commits past SelfCheck.Commit.
 	SelfCheck *SelfCheck `json:"selfCheck,omitempty"`
+	// CheckedAtMerge: how the MR went in, for the stats: "checked" (every step ticked at its last commit),
+	// "skipped" (with a reason), "unchecked"; "" when no check was asked for.
+	CheckedAtMerge string `json:"checkedAtMerge,omitempty"`
 	// Retro: the look back at the task once its MR is merged: what went well, what did not, what to do
 	// differently next time.
 	Retro *Retro `json:"retro,omitempty"`
@@ -302,10 +306,41 @@ type NavSuggestion struct {
 	Done string `json:"done,omitempty"`
 }
 
-// SelfCheck is your «Check it yourself» tick: when, and the branch's HEAD you looked at.
+// SelfCheck is your «Check it yourself» checklist: a tick per step of the assessment's advice (Steps), and the
+// whole of it (At, Commit): set by Mako once every step is ticked at the same HEAD of the branch. A SelfCheck from
+// before the steps has only At and Commit: one step, ticked then.
 type SelfCheck struct {
+	At     string `json:"at,omitempty"`
+	Commit string `json:"commit,omitempty"`
+	// Steps: the ticks, one per step of Assessment.Review.CheckSteps(), with the step's text to tell them apart
+	// when the assessment is made again.
+	Steps []SelfStep `json:"steps,omitempty"`
+	// Tried: the last «Try this build» that came up, and at which HEAD.
+	Tried *SelfMark `json:"tried,omitempty"`
+	// Skipped: you merge without the check, and why; it holds until the task is started anew.
+	Skipped *SelfSkip `json:"skipped,omitempty"`
+	// Synced: the ticks of the MR's task list as Mako last wrote or read them, to tell which side changed.
+	Synced []bool `json:"synced,omitempty"`
+}
+
+// SelfStep is one tick of the checklist: done at Commit (the branch's HEAD then).
+type SelfStep struct {
+	Text   string `json:"text"`
+	Done   bool   `json:"done,omitempty"`
+	Commit string `json:"commit,omitempty"`
+	At     string `json:"at,omitempty"`
+}
+
+// SelfMark: when, and at which HEAD of the branch.
+type SelfMark struct {
 	At     string `json:"at"`
 	Commit string `json:"commit"`
+}
+
+// SelfSkip: when the check was skipped, and the reason you gave.
+type SelfSkip struct {
+	At     string `json:"at"`
+	Reason string `json:"reason"`
 }
 
 // Assessment is the agent's rating of a finished task, each score from 1 to 5.
@@ -334,10 +369,60 @@ type Assessment struct {
 // ReviewAdvice is the agent's say on the review before the merge, in two parts: whether the reviewer agent is worth
 // running (Need, Why), and what the developer should look at themselves (Check: "" when nothing; older versions of
 // Mako did not ask for it).
+// Steps: the same check as 2–5 steps to click through (newer versions); Check then holds them as one text, for an
+// older Mako reading the state.
 type ReviewAdvice struct {
-	Need  bool   `json:"need"`
-	Why   string `json:"why,omitempty"`
-	Check string `json:"check,omitempty"`
+	Need  bool        `json:"need"`
+	Why   string      `json:"why,omitempty"`
+	Check string      `json:"check,omitempty"`
+	Steps []CheckStep `json:"steps,omitempty"`
+}
+
+// CheckStep is a step of the check: where to go (a page, "/settings", or what to run), what to do there and what
+// to see then. Do is enough: an older check is one step with only Do.
+type CheckStep struct {
+	Open   string `json:"open,omitempty"`
+	Do     string `json:"do"`
+	Expect string `json:"expect,omitempty"`
+}
+
+// Text: the step in one line, «Open /settings: do this → expect that»; it also names the step in the MR's task list.
+func (s CheckStep) Text() string {
+	t := s.Do
+	if s.Open != "" {
+		t = s.Open + ": " + t
+	}
+	if s.Expect != "" {
+		t += " → " + s.Expect
+	}
+	return t
+}
+
+// CheckSteps: what the developer should check, step by step; an older check (one sentence) is one step. nil when
+// nothing.
+func (a *ReviewAdvice) CheckSteps() []CheckStep {
+	if a == nil {
+		return nil
+	}
+	if len(a.Steps) > 0 {
+		return a.Steps
+	}
+	if a.Check != "" {
+		return []CheckStep{{Do: a.Check}}
+	}
+	return nil
+}
+
+// StepsText: the steps as one text, for Check.
+func StepsText(steps []CheckStep) string {
+	var b strings.Builder
+	for i, s := range steps {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(strconv.Itoa(i+1) + ". " + s.Text())
+	}
+	return b.String()
 }
 
 // Score is one rating from 1 to 5 (0: none) with why.
