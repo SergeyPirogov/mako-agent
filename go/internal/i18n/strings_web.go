@@ -447,7 +447,6 @@ var webStrings = map[string]string{
 	"b.groupStatus":      "Grouped by status. Click to group by project",
 	"b.groupProject":     "Grouped by project. Click to group by status",
 	"b.nothingInWork":    "Nothing in work",
-	"b.inProgress":       "In progress",
 	"b.lessonOffer":      "The reviewer keeps asking for the same thing on this project's tasks: Mako offers a rule for CLAUDE.md. Open it in the settings",
 	"b.pick":             "Pick a task on the left",
 	"b.openSettings":     "Open the settings →",

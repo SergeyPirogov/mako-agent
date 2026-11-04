@@ -106,10 +106,16 @@ let query = "";
 // How the list is grouped, "project" (the default) or "status" (the user's choice is remembered in mako-group), and the projects folded in the first (a click on the heading).
 let groupBy = (() => { try { return localStorage.getItem("mako-group") === "status" ? "status" : "project"; } catch { return "project"; } })();
 let foldedProjects = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-projects") || "[]"); } catch { return []; } })());
-// "Postponed" and "Done" of a project, opened on their own ("project|column").
-const openQuiet = new Set();
-// The sections of a project (Ready to merge, In progress, New) the user folded ("project|section"); the others are open.
-let foldedSubs = new Set((() => { try { return JSON.parse(localStorage.getItem("mako-folded-subs") || "[]"); } catch { return []; } })());
+// The sections of a project ("project|column") the user folded (true) or opened (false) on their own; the others
+// follow FOLDED_BY_DEFAULT. An old value is a list of the folded ones.
+let foldedSubs = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem("mako-folded-subs") || "{}");
+    if (Array.isArray(v)) return Object.fromEntries(v.map((k) => [k, true]));
+    return v && typeof v === "object" ? v : {};
+  } catch { return {}; }
+})();
+const subFolded = (key, col) => key in foldedSubs ? !!foldedSubs[key] : !!FOLDED_BY_DEFAULT[col];
 // Where the list was scrolled to: it is drawn again on every refresh, click and fold.
 let listTop = 0;
 // The projects of the board (sorted): each has its colour in the list.
@@ -669,11 +675,9 @@ function render() {
     render();
   };
   for (const b of $("list").querySelectorAll(".quiet")) b.onclick = () => {
-    if (b.dataset.sub) {
-      if (showAll) return;
-      foldedSubs.has(b.dataset.sub) ? foldedSubs.delete(b.dataset.sub) : foldedSubs.add(b.dataset.sub);
-      try { localStorage.setItem("mako-folded-subs", JSON.stringify([...foldedSubs])); } catch {}
-    } else openQuiet.has(b.dataset.key) ? openQuiet.delete(b.dataset.key) : openQuiet.add(b.dataset.key);
+    if (showAll) return;
+    foldedSubs[b.dataset.sub] = !subFolded(b.dataset.sub, b.dataset.col);
+    try { localStorage.setItem("mako-folded-subs", JSON.stringify(foldedSubs)); } catch {}
     render();
   };
   renderDetail();
@@ -734,9 +738,10 @@ function lessonBadge(p, entries) {
   return tid ? `<span class="lesson-badge" data-lessons-of="${esc(`${tid}|${p}`)}" title="${esc(t("b.lessonOffer"))}">💡</span>` : "";
 }
 
-// By project: a group per project, its tasks in the order of the work; every section of it (Ready to merge, In progress, New, Postponed, Done)
-// folds by a click on its heading: "Postponed" and "Done" start folded, the others open.
-const QUIET = ["later", "done"], SUMMARY = { doing: "at work", blocked: "blocked", review: "in review", merge: "ready to merge", forme: "to review", new: "new", failed: "not done" };
+// By project: a group per project, its tasks in the order of the work; every section of it is one column, named and
+// ordered as in the list by status, and folds by a click on its heading: "Postponed", "Done" and "Not done" start folded
+// (FOLDED_BY_DEFAULT), the others open.
+const QUIET = ["later", "done"];
 function listByProject(entries, showAll) {
   const by = new Map();
   for (const e of entries) by.set(e.p, [...(by.get(e.p) || []), e]);
@@ -749,26 +754,18 @@ function listByProject(entries, showAll) {
     const all = by.get(p).sort((a, b) => order.indexOf(a.g) - order.indexOf(b.g) || entryRank(a) - entryRank(b));
     const active = all.filter((e) => !QUIET.includes(e.g)), isFolded = foldedProjects.has(p) && !showAll;
     const count = (g) => all.filter((e) => e.g === g).length;
-    const summary = order.filter((g) => SUMMARY[g] && count(g)).map((g) => g === "merge" ? `<span class="ok">${count(g)} ${SUMMARY[g]}</span>` : esc(`${count(g)} ${SUMMARY[g]}`)).join(" · ") || "nothing in work";
+    const summary = COLUMNS.filter(([g]) => !QUIET.includes(g) && count(g)).map(([g, title]) => g === "merge" ? `<span class="ok">${count(g)} ${esc(title.toLowerCase())}</span>` : esc(`${count(g)} ${title.toLowerCase()}`)).join(" · ") || "nothing in work";
     html += `<div class="group-box proj${isFolded ? " folded" : ""}"><button class="proj-head" data-proj="${esc(p)}" aria-expanded="${!isFolded}" title="${esc(p)}">${ICON.chevron}${projectDot(p)}<b>${esc(shortProject(p))}</b>`
       + lessonBadge(p, all)
       + (isFolded ? `<span class="p-sum">${summary}</span>` : "") + `<span class="n">${all.length}</span></button>`;
     if (!isFolded) {
-      // Ready to merge first, under a small green heading: the next action for a person; then what is in progress, then the new ones.
-      const ready = active.filter((e) => e.g === "merge"), doing = active.filter((e) => e.g !== "merge" && e.g !== "new"), fresh = active.filter((e) => e.g === "new");
       const MERGE_TIP = "CI passed, no conflicts or open threads: the MR can be merged";
-      for (const [id, title, rs, cls, tip] of [["merge", COLUMNS.find(([c]) => c === "merge")[1], ready, " merge", MERGE_TIP], ["work", t("b.inProgress"), doing, "", ""], ["new", COLUMNS.find(([c]) => c === "new")[1], fresh, "", ""]]) {
-        if (!rs.length) continue;
-        const key = `${p}|${id}`, isOpen = showAll || !foldedSubs.has(key);
-        html += `<button class="quiet${isOpen ? " open" : ""}${cls}" data-sub="${esc(key)}" aria-expanded="${isOpen}"${tip ? ` title="${esc(tip)}"` : ""}>${ICON.chevron}${title}<span class="n">${rs.length}</span></button>`;
-        if (isOpen) html += rs.map((e) => e.html).join("");
-      }
       if (!active.length) html += `<div class="p-none">${t("b.nothingInWork")}</div>`;
-      for (const g of QUIET) {
-        const rs = all.filter((e) => e.g === g);
+      for (const [c, title] of COLUMNS) {
+        const rs = all.filter((e) => e.g === c);
         if (!rs.length) continue;
-        const key = `${p}|${g}`, isOpen = showAll || openQuiet.has(key);
-        html += `<button class="quiet${isOpen ? " open" : ""}" data-key="${esc(key)}" aria-expanded="${isOpen}">${ICON.chevron}${COLUMNS.find(([c]) => c === g)[1]}<span class="n">${rs.length}</span></button>`;
+        const key = `${p}|${c}`, isOpen = showAll || !subFolded(key, c);
+        html += `<button class="quiet${isOpen ? " open" : ""}${c === "merge" ? " merge" : ""}" data-sub="${esc(key)}" data-col="${c}" aria-expanded="${isOpen}"${c === "merge" ? ` title="${esc(MERGE_TIP)}"` : ""}>${ICON.chevron}${title}<span class="n">${rs.length}</span></button>`;
         if (isOpen) html += rs.map((e) => e.html).join("");
       }
     }
