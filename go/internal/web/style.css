@@ -123,16 +123,21 @@ header > button, header > a { flex: none; white-space: nowrap; }
 #list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 0 24px; border-top: 1px solid var(--line); }
 #list > :first-child { margin-top: 4px; }
 /* A group's heading sticks to the top while its group scrolls by; a click folds the group. */
-.group { position: sticky; top: 0; z-index: 1; width: 100%; height: 32px; align-items: center; padding: 0 12px 0 8px; font-size: 12px; font-weight: 600;
-  color: var(--mute); display: flex; gap: 4px; border: 0; border-radius: 0; background: var(--bg); text-align: left; }
+/* A section's heading, the same in both groupings: a group by status (.group, sticky: a click folds the group) and a column of a project by project (.quiet, not sticky: the project's own heading is). */
+.group, .quiet { display: flex; align-items: center; gap: 4px; width: 100%; height: 32px; padding: 0 12px 0 8px; font-size: 12px; font-weight: 600;
+  color: var(--mute); border: 0; border-radius: 0; text-align: left; }
+.group { position: sticky; top: 0; z-index: 1; background: var(--bg); }
+.quiet { background: none; }
 .group:hover { background: var(--bg); color: var(--fg); }
-.group:active { transform: none; }
-.group .n { color: var(--faint); margin-left: auto; font-weight: 500; }
-.group .chev { flex: none; transition: transform .15s; }
-.group.folded .chev { transform: rotate(-90deg); }
+.quiet:hover { background: none; color: var(--fg); }
+.group:active, .quiet:active { transform: none; }
+.group .n, .quiet .n { color: var(--faint); margin-left: auto; font-weight: 500; }
+.group .chev, .quiet .chev { flex: none; transition: transform .15s; }
+.group.folded .chev, .quiet .chev { transform: rotate(-90deg); }
+.quiet.open .chev { transform: none; }
 /* "Ready to merge": green, so the MRs a person can merge now do not get lost. */
-.group.merge, .group.merge:hover { color: var(--ok); }
-.group.merge .n { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); font-weight: 600; padding: 1px 7px; border-radius: 8px; }
+.group.merge, .group.merge:hover, .quiet.merge, .quiet.merge:hover { color: var(--ok); }
+.group.merge .n, .quiet.merge .n { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); font-weight: 600; padding: 1px 7px; border-radius: 8px; }
 .proj-head .p-sum .ok { color: var(--ok); font-weight: 600; }
 /* By project: a group per project; its heading folds it, folded it says what is in it. */
 .proj { padding-bottom: 6px; }
@@ -152,15 +157,6 @@ header > button, header > a { flex: none; white-space: nowrap; }
 .p-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .p-dot.sm { width: 7px; height: 7px; }
 .p-none { padding: 2px 12px 6px; font-size: 12px; color: var(--faint); }
-/* A section of a project in the list by project: the same heading as a group in the list by status, only not sticky (the project's own heading is). */
-.quiet { display: flex; align-items: center; gap: 4px; width: 100%; height: 32px; padding: 0 12px 0 8px; border: 0; border-radius: 0; background: none; font-size: 12px; font-weight: 600; color: var(--mute); text-align: left; }
-.quiet:hover { color: var(--fg); background: none; }
-.quiet:active { transform: none; }
-.quiet .chev { flex: none; transform: rotate(-90deg); transition: transform .15s; }
-.quiet.open .chev { transform: none; }
-.quiet .n { margin-left: auto; color: var(--faint); font-weight: 500; }
-.quiet.merge, .quiet.merge:hover { color: var(--ok); }
-.quiet.merge .n { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); font-weight: 600; padding: 1px 7px; border-radius: 8px; }
 /* By status, several projects in a group: a thin label per project. */
 .sub { display: flex; align-items: center; gap: 6px; height: 24px; padding: 4px 12px 0 12px; font-size: 11.5px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sub .n { margin-left: auto; color: var(--faint); font-weight: 500; }

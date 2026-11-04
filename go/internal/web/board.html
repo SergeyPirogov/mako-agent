@@ -765,7 +765,7 @@ function listByProject(entries, showAll) {
         const rs = all.filter((e) => e.g === c);
         if (!rs.length) continue;
         const key = `${p}|${c}`, isOpen = showAll || !subFolded(key, c);
-        html += `<button class="quiet${isOpen ? " open" : ""}${c === "merge" ? " merge" : ""}" data-sub="${esc(key)}" data-col="${c}" aria-expanded="${isOpen}"${c === "merge" ? ` title="${esc(MERGE_TIP)}"` : ""}>${ICON.chevron}${title}<span class="n">${rs.length}</span></button>`;
+        html += `<button class="quiet${isOpen ? " open" : ""}${c === "merge" ? " merge" : ""}" data-sub="${esc(key)}" data-col="${c}" aria-expanded="${isOpen}"${c === "merge" ? ` title="${esc(MERGE_TIP)}"` : ""}>${ICON.chevron}${esc(title)}<span class="n">${rs.length}</span></button>`;
         if (isOpen) html += rs.map((e) => e.html).join("");
       }
     }

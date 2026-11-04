@@ -48,7 +48,7 @@ func TestTreeSectionsFold(t *testing.T) {
 		const row = (id, column, extra) => ({ id, column, status: "handed-off", task: { id, title: "Task " + id, project: "g/app" }, ...extra });
 		data = { ...data, records: [
 			row("g/app#1", "review", { mergeReady: true, agentReviews: [{}], prUrl: "https://x/pr/1" }),
-			row("g/app#2", "doing"), row("g/app#3", "doing"), row("g/app#4", "new"), row("g/app#5", "done"),
+			row("g/app#2", "doing"), row("g/app#3", "doing"), row("g/app#4", "new"), row("g/app#5", "done"), row("g/app#6", "failed"),
 		] };
 		groupBy = "project"; project = ""; query = ""; $("q").value = "";
 		const sec = (n) => document.querySelector('#list .quiet[data-sub="g/app|' + n + '"]');
@@ -90,16 +90,16 @@ func TestTreeSectionsFold(t *testing.T) {
 	}
 	const read = `
 		const o = {}, c = {};
-		for (const n of ["merge", "doing", "new", "done"]) { const b = sec(n); o[n] = b ? b.getAttribute("aria-expanded") : "-"; c[n] = b ? b.querySelector(".n").textContent : "-"; }
+		for (const n of ["merge", "doing", "new", "failed", "done"]) { const b = sec(n); o[n] = b ? b.getAttribute("aria-expanded") : "-"; c[n] = b ? b.querySelector(".n").textContent : "-"; }
 		return JSON.stringify({ open: o, count: c, items: items(), merge: !!sec("merge")?.classList.contains("merge"), tip: sec("merge")?.title || "", stored: localStorage.getItem("mako-folded-subs") || "" });
 	`
 	var got shape
-	// 1. At the start «Ready to merge», «In progress» and «New» are open, «Done» folded, with counters; «Ready to merge» is green and has its hint.
+	// 1. At the start «Ready to merge», «In progress» and «New» are open, «Not done» and «Done» folded, with counters; «Ready to merge» is green and has its hint.
 	eval(`localStorage.removeItem("mako-folded-subs"); foldedSubs = {}; render(); `+read, &got)
-	if got.Open["merge"] != "true" || got.Open["doing"] != "true" || got.Open["new"] != "true" || got.Open["done"] != "false" || got.Items != 4 {
+	if got.Open["merge"] != "true" || got.Open["doing"] != "true" || got.Open["new"] != "true" || got.Open["failed"] != "false" || got.Open["done"] != "false" || got.Items != 4 {
 		t.Fatalf("at the start: %+v", got)
 	}
-	if got.Count["merge"] != "1" || got.Count["doing"] != "2" || got.Count["new"] != "1" || got.Count["done"] != "1" || !got.Merge || got.Tip == "" {
+	if got.Count["merge"] != "1" || got.Count["doing"] != "2" || got.Count["new"] != "1" || got.Count["failed"] != "1" || got.Count["done"] != "1" || !got.Merge || got.Tip == "" {
 		t.Fatalf("counters/merge: %+v", got)
 	}
 	// 2. A click folds «In progress»: its tasks go, the counter stays, the others stay as they were, the fold is stored.
@@ -135,7 +135,7 @@ func TestTreeSectionsFold(t *testing.T) {
 	}
 	// 5. While filtering, every section is open (also «Done») and a click folds nothing.
 	eval(`localStorage.removeItem("mako-folded-subs"); foldedSubs = {"g/app|new": true}; query = "task"; $("q").value = "task"; render(); sec("new").click(); sec("merge").click(); `+read, &got)
-	if got.Open["new"] != "true" || got.Open["merge"] != "true" || got.Open["doing"] != "true" || got.Open["done"] != "true" || got.Items != 5 || got.Stored != "" {
+	if got.Open["new"] != "true" || got.Open["merge"] != "true" || got.Open["doing"] != "true" || got.Open["failed"] != "true" || got.Open["done"] != "true" || got.Items != 6 || got.Stored != "" {
 		t.Fatalf("while filtering: %+v", got)
 	}
 	// 6. The old value (a list of the folded sections) still works: those sections are folded, the rest as by default.
