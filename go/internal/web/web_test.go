@@ -996,6 +996,27 @@ func TestReviewGhostButtonAligned(t *testing.T) {
 	}
 }
 
+// The Branch card's rows hold the 26px ✨ button (#630): the row is as tall as the button, rows have a gap so the
+// buttons do not touch, and the text and icon sit at the button's centre. The board has no browser tests, so this
+// holds the stylesheet's source.
+func TestBranchCardRowsFitFixButton(t *testing.T) {
+	css, err := os.ReadFile("style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		".br-card .mr-row { min-height: 26px; }",
+		".br-card .mr-row + .mr-row { margin-top: 4px; }",
+		".br-card .mr-row > a, .br-card .mr-row > span { padding: 3px 0; font-size: 12.5px; }",
+		".br-card .mr-row > svg, .br-card .mr-row > .mi { margin-top: 6px; }",
+		".br-card .mr-row > button { margin-top: 0; }",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("style.css lacks %q", want)
+		}
+	}
+}
+
 // The fix buttons of the merge's blockers (#561): «Resolve conflicts», «Fix CI» and «Fix comments» stand inside the
 // «What blocks the merge» block under their rows, and only for a live terminal agent; the header keeps Open MR.
 // The board has no script tests, so these hold the page's source.

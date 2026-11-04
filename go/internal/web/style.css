@@ -641,9 +641,10 @@ section.ws #term-slot:has(.term-wrap) { padding: 0; }
 .branch-name:hover .bn-copy, .branch-name:focus-visible .bn-copy { opacity: 1; }
 .branch-name.copied { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .branch-name.copied .bn-pre, .branch-name.copied .bn-copy { color: var(--ok); }
-.br-card .mr-row { min-height: 22px; }
-.br-card .mr-row > a, .br-card .mr-row > span { padding: 2px 0; font-size: 12.5px; }
-.br-card .mr-row > svg, .br-card .mr-row > .mi { margin-top: 4px; }
+.br-card .mr-row { min-height: 26px; }
+.br-card .mr-row + .mr-row { margin-top: 4px; }
+.br-card .mr-row > a, .br-card .mr-row > span { padding: 3px 0; font-size: 12.5px; }
+.br-card .mr-row > svg, .br-card .mr-row > .mi { margin-top: 6px; }
 .br-card .mr-row > button { margin-top: 0; }
 .mr-h button.icon { width: 26px; height: 26px; }
 .mr-h button.icon.ready { color: var(--ok); }
