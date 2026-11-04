@@ -38,8 +38,10 @@ type Client struct {
 	Addr    string // the relay, "https://relay.example.com"
 	Token   string // LoadToken
 	Local   string // Mako's own server, "http://127.0.0.1:8080"
-	MaxBody int64  // an answer's body; 0: the relay's default
+	MaxBody int64  // an answer's body at most; the relay's own limit (hello) can lower it. 0: the default
 	Idle    time.Duration
+	MinWait time.Duration // the pause before connecting again, 1 s; it doubles while that keeps failing
+	MaxWait time.Duration // up to this, a minute
 	Log     *log.Logger
 
 	mu  sync.Mutex
@@ -75,7 +77,13 @@ func (c *Client) Run(ctx context.Context) {
 	if c.Idle <= 0 {
 		c.Idle = DefaultLimits().Idle
 	}
-	wait := time.Second
+	if c.MinWait <= 0 {
+		c.MinWait = time.Second
+	}
+	if c.MaxWait <= 0 {
+		c.MaxWait = time.Minute
+	}
+	wait := c.MinWait
 	for ctx.Err() == nil {
 		start := time.Now()
 		err := c.session(ctx)
@@ -84,7 +92,7 @@ func (c *Client) Run(ctx context.Context) {
 			return
 		}
 		if time.Since(start) > time.Minute {
-			wait = time.Second
+			wait = c.MinWait // it held for a while: not a failing relay
 		}
 		c.logf("relay: %v, connecting again in %s", err, wait)
 		select {
@@ -92,7 +100,7 @@ func (c *Client) Run(ctx context.Context) {
 			return
 		case <-time.After(wait):
 		}
-		wait = min(2*wait, time.Minute)
+		wait = min(2*wait, c.MaxWait)
 	}
 }
 
@@ -120,7 +128,7 @@ func (c *Client) session(ctx context.Context) error {
 		return err
 	}
 	ws.MaxPayloadBytes = DefaultLimits().maxFrame()
-	t := &tunnel{c: c, ws: ws, streams: map[uint64]*localStream{}}
+	t := &tunnel{c: c, ws: ws, maxBody: c.MaxBody, streams: map[uint64]*localStream{}}
 	stop := context.AfterFunc(ctx, func() { ws.Close() })
 	defer stop()
 	defer t.closeAll()
@@ -138,6 +146,11 @@ func (c *Client) session(ctx context.Context) error {
 				return errors.New("the relay gave no address")
 			}
 			t.host, t.scheme = pu.Host, pu.Scheme
+			if f.L > 0 {
+				// The relay's own limit: an answer over it would break the whole tunnel, not just one request.
+				t.maxBody = min(c.MaxBody, f.L)
+				ws.MaxPayloadBytes = Limits{MaxBody: f.L}.maxFrame()
+			}
 			c.setURL(f.U)
 			c.logf("relay: connected, phones reach Mako at %s", f.U)
 		case FramePing:
@@ -166,6 +179,7 @@ type tunnel struct {
 	c       *Client
 	ws      *websocket.Conn
 	host    string // the Mac's host on the relay
+	maxBody int64  // the largest answer body: the Client's, or the relay's when that is lower
 	scheme  string
 	wmu     sync.Mutex
 	mu      sync.Mutex
@@ -242,12 +256,12 @@ func (t *tunnel) request(ctx context.Context, f Frame) {
 		return
 	}
 	defer res.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(res.Body, t.c.MaxBody+1))
+	body, err := io.ReadAll(io.LimitReader(res.Body, t.maxBody+1))
 	if err != nil {
 		text(http.StatusBadGateway, "Mako on the Mac does not answer")
 		return
 	}
-	if int64(len(body)) > t.c.MaxBody {
+	if int64(len(body)) > t.maxBody {
 		text(http.StatusBadGateway, "the answer is too large for the relay")
 		return
 	}

@@ -25,7 +25,7 @@ const ConnectPath = "/_relay/connect"
 
 // Frame types of the tunnel.
 const (
-	FrameHello   = "hello" // relay → Mac, first: U is the Mac's public address, https://<id>.<domain>
+	FrameHello   = "hello" // relay → Mac, first: U is the Mac's public address, https://<id>.<domain>, L its body limit
 	FrameRequest = "req"   // relay → Mac: a phone's HTTP request (M, U, H, B)
 	FrameReply   = "res"   // Mac → relay: the answer to request I (S, H, B)
 	FrameWSOpen  = "wso"   // relay → Mac: a phone opened a WebSocket at U with H
@@ -45,6 +45,7 @@ type Frame struct {
 	B []byte      `json:"b,omitempty"`
 	S int         `json:"s,omitempty"` // HTTP status
 	X bool        `json:"x,omitempty"` // a text WebSocket message (else binary)
+	L int64       `json:"l,omitempty"` // in hello: the largest body the relay passes, so the Mac answers within it
 }
 
 // IDFor: the Mac's name on the relay, from its token. The relay derives it too, so nobody claims another Mac's

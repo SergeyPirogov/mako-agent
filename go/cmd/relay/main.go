@@ -4,6 +4,8 @@
 //	RELAY_DOMAIN     the relay's domain, "relay.example.com" (required)
 //	PORT             where to listen, 8080
 //	RELAY_IP_HEADER  the header the platform puts the client's address in ("Fly-Client-IP"); empty: the socket's
+//	RELAY_METRICS_PORT  serve /_relay/metrics on this port only, not on PORT (the platform exposes PORT to the
+//	                 internet, not this one); empty: on PORT too, for a relay run by hand
 //	RELAY_MAX_MACS, RELAY_MACS_PER_IP, RELAY_CONNS_PER_IP, RELAY_RATE, RELAY_BURST, RELAY_MAX_PENDING,
 //	RELAY_MAX_BODY   the limits (relay.DefaultLimits when unset)
 package main
@@ -41,14 +43,24 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	rs := &relay.Server{Domain: domain, Limits: limits, IPHeader: os.Getenv("RELAY_IP_HEADER")}
+	metricsPort := os.Getenv("RELAY_METRICS_PORT")
+	rs := &relay.Server{Domain: domain, Limits: limits, IPHeader: os.Getenv("RELAY_IP_HEADER"), HideMetrics: metricsPort != ""}
 	srv := &http.Server{Addr: ":" + port, Handler: rs, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	errc := make(chan error, 1)
+	errc := make(chan error, 2)
 	go func() { errc <- srv.ListenAndServe() }()
 	log.Printf("relay: *.%s on :%s", domain, port)
+	var msrv *http.Server
+	if metricsPort != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/_relay/metrics", rs.Metrics())
+		msrv = &http.Server{Addr: ":" + metricsPort, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+		go func() { errc <- msrv.ListenAndServe() }()
+		log.Printf("relay: metrics on :%s", metricsPort)
+		defer msrv.Close()
+	}
 	select {
 	case err := <-errc:
 		return err

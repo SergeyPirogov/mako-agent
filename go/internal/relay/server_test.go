@@ -21,6 +21,9 @@ import (
 
 const domain = "relay.test"
 
+// testIPHeader: how a test says which address a request comes from (the relay reads it as the platform's header).
+const testIPHeader = "X-Test-IP"
+
 // fakeMako: what a Mac's Mako answers, enough to see what reaches it through the relay.
 func fakeMako(t *testing.T, slow chan struct{}) *httptest.Server {
 	mux := http.NewServeMux()
@@ -33,6 +36,7 @@ func fakeMako(t *testing.T, slow chan struct{}) *httptest.Server {
 			"xff": r.Header.Get("X-Forwarded-For"), "cookie": r.Header.Get("Cookie"),
 		})
 	})
+	mux.HandleFunc("/big", func(w http.ResponseWriter, r *http.Request) { w.Write(bytes.Repeat([]byte("x"), 5000)) })
 	mux.HandleFunc("/teapot", func(w http.ResponseWriter, r *http.Request) { http.Error(w, "short and stout", http.StatusTeapot) })
 	mux.HandleFunc("/go", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/echo", http.StatusFound) })
 	mux.HandleFunc("/slow", func(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +72,7 @@ func fakeMako(t *testing.T, slow chan struct{}) *httptest.Server {
 
 func newRelay(t *testing.T, l Limits) (*Server, *httptest.Server, *syncWriter) {
 	logs := &syncWriter{}
-	rs := &Server{Domain: domain, Limits: l, Log: log.New(logs, "", 0)}
+	rs := &Server{Domain: domain, Limits: l, Log: log.New(logs, "", 0), IPHeader: testIPHeader}
 	ts := httptest.NewServer(rs)
 	t.Cleanup(ts.Close)
 	return rs, ts, logs
@@ -96,8 +100,15 @@ func token(n int) string { return fmt.Sprintf("test-token-of-mac-%04d-xxxxxxxxxx
 
 // startMac starts a real Client and waits for its tunnel.
 func startMac(t *testing.T, relayURL, local, tok string) (*Client, context.CancelFunc) {
+	return runClient(t, &Client{Addr: relayURL, Token: tok, Local: local})
+}
+
+// runClient: the same for a Client the test set up.
+func runClient(t *testing.T, c *Client) (*Client, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Client{Addr: relayURL, Token: tok, Local: local, Log: log.New(io.Discard, "", 0)}
+	if c.Log == nil {
+		c.Log = log.New(io.Discard, "", 0)
+	}
 	done := make(chan struct{})
 	go func() { c.Run(ctx); close(done) }()
 	stop := func() { cancel(); <-done }
@@ -122,8 +133,17 @@ var phoneTransport = &http.Transport{DisableKeepAlives: true}
 // phone: a request to Mac id's address on the relay.
 func phone(t *testing.T, relayURL, id, method, path string, body io.Reader) *http.Response {
 	t.Helper()
+	return phoneAs(t, relayURL, id, "", method, path, body)
+}
+
+// phoneAs: the same from address ip ("" for the socket's).
+func phoneAs(t *testing.T, relayURL, id, ip, method, path string, body io.Reader) *http.Response {
+	t.Helper()
 	req, _ := http.NewRequest(method, relayURL+path, body)
 	req.Host = id + "." + domain
+	if ip != "" {
+		req.Header.Set(testIPHeader, ip)
+	}
 	res, err := phoneTransport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
@@ -156,6 +176,10 @@ func rawMac(t *testing.T, relayURL, tok string) *websocket.Conn {
 
 // connectStatus: what the relay answers a Mac's connect before the WebSocket (400 means it let it through).
 func connectStatus(t *testing.T, relayURL, tok string) int {
+	return connectRes(t, relayURL, tok).StatusCode
+}
+
+func connectRes(t *testing.T, relayURL, tok string) *http.Response {
 	req, _ := http.NewRequest("GET", relayURL+ConnectPath, nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	res, err := http.DefaultClient.Do(req)
@@ -163,7 +187,7 @@ func connectStatus(t *testing.T, relayURL, tok string) int {
 		t.Fatal(err)
 	}
 	res.Body.Close()
-	return res.StatusCode
+	return res
 }
 
 func TestRequestsReachTheMac(t *testing.T) {
@@ -300,21 +324,26 @@ func TestTheSameMacReplacesItsTunnel(t *testing.T) {
 	}
 }
 
-func TestRateLimitPerMac(t *testing.T) {
+func TestRateLimitPerMacAndAddress(t *testing.T) {
 	_, rts, _ := newRelay(t, Limits{Rate: 0.001, Burst: 3})
 	m := fakeMako(t, nil)
 	startMac(t, rts.URL, m.URL, token(1))
 	startMac(t, rts.URL, m.URL, token(2))
+	id := IDFor(token(1))
 	for i := range 3 {
-		if res := phone(t, rts.URL, IDFor(token(1)), "GET", "/echo", nil); res.StatusCode != 200 {
+		if res := phoneAs(t, rts.URL, id, "10.0.0.1", "GET", "/echo", nil); res.StatusCode != 200 {
 			t.Fatalf("request %d: %d", i, res.StatusCode)
 		}
 	}
-	res := phone(t, rts.URL, IDFor(token(1)), "GET", "/echo", nil)
+	res := phoneAs(t, rts.URL, id, "10.0.0.1", "GET", "/echo", nil)
 	if res.StatusCode != http.StatusTooManyRequests || res.Header.Get("Retry-After") == "" {
 		t.Fatalf("over the rate: %d", res.StatusCode)
 	}
-	if res := phone(t, rts.URL, IDFor(token(2)), "GET", "/echo", nil); res.StatusCode != 200 {
+	// Someone who knows the Mac's address spends their own share, not the owner's from another address.
+	if res := phoneAs(t, rts.URL, id, "10.0.0.2", "GET", "/echo", nil); res.StatusCode != 200 {
+		t.Fatalf("the same Mac from another address: %d", res.StatusCode)
+	}
+	if res := phoneAs(t, rts.URL, IDFor(token(2)), "10.0.0.1", "GET", "/echo", nil); res.StatusCode != 200 {
 		t.Fatalf("another Mac: %d", res.StatusCode)
 	}
 }
@@ -324,8 +353,9 @@ func TestMacLimits(t *testing.T) {
 		_, rts, _ := newRelay(t, Limits{MacsPerIP: 2})
 		rawMac(t, rts.URL, token(1))
 		rawMac(t, rts.URL, token(2))
-		if got := connectStatus(t, rts.URL, token(3)); got != http.StatusTooManyRequests {
-			t.Fatalf("a third Mac from one address: %d", got)
+		res := connectRes(t, rts.URL, token(3))
+		if res.StatusCode != http.StatusTooManyRequests || res.Header.Get("Retry-After") == "" {
+			t.Fatalf("a third Mac from one address: %d, Retry-After %q", res.StatusCode, res.Header.Get("Retry-After"))
 		}
 	})
 	t.Run("in all", func(t *testing.T) {
@@ -358,8 +388,8 @@ func TestPhoneLimits(t *testing.T) {
 	defer wg.Wait()
 	defer close(slow)
 	time.Sleep(200 * time.Millisecond)
-	if res := phone(t, rts.URL, id, "GET", "/echo", nil); res.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("a third connection from one address: %d", res.StatusCode)
+	if res := phone(t, rts.URL, id, "GET", "/echo", nil); res.StatusCode != http.StatusTooManyRequests || res.Header.Get("Retry-After") == "" {
+		t.Fatalf("a third connection from one address: %d, Retry-After %q", res.StatusCode, res.Header.Get("Retry-After"))
 	}
 }
 
@@ -400,6 +430,25 @@ func TestMisbehavingMac(t *testing.T) {
 		waitFor(t, "the tunnel closed", func() bool { return rs.online() == 0 })
 		if res := phone(t, rts.URL, IDFor(token(1)), "GET", "/", nil); res.StatusCode != http.StatusServiceUnavailable {
 			t.Fatalf("after: %d", res.StatusCode)
+		}
+	})
+	t.Run("answer over MaxBody", func(t *testing.T) {
+		rs, rts, _ := newRelay(t, Limits{MaxBody: 1024})
+		ws := rawMac(t, rts.URL, token(1))
+		go func() {
+			var f Frame
+			for websocket.JSON.Receive(ws, &f) == nil {
+				if f.T == FrameRequest {
+					websocket.JSON.Send(ws, Frame{T: FrameReply, I: f.I, S: 200, B: make([]byte, 5000)}) // under the frame limit, over MaxBody
+				}
+			}
+		}()
+		res := phone(t, rts.URL, IDFor(token(1)), "GET", "/", nil)
+		if body := read(res); res.StatusCode != http.StatusBadGateway || !strings.Contains(body, "too large") {
+			t.Fatalf("%d %q", res.StatusCode, body)
+		}
+		if rs.online() != 1 {
+			t.Fatal("the tunnel went down over one answer")
 		}
 	})
 	t.Run("no answer", func(t *testing.T) {
@@ -499,4 +548,56 @@ func TestManyMacsLeaveNothingBehind(t *testing.T) {
 	})
 	http.DefaultClient.CloseIdleConnections()
 	waitFor(t, "the goroutines gone", func() bool { return runtime.NumGoroutine() <= before+20 })
+}
+
+// Many Macs connecting at once cannot slip past MaxMacs: it is decided where the session is added.
+func TestMaxMacsHoldsWhenMacsConnectAtOnce(t *testing.T) {
+	rs, rts, _ := newRelay(t, Limits{MaxMacs: 5, MacsPerIP: 1000})
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var conns []*websocket.Conn
+	for i := range 60 {
+		wg.Go(func() {
+			cfg, _ := websocket.NewConfig(strings.Replace(rts.URL, "http", "ws", 1)+ConnectPath, rts.URL)
+			cfg.Header = http.Header{"Authorization": {"Bearer " + token(i)}}
+			if ws, err := websocket.DialConfig(cfg); err == nil {
+				mu.Lock()
+				conns = append(conns, ws)
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	defer func() {
+		for _, c := range conns {
+			c.Close()
+		}
+	}()
+	waitFor(t, "the surplus Macs dropped", func() bool { return rs.online() == 5 })
+	time.Sleep(200 * time.Millisecond)
+	if n := rs.online(); n != 5 {
+		t.Fatalf("%d Macs online, MaxMacs is 5", n)
+	}
+	if rs.m.rejected[rejectMacs].Load() == 0 {
+		t.Fatal("no Mac was turned away as the relay being full")
+	}
+}
+
+// The metrics can leave the public port: the platform exposes that one, not the metrics' own.
+func TestMetricsOnTheirOwnHandler(t *testing.T) {
+	rs := &Server{Domain: domain, HideMetrics: true, Log: log.New(io.Discard, "", 0)}
+	pub := httptest.NewServer(rs)
+	defer pub.Close()
+	if res, _ := http.Get(pub.URL + "/_relay/metrics"); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("the public port serves the metrics: %d", res.StatusCode)
+	}
+	if res, _ := http.Get(pub.URL + "/_relay/health"); res.StatusCode != 200 {
+		t.Fatalf("health: %d", res.StatusCode)
+	}
+	own := httptest.NewServer(rs.Metrics())
+	defer own.Close()
+	res, _ := http.Get(own.URL)
+	if out := read(res); res.StatusCode != 200 || !strings.Contains(out, "relay_macs_online 0") {
+		t.Fatalf("%d %s", res.StatusCode, out)
+	}
 }

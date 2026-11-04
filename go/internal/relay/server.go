@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,8 +24,10 @@ const OfflineText = "This Mac is offline. Open Mako on it: it connects to the re
 type Server struct {
 	Domain   string // "relay.example.com": the Macs are at <id>.relay.example.com
 	Limits   Limits
-	IPHeader string      // the header the platform puts the client's address in ("Fly-Client-IP"); "" uses the socket's
-	Log      *log.Logger // nil: the standard one. It never gets a Mac's id or a phone's path
+	IPHeader string // the header the platform puts the client's address in ("Fly-Client-IP"); "" uses the socket's
+	// HideMetrics: /_relay/metrics is not served here, only by Metrics() on a port the platform does not expose.
+	HideMetrics bool
+	Log         *log.Logger // nil: the standard one. It never gets a Mac's id or a phone's path
 
 	once     sync.Once
 	mu       sync.Mutex
@@ -61,8 +64,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok\n")
 		return
 	case "/_relay/metrics":
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		s.m.write(w, s.online())
+		if s.HideMetrics {
+			http.NotFound(w, r)
+			return
+		}
+		s.Metrics().ServeHTTP(w, r)
 		return
 	case ConnectPath:
 		s.connect(w, r)
@@ -74,6 +80,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.phone(w, r, id)
+}
+
+// Metrics serves the counters in Prometheus' text format. They hold no Mac's id, but they are the relay's load, so on
+// a shared relay serve them on a port that is not public (HideMetrics, RELAY_METRICS_PORT).
+func (s *Server) Metrics() http.Handler {
+	s.init()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		s.m.write(w, s.online())
+	})
 }
 
 // macOf: the Mac's id in a host such as "<id>.relay.example.com:443".
@@ -104,6 +120,12 @@ func reject(w http.ResponseWriter, status int, text string) {
 	http.Error(w, text, status)
 }
 
+// tooMany: 429 with when to try again, in seconds.
+func tooMany(w http.ResponseWriter, secs int, text string) {
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	reject(w, http.StatusTooManyRequests, text)
+}
+
 // connect: a Mac opens its tunnel.
 func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -115,7 +137,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 	ip := s.clientIP(r)
 	if !s.macIPs.acquire(ip, s.Limits.MacsPerIP) {
 		s.m.reject(rejectIP)
-		reject(w, http.StatusTooManyRequests, "too many Macs from this address")
+		tooMany(w, 30, "too many Macs from this address")
 		return
 	}
 	defer s.macIPs.release(ip) // ServeHTTP below returns when the tunnel ends, or at once when it never opens
@@ -211,6 +233,12 @@ func (s *Server) tunnel(ws *websocket.Conn, id, public string) {
 	ss := &session{s: s, ws: ws, pending: map[uint64]chan Frame{}, streams: map[uint64]*stream{}, done: make(chan struct{})}
 	s.mu.Lock()
 	old := s.sessions[id]
+	if old == nil && len(s.sessions) >= s.Limits.MaxMacs {
+		// Many Macs passed connect's check at once: this one finds the relay full.
+		s.mu.Unlock()
+		s.m.reject(rejectMacs)
+		return
+	}
 	s.sessions[id] = ss
 	n := len(s.sessions)
 	s.mu.Unlock()
@@ -234,7 +262,7 @@ func (s *Server) tunnel(ws *websocket.Conn, id, public string) {
 		ss.mu.Unlock()
 		s.Log.Printf("relay: a Mac disconnected, %d online", n)
 	}()
-	if err := ss.send(Frame{T: FrameHello, U: public}); err != nil {
+	if err := ss.send(Frame{T: FrameHello, U: public, L: s.Limits.MaxBody}); err != nil {
 		return
 	}
 	go func() {
@@ -293,16 +321,16 @@ func (s *Server) phone(w http.ResponseWriter, r *http.Request, id string) {
 	ip := s.clientIP(r)
 	if !s.phoneIPs.acquire(ip, s.Limits.ConnsPerIP) {
 		s.m.reject(rejectIP)
-		reject(w, http.StatusTooManyRequests, "too many connections from this address")
+		tooMany(w, 5, "too many connections from this address")
 		return
 	}
 	defer s.phoneIPs.release(ip)
 	s.m.phoneConns.Add(1)
 	defer s.m.phoneConns.Add(-1)
-	if !s.rate.allow(id, time.Now()) {
+	// Per Mac and address: whoever knows a Mac's address (it is in the QR) spends only their own share of it.
+	if !s.rate.allow(id+"|"+ip, time.Now()) {
 		s.m.reject(rejectRate)
-		w.Header().Set("Retry-After", "1")
-		reject(w, http.StatusTooManyRequests, "too many requests to this Mac, slow down")
+		tooMany(w, 1, "too many requests to this Mac from this address, slow down")
 		return
 	}
 	s.mu.Lock()
@@ -386,6 +414,12 @@ func (s *Server) phone(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if ws && res.S == http.StatusSwitchingProtocols {
 		s.pipe(w, r, ss, i, st)
+		return
+	}
+	if int64(len(res.B)) > s.Limits.MaxBody {
+		// A Mac that does not keep to the limit it was told in hello: its answer is not passed on.
+		s.m.reject(rejectSize)
+		reject(w, http.StatusBadGateway, "the Mac's answer is too large for the relay")
 		return
 	}
 	for k, v := range cleanHeader(res.H) {

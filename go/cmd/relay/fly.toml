@@ -8,6 +8,8 @@ primary_region = "fra"
   RELAY_DOMAIN = "relay.example.com" # the domain *.relay.example.com points to; set it before the first deploy
   RELAY_IP_HEADER = "Fly-Client-IP"
   PORT = "8080"
+  # The metrics are on their own port: http_service exposes only 8080, so the load is not public.
+  RELAY_METRICS_PORT = "9091"
 
 [http_service]
   internal_port = 8080
@@ -30,7 +32,7 @@ primary_region = "fra"
     timeout = "2s"
 
 [metrics]
-  port = 8080
+  port = 9091
   path = "/_relay/metrics"
 
 [[vm]]
