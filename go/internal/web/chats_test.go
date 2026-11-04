@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -294,5 +295,66 @@ func TestPlanHandoverIsFromTheMacOnly(t *testing.T) {
 	plain, _ := json.Marshal(map[string]any{"project": "nope", "text": "Привіт"})
 	if code, _ := post("/api/chats/new", string(plain), true); code == http.StatusForbidden {
 		t.Errorf("a phone's new chat: %d", code)
+	}
+}
+
+// «Continue after the reset» of a chat the Claude limit cut: the choice reaches the session (a free chat's, a
+// question's or a task's alike), the snapshot tells when the limit resets, and a chat with no agent says so.
+func TestResumeOnResetRoute(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	post := func(path string) map[string]any {
+		req, _ := http.NewRequest("POST", srv.URL+path, nil)
+		req.Header.Set("Origin", srv.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out map[string]any
+		json.NewDecoder(res.Body).Decode(&out)
+		return out
+	}
+	if out := post("/api/resumeonreset?id=chat-none&on=1"); out["ok"] != false || !strings.Contains(out["error"].(string), "not running") {
+		t.Fatalf("no agent: %v", out)
+	}
+	reset := time.Now().Add(time.Hour).Unix()
+	bin := filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(fmt.Sprintf(`#!/bin/sh
+read init
+read msg
+echo '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":%d}}'
+echo '{"type":"result","subtype":"success","is_error":true,"result":"You have hit your limit","duration_ms":10}'
+sleep 30
+`, reset)), 0o755)
+	s := chat.Start(chat.Options{ID: "chat-l", Worktree: t.TempDir(), Command: bin, Prompt: "Зроби"})
+	d.Chats.Put(s)
+	defer s.Stop()
+	for deadline := time.Now().Add(10 * time.Second); s.Snapshot().State != "limited"; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("not limited: %+v", s.Snapshot())
+		}
+	}
+	snapshot := func() chat.Snapshot {
+		res, err := http.Get(srv.URL + "/api/chat?id=chat-l")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var snap chat.Snapshot
+		json.NewDecoder(res.Body).Decode(&snap)
+		return snap
+	}
+	if snap := snapshot(); snap.State != "limited" || snap.LimitedUntil != reset || snap.ResumeOnReset {
+		t.Fatalf("snapshot %q until %d, resume %v", snap.State, snap.LimitedUntil, snap.ResumeOnReset)
+	}
+	if out := post("/api/resumeonreset?id=chat-l&on=1"); out["ok"] != true {
+		t.Fatalf("on: %v", out)
+	}
+	if snap := snapshot(); !snap.ResumeOnReset {
+		t.Fatal("the choice did not reach the session")
+	}
+	if out := post("/api/resumeonreset?id=chat-l&on=0"); out["ok"] != true || snapshot().ResumeOnReset {
+		t.Fatalf("off: %v", out)
 	}
 }
