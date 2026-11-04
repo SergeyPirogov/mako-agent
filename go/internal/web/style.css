@@ -1697,11 +1697,10 @@ section.ws .task-pane h1 { font-size: 19px; white-space: normal; margin: 6px 0 4
 .d-meta > .labels { flex-wrap: wrap; gap: 4px; }
 .d-meta .lbl { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; background: var(--hover); border: 1px solid var(--line); color: var(--mute); font-size: 11.5px; font-weight: 500; white-space: nowrap; }
 .d-head .actions > button svg { vertical-align: -3px; margin-right: 4px; }
-/* Open PR / Open MR: a link, so the gap is the flex gap; the host logo is the size of the text, the ↗ is a quiet mark. */
-.d-head .actions > a.btn.open-mr { gap: 4px; }
+/* Open PR / Open MR: a square button with only the host's logo (the name is in the title); the height is the head's. */
+.d-head .actions > a.btn.open-mr { width: 32px; padding: 0; justify-content: center; }
 .d-head .actions > a.btn svg { flex: none; vertical-align: -3px; }
-.d-head .actions > a.btn.open-mr > svg:first-child { width: 16px; height: 16px; }
-.d-head .actions > a.btn.open-mr > svg:last-child { width: 12px; height: 12px; color: var(--mute); }
+.d-head .actions > a.btn.open-mr > svg { width: 16px; height: 16px; }
 /* The head's buttons are one height, whatever they are made of (the menus' own buttons are not in the list). */
 .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary),
 .ws-bar .actions > :is(button, a.btn), .ws-bar .actions > details > summary, .ws-bar .actions > .takesplit > :is(button, details > summary) { height: 32px; padding-block: 0; }
@@ -1808,7 +1807,7 @@ details.desc .r { flex: none; color: var(--accent) !important; }
   .d-head { flex-direction: column; }
   .d-head .actions { flex-wrap: wrap; }
   .d-head .actions > :is(button, a.btn), .d-head .actions > details > summary, .d-head .actions > .takesplit > :is(button, details > summary) { height: 44px; padding-block: 0; }
-  details.more > summary.icon { width: 44px; }
+  details.more > summary.icon, .d-head .actions > a.btn.open-mr { width: 44px; }
   /* The strip scrolls sideways: every stage keeps its own width (its status wraps, it is not cut), the stages snap, and the
      shadow at an edge (and the card's colour covering it at the very end) says there is more on that side. */
   .stage-strip { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scroll-padding-inline: 6px; overscroll-behavior-x: contain;
