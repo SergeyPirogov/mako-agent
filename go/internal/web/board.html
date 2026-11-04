@@ -241,7 +241,14 @@ const byMako = (r) => r.createdBy ? `<span class="kind mako" title="${esc({ ci: 
 // The list group a task sits in: a held-up task under "Blocked", a postponed one under "Snoozed".
 // An MR that can be merged gets a group of its own under "In review".
 const groupOf = (r) => (r.blocked ? "blocked" : state(r) === "later" ? "later" : !r.error && r.status !== "cancelled" && readyToMerge(r) ? "merge" : r.column);
-const agentOf = (r) => (r.column === "doing" ? data.agents?.[r.id] : undefined);
+// agentOf:begin
+// The agent of a task in work; out of work (an MR in review whose remarks the agent fixes) only while it waits for you,
+// so its request shows on the card and in the counter, not only in the chat.
+const agentOf = (r) => {
+  const a = data.agents?.[r.id];
+  return r.column === "doing" || a?.state === "waiting" ? a : undefined;
+};
+// agentOf:end
 // In Orca, the agent's own state says more than "in Orca".
 const state = (r) => {
   if (r.column === "new" && r.postponed) return "later";
