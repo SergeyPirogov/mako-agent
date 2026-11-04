@@ -46,6 +46,9 @@ type Device struct {
 	KeyM2P []byte `json:"keyM2P,omitempty"`
 	SendN  uint64 `json:"sendN,omitempty"`
 	RecvN  uint64 `json:"recvN,omitempty"`
+	// E2E: paired end to end (PairSealed). Such a device is let in only by its frames opening with its keys, never
+	// by its token: the phone was not given it, so a token offered in a cookie or a link did not come from it.
+	E2E bool `json:"e2e,omitempty"`
 }
 
 // pending is a QR code: until when it works, and the secret the device's keys come from. Once an end-to-end
@@ -238,6 +241,10 @@ func (p *Phones) PairSealed(f relay.Sealed, name, origin string) (*Device, relay
 	if err != nil {
 		return nil, relay.Sealed{}, err
 	}
+	d.E2E = true
+	if err := p.saveLocked(); err != nil {
+		return nil, relay.Sealed{}, err
+	}
 	// Sealed once per code: the reply's counter 2 under K_pair is never used again.
 	reply, err := relay.SealPairReply(k, mac, f.I, relay.PairReply{ID: d.ID, Nonce: req.Nonce})
 	if err != nil {
@@ -330,7 +337,8 @@ func (p *Phones) Opener(id string) (*relay.Opener, error) {
 	return o, nil
 }
 
-// ByToken: the paired device with this token, nil when there is none.
+// ByToken: the paired device with this token (its cookie), nil when there is none. A device paired end to end is
+// not found by its token: it never had it.
 func (p *Phones) ByToken(token string) *Device {
 	if token == "" {
 		return nil
@@ -339,15 +347,35 @@ func (p *Phones) ByToken(token string) *Device {
 	defer p.mu.Unlock()
 	for _, d := range p.data.Devices {
 		if subtle.ConstantTimeCompare([]byte(d.Token), []byte(token)) == 1 {
-			if now := time.Now().UnixMilli(); now-d.LastSeen > 60_000 {
-				d.LastSeen = now
-				p.saveLocked()
+			if d.E2E {
+				return nil
 			}
-			c := *d
-			return &c
+			return p.seenLocked(d)
 		}
 	}
 	return nil
+}
+
+// ByID: the device paired end to end with this id, the one whose keys opened a frame; nil when there is none.
+func (p *Phones) ByID(id string) *Device {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, d := range p.data.Devices {
+		if d.ID == id && d.E2E {
+			return p.seenLocked(d)
+		}
+	}
+	return nil
+}
+
+// seenLocked marks the device seen now (at most once a minute on disk) and gives its copy.
+func (p *Phones) seenLocked(d *Device) *Device {
+	if now := time.Now().UnixMilli(); now-d.LastSeen > 60_000 {
+		d.LastSeen = now
+		p.saveLocked()
+	}
+	c := *d
+	return &c
 }
 
 // Devices: the paired phones, newest first, without their tokens and keys.
