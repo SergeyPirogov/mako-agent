@@ -18,7 +18,7 @@ func TestBoardSelfCheckSteps(t *testing.T) {
 	src := string(board)
 	var parts []string
 	for _, re := range []string{
-		`(?m)^const plural = .*$`, `(?s)\nconst MR_ICON = \{.*?\n\};\n`, `(?m)^const CHK = .*$`, `(?m)^const stepHTML = .*$`,
+		`(?m)^const plural = .*$`, `(?s)\nconst MR_ICON = \{.*?\n\};\n`, `(?m)^const CHK = .*$`, `(?m)^const stepHTML = .*$`, `(?m)^const selfSkipBtn = .*$`,
 		`(?s)\nfunction selfTitle\(.*?\n}\n`, `(?s)\nfunction selfBlock\(.*?\n}\n`, `(?s)\nfunction tryRow\(.*?\n}\n`, `(?s)\nfunction blockersHTML\(.*?\n}\n`, `(?m)^const mergeHeld = .*$`,
 		`(?m)^const meter = .*$`, `(?m)^const scard = .*$`, `(?s)\nfunction selfCheckCard\(.*?\n}\n`,
 	} {
@@ -86,8 +86,12 @@ console.log(JSON.stringify(out));
 	if n := strings.Count(out["open"], `class="chk"`); n != 3 {
 		t.Errorf("open: %d boxes, want 3", n)
 	}
+	// «Skip» in the block itself, only while it holds the merge: not after the check is done, skipped, or when it is only advice.
+	has("open", `data-selfskip`)
 	has("done", "You checked it", `mr-advice self done`)
-	lacks("done", "The merge waits", "checked before")
+	lacks("done", "The merge waits", "checked before", "data-selfskip")
+	lacks("skipped", "data-selfskip")
+	lacks("one", "data-selfskip")
 	has("one", "You checked it before 3 new commits")
 	has("skipped", "Check skipped", "Skipped: docs only")
 	if out["none"] != "" {

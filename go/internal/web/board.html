@@ -1610,6 +1610,8 @@ const adviceBlock = (icon, title, why, btn = "", cls = "", whyHTML = false, chip
 // step ticked at the branch as it is, the block fades to background.
 const CHK = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>`;
 const stepHTML = (s) => `${s.open ? `<code>${esc(s.open)}</code> · ` : ""}${esc(s.do)}${s.expect ? `<span class="st-exp"> → ${esc(s.expect)}</span>` : ""}`;
+// "Skip" for the check: merge without it, say why (the click handler asks), it goes to the task's journal.
+const selfSkipBtn = `<button type="button" class="ghost" data-selfskip title="Merge without the check: say why, it goes to the task's journal">Skip</button>`;
 function selfTitle(v) {
   const n = v.steps.length, stale = Math.max(0, ...v.steps.map((s) => s.stale ?? 0));
   if (v.done) return "You checked it";
@@ -1627,8 +1629,9 @@ function selfBlock(r) {
       <span class="st-t">${stepHTML(s)}${s.stale ? `<span class="st-stale">checked before ${s.stale} new ${plural(s.stale, "commit", "commits")}</span>` : ""}</span></li>`;
   }).join("");
   const why = v.skipped ? `<span class="mr-why">Skipped: ${esc(v.skipped)}</span>` : v.required && !v.done ? `<span class="mr-why">The merge waits for it</span>` : "";
+  const skip = v.blocks ? `<div class="mr-adv-a">${selfSkipBtn}</div>` : "";
   return `<div class="mr-row mr-advice self${v.done ? " done" : ""}">${MR_ICON.eye}
-  <div class="mr-adv"><b>${selfTitle(v)}</b>${why}<ol class="self-steps">${steps}</ol>${tryRow(v)}</div></div>`;
+  <div class="mr-adv"><b>${selfTitle(v)}</b>${why}<ol class="self-steps">${steps}</ol>${tryRow(v)}${skip}</div></div>`;
 }
 // "Try this build": the task's branch as a second copy of the app, opened on the first step's page; one per task,
 // kept while the card is open. Ticks before it need a reason.
@@ -3969,7 +3972,7 @@ function blockersHTML(r) {
   if (r.self?.blocks) {
     const n = r.self.steps.length;
     lines.push(blkRow(`<div>Check it yourself: ${r.self.left} of ${n} ${plural(n, "step", "steps")} left</div>`,
-      `<div class="mr-actions"><button type="button" class="ghost" data-selfskip title="Merge without the check: say why, it goes to the task's journal">Skip</button></div>`));
+      `<div class="mr-actions">${selfSkipBtn}</div>`));
   }
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
   return `<div class="tcard blocker"><div class="tcard-h">What blocks the merge</div><div class="tcard-b">${lines.join("")}</div></div>`;
