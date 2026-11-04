@@ -38,6 +38,8 @@ var goStrings = map[string][2]string{
 	"notify.limitWorking":         {" The agents at work (%d) go on, but may stop at the limit.", " Агенти в роботі (%d) продовжують, але можуть зупинитися на ліміті."},
 	"notify.limitResetTitle":      {"▶️ The Claude limit has reset", "▶️ Ліміт Claude оновився"},
 	"notify.limitResetText":       {"The queue goes on.", "Черга продовжується."},
+	"notify.authTitle":            {"🔑 Claude needs you to log in again", "🔑 Claude потребує повторного входу"},
+	"notify.authText":             {"The login failed, so new tasks wait in the queue. Run `claude auth login` and press «I logged in — continue» on the board.", "Вхід не вдався, тому нові задачі чекають у черзі. Виконайте `claude auth login` і натисніть «Я увійшов — продовжити» на дошці."},
 	"notify.limitContinuedTitle":  {"▶️ The Claude limit has reset: the agents go on", "▶️ Ліміт Claude оновився: агенти продовжують"},
 	"notify.limitContinuedText":   {"Agents that went on with the work the limit cut: %d (%s).", "Агентів, що продовжили роботу, яку обірвав ліміт: %d (%s)."},
 	"notify.digest":               {"☀️ Overnight summary", "☀️ Підсумок за ніч"},

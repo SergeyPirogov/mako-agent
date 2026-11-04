@@ -64,7 +64,7 @@ type Limits struct {
 // Snapshot: the conversation and the agent's state; Version changes with every change.
 type Snapshot struct {
 	Version int    `json:"version"`
-	State   string `json:"state"` // "working", "waiting" (a permission), "done" (its turn ended), "limited" (the Claude limit cut it), "exited"
+	State   string `json:"state"` // "working", "waiting" (a permission), "done" (its turn ended), "limited" (the Claude limit cut it), "auth" (the Claude login failed), "exited"
 	Since   int64  `json:"since"`
 	Live    bool   `json:"live"`
 	Asleep  bool   `json:"asleep,omitempty"` // closed for being idle: a message wakes it up
@@ -111,6 +111,9 @@ type Options struct {
 	// message went on from it), or the choice to go on by itself changed. Mako keeps it, so the agent goes on after
 	// the reset even if Mako restarts meanwhile; the session itself sends nothing.
 	OnLimit func(until int64, resume bool)
+	// OnAuth: the Claude login failed the turn (failed, text: what Claude Code said), or a turn ended well (failed
+	// false): the login works. Mako holds the queue meanwhile; the session itself sends nothing.
+	OnAuth func(failed bool, text string)
 	// ResumeOnReset: the agent goes on by itself once the limit that cut it has reset (the settings', or the
 	// chat's own choice kept from before).
 	ResumeOnReset bool
@@ -156,6 +159,8 @@ type Session struct {
 	limitHit      bool
 	limitedUntil  int64
 	resumeOnReset bool
+	authFailed    bool   // a message of the turn going on said the login failed: the turn's result shows once, as an "auth" item
+	authSaid      string // ...and what it said, shown should the result not come
 	lastLimits    Limits
 	sessionID     string
 	mode          string
@@ -281,6 +286,7 @@ func (s *Session) run() {
 		}
 		s.add(Item{Kind: "error", Text: "agent exited: " + tail(msg, 600)})
 	}
+	s.authLost()
 	s.end()
 }
 
@@ -373,6 +379,7 @@ func (s *Session) handle(line []byte) {
 		RequestID  string          `json:"request_id"`
 		Request    json.RawMessage `json:"request"`
 		RateLimit  json.RawMessage `json:"rate_limit_info"`
+		Error      string          `json:"error"` // an assistant message Claude Code made up of an API error: "authentication_failed"
 		DurationMS float64         `json:"duration_ms"`
 		Cost       float64         `json:"total_cost_usd"`
 		IsError    bool            `json:"is_error"`
@@ -431,6 +438,20 @@ func (s *Session) handle(line []byte) {
 			} `json:"usage"`
 		}
 		json.Unmarshal(e.Message, &m)
+		if e.Error == "authentication_failed" {
+			// The login failed: its text comes again as the turn's result, which is shown as one card. Kept meanwhile,
+			// so it is not lost if the result never comes.
+			var said strings.Builder
+			for _, c := range m.Content {
+				if c.Type == "text" {
+					said.WriteString(c.Text)
+				}
+			}
+			s.mu.Lock()
+			s.authFailed, s.authSaid = true, strings.TrimSpace(said.String())
+			s.mu.Unlock()
+			return
+		}
 		if used := m.Usage.Input + m.Usage.CacheRead + m.Usage.CacheCreate; used > 0 {
 			s.mu.Lock()
 			s.context = used
@@ -565,7 +586,11 @@ func (s *Session) handle(line []byte) {
 			s.o.OnLimits(l)
 		}
 	case "result":
-		if e.IsError && e.Result != "" {
+		authCut, authShown := s.authCut(e.IsError, e.Result)
+		switch {
+		case authCut:
+			s.add(Item{Kind: "auth", Text: authShown, At: at})
+		case e.IsError && e.Result != "":
 			s.add(Item{Kind: "error", Text: e.Result, At: at})
 		}
 		s.mu.Lock()
@@ -596,11 +621,20 @@ func (s *Session) handle(line []byte) {
 			cost = turn
 		}
 		s.add(Item{Kind: "result", Seconds: e.DurationMS / 1000, Cost: cost, At: at})
-		if s.limitCut(e.IsError, e.Result) {
+		switch {
+		case authCut:
+			s.setState("auth")
+			if f := s.o.OnAuth; f != nil {
+				f(true, authShown)
+			}
+		case s.limitCut(e.IsError, e.Result):
 			s.setState("limited")
 			s.limitChanged()
-		} else {
+		default:
 			s.setState("done")
+			if f := s.o.OnAuth; f != nil && !e.IsError {
+				f(false, "") // a turn went well: the login works
+			}
 		}
 		s.mu.Lock()
 		s.armIdleLocked()
@@ -615,6 +649,42 @@ func (s *Session) armIdleLocked() {
 	}
 	if s.idleAfter > 0 { // 0: a session built without Start (a test's) never sleeps
 		s.idle = time.AfterFunc(s.idleAfter, s.sleep)
+	}
+}
+
+// authText: what Claude Code says when the login failed, should the message not be marked as such.
+var authText = regexp.MustCompile(`(?i)failed to authenticate|claude auth login|invalid api key|please run /login`)
+
+// authCut tells whether the turn that just ended failed on the Claude login, and what to show of it: a synthetic
+// message said so (whatever the result says: the login did fail), or the error result does in words. The flag of
+// the turn is cleared either way.
+func (s *Session) authCut(isError bool, result string) (bool, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	marked, said := s.authFailed, s.authSaid
+	s.authFailed, s.authSaid = false, ""
+	if marked {
+		if strings.TrimSpace(result) == "" {
+			result = said
+		}
+		return true, result
+	}
+	return isError && authText.MatchString(result), result
+}
+
+// authLost: the process ended in the middle of a turn whose login failure was told but whose result never came:
+// the failure is shown and told to Mako all the same.
+func (s *Session) authLost() {
+	s.mu.Lock()
+	marked, said := s.authFailed, s.authSaid
+	s.authFailed, s.authSaid = false, ""
+	s.mu.Unlock()
+	if !marked {
+		return
+	}
+	s.add(Item{Kind: "auth", Text: said})
+	if f := s.o.OnAuth; f != nil {
+		f(true, said)
 	}
 }
 
@@ -830,7 +900,7 @@ func (s *Session) Send(text string) error {
 	at := s.add(Item{Kind: "user", Text: text})
 	// A message of yours goes on from the limit by itself: nothing is left to wait for.
 	s.mu.Lock()
-	wasLimited, until := s.state == "limited", s.limitedUntil
+	wasLimited, wasAuth, until := s.state == "limited", s.state == "auth", s.limitedUntil
 	s.limitedUntil, s.limitHit = 0, false
 	s.mu.Unlock()
 	s.setState("working")
@@ -849,6 +919,9 @@ func (s *Session) Send(text string) error {
 		s.state, s.since = "done", time.Now()
 		if wasLimited { // still cut by the limit: the message did not go on from it
 			s.state, s.limitedUntil = "limited", until
+		}
+		if wasAuth { // the login still fails
+			s.state = "auth"
 		}
 	}
 	s.version++
@@ -1081,7 +1154,7 @@ func (s *Session) reply(requestID string, resp map[string]any, mark func(*Item))
 func (s *Session) sleep() {
 	s.mu.Lock()
 	// Closing the agent would kill the subagents it waits for: the countdown starts again when the last one reports.
-	idle := (s.state == "done" || s.state == "limited") && !s.exited && len(s.pending) == 0 && backgroundIn(s.items) == 0
+	idle := (s.state == "done" || s.state == "limited" || s.state == "auth") && !s.exited && len(s.pending) == 0 && backgroundIn(s.items) == 0
 	if idle {
 		s.asleep = true
 		s.stopping = true // closed from here on: Send must not take a message the closing stdin will lose
@@ -1527,7 +1600,7 @@ func (s *Session) endBackground(toolUseID, taskID, status, summary string, at in
 			it.TaskID = taskID
 		}
 		s.version++
-		if (s.state == "done" || s.state == "limited") && backgroundIn(s.items) == 0 && !s.exited {
+		if (s.state == "done" || s.state == "limited" || s.state == "auth") && backgroundIn(s.items) == 0 && !s.exited {
 			s.armIdleLocked() // the agent waited for them: its time to sleep starts now
 		}
 		s.mu.Unlock()

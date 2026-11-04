@@ -89,6 +89,7 @@ type stateReply struct {
 	Limits         chat.Limits                `json:"limits"`              // Claude's usage limits, as the agents last reported them
 	Hold           *dispatch.LimitHold        `json:"limitHold,omitempty"` // the queue waits for a Claude limit to reset
 	LimitPct       int                        `json:"limitPausePct"`       // the threshold of the settings, 0: none
+	AuthHold       *dispatch.AuthHold         `json:"authHold,omitempty"`  // the queue waits for you to log in to Claude again
 	Remote         bool                       `json:"remote"`              // the page is open on a phone
 	E2E            bool                       `json:"e2e,omitempty"`       // …through its sealed tunnel (docs/relay-e2e.md)
 	Stats          core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
@@ -222,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Agents = s.D.Agents()
 		reply.Executor, reply.Editor, reply.Limits = s.D.Config().Executor, dispatch.Editor(), s.D.Chats.Limits()
 		reply.Hold, reply.LimitPct = s.D.LimitHold(), s.D.Config().LimitPausePct
+		reply.AuthHold = s.D.AuthHold()
 		reply.Remote = remote(r)
 		if reply.Remote {
 			reply.Editor = "" // the editor opens on the Mac: a phone gets no button for it
@@ -398,6 +400,14 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /api/log", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.D.Logs(r.URL.Query().Get("id")))
+	})
+	// «Я увійшов — продовжити»: the queue stops waiting for the Claude login; from the Mac only (the login is there).
+	mux.HandleFunc("POST /api/auth/continue", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) || remote(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": s.D.ClearAuth()})
 	})
 	// «Оновити Mako»: test, build and restart on the new commits; from the Mac only.
 	mux.HandleFunc("POST /api/update", func(w http.ResponseWriter, r *http.Request) {

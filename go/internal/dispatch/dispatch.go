@@ -137,6 +137,8 @@ type Dispatcher struct {
 	wake     chan struct{}
 	// limitHeld: the queue waits for a Claude limit to reset (it was told once).
 	limitHeld bool
+	// authHold: the Claude login failed a turn; the queue waits for you to log in again (see auth.go). Under mu.
+	authHold *AuthHold
 	// resuming: the agents the limit cut are being made to go on (resumeLimited), one round at a time.
 	resuming atomic.Bool
 	// resumeFails: how many rounds in a row an agent could not be made to go on (resumeLimited only).
@@ -634,7 +636,7 @@ func (d *Dispatcher) HoldReason() string {
 	if pending {
 		return "starts after Mako restarts"
 	}
-	return ""
+	return d.authReason()
 }
 
 // release lets a task the scheduler was told to leave alone go (id; "" for none) and starts what fits in the WIP

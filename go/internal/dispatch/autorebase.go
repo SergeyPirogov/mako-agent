@@ -116,7 +116,7 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 		if r.BaseConflict != nil && r.BaseConflict.Base == s.Base {
 			return // asked about this commit of the base already
 		}
-		if d.LimitHold() != nil || r.AutoFixes >= autoFixLimit {
+		if d.LimitHold() != nil || d.AuthHold() != nil || r.AutoFixes >= autoFixLimit {
 			return
 		}
 		text := conflictRequest(r.PRURL, branchOf(r), base, mode, s.Conflicts)

@@ -23,7 +23,7 @@ const autoFixLimit = 5
 
 // AutoFix hands the agents what their MRs need.
 func (d *Dispatcher) AutoFix(ctx context.Context, now time.Time) {
-	if !d.Config().Terminal.AutoFix || d.LimitHold() != nil {
+	if !d.Config().Terminal.AutoFix || d.LimitHold() != nil || d.AuthHold() != nil {
 		return
 	}
 	for _, r := range d.Store.All() {
