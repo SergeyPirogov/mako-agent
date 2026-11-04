@@ -135,6 +135,10 @@ type Record struct {
 	// Planning: the agent started in plan mode and its plan is not approved yet; it starts in plan mode again
 	// until it is.
 	Planning bool `json:"planning,omitempty"`
+	// PlanRevisions: how many times the plan was sent back with notes («Поправити») before it was approved;
+	// PlanApprovedAt: when it was approved ("" until then, and for plans approved in the terminal or before this was kept).
+	PlanRevisions  int    `json:"planRevisions,omitempty"`
+	PlanApprovedAt string `json:"planApprovedAt,omitempty"`
 	// Lesson: a rule for CLAUDE.md Mako drew from your last correction of the agent, until you save it or say no.
 	Lesson *Lesson `json:"lesson,omitempty"`
 	// AutoFixed: what of the MR the agent was already asked to fix by itself, per kind ("ci", "conflicts",

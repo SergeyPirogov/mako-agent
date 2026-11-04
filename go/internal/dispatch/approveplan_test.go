@@ -21,6 +21,17 @@ echo '{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_
 while read line; do echo "$line" >> sent.txt; done
 `
 
+// The same, but it offers the plan again (p2) once its first one (p1) is sent back.
+const reviseClaude = `#!/bin/sh
+read init
+read msg
+echo '{"type":"system","subtype":"init","session_id":"s1","model":"sonnet"}'
+echo '{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Do it"}}}'
+read answer
+echo '{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","input":{"plan":"1. Do it, with tests"}}}'
+while read line; do echo "$line" >> sent.txt; done
+`
+
 // Approving the plan: an unknown mode is refused and the plan stays asked; "plan" or none is the configured work
 // mode; a model picked goes to the agent and becomes the work phase's route, its effort the plan's.
 func TestApprovePlanModeAndModel(t *testing.T) {
@@ -80,5 +91,41 @@ func TestApprovePlanDefaultMode(t *testing.T) {
 			t.Errorf("%+v: sent %s", c, read())
 		}
 		s.Stop()
+	}
+}
+
+// The plan's stats: each «Поправити» is counted and the approval is stamped, for the route stats' «approved first
+// time» and the time to approval. A revision that fails (the plan was already answered) is not counted.
+func TestPlanRevisionsAndApprovalKept(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	id := "grp/app#11"
+	store.Update(id, func(r *core.Record) { r.Planning, r.Task = true, core.Task{ID: id, Title: "Plan"} })
+	d := New(&config.Config{StateDir: t.TempDir(), Terminal: config.Terminal{PermissionMode: "acceptEdits"}}, store, nil)
+	wt, bin := t.TempDir(), filepath.Join(t.TempDir(), "claude")
+	os.WriteFile(bin, []byte(reviseClaude), 0o755)
+	c := chat.Start(chat.Options{ID: id, Worktree: wt, Command: bin, Prompt: "Plan it", Mode: "plan"})
+	defer c.Stop()
+	d.Chats.Put(c)
+	waitFor(t, func() bool { return c.Asked() != nil }, "no plan asked")
+
+	if err := d.RevisePlan(id, "p1", " "); err == nil {
+		t.Fatal("empty notes were sent")
+	}
+	if r, _ := store.Get(id); r.PlanRevisions != 0 {
+		t.Fatalf("a refused revision counted: %d", r.PlanRevisions)
+	}
+	if err := d.RevisePlan(id, "p1", "Add tests"); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := store.Get(id); r.PlanRevisions != 1 || r.PlanApprovedAt != "" {
+		t.Fatalf("after the revision: %d revisions, approved %q", r.PlanRevisions, r.PlanApprovedAt)
+	}
+	// The agent offers the plan again; approving it stamps the approval.
+	waitFor(t, func() bool { a := c.Asked(); return a != nil && a.ID == "p2" }, "no plan asked again")
+	if err := d.ApprovePlan(id, "p2", PlanApproval{}); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := store.Get(id); r.PlanApprovedAt == "" || r.PlanRevisions != 1 {
+		t.Fatalf("after the approval: %d revisions, approved %q", r.PlanRevisions, r.PlanApprovedAt)
 	}
 }

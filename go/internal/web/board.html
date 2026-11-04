@@ -116,7 +116,7 @@ let statsDays = localStorage.getItem("mako-stats-days") || "";
 // "Stats": the tab open and the project counted (none: all), remembered; the cut of "Breakdown" and "Heaviest",
 // and the days shown as a table.
 let statsTab = localStorage.getItem("mako-stats-tab") || "overview", statsProject = localStorage.getItem("mako-stats-project") || "";
-let breakdownBy = "project", heavyBy = "files", trendTable = false;
+let breakdownBy = "project", heavyBy = "files", trendTable = false, routesAll = false;
 // The list narrowed from "Needs attention" ({kind, reason}), until its chip is closed.
 let attention = null;
 // A phone's width: the list and the task are screens of their own, the right panel a tab.
@@ -3225,6 +3225,82 @@ function costTab(s) {
 const LOW_FIRST_PASS = 0.5, LOW_FIRST_PASS_MIN = 3;
 const ESCALATION_NAMES = { ci: "CI red twice", retry: "Retry differently", review: "Review rounds ran out" };
 
+// A column header with ⓘ: what it counts and of what.
+function th(label, info, cls = "n") {
+  return `<th class="${cls}">${label}<span class="info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}">${INFO_ICON}</span></th>`;
+}
+// «30 of 37 finished · 81 %»: the count, what it is of, and the share.
+const routeShare = (n, of, noun) => of ? `${n} of ${of} ${noun} <span class="muted">· ${Math.round((n / of) * 100)}%</span>` : "—";
+const routeCost = (g) => g.priced ? money(g.cost) : "—";
+const ROUTE_COST = th("Per task", "The phase's own spend, average per task over the tasks with a price.");
+const routePhaseName = (p) => p === "cifix" ? "CI fix" : PHASE_NAMES[p] || p;
+// What each phase is judged by: its own columns, not the fate of the task. Each: [header, cell].
+const ROUTE_COLUMNS = {
+  estimate: [
+    [th("Size matched", "The size the estimate expected is the size the assessment gave the finished task. Of the tasks that have both."),
+      (g) => routeShare(g.sizeHits, g.compared, "compared")],
+    [th("Risk matched", "The risk score of the estimate is the same as the assessment's of the finished task. Of the tasks that have both."),
+      (g) => routeShare(g.riskHits, g.riskCompared, "compared")],
+    [ROUTE_COST, routeCost],
+  ],
+  plan: [
+    [th("Approved first time", "The plan was approved with no «Amend» sent back. Of the plans whose approval was kept: plans approved in the terminal or before Mako kept it are not counted."),
+      (g) => routeShare(g.planFirst, g.planKnown, "plans")],
+    [th("Median to approval", "From the hand-off to the plan's approval, the median over the plans whose approval was kept."),
+      (g) => g.planMedianSeconds ? durText(g.planMedianSeconds) : "—"],
+    [ROUTE_COST, routeCost],
+  ],
+  work: [
+    [th("MR opened", "An MR open or merged. Of the tasks taken."), (g) => routeShare(g.succeeded, g.taken, "taken")],
+    [th("First pass", "Merged with no rework: no retry, no fixes after a review. Of the tasks that ended, merged or failed."),
+      (g) => routeShare(g.clean, g.ended, "finished"), (g) => lowFirstPass(g) ? " low" : ""],
+    [ROUTE_COST, routeCost],
+    [th("Median to MR", "From the hand-off to the MR, the median over the tasks that got one."), (g) => g.medianSeconds ? durText(g.medianSeconds) : "—"],
+  ],
+  review: [
+    [th("Remarks per round", "New numbered remarks the reviewer wrote, per round that read the branch to the end. Over the tasks that had a round."),
+      (g) => g.reviewRounds ? `${(g.reviewRemarks / g.reviewRounds).toFixed(1)} <span class="muted">· ${g.reviewRemarks} in ${g.reviewRounds} ${plural(g.reviewRounds, "round", "rounds")}</span>` : "—"],
+    [th("Taken by the agent", "Remarks the agent answered as fixed. Of the new remarks the reviewer wrote."),
+      (g) => routeShare(g.reviewFixed, g.reviewRemarks, "remarks")],
+    [th("In ≤ 2 rounds", "The reviewer's last round was clean within 2 rounds. Of the tasks that had a round."),
+      (g) => routeShare(g.reviewQuick, g.reviewTasks, "reviewed")],
+    [ROUTE_COST, routeCost],
+  ],
+  cifix: [
+    [th("Green after one fix", "Merged after the agent was asked once to fix the CI. Of the tasks that ended, merged or failed, after a request."),
+      (g) => routeShare(g.ciGreen, g.ciEnded, "finished")],
+    [th("Requests per task", "How many times the agent was asked to fix the CI, per task."), (g) => g.taken ? (g.ciRequests / g.taken).toFixed(1) : "—"],
+    [th("Per task", "A CI fix's spend is counted in Work: it has none of its own."), () => `<span class="muted">in Work</span>`],
+  ],
+  assess: [[ROUTE_COST, routeCost]],
+};
+// A work route's first pass this low, over this many finished tasks: the route is worth a level up.
+const lowFirstPass = (g) => g.phase === "work" && g.ended >= LOW_FIRST_PASS_MIN && g.clean / g.ended < LOW_FIRST_PASS;
+// Routes with fewer tasks than this are behind «Show all»: too few to tell anything.
+const ROUTE_MIN_TASKS = 3;
+
+// How each phase went: a table per phase with the columns of its own result. The routes of older versions, which
+// kept no effort, are in the row of the route they would be.
+function routesByPhase(routes) {
+  const shown = routesAll ? routes : routes.filter((g) => g.taken >= ROUTE_MIN_TASKS);
+  const hidden = routes.length - shown.length;
+  const label = (g) => `${SIZE_NAMES[g.size] || esc(g.size)} → ${esc(g.model === "—" ? "default" : g.model)}${g.effort ? ` · ${esc(g.effort)}` : ""}`
+    + (g.older ? ` <span class="muted" title="Older versions of Mako kept no effort of a route: ${g.older} ${plural(g.older, "task", "tasks")} counted here.">· ${g.older === g.taken ? "older versions" : `${g.older} from older versions`}</span>` : "");
+  const tables = Object.keys(ROUTE_COLUMNS).map((phase) => {
+    const gs = shown.filter((g) => g.phase === phase), cols = ROUTE_COLUMNS[phase];
+    if (!gs.length) return "";
+    const row = (g) => `<tr class="${lowFirstPass(g) ? "raise" : ""}"${lowFirstPass(g) ? ` title="Low first pass: worth raising this route"` : ""}><td>${label(g)}</td><td class="n">${g.taken}</td>`
+      + cols.map(([, cell, cls]) => `<td class="n${cls ? cls(g) : ""}">${cell(g)}</td>`).join("") + `</tr>`;
+    return `<h4 class="phase">${cap(routePhaseName(phase))}</h4><div class="table-wrap"><table class="stable"><thead><tr><th>Size → model · effort</th>`
+      + th("Tasks", "Tasks whose phase ran with this route.") + cols.map(([h]) => h).join("") + `</tr></thead><tbody>${gs.map(row).join("")}</tbody></table></div>`;
+  }).join("");
+  const low = shown.some(lowFirstPass);
+  const toggle = hidden > 0 || routesAll && routes.some((g) => g.taken < ROUTE_MIN_TASKS)
+    ? `<div class="snote"><button type="button" class="link" id="routes-all">${routesAll ? `Only routes with ${ROUTE_MIN_TASKS}+ tasks` : `Show all (${hidden} with under ${ROUTE_MIN_TASKS} tasks hidden)`}</button></div>` : "";
+  return (tables || `<div class="snote">No route has ${ROUTE_MIN_TASKS}+ tasks yet.</div>`) + toggle
+    + (low ? `<div class="snote">Highlighted: first pass under ${LOW_FIRST_PASS * 100}% over ${LOW_FIRST_PASS_MIN}+ finished tasks — worth raising that route in Settings → Routes.</div>` : "");
+}
+
 // Routing: does picking the model by phase and size pay off: what the period cost against the same work on one
 // model, how each route went, the escalations and the modes. Hidden with no routes recorded.
 function routingCard(s) {
@@ -3242,14 +3318,7 @@ function routingCard(s) {
       + `<div class="snote">Estimate at list prices, not a bill: the tokens of each phase (input, output, cache read and write) at the price of one model.</div>`
     : `<div class="snote">No tasks with tokens by kind yet: the comparison with one model appears with the next tasks.</div>`;
 
-  const low = (g) => g.ended >= LOW_FIRST_PASS_MIN && g.clean / g.ended < LOW_FIRST_PASS;
-  const label = (g) => `${cap(PHASE_NAMES[g.phase] || g.phase)} · ${SIZE_NAMES[g.size] || esc(g.size)} → ${esc(g.model === "—" ? "default" : g.model)}${g.effort ? ` · ${esc(g.effort)}` : ""}`;
-  const row = (g) => `<tr class="${low(g) ? "raise" : ""}"${low(g) ? ` title="Low first pass: worth raising this route"` : ""}><td>${label(g)}</td><td class="n">${g.taken}</td><td class="n">${pct(g.succeeded, g.taken)}%</td>`
-    + `<td class="n${low(g) ? " low" : ""}">${g.ended ? `${pct(g.clean, g.ended)}% <span class="muted">${g.clean}/${g.ended}</span>` : "—"}</td>`
-    + `<td class="n">${g.priced ? money(g.cost) : "—"}</td><td class="n">${g.medianSeconds ? durText(g.medianSeconds) : "—"}</td></tr>`;
-  const byRoute = `<div class="table-wrap"><table class="stable"><thead><tr><th>Phase · size → model · effort</th><th class="n">Tasks</th><th class="n" title="An MR open or merged, of the taken">Success</th>`
-    + `<th class="n" title="Merged without rework, of those merged or failed">First pass</th><th class="n" title="The phase's spend, average per task">Per task</th><th class="n" title="From the hand-off to the MR">Median time</th></tr></thead><tbody>${routes.map(row).join("")}</tbody></table></div>`
-    + (routes.some(low) ? `<div class="snote">Highlighted: first pass under ${LOW_FIRST_PASS * 100}% over ${LOW_FIRST_PASS_MIN}+ finished tasks — worth raising that route in Settings → Routes.</div>` : "");
+  const byRoute = routesByPhase(routes);
 
   const e = s.escalations || {};
   const esc_ = e.tasks
@@ -3508,6 +3577,7 @@ function bindStats() {
   };
   for (const b of d.querySelectorAll("#breakdown-by button")) b.onclick = () => { breakdownBy = b.dataset.v; render(); };
   for (const b of d.querySelectorAll("#heavy-by button")) b.onclick = () => { heavyBy = b.dataset.v; render(); };
+  if ($("routes-all")) $("routes-all").onclick = () => { routesAll = !routesAll; render(); };
   if ($("trend-table")) $("trend-table").onclick = () => { trendTable = !trendTable; render(); };
   for (const a of d.querySelectorAll("[data-need]")) a.onclick = (e) => { e.preventDefault(); openAttention({ kind: a.dataset.need, reason: a.dataset.reason }); };
 }

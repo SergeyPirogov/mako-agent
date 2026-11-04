@@ -131,3 +131,127 @@ func TestSummarizePricedPrices(t *testing.T) {
 		t.Fatalf("default prices %v", st.WhatIf)
 	}
 }
+
+// routeOf: the group of a phase and route in st, a zero one when there is none.
+func routeOf(st Stats, phase, size, model, effort string) RouteGroup {
+	for _, g := range st.Routes {
+		if g.Phase == phase && g.Size == size && g.Model == model && g.Effort == effort {
+			return g
+		}
+	}
+	return RouteGroup{}
+}
+
+// Each phase has its result of its own: the estimate against the assessment, the plan approved first time, the
+// reviewer's rounds, the CI fix.
+func TestSummarizeRoutePhaseResults(t *testing.T) {
+	route := func(model, effort string) Route { return Route{Model: model, Effort: effort, Size: "medium"} }
+	task := func(m *Metrics) Record {
+		return Record{Status: Done, ReviewState: "merged", StartedAt: "2026-10-01T10:00:00Z", FinishedAt: "2026-10-01T10:10:00Z", Metrics: m}
+	}
+	estimated := func(size string, risk int) *Estimate {
+		return &Estimate{State: "done", Size: size, Risk: Score{Value: risk}}
+	}
+	assessed := func(size string, risk int) *Assessment {
+		return &Assessment{State: "done", Size: size, Risk: Score{Value: risk}}
+	}
+
+	// Estimate: a is the same size and risk, b the same size and another risk, c has no assessment, d an assessment
+	// with no size (an older one): only the risk is compared.
+	a := task(&Metrics{Routes: map[string]Route{PhaseEstimate: route("haiku", "medium")}})
+	a.Estimate, a.Assessment = estimated("medium", 2), assessed("medium", 2)
+	b := task(&Metrics{Routes: map[string]Route{PhaseEstimate: route("haiku", "medium")}})
+	b.Estimate, b.Assessment = estimated("small", 2), assessed("small", 4)
+	c := task(&Metrics{Routes: map[string]Route{PhaseEstimate: route("haiku", "medium")}})
+	c.Estimate = estimated("big", 3)
+	d := task(&Metrics{Routes: map[string]Route{PhaseEstimate: route("haiku", "medium")}})
+	d.Estimate, d.Assessment = estimated("big", 3), assessed("", 3)
+
+	// Plan: e approved at once after 5 minutes, f sent back twice and approved after 15, g approved in the
+	// terminal (no approval kept): not counted either way.
+	e := task(&Metrics{Routes: map[string]Route{PhasePlan: route("opus", "high")}})
+	e.PlanApprovedAt = "2026-10-01T10:05:00Z"
+	f := task(&Metrics{Routes: map[string]Route{PhasePlan: route("opus", "high")}})
+	f.PlanApprovedAt, f.PlanRevisions = "2026-10-01T10:15:00Z", 2
+	g := task(&Metrics{Routes: map[string]Route{PhasePlan: route("opus", "high")}})
+
+	// Agent review: h cleaned in two rounds (3 new remarks, 2 fixed; the carried over one is not new), i went three
+	// rounds, j was never read to the end (a failed round).
+	h := task(&Metrics{Routes: map[string]Route{PhaseReview: route("sonnet", "high")}})
+	h.AgentReviews = []AgentReview{
+		{State: "notes", Remarks: []Remark{{ID: "R1", Reply: Fixed}, {ID: "R2", Reply: Fixed}, {ID: "R3", Reply: NotFixed}}},
+		{State: "clean", Remarks: []Remark{{ID: "R3", Again: true, Reply: Fixed}}},
+	}
+	i := task(&Metrics{Routes: map[string]Route{PhaseReview: route("sonnet", "high")}})
+	i.AgentReviews = []AgentReview{{State: "notes", Remarks: []Remark{{ID: "R1"}}}, {State: "notes", Remarks: []Remark{{ID: "R1", Again: true}}}, {State: "clean"}}
+	j := task(&Metrics{Routes: map[string]Route{PhaseReview: route("sonnet", "high")}})
+	j.AgentReviews = []AgentReview{{State: "failed"}}
+
+	// CI fix: k merged after one request, l after two, m failed after one, n merged with a request each of two
+	// kinds is still one fix.
+	k := task(&Metrics{Routes: map[string]Route{PhaseCIFix: route("sonnet", "medium")}})
+	k.CIFixes = 1
+	l := task(&Metrics{Routes: map[string]Route{PhaseCIFix: route("sonnet", "medium")}})
+	l.CIFixes = 2
+	m := Record{Status: Failed, StartedAt: "2026-10-01T10:00:00Z", CIFixes: 1, Metrics: &Metrics{Routes: map[string]Route{PhaseCIFix: route("sonnet", "medium")}}}
+	n := task(&Metrics{Routes: map[string]Route{PhaseCIFix: route("sonnet", "medium")}})
+	n.CIFixes = 1
+	// Still going: its request is counted, its outcome is not known.
+	o := Record{Status: HandedOff, StartedAt: "2026-10-01T10:00:00Z", CIFixes: 1, Metrics: &Metrics{Routes: map[string]Route{PhaseCIFix: route("sonnet", "medium")}}}
+
+	st := Summarize([]Record{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o}, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), time.Time{})
+
+	if got := routeOf(st, PhaseEstimate, "medium", "haiku", "medium"); got.Taken != 4 || got.Compared != 2 || got.SizeHits != 2 || got.RiskCompared != 3 || got.RiskHits != 2 {
+		t.Errorf("estimate %+v", got)
+	}
+	// Only the work has a first pass and a time to the MR; the other phases do not borrow the task's.
+	if got := routeOf(st, PhaseEstimate, "medium", "haiku", "medium"); got.Succeeded != 0 || got.Ended != 0 || got.Clean != 0 || got.MedianSeconds != 0 {
+		t.Errorf("estimate has the task's fate %+v", got)
+	}
+	if got := routeOf(st, PhasePlan, "medium", "opus", "high"); got.Taken != 3 || got.PlanKnown != 2 || got.PlanFirst != 1 || got.PlanMedianSeconds != 600 {
+		t.Errorf("plan %+v", got)
+	}
+	if got := routeOf(st, PhaseReview, "medium", "sonnet", "high"); got.Taken != 3 || got.ReviewTasks != 2 || got.ReviewRounds != 5 || got.ReviewRemarks != 4 || got.ReviewFixed != 2 || got.ReviewQuick != 1 {
+		t.Errorf("review %+v", got)
+	}
+	if got := routeOf(st, PhaseCIFix, "medium", "sonnet", "medium"); got.Taken != 5 || got.CIRequests != 6 || got.CIEnded != 4 || got.CIGreen != 2 {
+		t.Errorf("cifix %+v", got)
+	}
+}
+
+// A route of older versions of Mako, which kept no effort, is counted under the route of the same phase, size
+// and model with the most tasks; with none it stays a row of its own, all of it older.
+func TestSummarizeRoutesFoldOlder(t *testing.T) {
+	task := func(phase, model, effort string, usd float64, minutes int) Record {
+		return Record{Status: Done, ReviewState: "merged", StartedAt: "2026-10-01T10:00:00Z",
+			FinishedAt: time.Date(2026, 10, 1, 10, minutes, 0, 0, time.UTC).Format(time.RFC3339),
+			Metrics:    &Metrics{Routes: map[string]Route{phase: {Model: model, Effort: effort, Size: "big"}}, Cost: map[string]float64{phase: usd}}}
+	}
+	records := []Record{
+		task(PhaseWork, "opus", "high", 2, 10), task(PhaseWork, "opus", "high", 4, 20), task(PhaseWork, "opus", "max", 6, 30),
+		task(PhaseWork, "opus", "", 0, 100), task(PhaseWork, "opus", "", 0, 120), // older: no effort, no price
+		task(PhaseWork, "sonnet", "", 1, 10),   // older, and no sonnet route with an effort to count it under
+		task(PhaseAssess, "haiku", "", 0.5, 5), // another phase: its own
+		task(PhaseAssess, "haiku", "low", 0.5, 5),
+	}
+	st := Summarize(records, time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), time.Time{})
+
+	if got := routeOf(st, PhaseWork, "big", "opus", ""); got.Taken != 0 {
+		t.Errorf("a route of its own for the older ones: %+v", got)
+	}
+	// 2 older tasks go to opus · high (2 tasks) rather than opus · max (1): 4 tasks, the price of the 2 priced, the
+	// median of 10, 20, 100 and 120 minutes.
+	high := routeOf(st, PhaseWork, "big", "opus", "high")
+	if high.Taken != 4 || high.Older != 2 || high.Priced != 2 || !near(high.Cost, 3) || high.Ended != 4 || high.MedianSeconds != 60*60 {
+		t.Errorf("opus high %+v", high)
+	}
+	if max := routeOf(st, PhaseWork, "big", "opus", "max"); max.Taken != 1 || max.Older != 0 {
+		t.Errorf("opus max %+v", max)
+	}
+	if only := routeOf(st, PhaseWork, "big", "sonnet", ""); only.Taken != 1 || only.Older != 1 {
+		t.Errorf("sonnet with no effort %+v", only)
+	}
+	if low := routeOf(st, PhaseAssess, "big", "haiku", "low"); low.Taken != 2 || low.Older != 1 || low.Priced != 2 {
+		t.Errorf("assess %+v", low)
+	}
+}
