@@ -16,9 +16,9 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 )
 
-// By project, every section of a project folds by a click on its heading: «Ready to merge», «In progress» and «New»
-// start open, «Postponed» and «Done» folded; the fold is remembered across a reload; while filtering, a click folds
-// nothing; a broken localStorage does not break the list.
+// By project, every section of a project is a column and folds by a click on its heading: «Ready to merge», «In progress»
+// and «New» start open, «Done» (like «Postponed» and «Not done») folded; the fold is remembered across a reload; while
+// filtering, a click folds nothing; a broken or an old localStorage does not break the list.
 func TestTreeSectionsFold(t *testing.T) {
 	if testing.Short() {
 		t.Skip("a browser test")
@@ -48,7 +48,7 @@ func TestTreeSectionsFold(t *testing.T) {
 		const row = (id, column, extra) => ({ id, column, status: "handed-off", task: { id, title: "Task " + id, project: "g/app" }, ...extra });
 		data = { ...data, records: [
 			row("g/app#1", "review", { mergeReady: true, agentReviews: [{}], prUrl: "https://x/pr/1" }),
-			row("g/app#2", "doing"), row("g/app#3", "doing"), row("g/app#4", "new"),
+			row("g/app#2", "doing"), row("g/app#3", "doing"), row("g/app#4", "new"), row("g/app#5", "done"), row("g/app#6", "failed"),
 		] };
 		groupBy = "project"; project = ""; query = ""; $("q").value = "";
 		const sec = (n) => document.querySelector('#list .quiet[data-sub="g/app|' + n + '"]');
@@ -90,21 +90,21 @@ func TestTreeSectionsFold(t *testing.T) {
 	}
 	const read = `
 		const o = {}, c = {};
-		for (const n of ["merge", "work", "new"]) { const b = sec(n); o[n] = b ? b.getAttribute("aria-expanded") : "-"; c[n] = b ? b.querySelector(".n").textContent : "-"; }
+		for (const n of ["merge", "doing", "new", "failed", "done"]) { const b = sec(n); o[n] = b ? b.getAttribute("aria-expanded") : "-"; c[n] = b ? b.querySelector(".n").textContent : "-"; }
 		return JSON.stringify({ open: o, count: c, items: items(), merge: !!sec("merge")?.classList.contains("merge"), tip: sec("merge")?.title || "", stored: localStorage.getItem("mako-folded-subs") || "" });
 	`
 	var got shape
-	// 1. All three open at the start, with counters, «Ready to merge» green and with its hint.
-	eval(`localStorage.removeItem("mako-folded-subs"); foldedSubs = new Set(); render(); `+read, &got)
-	if got.Open["merge"] != "true" || got.Open["work"] != "true" || got.Open["new"] != "true" || got.Items != 4 {
+	// 1. At the start «Ready to merge», «In progress» and «New» are open, «Not done» and «Done» folded, with counters; «Ready to merge» is green and has its hint.
+	eval(`localStorage.removeItem("mako-folded-subs"); foldedSubs = {}; render(); `+read, &got)
+	if got.Open["merge"] != "true" || got.Open["doing"] != "true" || got.Open["new"] != "true" || got.Open["failed"] != "false" || got.Open["done"] != "false" || got.Items != 4 {
 		t.Fatalf("at the start: %+v", got)
 	}
-	if got.Count["merge"] != "1" || got.Count["work"] != "2" || got.Count["new"] != "1" || !got.Merge || got.Tip == "" {
+	if got.Count["merge"] != "1" || got.Count["doing"] != "2" || got.Count["new"] != "1" || got.Count["failed"] != "1" || got.Count["done"] != "1" || !got.Merge || got.Tip == "" {
 		t.Fatalf("counters/merge: %+v", got)
 	}
-	// 2. A click folds «In progress»: its tasks go, the counter stays, the others stay open, the fold is stored.
-	eval(`render(); sec("work").click(); `+read, &got)
-	if got.Open["work"] != "false" || got.Open["merge"] != "true" || got.Open["new"] != "true" || got.Items != 2 || got.Count["work"] != "2" || got.Stored != `["g/app|work"]` {
+	// 2. A click folds «In progress»: its tasks go, the counter stays, the others stay as they were, the fold is stored.
+	eval(`render(); sec("doing").click(); `+read, &got)
+	if got.Open["doing"] != "false" || got.Open["merge"] != "true" || got.Open["new"] != "true" || got.Items != 2 || got.Count["doing"] != "2" || got.Stored != `{"g/app|doing":true}` {
 		t.Fatalf("after folding: %+v", got)
 	}
 	// 3. After a reload the fold stays (the state is read from localStorage); a second click opens it again.
@@ -113,26 +113,49 @@ func TestTreeSectionsFold(t *testing.T) {
 	}
 	boardUp("after the reload")
 	eval(`render(); `+read, &got)
-	if got.Open["work"] != "false" || got.Open["merge"] != "true" || got.Items != 2 {
+	if got.Open["doing"] != "false" || got.Open["merge"] != "true" || got.Items != 2 {
 		t.Fatalf("after the reload: %+v", got)
 	}
-	eval(`sec("work").click(); `+read, &got)
-	if got.Open["work"] != "true" || got.Items != 4 || got.Stored != `[]` {
+	eval(`sec("doing").click(); `+read, &got)
+	if got.Open["doing"] != "true" || got.Items != 4 || got.Stored != `{"g/app|doing":false}` {
 		t.Fatalf("after unfolding: %+v", got)
 	}
-	// 4. While filtering, every section is open and a click folds nothing.
-	eval(`foldedSubs = new Set(["g/app|new"]); query = "task"; $("q").value = "task"; render(); sec("new").click(); sec("merge").click(); `+read, &got)
-	if got.Open["new"] != "true" || got.Open["merge"] != "true" || got.Open["work"] != "true" || got.Items != 4 || got.Stored != `[]` {
+	// 4. A click opens «Done», which starts folded; after a reload it stays open.
+	eval(`sec("done").click(); `+read, &got)
+	if got.Open["done"] != "true" || got.Items != 5 {
+		t.Fatalf("after opening «Done»: %+v", got)
+	}
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	boardUp("after the second reload")
+	eval(`render(); `+read, &got)
+	if got.Open["done"] != "true" || got.Items != 5 {
+		t.Fatalf("«Done» after the reload: %+v", got)
+	}
+	// 5. While filtering, every section is open (also «Done») and a click folds nothing.
+	eval(`localStorage.removeItem("mako-folded-subs"); foldedSubs = {"g/app|new": true}; query = "task"; $("q").value = "task"; render(); sec("new").click(); sec("merge").click(); `+read, &got)
+	if got.Open["new"] != "true" || got.Open["merge"] != "true" || got.Open["doing"] != "true" || got.Open["failed"] != "true" || got.Open["done"] != "true" || got.Items != 6 || got.Stored != "" {
 		t.Fatalf("while filtering: %+v", got)
 	}
-	// 5. A broken value in localStorage: the page still starts with every section open.
-	eval(`localStorage.setItem("mako-folded-subs", "{not json"); query = ""; $("q").value = "";`+"return JSON.stringify({});", &struct{}{})
+	// 6. The old value (a list of the folded sections) still works: those sections are folded, the rest as by default.
+	eval(`localStorage.setItem("mako-folded-subs", '["g/app|new"]'); query = ""; $("q").value = "";`+"return JSON.stringify({});", &struct{}{})
+	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
+		t.Fatal(err)
+	}
+	boardUp("with the old localStorage")
+	eval(`render(); `+read, &got)
+	if got.Open["new"] != "false" || got.Open["doing"] != "true" || got.Open["done"] != "false" {
+		t.Fatalf("old store: %+v", got)
+	}
+	// 7. A broken value in localStorage: the page still starts with the default folds.
+	eval(`localStorage.setItem("mako-folded-subs", "{not json");`+"return JSON.stringify({});", &struct{}{})
 	if _, err := chromedp.Run(ctx, chromedp.Reload()); err != nil {
 		t.Fatal(err)
 	}
 	boardUp("with a broken localStorage")
 	eval(`render(); `+read, &got)
-	if got.Open["work"] != "true" {
+	if got.Open["doing"] != "true" || got.Open["new"] != "true" || got.Open["done"] != "false" {
 		t.Fatalf("broken store: %+v", got)
 	}
 }
