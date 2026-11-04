@@ -9,6 +9,7 @@ import (
 	"math"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -235,16 +236,36 @@ func known(file, key, text string, taken map[string]bool) []Finding {
 	return out
 }
 
-// hashName: cache_key, commit_sha, etag, session_id: the hex under it names something, it is no key.
+// hashName: cache_key, commit_sha, etag, session_id: the hex under it names something, it is no key. The name is
+// read by its words (shared_secret has "shared" and "secret", not "sha"), split at _ - . and at capitals.
 func hashName(name string) bool {
-	lower := strings.ToLower(name)
-	for _, w := range aboutHash {
-		if strings.HasSuffix(lower, w) || strings.HasPrefix(lower, w) || strings.Contains(lower, w+"_") || strings.Contains(lower, "_"+w) ||
-			strings.Contains(lower, w+"-") || strings.Contains(lower, "."+w) {
+	words := nameWords(name)
+	for i, w := range words {
+		// "id" names what the name is of only at its end: session_id, userId; not id_signing_key.
+		if w == "id" && i < len(words)-1 {
+			continue
+		}
+		if slices.Contains(aboutHash, w) || shaN.MatchString(w) {
 			return true
 		}
 	}
 	return false
+}
+
+var (
+	shaN      = regexp.MustCompile(`^sha\d+$`) // sha1, sha256
+	wordParts = regexp.MustCompile(`[A-Z]+[a-z0-9]*|[a-z0-9]+`)
+)
+
+// nameWords: "sessionId" → session, id; "MASTER_KEY" → master, key; "x-cache.key" → x, cache, key.
+func nameWords(name string) []string {
+	var out []string
+	for _, part := range regexp.MustCompile(`[^A-Za-z0-9]+`).Split(name, -1) {
+		for _, w := range wordParts.FindAllString(part, -1) {
+			out = append(out, strings.ToLower(w))
+		}
+	}
+	return out
 }
 
 // literal: the value of password=… is written in, not taken from elsewhere, and is not a placeholder.

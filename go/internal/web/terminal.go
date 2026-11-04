@@ -53,8 +53,9 @@ func (s *Server) terminalRoutes(mux *http.ServeMux) {
 	// the body says why.
 	mux.HandleFunc("POST /prepush", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
-		code, reason := s.D.PrePush(r.Context(), q.Get("id"), q.Get("token"))
+		// What git is about to push, a line per ref; one byte over the limit tells PrePush it was too much.
+		refs, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20+1))
+		code, reason := s.D.PrePush(r.Context(), q.Get("id"), q.Get("token"), string(refs))
 		if code == http.StatusNoContent {
 			w.WriteHeader(code)
 			return

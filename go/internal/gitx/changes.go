@@ -39,12 +39,20 @@ const (
 
 // forkPoint: where the branch left the base branch, so its diff is the task's own work.
 func forkPoint(ctx context.Context, worktree, baseBranch string) string {
+	if fp := forkPointOf(ctx, worktree, baseBranch, "HEAD"); fp != "" {
+		return fp
+	}
+	return "HEAD"
+}
+
+// forkPointOf: where rev left the base branch; "" when it never did (unrelated history).
+func forkPointOf(ctx context.Context, worktree, baseBranch, rev string) string {
 	for _, ref := range []string{"origin/" + baseBranch, baseBranch} {
-		if out, err := Run(ctx, worktree, "merge-base", "HEAD", ref); err == nil && out != "" {
+		if out, err := Run(ctx, worktree, "merge-base", rev, ref); err == nil && out != "" {
 			return out
 		}
 	}
-	return "HEAD"
+	return ""
 }
 
 // Changes: the branch's commits and files against baseBranch, uncommitted work included.
@@ -202,4 +210,56 @@ func PushDiff(ctx context.Context, worktree, baseBranch string) (string, error) 
 		s = s[:maxPushDiff]
 	}
 	return s, nil
+}
+
+// RefsDiff: what the push git is about to make carries, for the secret check, from the lines git gives a
+// pre-push hook: "<local ref> <local sha> <remote ref> <remote sha>". For each ref that moves, the commits the
+// remote does not have (remote sha..local sha); for a new ref, or one whose old commit is not here, everything
+// since it left the base branch (a secret added and removed again is still in the history). A deleted ref
+// carries nothing. Added lines, -U0, as PushDiff; none of the uncommitted work, which a push does not carry.
+func RefsDiff(ctx context.Context, worktree, baseBranch, refs string) (string, error) {
+	var b strings.Builder
+	seen := map[string]bool{}
+	for _, line := range lines(refs) {
+		f := strings.Fields(line)
+		if len(f) != 4 {
+			return "", fmt.Errorf("unexpected line from git: %q", line)
+		}
+		local, remote := f[1], f[3]
+		if isZero(local) || seen[local+" "+remote] {
+			continue
+		}
+		seen[local+" "+remote] = true
+		var spec []string
+		switch {
+		case !isZero(remote) && hasCommit(ctx, worktree, remote):
+			spec = []string{remote + ".." + local}
+		case forkPointOf(ctx, worktree, baseBranch, local) != "":
+			spec = []string{forkPointOf(ctx, worktree, baseBranch, local) + ".." + local}
+		default:
+			spec = []string{local, "--not", "--remotes"}
+		}
+		out, err := Run(ctx, worktree, append([]string{"-c", "core.quotePath=false", "log", "-p", "-U0", "--no-color", "--no-ext-diff", "--format=commit %H"}, spec...)...)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(out)
+		b.WriteString("\n")
+		if b.Len() > maxPushDiff {
+			break
+		}
+	}
+	s := b.String()
+	if len(s) > maxPushDiff {
+		s = s[:maxPushDiff]
+	}
+	return s, nil
+}
+
+func isZero(sha string) bool { return strings.Trim(sha, "0") == "" }
+
+// hasCommit: the commit is in the repository (a remote's old tip may be one this clone never fetched).
+func hasCommit(ctx context.Context, worktree, sha string) bool {
+	_, err := Run(ctx, worktree, "cat-file", "-e", sha+"^{commit}")
+	return err == nil
 }

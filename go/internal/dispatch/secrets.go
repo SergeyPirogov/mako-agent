@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -30,8 +31,33 @@ import (
 // any push from there, the agent's, a person's or Mako's own, and the push is stopped when Mako finds secrets,
 // cannot check, or does not answer.
 
-// pushCommand: git push (git -C dir push, git -c k=v push too), gh pr create, glab mr create.
-var pushCommand = regexp.MustCompile(`\bgit(\s+(-C|-c)\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+push\b|\bgh\s+pr\s+create\b|\bglab\s+mr\s+create\b`)
+// gitPush: git push (git -C dir push, git -c k=v push too).
+const gitPush = `\bgit(\s+(-C|-c)\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+push\b`
+
+// pushCommand: git push, gh pr create, glab mr create.
+var pushCommand = regexp.MustCompile(gitPush + `|\bgh\s+pr\s+create\b|\bglab\s+mr\s+create\b`)
+
+var (
+	gitPushCommand = regexp.MustCompile(gitPush)
+	commandParts   = regexp.MustCompile(`&&|\|\||[;|\n]`)
+	skipsHooks     = regexp.MustCompile(`(?i)(^|\s)--no-verify\b|core\.hooksPath`)
+)
+
+// skipsPushHook: the command pushes with the hooks turned off (--no-verify) or pointed elsewhere
+// (-c core.hooksPath=…), which takes Mako's pre-push check with them. Each command of a line is read on its own:
+// `git commit --no-verify && git push` skips only the commit's hooks.
+func skipsPushHook(command string) bool {
+	for _, part := range commandParts.Split(command, -1) {
+		if gitPushCommand.MatchString(part) && skipsHooks.MatchString(part) {
+			return true
+		}
+	}
+	return false
+}
+
+// hooksSkipped: what the agent is told when it asks to push without the check.
+const hooksSkipped = "Mako stopped the push: it skips the git hooks (--no-verify or core.hooksPath), and with them the check of the changes for secrets. " +
+	"Push without those, so that the hooks run; if a hook of the repository fails, fix the cause."
 
 // guardURL: where the task's agent asks before a Bash command; the token is new for each start of the agent.
 func (d *Dispatcher) guardURL(id string) string {
@@ -63,6 +89,10 @@ func (d *Dispatcher) GuardPush(ctx context.Context, id string, hook []byte) map[
 	}
 	if json.Unmarshal(hook, &e) != nil || e.ToolName != "Bash" || !pushCommand.MatchString(e.ToolInput.Command) {
 		return nil
+	}
+	if skipsPushHook(e.ToolInput.Command) {
+		d.Log(id, "push stopped: it skips the git hooks")
+		return hookDecision("deny", hooksSkipped)
 	}
 	found, err := d.CheckSecrets(ctx, id)
 	if err != nil {
@@ -162,19 +192,40 @@ func (d *Dispatcher) pushToken(id string) string {
 	return strings.TrimSpace(string(b))
 }
 
+// maxPushRefs: how much of git's list of refs a pre-push check reads; a push of more refs than this is stopped.
+const maxPushRefs = 1 << 20
+
 // PrePush answers the worktree's pre-push hook: 204 lets the push go, anything else stops it with the reason
-// for whoever pushed. A check that fails stops it too.
-func (d *Dispatcher) PrePush(ctx context.Context, id, token string) (int, string) {
+// for whoever pushed. refs is what git gives the hook on stdin, "<local ref> <local sha> <remote ref> <remote
+// sha>" per line: what those refs carry is what is read, whichever branch is checked out. A check that fails
+// stops the push too.
+func (d *Dispatcher) PrePush(ctx context.Context, id, token, refs string) (int, string) {
 	want := d.pushToken(id)
 	if want == "" || subtle.ConstantTimeCompare([]byte(want), []byte(token)) != 1 {
 		return http.StatusForbidden, "Mako stopped the push: the worktree's hook is not known to Mako, so the changes were not checked for secrets."
 	}
-	found, err := d.CheckSecrets(ctx, id)
-	if err != nil {
+	fail := func(err error) (int, string) {
 		d.Log(id, "the secrets check failed, push stopped: "+err.Error())
 		return http.StatusConflict, checkFailed(err)
 	}
-	if len(found) > 0 {
+	if len(refs) > maxPushRefs {
+		return fail(errors.New("too many refs in one push"))
+	}
+	wt, base, err := d.workOf(id)
+	if err != nil {
+		return fail(err)
+	}
+	diff, err := refsDiff(ctx, wt, base, refs)
+	if err != nil {
+		return fail(err)
+	}
+	// The task's own branch pushed: a clean result is the card's too.
+	head, _ := gitx.Run(ctx, wt, "rev-parse", "HEAD")
+	whole := head != "" && slices.ContainsFunc(strings.Split(refs, "\n"), func(l string) bool {
+		f := strings.Fields(l)
+		return len(f) == 4 && f[1] == head
+	})
+	if found := d.scanDiff(id, diff, whole); len(found) > 0 {
 		return http.StatusConflict, secretsRequest(found)
 	}
 	return http.StatusNoContent, ""
@@ -182,6 +233,9 @@ func (d *Dispatcher) PrePush(ctx context.Context, id, token string) (int, string
 
 // pushDiff: what a push would carry; the tests make it fail.
 var pushDiff = gitx.PushDiff
+
+// refsDiff: what the refs of a push carry; the tests make it fail.
+var refsDiff = gitx.RefsDiff
 
 // CheckSecrets scans what a push of the task's branch would carry and keeps the result on the card: the
 // findings, or nothing once the changes are clean. A new set of findings is logged and notified.
@@ -194,6 +248,13 @@ func (d *Dispatcher) CheckSecrets(ctx context.Context, id string) ([]secrets.Fin
 	if err != nil {
 		return nil, err
 	}
+	return d.scanDiff(id, diff, true), nil
+}
+
+// scanDiff reads diff for secrets and keeps the result on the card. whole: the diff is all that the task's
+// branch would push, so a clean one clears the card; otherwise (another ref was pushed) findings are kept on
+// the card but a clean result leaves it as it is.
+func (d *Dispatcher) scanDiff(id, diff string, whole bool) []secrets.Finding {
 	r, _ := d.Store.Get(id)
 	allowed := map[string]bool{}
 	for _, k := range r.SecretsAllowed {
@@ -201,20 +262,24 @@ func (d *Dispatcher) CheckSecrets(ctx context.Context, id string) ([]secrets.Fin
 	}
 	found := secrets.Scan(diff, allowed)
 	before := r.Secrets
-	d.Store.Update(id, func(rec *core.Record) { rec.Secrets = found })
 	if len(found) == 0 {
+		if !whole {
+			return nil
+		}
+		d.Store.Update(id, func(rec *core.Record) { rec.Secrets = nil })
 		if len(before) > 0 {
 			notify.Withdraw(secretsTag(id))
 			d.Log(id, "no secrets left in the changes, push let through")
 		}
-		return nil, nil
+		return nil
 	}
+	d.Store.Update(id, func(rec *core.Record) { rec.Secrets = found })
 	if !sameFindings(before, found) {
 		d.Log(id, fmt.Sprintf("push stopped: %d %s in the changes look like secrets", len(found), plural(len(found), "finding", "findings", "findings")))
 		notify.Show(notify.Notice{Kind: notify.Secrets, Tag: secretsTag(id), URL: d.BoardURL + "/#" + id,
 			Title: i18n.T("notify.secrets", id), Message: findingsText(found, 3)})
 	}
-	return found, nil
+	return found
 }
 
 // AllowSecret: «Це не секрет» for a line; the card forgets its findings, and when none are left the agent hears

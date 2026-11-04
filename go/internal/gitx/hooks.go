@@ -24,7 +24,13 @@ const hookScript = `#!/bin/sh
 # Mako: the secrets check before a push, then the repository's own hook.
 name=$1
 shift
-orig=$(git config --local --type=path --get core.hooksPath 2>/dev/null)
+# The hooks the worktree had before this one: the repository's setting, else the user's or the system's (shared
+# hooks in ~/.git-hooks), else the repository's own folder. Not --worktree: that is this folder.
+orig=
+for scope in --local --global --system; do
+	orig=$(git config "$scope" --type=path --get core.hooksPath 2>/dev/null)
+	[ -n "$orig" ] && break
+done
 [ -n "$orig" ] || orig="$(git rev-parse --git-common-dir)/hooks"
 own="$orig/$name"
 here=$(cd "$(dirname "$0")" && pwd -P)
