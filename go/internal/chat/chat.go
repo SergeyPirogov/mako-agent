@@ -116,6 +116,8 @@ type SetupResult struct {
 type Session struct {
 	ID, Worktree string
 
+	lineMax int // maxLine as it was at Start: the session's goroutine must not read the variable later
+
 	mu        sync.Mutex
 	writeMu   sync.Mutex
 	cmd       *exec.Cmd
@@ -159,7 +161,7 @@ var IdleAfter = 20 * time.Minute
 
 // Start runs the setup and then the agent, in the background: the conversation shows both.
 func Start(o Options) *Session {
-	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode,
+	s := &Session{ID: o.ID, Worktree: o.Worktree, state: "working", since: time.Now(), pending: map[string]json.RawMessage{}, o: o, mode: o.Mode, lineMax: maxLine,
 		ended: make(chan struct{})}
 	if s.mode == "" {
 		s.mode = "default"
@@ -262,7 +264,7 @@ var maxLine = 64 << 20
 // scan hands each line of r to handle; it returns why it stopped early, nil at the end of r.
 func (s *Session) scan(r io.Reader) error {
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 1<<20), maxLine)
+	sc.Buffer(make([]byte, 1<<20), s.lineMax)
 	for sc.Scan() {
 		s.handle(sc.Bytes())
 	}
@@ -315,7 +317,7 @@ func Replay(id, path string) Snapshot { return ReplayIn(id, "", path) }
 
 // ReplayIn is Replay for a conversation held in worktree: its steps name the files relative to it.
 func ReplayIn(id, worktree, path string) Snapshot {
-	s := &Session{ID: id, Worktree: worktree, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}}
+	s := &Session{ID: id, Worktree: worktree, state: "exited", exited: true, asleep: true, mode: "default", pending: map[string]json.RawMessage{}, lineMax: maxLine}
 	s.replay(path)
 	snap := s.Snapshot()
 	snap.Version = len(snap.Items) // the same file, the same version: the board redraws only what changed

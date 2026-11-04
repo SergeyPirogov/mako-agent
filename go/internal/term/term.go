@@ -282,11 +282,12 @@ func (s *Session) Stop() {
 	}
 	// The terminal starts the agent in a session of its own: its process group is the agent's pid.
 	syscall.Kill(-p.Pid, syscall.SIGHUP)
+	grace := stopGrace // read here: the goroutine below may outlive a test that restores stopGrace
 	go func() {
 		select {
 		case <-s.done:
 			return
-		case <-time.After(stopGrace):
+		case <-time.After(grace):
 		}
 		proc.KillGroup(p.Pid)
 		s.pty.Close()
