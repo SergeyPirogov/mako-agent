@@ -463,7 +463,7 @@ var webStrings = map[string]string{
 	"b.byMakoCi":         "Mako wrote this task: the default branch's CI went red",
 	"b.byMakoSecurity":   "Mako wrote this task: the project has new security alerts",
 	"b.byMakoRoutine":    "Mako wrote this task by its schedule",
-	"b.col.doing":        "At work",
+	"b.col.doing":        "In progress",
 	"b.col.blocked":      "Blocked",
 	"b.col.review":       "In review",
 	"b.col.merge":        "Ready to merge",

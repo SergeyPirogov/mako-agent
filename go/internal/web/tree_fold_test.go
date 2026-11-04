@@ -16,7 +16,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 )
 
-// By project, every section of a project is a column and folds by a click on its heading: «Ready to merge», «At work»
+// By project, every section of a project is a column and folds by a click on its heading: «Ready to merge», «In progress»
 // and «New» start open, «Done» (like «Postponed» and «Not done») folded; the fold is remembered across a reload; while
 // filtering, a click folds nothing; a broken or an old localStorage does not break the list.
 func TestTreeSectionsFold(t *testing.T) {
@@ -94,7 +94,7 @@ func TestTreeSectionsFold(t *testing.T) {
 		return JSON.stringify({ open: o, count: c, items: items(), merge: !!sec("merge")?.classList.contains("merge"), tip: sec("merge")?.title || "", stored: localStorage.getItem("mako-folded-subs") || "" });
 	`
 	var got shape
-	// 1. At the start «Ready to merge», «At work» and «New» are open, «Done» folded, with counters; «Ready to merge» is green and has its hint.
+	// 1. At the start «Ready to merge», «In progress» and «New» are open, «Done» folded, with counters; «Ready to merge» is green and has its hint.
 	eval(`localStorage.removeItem("mako-folded-subs"); foldedSubs = {}; render(); `+read, &got)
 	if got.Open["merge"] != "true" || got.Open["doing"] != "true" || got.Open["new"] != "true" || got.Open["done"] != "false" || got.Items != 4 {
 		t.Fatalf("at the start: %+v", got)
@@ -102,7 +102,7 @@ func TestTreeSectionsFold(t *testing.T) {
 	if got.Count["merge"] != "1" || got.Count["doing"] != "2" || got.Count["new"] != "1" || got.Count["done"] != "1" || !got.Merge || got.Tip == "" {
 		t.Fatalf("counters/merge: %+v", got)
 	}
-	// 2. A click folds «At work»: its tasks go, the counter stays, the others stay as they were, the fold is stored.
+	// 2. A click folds «In progress»: its tasks go, the counter stays, the others stay as they were, the fold is stored.
 	eval(`render(); sec("doing").click(); `+read, &got)
 	if got.Open["doing"] != "false" || got.Open["merge"] != "true" || got.Open["new"] != "true" || got.Items != 2 || got.Count["doing"] != "2" || got.Stored != `{"g/app|doing":true}` {
 		t.Fatalf("after folding: %+v", got)
