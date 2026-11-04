@@ -1033,3 +1033,53 @@ func TestBoardBlockerFixButtons(t *testing.T) {
 		t.Error("the header does not keep Open MR for the fix states")
 	}
 }
+
+// After the merge is confirmed, the Merge button stays disabled through the redraws (the polling, loadWork) until
+// the merge fails. The board has no script tests, so this checks the page's source for each piece of that.
+func TestBoardMergeHeldAfterConfirm(t *testing.T) {
+	src, css := string(board), string(style)
+	for _, want := range []string{
+		// The handler marks the merge as asked before the request and disables the button.
+		`{ markAsked(r.id, "merge"); btn.disabled = true; btn.classList.add("busy"); mrAction(r.id, "merge"); }`,
+		// The main button and the MR row's icon are drawn disabled while it is held.
+		`isAsked(r.id, "merge") ? ` + "`" + `<button class="merge-go busy" disabled title="Merging…">`,
+		`merging = isAsked(r.id, "merge")`,
+		`!c.mergeable || held || merging`,
+		// An error frees the button again and shows the toast, for the merge as well as for ask.
+		`if (action === "ask" || action === "merge") asked.delete(`,
+		`action === "ask" ? kind : action}`,
+		// A slow merge keeps the button disabled past the 2-minute hold while the request is in flight.
+		`if (kind === "merge" && merging.has(id)) return true;`,
+		`if (action === "merge") merging.add(id);`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("board.html lacks %q", want)
+		}
+	}
+	if strings.Contains(src, `if (failed) { if (action === "ask")`) {
+		t.Error("mrAction shows the error toast for ask only: a failed merge would be silent")
+	}
+	if !strings.Contains(css, ".merge-go.busy") || !strings.Contains(css, ".icon[data-merge].busy") {
+		t.Error("style.css has no .busy style for the merge button and icon")
+	}
+}
+
+// The style sheet's braces balance: a missing "}" once swallowed everything below the reduced-motion media block.
+func TestStyleBracesBalance(t *testing.T) {
+	css := string(style)
+	// Comments may hold braces; strip them first.
+	for {
+		i := strings.Index(css, "/*")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(css[i+2:], "*/")
+		if j < 0 {
+			t.Fatal("style.css has an unclosed comment")
+		}
+		css = css[:i] + css[i+2+j+2:]
+	}
+	if o, c := strings.Count(css, "{"), strings.Count(css, "}"); o != c {
+		t.Errorf("style.css has %d \"{\" and %d \"}\"", o, c)
+	}
+}
