@@ -3979,7 +3979,7 @@ function blockersHTML(r) {
   // "fix-*"); a stopped one is resumed from the header. Once pressed it stays a disabled check (isAsked).
   const live = r.executor === "terminal" && r.worktree && r.live;
   const askBtn = (kind, label, title) => !live ? ""
-    : isAsked(r.id, kind) ? `<div class="mr-actions"><button type="button" class="primary" disabled title="Already passed to the agent">${ICON.check}Passed to the agent</button></div>`
+    : isAsked(r.id, kind) ? `<div class="mr-actions"><button type="button" class="asked" disabled title="Already passed to the agent">${ICON.check}Passed to the agent</button></div>`
     : `<div class="mr-actions"><button type="button" class="primary" data-ask="${kind}" title="${esc(title)}">${label}</button></div>`;
   // The reason on the left (the text, then a file list under it), its fix button on the right of the same row; with no
   // button (no live agent) it is the bare text, as before.

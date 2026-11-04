@@ -1811,6 +1811,9 @@ details.desc .r { flex: none; color: var(--accent) !important; }
 /* A fix button in the blocker block: compact, on the right (the shared .mr-actions stretches it for the review pair). */
 .tcard.blocker .mr-actions { justify-content: flex-end; margin-top: 0; flex: none; }
 .tcard.blocker .mr-actions button { flex: none; height: 28px; padding: 0 12px; white-space: nowrap; }
+/* Pressed: a quiet mark that the agent has it, not a greyed-out primary; the check centred and apart from the text. */
+.tcard.blocker .mr-actions button.asked { display: inline-flex; align-items: center; gap: 5px; border-color: transparent; background: none;
+  color: var(--ok); font-weight: 500; opacity: 1; }
 /* A reason and its fix button on one row: the text (and the file list under it) takes the rest, the button keeps its size. */
 .tcard.blocker .blk-row { display: flex; align-items: center; gap: 12px; }
 .tcard.blocker .blk-text { flex: 1; min-width: 0; display: grid; gap: 8px; overflow-wrap: anywhere; }
