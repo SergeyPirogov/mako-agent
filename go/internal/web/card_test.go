@@ -71,7 +71,10 @@ func TestCardByState(t *testing.T) {
 			return r
 		}(), nil), "merge", "skip skip done done now"},
 		{"MR, reviewer running", view(mr, func(v *recordView) { v.ReviewStep = "running" }), "open-mr", "skip skip done now todo"},
-		{"MR, check it yourself left", view(mr, func(v *recordView) { v.Self = &dispatch.SelfCheckView{Required: true, Left: 1, Blocks: true} }), "open-mr", "skip skip done done now"},
+		// Your check holds the merge: the checks stage is the current one, not the merge.
+		{"MR, check it yourself left", view(mr, func(v *recordView) { v.Self = &dispatch.SelfCheckView{Required: true, Left: 1, Blocks: true} }), "open-mr", "skip skip done now todo"},
+		// Only advice: it holds nothing, the merge waits for you.
+		{"MR, advised steps left", view(mr, func(v *recordView) { v.Self = &dispatch.SelfCheckView{Left: 2} }), "merge", "skip skip done done now"},
 		{"MR, checked yourself", view(mr, func(v *recordView) { v.Self = &dispatch.SelfCheckView{Required: true, Done: true} }), "merge", "skip skip done done now"},
 		{"MR, agent fixing the remarks", view(func() core.Record {
 			r := mr
@@ -240,5 +243,24 @@ func TestChecksStageNote(t *testing.T) {
 	mr := core.Record{Executor: "terminal", Worktree: "/wt", Status: core.Done, PRURL: "https://github.com/o/r/pull/1"}
 	if n := note(recordView{Record: mr, Column: "review", Blocked: "CI failed"}); !strings.HasPrefix(n, "CI failed\n") {
 		t.Errorf("failed MR CI: note %q, want it to start with \"CI failed\"", n)
+	}
+}
+
+// While your check holds the merge, the checks stage says so, and the merge does not say it waits for you.
+func TestCardSelfCheckOnChecksStage(t *testing.T) {
+	now := time.Now()
+	mr := core.Record{Task: core.Task{ID: "g/a#1", Title: "x"}, Status: core.Done, PRURL: "https://gitlab.example/g/a/-/merge_requests/1", Executor: "terminal"}
+	v := recordView{Record: mr, Column: "review", Self: &dispatch.SelfCheckView{Required: true, Left: 2, Blocks: true}}
+	var checks, merge string
+	for _, s := range cardOf(v, now).Stages {
+		if s.Key == stMerge {
+			merge = s.State + "|" + s.Note
+		}
+		if strings.Contains(s.Note, "check it yourself") {
+			checks = s.State + "|" + s.Note
+		}
+	}
+	if !strings.HasPrefix(checks, "now|CI green · check it yourself · 2 left") || merge != "todo|" {
+		t.Errorf("checks %q, merge %q", checks, merge)
 	}
 }
