@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
@@ -123,5 +124,61 @@ func TestJiraCommentsComplete(t *testing.T) {
 	tasks, err = j.FetchMine(context.Background())
 	if err != nil || len(tasks) != 1 || len(tasks[0].Comments) != 50 || !tasks[0].CommentsUnread {
 		t.Fatalf("failed list: %v %d comments, unread %v", err, len(tasks[0].Comments), tasks[0].CommentsUnread)
+	}
+}
+
+// The rest of a long thread is read once: the next poll takes it from memory while the issue's updated and its
+// number of comments stay the same, and reads it again when either changes.
+func TestJiraCommentsCached(t *testing.T) {
+	const total = perPage + 20
+	var mu sync.Mutex
+	updated, count, reads := "2026-01-01T00:00:00.000+0000", total, 0
+	comment := func(n int) map[string]any {
+		return map[string]any{"body": map[string]any{"type": "doc", "version": 1, "content": []any{map[string]any{"type": "paragraph",
+			"content": []any{map[string]any{"type": "text", "text": fmt.Sprintf("c%d", n)}}}}}, "author": map[string]any{"accountId": "a1"}}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.URL.Path {
+		case "/rest/api/3/myself":
+			w.Write([]byte(`{"accountId":"acc-1"}`))
+		case "/rest/api/3/search/jql":
+			json.NewEncoder(w).Encode(map[string]any{"isLast": true, "issues": []any{map[string]any{"key": "PAY-1", "fields": map[string]any{
+				"summary": "T", "updated": updated, "project": map[string]any{"key": "PAY"},
+				"comment": map[string]any{"comments": []any{comment(1)}, "total": count}}}}})
+		case "/rest/api/3/issue/PAY-1/comment":
+			reads++
+			start, _ := strconv.Atoi(r.URL.Query().Get("startAt"))
+			var cs []any
+			for n := start + 1; n <= min(start+perPage, count); n++ {
+				cs = append(cs, comment(n))
+			}
+			json.NewEncoder(w).Encode(map[string]any{"comments": cs, "total": count})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	j, _ := NewJira(&config.Tracker{ID: "jira", BaseURL: srv.URL}, "me@x", "tok")
+	fetch := func(want int) {
+		t.Helper()
+		tasks, err := j.FetchMine(context.Background())
+		if err != nil || len(tasks) != 1 || len(tasks[0].Comments) != want || tasks[0].Comments[want-1].Body != fmt.Sprintf("c%d", want) {
+			t.Fatalf("%v: %+v", err, tasks)
+		}
+	}
+	fetch(total)
+	first := reads
+	fetch(total)
+	if reads != first {
+		t.Fatalf("unchanged issue read its comments again: %d → %d reads", first, reads)
+	}
+	mu.Lock()
+	updated, count = "2026-01-02T00:00:00.000+0000", total+1
+	mu.Unlock()
+	fetch(total + 1)
+	if reads == first {
+		t.Fatal("a new comment was not read")
 	}
 }
