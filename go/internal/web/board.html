@@ -2600,8 +2600,8 @@ function ticketCard(d, i, thread) {
   const link = done ? madeLink(done) : "";
   return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Ticket draft</span></div>
     <b>${esc(d.title)}</b><div class="md ca-ticket-body">${md(d.description)}</div>
-    <div class="ca-ticket-foot">${done ? `<span class="muted">Task ${link}</span>` : `<span class="muted">You can edit it and pick a tracker before creating</span>`}<span class="spacer"></span>
-      ${done ? `<button type="button" disabled>Ticket created</button>` : `<button type="button" class="primary" data-ticket="${i}">Create ticket</button>`}</div></div>`;
+    <div class="ca-ticket-foot">${done ? `<span class="muted">Ticket created</span>` : `<span class="muted">You can edit it and pick a tracker before creating</span>`}<span class="spacer"></span>
+      ${done ? `<span class="ca-ticket-link">${link}</span>` : `<button type="button" class="primary" data-ticket="${i}">Create ticket</button>`}</div></div>`;
 }
 
 // "Create ticket": the agent's draft goes to the new task form over the chat, to be edited, given a tracker and created.
@@ -2660,8 +2660,8 @@ function planBlockCard(p, i, thread) {
   const done = made && made.title === (p.title || planTitle(p.plan)) ? made.id : null;
   return `<div class="ca-ticket"><div class="ca-ticket-h">${ICON.doc}<span>Plan</span></div>
     ${p.title ? `<b>${esc(p.title)}</b>` : ""}<div class="md ca-ticket-body">${md(p.plan)}</div>
-    <div class="ca-ticket-foot">${done ? `<span class="muted">${done.startsWith("chat-") ? "Sent to chat" : "Task"} ${madeLink(done)}</span>` : `<span class="muted">${data?.remote ? "Plans are handed over from the Mac" : "Hand it over to a new or an existing session"}</span>`}<span class="spacer"></span>
-      ${done ? `<button type="button" disabled>Plan sent</button>` : data?.remote ? "" : `<button type="button" class="primary" data-plan-block="${i}">Send plan to…</button>`}</div></div>`;
+    <div class="ca-ticket-foot">${done ? `<span class="muted">Plan sent to ${done.startsWith("chat-") ? "chat" : "task"}</span>` : `<span class="muted">${data?.remote ? "Plans are handed over from the Mac" : "Hand it over to a new or an existing session"}</span>`}<span class="spacer"></span>
+      ${done ? `<span class="ca-ticket-link">${madeLink(done)}</span>` : data?.remote ? "" : `<button type="button" class="primary" data-plan-block="${i}">Send plan to…</button>`}</div></div>`;
 }
 
 // «Send plan to…»: the plan's text (not a path to its file) goes to another session; the plan's own session stays as it
