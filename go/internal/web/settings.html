@@ -577,10 +577,7 @@ function renderOrca() {
     box.append(select(tm, "view", t("s.o.view"), [["chat", t("s.o.viewChat")], ["terminal", t("s.o.viewTerminal")]], { def: "chat", hint: t("s.o.viewHint") }));
     box.append(text(tm, "command", t("s.o.command"), { placeholder: "claude", hint: t("s.o.commandHint") }));
     box.append(text(tm, "setupCommand", t("s.o.setup"), { placeholder: t("s.o.setupPh"), hint: t("s.o.setupHint") }));
-    // Unset, as Mako reads it (config.DefaultPermissionMode): acceptEdits while nobody looks at what the agent does.
-    // A choice is kept as made: turning AutoTake or AutoFix on later in the same visit does not change it.
-    const unattended = cfg.notifications?.autoTake || tm.autoFix;
-    box.append(select(tm, "permissionMode", t("s.o.perm"), [["auto", t("s.o.permAuto")], ["acceptEdits", t("s.o.permEdits")], ["default", t("s.o.permDefault")], ["bypassPermissions", t("s.o.permBypass")]], { def: unattended ? "acceptEdits" : "auto", keep: true, hint: t("s.o.permHint") }));
+    box.append(select(tm, "permissionMode", t("s.o.perm"), [["auto", t("s.o.permAuto")], ["acceptEdits", t("s.o.permEdits")], ["default", t("s.o.permDefault")], ["bypassPermissions", t("s.o.permBypass")]], { def: "auto", keep: true, hint: t("s.o.permHint") }));
     const tools = document.createElement("div");
     tools.className = "field";
     tools.innerHTML = `<label>${t("s.o.tools")}</label><textarea placeholder="Bash(npm test:*)\nBash(git push:*)"></textarea>
