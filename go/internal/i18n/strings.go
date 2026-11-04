@@ -54,8 +54,12 @@ var goStrings = map[string][2]string{
 	"action.approvePlan":          {"Approve and do it", "Затвердити й робити"},
 
 	// The overnight summary's line.
-	"digest.waiting":              {"waiting for you", "чекає на вас"},
-	"digest.review":               {"MRs to merge", "MR до мерджу"},
+	"digest.waiting": {"waiting for you", "чекає на вас"},
+	"digest.review":  {"MRs to merge", "MR до мерджу"},
+	"digest.failed":  {"failed", "не вдалося"},
+	"digest.merged":  {"merged", "змерджено"},
+
+	// Why tasks failed, a line of the statistics for each cause Mako knows (core.ErrorKind).
 	"stats.reason.cancelled":      {"Cancelled", "Скасовано"},
 	"stats.reason.mrClosed":       {"MR closed without merging", "MR закрито без мерджу"},
 	"stats.reason.workspaceGone":  {"Workspace deleted, MR not opened", "Workspace видалено, MR не відкрито"},
@@ -63,8 +67,6 @@ var goStrings = map[string][2]string{
 	"stats.reason.trackerDeleted": {"Task deleted in the tracker", "Задачу видалено в трекері"},
 	"stats.reason.russian":        {"The task is written in Russian", "Задачу написано російською"},
 	"stats.reason.costCeiling":    {"The cost ceiling of the task is reached", "Досягнуто стелі вартості задачі"},
-	"digest.failed":               {"failed", "не вдалося"},
-	"digest.merged":               {"merged", "змерджено"},
 
 	// The menu bar.
 	"tray.openBoard":   {"Open the board", "Відкрити дошку"},

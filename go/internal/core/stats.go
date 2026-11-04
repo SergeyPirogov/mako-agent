@@ -441,9 +441,10 @@ func clean(r Record) bool {
 	return r.Attempt <= 1 && r.ReviewFixes == 0 && !reviewed(r)
 }
 
-// cancelled: stopped on purpose, from the board or in Orca, rather than gone wrong.
+// cancelled: stopped on purpose, from the board or in Orca, rather than gone wrong. A failed task whose error only
+// reads "Cancelled" is not: the board's cancel always ends in the cancelled status.
 func cancelled(r Record) bool {
-	return ErrorKindOf(r) == KindCancelled
+	return ErrorKindOf(r) == KindCancelled && (r.Status == Cancelled || strings.Contains(strings.ToLower(r.Error), "cancelled by the developer"))
 }
 
 // trend: an empty day for each day the trend shows, by its local date: the period's (at least one, so "today"

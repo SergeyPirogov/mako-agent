@@ -384,3 +384,20 @@ func TestErrorKindFromText(t *testing.T) {
 		}
 	}
 }
+
+// A failed task whose error only reads "Cancelled" is not a cancel (the board's cancel ends in the cancelled
+// status): it counts as failed, under the same line as the cancels; "cancelled by the developer" in any status is one.
+func TestSummarizeCancelledNeedsTheStatus(t *testing.T) {
+	app := Task{Project: "g/app"}
+	at := "2026-10-02T10:00:00Z"
+	st := Summarize([]Record{
+		{Status: Failed, Task: app, StartedAt: at, Error: "Cancelled"},
+		{Status: Failed, Task: app, StartedAt: at, Error: "Session cancelled by the developer"},
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	if st.Failed != 2 || st.Cancelled != 1 {
+		t.Fatalf("failed %d, cancelled %d", st.Failed, st.Cancelled)
+	}
+	if len(st.Reasons) != 1 || st.Reasons[0] != (Reason{"cancelled", "Cancelled", 2}) {
+		t.Fatalf("reasons %+v", st.Reasons)
+	}
+}

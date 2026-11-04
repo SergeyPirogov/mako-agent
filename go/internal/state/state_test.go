@@ -261,3 +261,36 @@ func TestOpenFillsErrorKindOfOldRecords(t *testing.T) {
 		t.Fatalf("not saved: %q", r.ErrorKind)
 	}
 }
+
+// A change that sets an Error without its ErrorKind gets the kind told from the text at once, not only at the
+// next start; one that clears the Error, or sets a text Mako does not know, drops the kind of the earlier failure.
+func TestUpdateKeepsErrorKindWithError(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind := func() string { r, _ := s.Get("t"); return r.ErrorKind }
+
+	s.Update("t", func(r *core.Record) { r.Status, r.Error = core.Failed, "Session cancelled by the developer" })
+	if kind() != core.KindCancelled {
+		t.Fatalf("kind from the text: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Error = "MR закрито без мерджу" })
+	if kind() != core.KindMRClosed {
+		t.Fatalf("kind after another error: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Error = "clone failed" })
+	if kind() != "" {
+		t.Fatalf("kind of an unknown error: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Error, r.ErrorKind = "Cancelled", core.KindCancelled })
+	s.Update("t", func(r *core.Record) { r.Error = "" })
+	if kind() != "" {
+		t.Fatalf("kind stayed after the error went: %q", kind())
+	}
+	s.Update("t", func(r *core.Record) { r.Status = core.Queued }) // no error change: the kind is not touched
+	s.Update("t", func(r *core.Record) { r.ErrorKind = core.KindMRClosed })
+	if kind() != core.KindMRClosed {
+		t.Fatalf("a kind set on its own: %q", kind())
+	}
+}

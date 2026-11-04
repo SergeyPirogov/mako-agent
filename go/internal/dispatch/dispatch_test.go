@@ -345,6 +345,26 @@ func TestFailureKindIsWritten(t *testing.T) {
 	if r, _ = d.Store.Get(id); r.Status != core.Cancelled || r.ErrorKind != core.KindCancelled {
 		t.Fatalf("cancel: status %s, error %q, kind %q", r.Status, r.Error, r.ErrorKind)
 	}
+
+	// Taken again, the task has neither the error nor its kind.
+	d.Take(ctx, id)
+	d.Wait()
+	if r, _ = d.Store.Get(id); r.Error != "" || r.ErrorKind != "" {
+		t.Fatalf("take: error %q, kind %q", r.Error, r.ErrorKind)
+	}
+
+	// Retried differently after a failure: the same.
+	d.Store.Update(id, func(r *core.Record) {
+		r.Status, r.Error, r.ErrorKind = core.Failed, "MR closed without merging", core.KindMRClosed
+	})
+	d.RemoveWorkspace = func(context.Context, string, string, string) error { return nil }
+	if err := d.Redo(ctx, id, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	d.Wait()
+	if r, _ = d.Store.Get(id); r.Error != "" || r.ErrorKind != "" {
+		t.Fatalf("redo: error %q, kind %q", r.Error, r.ErrorKind)
+	}
 }
 
 // The issue goes to review only after CI: in work while it runs, «Заблоковані» on the board when it fails, and
