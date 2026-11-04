@@ -1263,3 +1263,29 @@ func TestBoardNextActionsContinue(t *testing.T) {
 		t.Error("the hints are no longer hidden while the agent works or waits")
 	}
 }
+
+// Resume on a task whose worktree was deleted: the server says why ({ok:false,error}). The board shows it as a toast:
+// TestBoardToastsAFailedAction.
+func TestResumeWithoutWorktreeIsReported(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	gone := filepath.Join(t.TempDir(), "deleted")
+	store.Update("grp/app#7", func(r *core.Record) {
+		r.Status, r.Executor, r.Worktree = core.HandedOff, "terminal", gone
+		r.Task = core.Task{ID: "grp/app#7", Title: "Gone", Project: "grp/app"}
+	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/resume?id=grp/app%237", nil)
+	req.Header.Set("Origin", srv.URL)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	json.NewDecoder(res.Body).Decode(&out)
+	if msg, _ := out["error"].(string); out["ok"] != false || !strings.Contains(msg, "was deleted") {
+		t.Fatalf("resume without a worktree: %v", out)
+	}
+
+}

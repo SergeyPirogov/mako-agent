@@ -383,13 +383,20 @@ function restoreUnsent(v, typed, att) {
   v.att = [...att, ...v.att];
 }
 
-async function post(action, id, extra = "") {
-  await fetch(`/api/${action}?id=${encodeURIComponent(id ?? "")}${extra}`, { method: "POST" });
+// act: a POST to the server, then the board again. A refusal ({ok:false,error}, or a status of 400 and over) is a toast;
+// an answer with ok:true is not, whatever else it holds. So no action from a card fails silently. Returns the answer.
+async function act(url) {
+  const res = await postJSON(url, {});
+  if (res.ok === false) toast(`⚠ ${res.error}`, true);
   await load();
+  return res;
 }
-$("pause").onclick = () => fetch(`/api/pause?on=${data?.paused ? 0 : 1}`, { method: "POST" }).then(load);
-$("awake").onclick = () => fetch(`/api/awake?on=${data?.awake?.on ? 0 : 1}`, { method: "POST" }).then(load);
-$("restart").onclick = () => fetch(`/api/restart?on=${data?.restart?.pending ? 0 : 1}`, { method: "POST" }).then(load);
+async function post(action, id, extra = "") {
+  return act(`/api/${action}?id=${encodeURIComponent(id ?? "")}${extra}`);
+}
+$("pause").onclick = () => act(`/api/pause?on=${data?.paused ? 0 : 1}`);
+$("awake").onclick = () => act(`/api/awake?on=${data?.awake?.on ? 0 : 1}`);
+$("restart").onclick = () => act(`/api/restart?on=${data?.restart?.pending ? 0 : 1}`);
 $("stats-btn").onclick = () => {
   selected = null; statsOpen = true; newOpen = false; digest = null;
   history.replaceState(null, "", location.pathname);
