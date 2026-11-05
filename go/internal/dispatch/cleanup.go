@@ -13,6 +13,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 )
 
 // A merged or archived task leaves nothing behind on the Mac: its worktree, its local branch, and the
@@ -35,8 +36,17 @@ func (c *Cleanup) add(o Cleanup) {
 	c.KeptTasks = append(c.KeptTasks, o.KeptTasks...)
 }
 
-// cleanable: the task is over for good: merged, or taken off the board.
+// mrOpen: the task is done and its MR waits for review or merge; the worktree is what «Fix CI», resume and
+// the auto-fix need, so it stays whatever the board does with the card.
+func mrOpen(r core.Record) bool {
+	return r.Status == core.Done && r.PRURL != "" && r.ReviewState == ""
+}
+
+// cleanable: the task is over for good: merged, or taken off the board (with no open MR behind it).
 func cleanable(r core.Record) bool {
+	if mrOpen(r) {
+		return false
+	}
 	return r.ReviewState == "merged" || r.ArchivedAt != 0
 }
 
@@ -46,9 +56,27 @@ func (d *Dispatcher) agentBusy(r core.Record) bool {
 		return !d.agentIdle(r.ID)
 	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	a := d.agents[r.ID]
-	return a != nil && (a.State == "working" || a.State == "waiting")
+	d.mu.Unlock()
+	if a != nil && (a.State == "working" || a.State == "waiting") {
+		return true
+	}
+	// WatchAgents follows only the tasks in work; an agent fixing a review's remarks on a task past its MR
+	// is asked in Orca itself. What cannot be told counts as busy: a worktree does not come back.
+	if mrOpen(r) && d.Term != nil && (r.Worktree != "" || branchOf(r) != "") {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		o := d.Config().Orca
+		ws, err := d.Term.Workspaces(ctx, o)
+		if err != nil {
+			return true
+		}
+		if w := orca.FindWorkspace(ws, r.Worktree, branchOf(r)); w != nil {
+			st := d.look(ctx, o, r, ws, nil, time.Now()).State
+			return st == "working" || st == "waiting"
+		}
+	}
+	return false
 }
 
 // CleanTask takes away the task's worktree, its local branch and those of its earlier attempts; force takes
