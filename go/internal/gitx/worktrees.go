@@ -151,7 +151,7 @@ func UnsavedCommits(ctx context.Context, worktree string, detached bool, base st
 		return 0, err
 	}
 	if HasRemoteBranch(ctx, worktree, name) {
-		return Unpushed(ctx, worktree), nil
+		return Unpushed(ctx, worktree, base), nil
 	}
 	ahead, _, err := AheadBehind(ctx, worktree, base)
 	return ahead, err
@@ -166,9 +166,11 @@ func HasRemoteBranch(ctx context.Context, worktree, branch string) bool {
 	return err == nil
 }
 
-// Unpushed: commits of the worktree's branch that its remote branch (origin/<branch>) does not have yet.
-// Zero when the remote branch is gone (a merged branch is often deleted there): nothing to compare with.
-func Unpushed(ctx context.Context, worktree string) int {
+// Unpushed: commits of the worktree's branch that its remote branch (origin/<branch>) does not have yet, and that
+// the base branch does not hold either: as the same commit, or as the same change under another hash (the branch
+// was rebased or rewritten after it was pushed and merged). Zero when the remote branch is gone (a merged branch
+// is often deleted there): nothing to compare with. base "" compares with the remote branch only.
+func Unpushed(ctx context.Context, worktree, base string) int {
 	name, err := Run(ctx, worktree, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil || name == "HEAD" {
 		return 0
@@ -176,10 +178,39 @@ func Unpushed(ctx context.Context, worktree string) int {
 	if _, err := Run(ctx, worktree, "rev-parse", "--verify", "-q", "origin/"+name); err != nil {
 		return 0
 	}
-	out, err := Run(ctx, worktree, "rev-list", "--count", "origin/"+name+"..HEAD")
+	args := []string{"rev-list", "origin/" + name + "..HEAD"}
+	baseRef := ""
+	if base != "" {
+		baseRef = "origin/" + base
+		if _, e := Run(ctx, worktree, "rev-parse", "--verify", "-q", baseRef); e != nil {
+			baseRef = base
+			if _, e := Run(ctx, worktree, "rev-parse", "--verify", "-q", baseRef); e != nil {
+				baseRef = ""
+			}
+		}
+	}
+	if baseRef != "" {
+		args = append(args, "^"+baseRef)
+	}
+	out, err := Run(ctx, worktree, args...)
 	if err != nil {
 		return 0
 	}
-	n, _ := strconv.Atoi(strings.TrimSpace(out))
+	in := map[string]bool{} // the same change is already on the base: «- <hash>» of git cherry
+	if baseRef != "" {
+		if eq, err := Run(ctx, worktree, "cherry", baseRef, "HEAD"); err == nil {
+			for _, l := range strings.Split(eq, "\n") {
+				if h, ok := strings.CutPrefix(strings.TrimSpace(l), "- "); ok {
+					in[h] = true
+				}
+			}
+		}
+	}
+	n := 0
+	for _, h := range strings.Fields(out) {
+		if !in[h] {
+			n++
+		}
+	}
 	return n
 }
