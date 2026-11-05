@@ -43,6 +43,13 @@ body { display: block; }
 .wt-title code { font-size: 13px; font-weight: 600; color: var(--fg); }
 .wt-meta { font-size: 12.5px; line-height: 1.4; margin-top: 2px; }
 .wt-git { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Permissions: a rule asked for (editable before it is kept) and the rules allowed. */
+.perm-g { align-items: flex-start; }
+.perm-g .wt-title input { width: 100%; max-width: 520px; font: 13px var(--mono); }
+.perm-g .wt-path code { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.perm-g-btns { display: flex; gap: 6px; flex: none; }
+.perm-a code { font-size: 13px; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .perm-g { flex-direction: column; align-items: stretch; } .perm-g .wt-body { width: 100%; } }
 .wt-size { white-space: nowrap; font-size: 12.5px; padding-top: 2px; }
 .wt-path span { cursor: copy; font-family: ui-monospace, monospace; font-size: 12px; }
 .wt-path a { margin-left: 8px; }
@@ -188,6 +195,11 @@ summary { cursor: pointer; color: var(--mute); padding: 6px 0; }
       <h2 data-t="s.limits.title"></h2>
       <p class="lead" data-t="s.limits.lead"></p>
       <div class="card" id="limits"></div>
+    </div>
+    <div class="pane" data-pane="permissions">
+      <h2 data-t="s.perm.title"></h2>
+      <p class="lead" data-t="s.perm.lead"></p>
+      <div id="perms"></div>
     </div>
     <div class="pane" data-pane="disk">
       <h2 data-t="s.disk.title"></h2>
@@ -956,7 +968,7 @@ function renderNav() {
     ts.map((tk, i) => item(`tracker:${i}`, NAMES[tk.type] ?? esc(tk.type), trackerNote(tk), problems.some((p) => p.startsWith(trackerId(tk) + ":")))).join("") +
     `<button data-go="add" class="add ${pane === "add" ? "on" : ""}">${t("s.nav.add")}</button>` +
     `<div class="group">${t("s.nav.work")}</div>` + item("orca", t("s.orca.title"), (onTerminal() ? t("s.nav.terminal") : "Orca · ") + t((orcaExecutor().mrBy ?? "agent") === "me" ? "s.nav.mrByMe" : "s.nav.mrByAgent")) +
-    item("routes", t("s.routes.title"), t("s.r.mode." + (cfg.routes?.mode ?? "balanced"))) + item("comments", t("s.comments.title")) + item("limits", t("s.limits.title")) + item("disk", t("s.disk.title"), diskNote) + item("notifications", t("s.notif.title")) + item("phone", t("s.phone.title"), phoneNote) + item("mako", t("s.mako.title"), makoNote) +
+    item("routes", t("s.routes.title"), t("s.r.mode." + (cfg.routes?.mode ?? "balanced"))) + item("comments", t("s.comments.title")) + item("limits", t("s.limits.title")) + item("permissions", t("s.perm.title"), permNote) + item("disk", t("s.disk.title"), diskNote) + item("notifications", t("s.notif.title")) + item("phone", t("s.phone.title"), phoneNote) + item("mako", t("s.mako.title"), makoNote) +
     item("language", t("s.lang.title"), LANGS.find(([l]) => l === (cfg.agentLanguage ?? "en"))?.[1]);
   for (const b of $("side").querySelectorAll("[data-go]")) b.onclick = () => show(b.dataset.go);
   // On a phone the menu is a row that scrolls: keep the open section in view.
@@ -983,9 +995,71 @@ function show(id) {
   renderTrackers();
   if (id === "phone") renderPhone();
   if (id === "disk") renderDisk();
+  if (id === "permissions") renderPerms();
   if (id === "mako") renderMako();
   const at = toLessons && document.querySelector("[data-lessons]");
   window.scrollTo(0, at ? Math.max(0, at.getBoundingClientRect().top + window.scrollY - 16) : 0);
+}
+
+// Permissions: what the agents asked you to allow, by the rule that would spare the question, and the rules
+// already allowed. A rule can be edited before it is kept: «Bash(go run:*)» for every «go run …».
+let permNote = "";
+// perms:begin
+function permGroupRow(g) {
+  const when = diskAgo(new Date(g.last * 1000).toISOString());
+  return `<div class="device perm-g" data-g="${esc(g.rule)}"><div class="wt-body">
+      <div class="wt-title"><input type="text" class="perm-g-rule" value="${esc(g.rule)}" spellcheck="false" autocomplete="off" aria-label="${esc(t("s.perm.rule"))}"></div>
+      <div class="muted wt-meta">${t("s.perm.asked", { n: g.count, agents: plural(g.agents, "s.perm.agents"), when })}</div>
+      ${g.example ? `<div class="muted wt-meta wt-path"><code title="${esc(g.example)}">${esc(g.example)}</code></div>` : ""}</div>
+    <div class="perm-g-btns"><button class="primary" data-perm-allow>${t("s.perm.allow")}</button><button data-perm-dismiss>${t("s.perm.dismiss")}</button></div></div>`;
+}
+function allowedRow(rule) {
+  return `<div class="device perm-a"><code>${esc(rule)}</code><span class="spacer"></span><button class="danger" data-perm-remove="${esc(rule)}">${t("s.perm.remove")}</button></div>`;
+}
+// What a button on the page asks of /api/settings/permissions; null for a click on no button of it.
+function permAction(b) {
+  if (b.dataset.permRemove !== undefined) return { remove: [b.dataset.permRemove] };
+  const row = b.closest("[data-g]");
+  if (!row) return null;
+  const was = row.dataset.g;
+  if (b.dataset.permDismiss !== undefined) return { dismiss: [was] };
+  if (b.dataset.permAllow === undefined) return null;
+  const rule = row.querySelector(".perm-g-rule").value.trim();
+  // An edited rule is kept in place of the one asked: that one is done with too.
+  return { allow: [rule], dismiss: rule !== was ? [was] : [] };
+}
+// perms:end
+async function renderPerms(msg = "", bad = false) {
+  const box = $("perms");
+  if (!box.innerHTML) box.innerHTML = `<div class="card muted">${t("s.d.counting")}</div>`;
+  let r;
+  try {
+    r = await (await fetch("/api/settings/permissions")).json();
+  } catch {
+    box.innerHTML = `<div class="card bad">${t("s.noAnswer")}</div>`;
+    return;
+  }
+  const groups = r.groups ?? [], allowed = r.allowed ?? [];
+  permNote = groups.length ? plural(groups.length, "s.perm.note") : "";
+  renderNav();
+  box.innerHTML = `${msg ? `<div class="card ${bad ? "bad" : "muted"}">${esc(msg)}</div>` : ""}
+    <div class="card"><div class="card-head"><b>${t("s.perm.askedTitle")}</b></div>${groups.length ? groups.map(permGroupRow).join("") : `<p class="muted">${t("s.perm.none")}</p>`}</div>
+    <div class="card"><div class="card-head"><b>${t("s.perm.allowedTitle")}</b></div>${allowed.length ? allowed.map(allowedRow).join("") : `<p class="muted">${t("s.perm.noneAllowed")}</p>`}</div>`;
+  box.onclick = async (e) => {
+    const b = e.target.closest("button");
+    const body = b && permAction(b);
+    if (!body) return;
+    for (const x of box.querySelectorAll("button")) x.disabled = true;
+    const res = await fetch("/api/settings/permissions", { method: "POST", body: JSON.stringify(body) })
+      .then((x) => x.json()).catch(() => ({ ok: false, error: t("s.noAnswer") }));
+    if (res.ok && Array.isArray(res.allowed)) {
+      // The page's copy of the settings follows, so a later «Save» keeps the change.
+      const name = Object.keys(cfg.executors ?? {}).find((n) => cfg.executors[n]?.type === "terminal");
+      if (name) { if (res.allowed.length) cfg.executors[name].allowedTools = res.allowed; else delete cfg.executors[name].allowedTools; }
+    }
+    const done = body.allow?.length ? t("s.perm.allowed", { rule: body.allow[0] }) : body.remove ? t("s.perm.removed", { rule: body.remove[0] }) : t("s.perm.dismissed", { rule: body.dismiss[0] });
+    renderPerms(res.ok ? done : res.error, !res.ok);
+  };
 }
 
 // The agents' worktrees: what each one holds, and removing the chosen ones.

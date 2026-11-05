@@ -394,8 +394,11 @@ func (d *Dispatcher) startQuestion(p CodeProject, t CodeThread, text string, set
 	}
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: t.ID, Worktree: dir, Command: command, Args: args, Prompt: text, History: history, Gate: codeGate, SetupDone: setup,
-		OnLimits:      d.limitsReported,
-		OnLimit:       func(until int64, resume bool) { d.noteLimit(t.ID, until, resume) },
+		OnLimits: d.limitsReported,
+		OnLimit:  func(until int64, resume bool) { d.noteLimit(t.ID, until, resume) },
+		OnPermission: func(tool string, input json.RawMessage, rules []string) {
+			d.NotePermission(t.ID, tool, input, rules)
+		},
 		OnAuth:        d.NoteAuth,
 		ResumeOnReset: d.resumeFlag(t.ID),
 		OnSession:     func(sid, _ string) { d.touchThread(t.ID, sid) },

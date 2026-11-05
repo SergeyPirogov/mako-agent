@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -201,6 +202,42 @@ func readBody(w http.ResponseWriter, r *http.Request, max int64) ([]byte, bool) 
 	return nil, false
 }
 
+// chosenRules: the rules {"rules": [...]} a permission request's «Always allow selected» sends, nil when it sends
+// none (a notification's button, an older board). Each must be a rule Mako may keep.
+func chosenRules(r *http.Request) ([]string, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 16<<10+1))
+	if err != nil || len(bytes.TrimSpace(body)) == 0 {
+		return nil, nil
+	}
+	if len(body) > 16<<10 {
+		return nil, errors.New(errTooLong)
+	}
+	var in struct {
+		Rules *[]string `json:"rules"`
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, fmt.Errorf("could not read the rules: %w", err)
+	}
+	if in.Rules == nil {
+		return nil, nil
+	}
+	out := []string{}
+	for _, x := range *in.Rules {
+		x = strings.TrimSpace(x)
+		if x == "" {
+			continue
+		}
+		if !chat.ValidRule(x) {
+			return nil, fmt.Errorf("%q is not a rule Mako can keep: name the command, e.g. Bash(git push:*)", x)
+		}
+		out = append(out, x)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no rule is ticked: tick one, or press Allow")
+	}
+	return out, nil
+}
+
 // controlChat: the running agent's controls in its chat — an answer to its question, an option of one, the mode,
 // a tool permission, or stopping the current step (interrupt).
 func (s *Server) controlChat(c *chat.Session, action string, r *http.Request) error {
@@ -227,9 +264,20 @@ func (s *Server) controlChat(c *chat.Session, action string, r *http.Request) er
 	case "permit":
 		req, decision := q.Get("req"), q.Get("decision")
 		rules := c.AlwaysRules(req)
-		if err := c.Permit(req, decision); err != nil {
+		var chosen []string // the rules ticked (and maybe edited) on the request; nil: all it suggests
+		if decision == "always" {
+			var err error
+			if chosen, err = chosenRules(r); err != nil {
+				return err
+			}
+			if chosen != nil {
+				rules = chosen
+			}
+		}
+		if err := c.Permit(req, decision, chosen); err != nil {
 			return err
 		}
+		rules = slices.DeleteFunc(slices.Clone(rules), func(x string) bool { return !chat.ValidRule(x) })
 		// «Always» is for every agent after this one too: their Claude starts with the rules in --allowedTools.
 		if decision == "always" && len(rules) > 0 {
 			if err := s.allowTools(r.Context(), rules); err != nil {

@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"strings"
+	"unicode"
 )
 
 // subcommanded: the programs whose second word says what they do (git add, go test, gh pr): a rule for them keeps
@@ -28,7 +29,7 @@ func BashRules(line string) []string {
 		if subcommanded[words[0]] && len(words) > 1 && !strings.HasPrefix(words[1], "-") {
 			rule = words[0] + " " + words[1] + ":*"
 		}
-		if strings.ContainsAny(words[0], "$`(){}") || seen[rule] {
+		if strings.ContainsAny(words[0], "$`(){}") || !hasAlnum(words[0]) || seen[rule] {
 			continue
 		}
 		seen[rule] = true
@@ -168,6 +169,66 @@ func skipHeredoc(rs []rune, nl int, d string) int {
 func isAssignment(w string) bool {
 	eq := strings.IndexByte(w, '=')
 	return eq > 0 && !strings.ContainsAny(w[:eq], "-/.:")
+}
+
+// hasAlnum: the word has a letter or a digit; «.», «-», «##» or nothing are not commands a rule should allow.
+func hasAlnum(w string) bool {
+	return strings.IndexFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) >= 0
+}
+
+// ParseRule splits a rule as --allowedTools takes it: "Bash(git add:*)" is Bash and "git add:*", "WebFetch" is
+// WebFetch and "". ok is false for what is not a rule.
+func ParseRule(rule string) (tool, content string, ok bool) {
+	rule = strings.TrimSpace(rule)
+	tool, content, paren := strings.Cut(rule, "(")
+	if paren {
+		if !strings.HasSuffix(content, ")") {
+			return "", "", false
+		}
+		content = strings.TrimSuffix(content, ")")
+	}
+	if tool == "" || strings.IndexFunc(tool, func(r rune) bool { return !(r == '_' || r == '-' || unicode.IsLetter(r) || unicode.IsDigit(r)) }) >= 0 {
+		return "", "", false
+	}
+	if paren && strings.TrimSpace(content) == "" {
+		return "", "", false
+	}
+	return tool, content, true
+}
+
+// ValidRule: a rule Mako may keep. A Bash rule must name a command: «Bash(:*)» would let any line through,
+// «Bash(.:*)» any script, and the words of a commit message are no commands either.
+func ValidRule(rule string) bool {
+	tool, content, ok := ParseRule(rule)
+	if !ok || strings.ContainsAny(content, "\n\r") {
+		return false
+	}
+	if tool == "Bash" && content != "" {
+		prefix := strings.TrimSuffix(strings.TrimSpace(content), ":*")
+		return strings.TrimSpace(prefix) != "" && hasAlnum(strings.Fields(prefix)[0])
+	}
+	return true
+}
+
+// rulesUpdate: the permission update that keeps rules for this agent's session, as Claude Code suggests one.
+func rulesUpdate(rules []string) json.RawMessage {
+	out := []map[string]string{}
+	for _, r := range rules {
+		tool, content, ok := ParseRule(r)
+		if !ok || !ValidRule(r) {
+			continue
+		}
+		rule := map[string]string{"toolName": tool}
+		if content != "" {
+			rule["ruleContent"] = content
+		}
+		out = append(out, rule)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal([]map[string]any{{"type": "addRules", "rules": out, "behavior": "allow", "destination": "session"}})
+	return b
 }
 
 // bashSuggestions: what «Always allow» adds when Claude Code suggests nothing for a Bash line.

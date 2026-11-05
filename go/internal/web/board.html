@@ -5201,10 +5201,11 @@ function chatItem(it, i, v) {
         return `<div class="perm-done ${it.status}">${{ allowed: "✓ You allowed once", always: "✓ Always allowed", denied: "✗ You said no", cancelled: "✗ Not answered: the agent stopped asking" }[it.status] ?? it.status}: <code>${esc(it.tool === "Bash" ? arg : `${it.tool} ${arg}`)}</code></div>`;
       }
       const sug = Array.isArray(it.suggestions) ? it.suggestions[0] : null;
-      const always = !sug ? "" : sug.type === "addRules" ? `Allow ${(sug.rules ?? []).map((r) => r.ruleContent || r.toolName).join(", ")}`
+      const picks = permRulesHTML(it);
+      const always = picks ? "Always allow selected" : !sug ? "" : sug.type === "addRules" ? `Allow ${(sug.rules ?? []).map((r) => r.ruleContent || r.toolName).join(", ")}`
         : sug.type === "setMode" && sug.mode === "acceptEdits" ? "Allow file edits" : "Always allow";
       return `<div class="perm"><div class="perm-h"><b>The agent asks for permission</b><span class="muted">· ${esc(it.tool)}</span></div>
-        <code class="perm-cmd">${esc(arg)}</code>
+        <code class="perm-cmd">${esc(arg)}</code>${picks}<div class="perm-warn" hidden></div>
         <div class="perm-btns"><button type="button" class="primary" data-permit="${esc(it.id)}" data-d="allow">Allow</button>
           ${always ? `<button type="button" data-permit="${esc(it.id)}" data-d="always" title="${esc(always)}">${esc(always.length > 48 ? always.slice(0, 47) + "…" : always)}</button>` : ""}
           <button type="button" class="danger" data-permit="${esc(it.id)}" data-d="deny">No</button></div></div>`;
@@ -5309,10 +5310,46 @@ function planDo(v, b) {
 function permitClick(e, id) {
   const p = e.target.closest("[data-permit]");
   if (!p) return false;
+  const warn = (msg) => {
+    const w = p.closest(".perm, .dock-in")?.querySelector(".perm-warn, .dock-warn");
+    if (w) { w.hidden = !msg; w.textContent = msg ? `⚠ ${msg}` : ""; }
+  };
+  // «Always allow selected»: only the rules ticked, as you edited them.
+  const picks = p.dataset.d === "always" ? permPicks[p.dataset.permit] : null;
+  const rules = picks ? picks.filter((r) => r.on).map((r) => r.rule.trim()).filter(Boolean) : null;
+  if (rules && !rules.length) { warn("Tick a rule to keep, or press Allow"); return true; }
+  warn("");
   p.disabled = true;
-  fetch(`/api/permit?id=${encodeURIComponent(id)}&req=${encodeURIComponent(p.dataset.permit)}&decision=${p.dataset.d}`, { method: "POST" }).then(() => pollChat());
+  fetch(`/api/permit?id=${encodeURIComponent(id)}&req=${encodeURIComponent(p.dataset.permit)}&decision=${p.dataset.d}`, { method: "POST", body: rules ? JSON.stringify({ rules }) : undefined })
+    .then((r) => r.json()).catch(() => ({ ok: false, error: "the answer did not reach Mako" }))
+    .then((r) => { if (r?.ok === false) { p.disabled = false; warn(r.error); } pollChat(); });
   return true;
 }
+// perm-rules:begin
+// «Always allow» on a request: the rules it would keep, each ticked and editable. What you change stays while the
+// board redraws, until the request is answered.
+const permPicks = {};
+function permRules(it) {
+  const sug = Array.isArray(it.suggestions) ? it.suggestions[0] : null;
+  if (sug?.type !== "addRules" || !(sug.rules ?? []).length) return null;
+  return (permPicks[it.id] ??= sug.rules.map((r) => ({ rule: r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName, on: true })));
+}
+function permRulesHTML(it) {
+  const rules = permRules(it);
+  if (!rules) return "";
+  return `<div class="perm-rules" data-perm-rules="${esc(it.id)}"><span class="muted">Always allow:</span>${rules.map((r, i) =>
+    `<label class="perm-rule"><input type="checkbox" data-rule-on="${i}" ${r.on ? "checked" : ""} aria-label="Keep this rule"><input type="text" data-rule="${i}" value="${esc(r.rule)}" size="${Math.max(12, r.rule.length + 2)}" spellcheck="false" autocomplete="off" aria-label="Rule"></label>`).join("")}</div>`;
+}
+function permRuleInput(e) {
+  const box = e.target.closest?.("[data-perm-rules]");
+  const p = box && permPicks[box.dataset.permRules];
+  if (!p) return;
+  if (e.target.dataset.rule !== undefined) p[+e.target.dataset.rule].rule = e.target.value;
+  if (e.target.dataset.ruleOn !== undefined) p[+e.target.dataset.ruleOn].on = e.target.checked;
+}
+document.addEventListener("input", permRuleInput);
+document.addEventListener("change", permRuleInput);
+// perm-rules:end
 const dockWarn = (v, msg) => { const w = v.el.querySelector(".dock-warn"); if (w) { w.hidden = !msg; w.textContent = msg ? `⚠ ${msg}` : ""; } };
 // «Always allow» names the rule Claude suggests keeping.
 function alwaysLabel(it) {
@@ -5365,9 +5402,9 @@ function drawDock(v, it) {
     planButtons(v);
     return;
   }
-  const arg = permArg(it.input), always = alwaysLabel(it);
+  const picks = permRulesHTML(it), arg = permArg(it.input), always = picks ? "Always allow selected" : alwaysLabel(it);
   d.innerHTML = `<div class="dock-in"><div class="dock-h"><span class="dock-ic" aria-hidden="true">!</span><b>The agent asks for permission</b><span class="muted">· ${esc(it.tool)}</span>${wait}</div>
-    <code class="perm-cmd">${esc(arg)}</code>${warn}
+    <code class="perm-cmd">${esc(arg)}</code>${picks}${warn}
     <div class="dock-row">${instead}<span class="spacer"></span>
       <button type="button" class="danger" data-permit="${esc(it.id)}" data-d="deny">No</button>
       ${always ? `<button type="button" data-permit="${esc(it.id)}" data-d="always" title="${esc(always)}">${esc(always.length > 56 ? always.slice(0, 55) + "…" : always)}</button>` : ""}
