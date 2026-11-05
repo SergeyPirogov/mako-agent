@@ -142,6 +142,9 @@ func FullPrompt(j Job, o config.Orca) string {
 	if p := Protected(j); p != "" {
 		parts = append(parts, p)
 	}
+	if q := OpenQuestions(j); q != "" {
+		parts = append(parts, q)
+	}
 	return strings.Join(append(parts, Instructions(o.Instructions, o.MRBy, j)), "\n\n")
 }
 
@@ -190,6 +193,24 @@ func Screenshots(j Job) string {
 		"3. Never leave that section out of a merge request that changes the pages: if a screenshot cannot be taken (no\n" +
 		"   Chrome, the app does not start, the state cannot be shown), say why there; if the change does not alter the\n" +
 		"   look, say so there and why."
+}
+
+// OpenQuestions: the estimate's questions left open, in the agent's language: an answer among the task's comments
+// wins, else the assumption, and the merge request lists the ones it went with. The estimate wrote them from the
+// tracker's text, so they come fenced as data; "" when there are none.
+func OpenQuestions(j Job) string {
+	var lines []string
+	for i, q := range j.Open {
+		line := fmt.Sprintf("%d. %s", i+1, q.Q)
+		if q.Assume != "" {
+			line += "\n   " + i18n.In(j.Language, "agent.assume", q.Assume)
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return i18n.In(j.Language, "agent.openQuestions", core.Untrusted("open questions of the estimate", true, strings.Join(lines, "\n")))
 }
 
 // Protected: the repo's paths the agent must not touch (riskPaths with the level "block"), in the agent's

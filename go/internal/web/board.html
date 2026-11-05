@@ -1985,7 +1985,7 @@ function estimateHTML(r, card) {
   // While the estimate runs again (after the answers were sent) the old questions are answered: no empty form.
   const n = splitQuestions(e.questions).length;
   const questions = !fresh || !n ? "" : e.state === "running" ? `<div class="sec"><h4><span class="ic">?</span>Questions about the task</h4><p class="muted">Analysing the answers and estimating the task again…</p></div>`
-    : `<details class="qs" data-qs ${qOpen[r.id] ? "open" : ""}><summary><span class="ic">?</span>${n} ${plural(n, "question", "questions")} for the tracker<span class="muted"> ▸</span></summary>${questionsHTML(r, e)}</details>`;
+    : `<details class="qs" data-qs ${qOpen[r.id] ? "open" : ""}><summary><span class="ic">?</span>${n} ${plural(n, "question", "questions")} for the tracker${allAssumed(e) ? `<span class="muted"> · the agent will assume if not answered</span>` : ""}<span class="muted"> ▸</span></summary>${questionsHTML(r, e)}</details>`;
   const note = e.state === "running" ? `<span class="muted">estimating again…</span>` : btn("Assess again");
   return card("Estimate", `<div class="tcard-b">${line}</div>${fresh ? outlookHTML(r.outlook) : ""}${rec}${questions}`, "assess", note);
 }
@@ -2034,8 +2034,17 @@ const splitQuestions = (text) => {
 let answerDrafts = (() => { try { return JSON.parse(localStorage.getItem("mako-answers")) || {}; } catch { return {}; } })();
 const saveAnswers = () => { try { localStorage.setItem("mako-answers", JSON.stringify(answerDrafts)); } catch {} };
 const answersErr = {}, answersBusy = {};
+// questions:begin
+// A question of the estimate, what the agent goes with when it is not answered, and the field for the answer.
+function questionHTML(q, i, assume) {
+  return `<li class="qa-item"><div class="qa-q">${md(q)}</div>${assume ? `<div class="qa-assume"><span class="muted">If not answered, the agent will:</span> ${esc(assume)}</div>` : ""}`
+    + `<textarea class="qa" data-qa="${i}" data-q="${esc(q)}" rows="2" placeholder="${assume ? "Answer to change it, or leave it empty" : "Answer (can be left empty)"}" aria-label="Answer to question ${i + 1}"></textarea></li>`;
+}
+// Every question comes with what the agent assumes: none has to wait for an answer.
+const allAssumed = (e) => { const n = splitQuestions(e?.questions).length; return n > 0 && (e.assumptions ?? []).slice(0, n).filter((a) => a?.trim()).length === n; };
+// questions:end
 function questionsHTML(r, e) {
-  const items = splitQuestions(e.questions).map((q, i) => `<li class="qa-item"><div class="qa-q">${md(q)}</div><textarea class="qa" data-qa="${i}" data-q="${esc(q)}" rows="2" placeholder="Answer (can be left empty)" aria-label="Answer to question ${i + 1}"></textarea></li>`).join("");
+  const items = splitQuestions(e.questions).map((q, i) => questionHTML(q, i, e.assumptions?.[i]?.trim())).join("");
   const err = answersErr[r.id] ? `<div class="mr-err">${esc(answersErr[r.id])}</div>` : "";
   return `<div class="sec warn"><h4><span class="ic">?</span>What to clarify in the tracker</h4><ol class="qa-list">${items}</ol>${err}
     <div class="qa-bar"><button type="button" class="ghost" data-answers ${answersBusy[r.id] ? "disabled" : ""} title="Mako will post one comment with the answers to the task and estimate it again">${answersBusy[r.id] ? "Sending…" : "Send to tracker"}</button></div></div>`;

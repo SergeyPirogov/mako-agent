@@ -10,6 +10,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
+	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
@@ -41,6 +42,38 @@ func SplitQuestions(md string) []string {
 		}
 	}
 	return out
+}
+
+// openQuestions: the estimate's questions for the agent, each with what it assumes; none when the estimate is not
+// of the task as it is now. Those answered on the card are in the task's comments, which win over the assumption.
+func openQuestions(r core.Record) []orca.Question {
+	e := r.Estimate
+	if e == nil || e.State != "done" || !estimateFresh(e, r.Task) {
+		return nil
+	}
+	var out []orca.Question
+	for i, q := range SplitQuestions(e.Questions) {
+		a := ""
+		if i < len(e.Assumptions) {
+			a = e.Assumptions[i]
+		}
+		out = append(out, orca.Question{Q: q, Assume: a})
+	}
+	return out
+}
+
+// allAssumed: every question of the estimate comes with what to assume, so none has to wait for an answer.
+func allAssumed(e *core.Estimate) bool {
+	qs := SplitQuestions(e.Questions)
+	if len(qs) == 0 || len(e.Assumptions) < len(qs) {
+		return len(qs) == 0
+	}
+	for _, a := range e.Assumptions[:len(qs)] {
+		if strings.TrimSpace(a) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // Answer: one question of the estimate as the card showed it, and what was written under it.

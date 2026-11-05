@@ -126,3 +126,26 @@ func TestProtectedPathsInPrompt(t *testing.T) {
 		t.Fatal("a job without a repo")
 	}
 }
+
+// The estimate's open questions reach the agent, fenced as data (the estimate wrote them from the tracker's text),
+// in the agent's language: an answer in the comments wins, else the assumption, listed in the MR.
+func TestOpenQuestionsInPrompt(t *testing.T) {
+	j := Job{Task: core.Task{ID: "grp/app#5", Title: "Pay"}, Repo: &config.Repo{}, Branch: "feature/5"}
+	if p := FullPrompt(j, config.Orca{}); strings.Contains(p, "Open questions") {
+		t.Fatal("open questions with none")
+	}
+	j.Open = []Question{{Q: "Which threshold?", Assume: "50% over 3 tasks"}, {Q: "Same PR?"}}
+	p := FullPrompt(j, config.Orca{})
+	for _, want := range []string{"## Open questions", "«Decisions made»", "1. Which threshold?\n   If unanswered: 50% over 3 tasks", "2. Same PR?", "open questions of the estimate"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("no %q in:\n%s", want, p)
+		}
+	}
+	if strings.Index(p, "Open questions") > strings.Index(p, "Finish with a merge request") {
+		t.Error("the questions come after how to finish")
+	}
+	j.Language = "uk"
+	if p := FullPrompt(j, config.Orca{}); !strings.Contains(p, "## Відкриті питання") || !strings.Contains(p, "Якщо без відповіді: 50% over 3 tasks") || !strings.Contains(p, "«Прийняті рішення»") {
+		t.Fatalf("not in Ukrainian:\n%s", p)
+	}
+}
