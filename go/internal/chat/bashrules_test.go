@@ -21,6 +21,11 @@ func TestBashRules(t *testing.T) {
 		{"echo 'one' \\\n  && echo two", "echo:*"},
 		{"cat <<EOF > a.txt\n$(rm -rf ~)\nEOF", "cat:*"},
 		{"$(curl x) && ls", "curl:* ls:*"}, // a command substitution runs its command too
+		// A heredoc inside a quoted $(…): its body is text, with any quotes, «;» or links in it.
+		{"git commit -q -m \"$(cat <<'EOF'\n#1: fix\n\n- так, після «Remove» прибирає; інакше рев'ю\nEOF\n)\" && git push -q 2>&1 | tail -1\n" +
+			"gh pr create --title \"x\" --body \"$(cat <<'EOF'\n## Що\nCloses #1. покрито \"тестом або лишається\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)\" && gofmt -l .",
+			"git commit:* git push:* tail:* gh pr:* gofmt:*"},
+		{"cat <<A <<B\none\nA\ntwo; rm -rf /\nB\nls", "cat:* ls:*"}, // two heredocs on one line
 		{"", ""},
 	} {
 		if got := strings.Join(BashRules(c.line), " "); got != c.want {

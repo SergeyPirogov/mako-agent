@@ -69,6 +69,12 @@ func bashCommands(line string) [][]string {
 				if c == '"' && rs[j] == '\\' && j+1 < len(rs) {
 					j++
 				}
+				if c == '"' && isHeredoc(rs, j) {
+					// "$(cat <<'EOF' … EOF)": the body is text whatever quotes it holds; the string goes on after it.
+					d, k := heredocDelim(rs, j)
+					j = skipHeredoc(rs, lineEnd(rs, k), d)
+					continue
+				}
 				word.WriteRune(rs[j])
 				j++
 			}
@@ -79,39 +85,16 @@ func bashCommands(line string) [][]string {
 				word.WriteRune(rs[i+1])
 			}
 			i++
-		case c == '<' && i+1 < len(rs) && rs[i+1] == '<' && (i+2 >= len(rs) || rs[i+2] != '<'):
+		case isHeredoc(rs, i):
 			// A heredoc: its delimiter (quoted or not) is the next word; its body is skipped below.
 			flushWord()
-			j := i + 2
-			if j < len(rs) && rs[j] == '-' {
-				j++
-			}
-			for j < len(rs) && rs[j] == ' ' {
-				j++
-			}
-			var d strings.Builder
-			for j < len(rs) && !strings.ContainsRune(" \t\n;&|<>()", rs[j]) {
-				if rs[j] != '\'' && rs[j] != '"' {
-					d.WriteRune(rs[j])
-				}
-				j++
-			}
-			heredocs = append(heredocs, d.String())
+			d, j := heredocDelim(rs, i)
+			heredocs = append(heredocs, d)
 			i = j - 1
 		case c == '\n':
 			flushCmd()
 			for _, d := range heredocs {
-				for i+1 < len(rs) {
-					end := i + 1
-					for end < len(rs) && rs[end] != '\n' {
-						end++
-					}
-					body := strings.TrimSpace(string(rs[i+1 : end]))
-					i = end
-					if body == d {
-						break
-					}
-				}
+				i = skipHeredoc(rs, i, d)
 			}
 			heredocs = nil
 		case c == '&' && (i > 0 && rs[i-1] == '>' || i+1 < len(rs) && rs[i+1] == '>'):
@@ -129,6 +112,52 @@ func bashCommands(line string) [][]string {
 	}
 	flushCmd()
 	return cmds
+}
+
+// isHeredoc: a heredoc starts at i (<<, not <<<).
+func isHeredoc(rs []rune, i int) bool {
+	return rs[i] == '<' && i+1 < len(rs) && rs[i+1] == '<' && (i+2 >= len(rs) || rs[i+2] != '<')
+}
+
+// heredocDelim reads the delimiter of the heredoc that starts at i, without its quotes, and where it ends.
+func heredocDelim(rs []rune, i int) (string, int) {
+	j := i + 2
+	if j < len(rs) && rs[j] == '-' {
+		j++
+	}
+	for j < len(rs) && rs[j] == ' ' {
+		j++
+	}
+	var d strings.Builder
+	for j < len(rs) && !strings.ContainsRune(" \t\n;&|<>()", rs[j]) {
+		if rs[j] != '\'' && rs[j] != '"' {
+			d.WriteRune(rs[j])
+		}
+		j++
+	}
+	return d.String(), j
+}
+
+// lineEnd: where the line that i is on ends (its newline, or the end).
+func lineEnd(rs []rune, i int) int {
+	for i < len(rs) && rs[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+// skipHeredoc: from the newline at nl, past the body lines up to the one that is the delimiter d; the newline that
+// ends it (or the end of the line).
+func skipHeredoc(rs []rune, nl int, d string) int {
+	for nl < len(rs) {
+		end := lineEnd(rs, nl+1)
+		body := strings.TrimSpace(string(rs[min(nl+1, len(rs)):end]))
+		nl = end
+		if body == d {
+			break
+		}
+	}
+	return nl
 }
 
 func isAssignment(w string) bool {
