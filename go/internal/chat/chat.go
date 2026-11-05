@@ -799,7 +799,10 @@ func (s *Session) finishToolAt(id, output string, failed bool, at int64) {
 	s.mu.Lock()
 	for i := len(s.items) - 1; i >= 0; i-- {
 		if it := &s.items[i]; it.Kind == "tool" && it.ID == id {
-			if !failed && it.Status == "running" && launchedInBackground(*it, output) {
+			if subagentTool(it.Tool) && it.Status != "running" {
+				break // its report came before this result (or it was ended some other way): the report stays
+			}
+			if !failed && launchedInBackground(*it, output) {
 				// The subagent goes on after this result: its notification ends the step.
 				it.Output, it.Status = output, "background"
 				if it.TaskID == "" {
@@ -1159,8 +1162,14 @@ func (s *Session) reply(requestID string, resp map[string]any, mark func(*Item))
 // sleep closes an agent that has waited for you IdleAfter; its conversation stays, and a message resumes it.
 func (s *Session) sleep() {
 	s.mu.Lock()
-	// Closing the agent would kill the subagents it waits for: the countdown starts again when the last one reports.
-	idle := (s.state == "done" || s.state == "limited" || s.state == "auth") && !s.exited && len(s.pending) == 0 && backgroundIn(s.items) == 0
+	// Closing the agent would kill the subagents it waits for, so it stays open while any is out.
+	idle := (s.state == "done" || s.state == "limited" || s.state == "auth") && !s.exited && len(s.pending) == 0
+	if idle && backgroundSince(s.items, time.Now().Add(-BackgroundMax)) > 0 {
+		// The countdown starts again when the last one reports; if no report ever comes, BackgroundMax ends the wait.
+		s.armIdleLocked()
+		s.mu.Unlock()
+		return
+	}
 	if idle {
 		s.asleep = true
 		s.stopping = true // closed from here on: Send must not take a message the closing stdin will lose
@@ -1511,6 +1520,21 @@ func (s *Session) countTokens(message json.RawMessage) {
 	s.procTok += n
 }
 
+// BackgroundMax: how long an agent that waits for you is kept open for a subagent in the background that has not
+// reported; past it the report is taken as lost and the agent sleeps as any other (its subagents end with it).
+var BackgroundMax = 2 * time.Hour
+
+// backgroundSince counts the subagents in the background launched after t.
+func backgroundSince(items []Item, t time.Time) int {
+	n := 0
+	for _, it := range items {
+		if it.Kind == "tool" && it.Status == "background" && it.At >= t.UnixMilli() {
+			n++
+		}
+	}
+	return n
+}
+
 // subagentTool tells the tools that start a subagent (Task is the older name of Agent).
 func subagentTool(tool string) bool { return tool == "Agent" || tool == "Task" }
 
@@ -1595,8 +1619,10 @@ func (s *Session) endBackground(toolUseID, taskID, status, summary string, at in
 		if !(toolUseID != "" && it.ID == toolUseID || taskID != "" && it.TaskID == taskID) {
 			continue
 		}
+		// Only a finished task is a success ("" is a notification that names no status: it came, so it finished);
+		// "failed", "stopped" and any status that comes later (killed, cancelled…) are not.
 		it.Status, it.End = "ok", at
-		if status == "failed" || status == "stopped" {
+		if status != "" && status != "completed" {
 			it.Status = "error"
 		}
 		if summary != "" {

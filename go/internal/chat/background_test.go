@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixtureLines: testdata/background_agents.jsonl, a session that launches three subagents in the background, ends
@@ -151,6 +152,33 @@ func TestBackgroundReportFirst(t *testing.T) {
 	if got := statuses(s); got != "ok running running" {
 		t.Errorf("%s", got)
 	}
+	if it := s.Snapshot().Items[1]; it.Output != "done" || it.TaskID != "aaa111" || it.End == 0 {
+		t.Errorf("the late launch result overwrote the report: %+v", it)
+	}
+
+	// The same for a report that said the task failed: it stays an error.
+	s = newBare()
+	s.handle(lines[1])
+	s.handle([]byte(`{"type":"system","subtype":"task_notification","task_id":"aaa111","tool_use_id":"toolu_A","status":"failed","summary":"boom"}`))
+	s.handle(lines[3])
+	if it := s.Snapshot().Items[1]; it.Status != "error" || it.Output != "boom" {
+		t.Errorf("%+v", it)
+	}
+}
+
+// Only «completed» is a success; any other status, also one Claude Code adds later, is not.
+func TestBackgroundStatuses(t *testing.T) {
+	lines := fixtureLines(t)
+	for status, want := range map[string]string{"completed": "ok", "": "ok", "failed": "error", "stopped": "error", "killed": "error", "cancelled": "error"} {
+		s := newBare()
+		for _, l := range lines[:10] {
+			s.handle(l)
+		}
+		s.handle([]byte(`{"type":"system","subtype":"task_notification","task_id":"aaa111","tool_use_id":"toolu_A","status":"` + status + `","summary":"s"}`))
+		if got := s.Snapshot().Items[1].Status; got != want {
+			t.Errorf("status %q: step is %q, want %q", status, got, want)
+		}
+	}
 }
 
 // A closed agent would take its subagents with it: it stays open while any is out, and its countdown starts
@@ -177,6 +205,38 @@ func TestBackgroundKeepsAgentAwake(t *testing.T) {
 	s.sleep()
 	if !s.asleep {
 		t.Error("an agent with nobody out and nothing to do should go to sleep")
+	}
+}
+
+// A report that never comes does not keep the agent open for ever: past BackgroundMax it sleeps, and until then the
+// countdown keeps running, so the wait is checked again.
+func TestBackgroundWaitIsBounded(t *testing.T) {
+	s := newBare()
+	s.idleAfter = time.Hour // armed, never fired in the test
+	lines := fixtureLines(t)
+	for _, l := range lines[:10] {
+		s.handle(l)
+	}
+	s.mu.Lock()
+	s.idle = nil
+	s.mu.Unlock()
+	s.sleep()
+	s.mu.Lock()
+	rearmed := s.idle != nil
+	s.mu.Unlock()
+	if s.asleep || !rearmed {
+		t.Fatalf("a fresh subagent: asleep %v, countdown running again %v", s.asleep, rearmed)
+	}
+	s.mu.Lock()
+	for i := range s.items {
+		if s.items[i].Status == "background" {
+			s.items[i].At = time.Now().Add(-BackgroundMax - time.Minute).UnixMilli()
+		}
+	}
+	s.mu.Unlock()
+	s.sleep()
+	if !s.asleep {
+		t.Error("the agent still waits for reports that are past BackgroundMax")
 	}
 }
 
