@@ -57,16 +57,17 @@ func (d *Dispatcher) checkSteps(r core.Record) []core.CheckStep {
 			return steps
 		}
 	}
-	if d.selfMode() == config.SelfCheckAlways {
+	if d.selfMode() == config.SelfCheckAlways || d.riskGate(r) {
 		return []core.CheckStep{{Do: i18n.TA("selfcheck.look")}}
 	}
 	return nil
 }
 
-// selfRequired: the merge of the task waits for the check: selfCheck "always", Mako's own agent with an open MR.
-// The agent's advice alone ("advised") does not hold an MR that is otherwise ready.
+// selfRequired: the merge of the task waits for the check: selfCheck "always", or a high risk of the change (the
+// repo's gateHigh, whatever selfCheck says); Mako's own agent with an open MR. The agent's advice alone ("advised")
+// does not hold an MR that is otherwise ready.
 func (d *Dispatcher) selfRequired(r core.Record, steps []core.CheckStep) bool {
-	return len(steps) > 0 && d.selfMode() == config.SelfCheckAlways && reviewable(r) && r.Status == core.Done
+	return len(steps) > 0 && (d.selfMode() == config.SelfCheckAlways || d.riskGate(r)) && reviewable(r) && r.Status == core.Done
 }
 
 // selfMode: the selfCheck setting ("advised" with no config, as in tests of other things).

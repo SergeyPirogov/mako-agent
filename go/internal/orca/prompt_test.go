@@ -101,3 +101,28 @@ func TestPromptFencesTrackerText(t *testing.T) {
 		}
 	}
 }
+
+// The repo's protected paths (riskPaths with "block") are a rule of the prompt, in the agent's language; the paths
+// that are only risky are not.
+func TestProtectedPathsInPrompt(t *testing.T) {
+	repo := &config.Repo{RiskPaths: []config.RiskPath{{Pattern: "migrations/**", Level: core.RiskHigh}}}
+	j := Job{Task: core.Task{ID: "grp/app#5", Title: "Pay"}, Repo: repo, Branch: "feature/5"}
+	if p := FullPrompt(j, config.Orca{}); strings.Contains(p, "Protected paths") || strings.Contains(p, "migrations/**") {
+		t.Fatalf("a risky path made a rule:\n%s", p)
+	}
+	repo.RiskPaths = append(repo.RiskPaths, config.RiskPath{Pattern: ".github/**", Level: core.RiskBlock}, config.RiskPath{Pattern: "*.env*", Level: core.RiskBlock})
+	p := FullPrompt(j, config.Orca{})
+	if !strings.Contains(p, "## Protected paths") || !strings.Contains(p, "- `.github/**`\n- `*.env*`") || strings.Contains(p, "migrations/**") {
+		t.Fatalf("no protected paths:\n%s", p)
+	}
+	if strings.Index(p, "Protected paths") > strings.Index(p, "Finish with a merge request") {
+		t.Error("the rule comes after how to finish")
+	}
+	j.Language = "uk"
+	if p := FullPrompt(j, config.Orca{}); !strings.Contains(p, "## Захищені шляхи") || !strings.Contains(p, "- `.github/**`") {
+		t.Fatalf("not in Ukrainian:\n%s", p)
+	}
+	if Protected(Job{}) != "" {
+		t.Fatal("a job without a repo")
+	}
+}

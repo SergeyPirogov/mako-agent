@@ -120,7 +120,14 @@
               "branchPattern": "{type}/{id}-{title}",
               "checks": ["npm run lint", "npm test"],
               "try": "npm run dev -- --port $PORT",
-              "routeMode": "quality"
+              "routeMode": "quality",
+              "riskPaths": [
+                { "pattern": "migrations/**", "level": "high" },
+                { "pattern": "**/auth/**", "level": "high" },
+                { "pattern": ".github/**", "level": "block" },
+                { "pattern": "*.env*", "level": "block" }
+              ],
+              "risk": { "autoMergeLow": false, "gateHigh": true, "maxLines": 400, "maxFiles": 15 }
             },
             "web": {
               "repoPath": "/Users/me/code/web",

@@ -136,6 +136,8 @@ type recordView struct {
 	SelfCheckNew int `json:"selfCheckNew,omitempty"`
 	// Self: the «Check it yourself» steps and their ticks; nil when nothing is asked of you.
 	Self *dispatch.SelfCheckView `json:"self,omitempty"`
+	// Risk: the change's risk, why and what it does here (dispatch.RiskView); nil while nothing is known of it.
+	Risk *dispatch.RiskView `json:"risk,omitempty"`
 	// Blocked: why the task in work or in review is held up; the board shows it under «Заблоковані».
 	Blocked string `json:"blocked,omitempty"`
 	// CIWait: the MR in review is open and its CI still runs.
@@ -282,6 +284,7 @@ func (s *Server) Handler() http.Handler {
 			v.Reviewable = s.D.Reviewable(rec)
 			v.SelfCheckNew = s.D.SelfCheckBehind(rec)
 			v.Self = s.D.SelfView(rec)
+			v.Risk = s.D.RiskView(rec)
 			if rec.ArchivedAt == 0 {
 				v.Blocked = s.D.Blocked(rec)
 				v.CIWait = s.D.CIWait(rec)

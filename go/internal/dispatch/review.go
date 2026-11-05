@@ -277,22 +277,42 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	if left, total, blocks := d.SelfBlocks(r); blocks {
 		return fmt.Errorf("check it yourself: %d of %d %s left: tick them or skip the check", left, total, map[bool]string{true: "step", false: "steps"}[total == 1])
 	}
+	if why := riskBlockText(r); why != "" {
+		return fmt.Errorf("%s: take them out of the branch first", why)
+	}
+	if err := d.merge(ctx, r, "board"); err != nil {
+		return err
+	}
+	d.Log(id, "MR merged from the board")
+	return nil
+}
+
+// merge merges the task's MR, by "board" or "auto" (AutoMerge), and keeps how it went in for the stats. CI is asked
+// afresh, not from the card's cache: a push a moment ago may have started it again; a merge by itself also wants
+// it green.
+func (d *Dispatcher) merge(ctx context.Context, r core.Record, by string) error {
 	checked := d.selfAtMerge(r)
-	desk, err := d.desk(ctx, id)
+	risk, _ := core.RiskOf(r)
+	desk, err := d.desk(ctx, r.ID)
 	if err != nil {
 		return err
 	}
-	// Asked afresh, not from the card's cache: a push a moment ago may have started CI again.
-	if c, err := desk.CheckReview(ctx, r.PRURL); err == nil && trackers.CIRunning(c.CI) {
-		d.forgetReview(id)
+	c, err := desk.CheckReview(ctx, r.PRURL)
+	switch {
+	case err == nil && trackers.CIRunning(c.CI):
+		d.forgetReview(r.ID)
 		return fmt.Errorf("CI is still running: you can merge once it finishes")
+	case by == "auto" && err != nil:
+		return err
+	case by == "auto" && (c.State != "open" || c.CI != "success" || c.Conflicts || len(c.Threads) > 0):
+		d.forgetReview(r.ID)
+		return fmt.Errorf("the MR is no longer ready: CI %q, conflicts %v, %d threads", c.CI, c.Conflicts, len(c.Threads))
 	}
 	if err := desk.Merge(ctx, r.PRURL); err != nil {
 		return err
 	}
-	d.forgetReview(id)
-	d.Store.UpdateIfExists(id, func(r *core.Record) { r.CheckedAtMerge = checked })
-	d.Log(id, "MR merged from the board")
+	d.forgetReview(r.ID)
+	d.Store.UpdateIfExists(r.ID, func(r *core.Record) { r.CheckedAtMerge, r.RiskAtMerge, r.MergedBy = checked, risk, by })
 	d.Wake()
 	return nil
 }

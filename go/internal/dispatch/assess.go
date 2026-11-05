@@ -74,6 +74,8 @@ func (d *Dispatcher) assess(ctx context.Context, id string) {
 	dir, base, err := d.workOf(id)
 	if err != nil {
 		dir, base = os.TempDir(), ""
+	} else {
+		d.lookRisk(ctx, id) // what the diff says by itself, next to the agent's rating
 	}
 	a, err := writer.Assess(d.spending(ctx, id, core.PhaseAssess), dir, base, d.runRoute(r, core.PhaseAssess), r.Task, d.agentWords(ctx, r), r.Summary, d.checkHint(r, dir))
 	a.At = now()

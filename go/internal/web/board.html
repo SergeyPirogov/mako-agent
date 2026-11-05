@@ -1411,7 +1411,8 @@ let itab = "changes", itabPicked = false, tabPicked = false;
 const ciRunning = (ci) => ["running", "pending", "created", "preparing", "waiting_for_resource", "scheduled"].includes(ci);
 // The reviewer agent is reading the branch or the agent is fixing its remarks: the MR is not ready to merge yet.
 // Also when the reviewer's blockers wait for Fix (r.reviewBlocks), and when "Check it yourself" waits for you.
-const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing" || !!r.reviewBlocks || assessing(r) || !!r.self?.blocks;
+// And when the change touches the repo's protected paths (r.risk, level "block").
+const mergeHeld = (r) => r.reviewStep === "running" || r.reviewStep === "fixing" || !!r.reviewBlocks || assessing(r) || !!r.self?.blocks || r.risk?.level === "block";
 function inspectorTabs(r, term, nFiles, list) {
   const c = review?.review, cs = changes?.commits ?? [];
   const mrBadge = !r.prUrl ? ["—", ""] : r.reviewState === "merged" || c?.state === "merged" ? ["✓", "merged"]
@@ -1569,6 +1570,7 @@ function mrCard(r, term) {
     merging += c.conflicts ? row("bad", "Conflicts with the main branch", "", fix("conflicts", "The agent will resolve the conflicts in the terminal")) : row("ok", "No conflicts");
     rows += sec("Merging", merging);
   }
+  rows += riskSection(r);
   rows += reviewSection(r);
   // The MR's own actions sit in its header, as icons: open it, update it, merge it.
   const icon = (attr, label, name, cls = "", disabled = false) =>
@@ -1582,6 +1584,7 @@ function mrCard(r, term) {
     : r.reviewBlocks ? "The reviewer left blockers: fix them before the merge"
     : assessing(r) ? "The agent is judging whether a review is needed: merge once it decides"
     : r.self?.blocks ? "Check it yourself first: tick its steps or skip the check"
+    : r.risk?.level === "block" ? t("b.risk.protected")
     : c.mergeable ? "Merge the MR into the main branch" : `Cannot merge yet: ${c.blocked || "GitLab does not allow it"}`,
     "merge", merging ? "busy" : c.mergeable && !held ? "ready" : "", !c.mergeable || held || merging) : "";
   const close = c?.state === "open" ? icon("data-close-mr", "Close MR without merging", "closeMR", "danger") : "";
@@ -1702,6 +1705,20 @@ function tryRow(v) {
   else row = start(t?.state === "failed" ? "Try again" : "Try this build");
   const err = t?.state === "failed" ? `<div class="try-err">${esc(t.error)}</div>` : "";
   return `<div class="mr-adv-a try-row">${row}</div>${err}`;
+}
+// The change's risk (r.risk, the Go RiskView): its level, what the level does in this repo (r.risk.policy) and why:
+// each signal Mako read of the diff by itself and the agent's own rating, with the files a signal is about.
+const riskName = (level) => ({ low: t("b.risk.low"), medium: t("b.risk.medium"), high: t("b.risk.high"), block: t("b.risk.block") })[level] ?? level;
+const RISK_ICON = { low: "ok", medium: "idle", high: "eye", block: "bad" };
+function riskSection(r) {
+  const v = r.risk;
+  if (!v?.level) return "";
+  const policy = { auto: t("b.risk.auto"), advice: t("b.risk.advice"), gate: t("b.risk.gate"), block: t("b.risk.blockNote") }[v.policy] ?? "";
+  const signals = (v.signals ?? []).map((s) => `<li class="risk-s"><span class="risk-l ${esc(s.level)}">${esc(s.level)}</span><span>${esc(s.text)}`
+    + `${s.files?.length ? `<span class="mono-list">${s.files.map(esc).join("<br>")}</span>` : ""}</span></li>`).join("");
+  const why = policy + (v.stale ? ` · ${t("b.risk.stale")}` : "");
+  return sec(t("b.risk.title"), `<div class="mr-row mr-advice risk ${esc(v.level)}">${MR_ICON[RISK_ICON[v.level] ?? "idle"]}
+  <div class="mr-adv"><b>${esc(riskName(v.level))}</b>${why ? `<span class="mr-why">${esc(why)}</span>` : ""}${signals ? `<ul class="risk-sigs">${signals}</ul>` : ""}</div></div>`);
 }
 // "Review" in the MR card, two things kept apart: the reviewer agent (the advice to run it, "Run AI review" / "Skip",
 // its result), then you: what the agent advises you to look at yourself, step by step.
@@ -3481,7 +3498,19 @@ function modelsCard(s) {
 }
 
 function qualityTab(s) {
-  return `${reviewCard(s.review)}<div class="srow">${forecastCard(s.forecast)}${assessCard(s)}</div>${selfCheckCard(s.selfCheck)}${failuresCard(s)}`;
+  return `${reviewCard(s.review)}<div class="srow">${forecastCard(s.forecast)}${assessCard(s)}</div>${selfCheckCard(s.selfCheck)}${riskCard(s.riskLevels)}${failuresCard(s)}`;
+}
+
+// The merged tasks by the change's risk, and the merges Mako made by itself with how many needed a fix after: many
+// fixes after auto-merges say the policy is too soft.
+function riskCard(v) {
+  if (!v?.merged) return "";
+  const row = (what, n, cls) => `<div class="hrow"><span>${esc(what)}</span>${meter(n / v.merged, cls)}<b>${n}</b></div>`;
+  const auto = v.autoMerged ? t("b.risk.statsFixed", { fixed: v.autoMergedFixed, pct: Math.round((v.autoMergedFixed / v.autoMerged) * 100) }) : t("b.risk.statsNoAuto");
+  return scard(esc(t("b.risk.title")), row(t("b.risk.low"), v.low, "ok") + row(t("b.risk.medium"), v.medium, "acc") + row(t("b.risk.high"), v.high, "err")
+    + (v.block ? row(t("b.risk.block"), v.block, "err") : "")
+    + row(t("b.risk.statsAuto"), v.autoMerged, "acc") + `<div class="snote">${esc(auto)}</div>`,
+    esc(t("b.risk.statsMerged", { n: v.merged })));
 }
 
 // "Check it yourself" on the merged tasks the agent advised to check by hand: checked before the merge or not, and
@@ -4004,6 +4033,12 @@ function blockersHTML(r) {
       askBtn("conflicts", "Resolve conflicts", "The agent will rebase on the main branch, resolve the conflicts and push")));
   }
   if (c?.ci === "failed" && c.failed?.length) details.push(blkRow(`<div>CI failed: ${c.failed.map((j) => j.url ? `<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.name)}</a>` : esc(j.name)).join(", ")}</div>`, askBtn("ci", "Fix CI", "The agent will look at the failed jobs, fix them and push")));
+  // A protected path in the branch: the merge waits until the files are out of it (no fix button: the agent was told
+  // not to touch them, it is yours to say what to do).
+  if (r.risk?.level === "block") {
+    const files = (r.risk.signals ?? []).filter((s) => s.level === "block").flatMap((s) => s.files ?? []);
+    details.push(`<div>${esc(t("b.risk.protected"))}</div>${files.length ? `<div class="mono-list">${files.map(esc).join("<br>")}</div>` : ""}`);
+  }
   if (c?.threads?.length) details.push(blkRow(`<div>${c.threads.length} review ${plural(c.threads.length, "comment", "comments")} in the MR</div>`, askBtn("comments", "Fix comments", "The agent will fix the review comments and push")));
   // The bold reason repeats the details (“CI failed”, “the MR has conflicts”), so it is shown only when there
   // are no details yet (the review is not loaded) or when it says what they do not: the agent's state.
@@ -4023,7 +4058,10 @@ function blockersHTML(r) {
   }
   if (r.self?.blocks) {
     const n = r.self.steps.length;
-    lines.push(blkRow(`<div>Check it yourself: ${r.self.left} of ${n} ${plural(n, "step", "steps")} left</div>`,
+    // Held by the change's high risk (the repo's gateHigh), it says so: the check is not the settings' this time.
+    const text = r.risk?.policy === "gate" ? esc(t("b.risk.gateBlocker", { left: r.self.left, n }))
+      : `Check it yourself: ${r.self.left} of ${n} ${plural(n, "step", "steps")} left`;
+    lines.push(blkRow(`<div>${text}</div>`,
       `<div class="mr-actions">${selfSkipBtn}</div>`));
   }
   if (!lines.length) return r.ciWait ? `<div class="tcard blocker wait"><div class="tcard-b"><b>Waiting for CI</b><div class="muted">The MR goes to review when CI passes.</div></div></div>` : "";
