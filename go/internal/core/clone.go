@@ -46,7 +46,7 @@ func (r Record) Clone() Record {
 		return v
 	})
 	r.Retro = clonePtr(r.Retro, func(v Retro) Retro { return v })
-	r.Estimate = clonePtr(r.Estimate, func(v Estimate) Estimate { return v })
+	r.Estimate = clonePtr(r.Estimate, func(v Estimate) Estimate { v.Assumptions = slices.Clone(v.Assumptions); return v })
 	r.Secrets = slices.Clone(r.Secrets)
 	r.SecretsAllowed = slices.Clone(r.SecretsAllowed)
 	r.Checks = clonePtr(r.Checks, func(v Checks) Checks {

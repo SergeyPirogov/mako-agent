@@ -777,6 +777,34 @@ func checkHint(hint string) string {
 const MakoHint = "this is Mako itself; «Try this build» runs this branch as a second copy of Mako with a copy of its data, so \"open\" is one of its pages: \"/\" (the board), \"/settings\", \"/#<task id>\" (a task's card), and say when a step is about the phone's width (390×844)."
 
 // pointsText: a few points, as a string or, as models sometimes answer, a list of them.
+// questionsOf: the estimate's questions as Markdown points and what it assumes for each, in their order. The
+// questions come as {"q", "assume"} objects, or as plain strings (an older shape, or a model that ignores it):
+// then none is assumed.
+func questionsOf(raw json.RawMessage) (string, []string) {
+	var objs []struct {
+		Q      string `json:"q"`
+		Assume string `json:"assume"`
+	}
+	if json.Unmarshal(raw, &objs) != nil {
+		return pointsText(raw), nil
+	}
+	var lines, assumed []string
+	some := false
+	for _, o := range objs {
+		q := strings.Join(strings.Fields(o.Q), " ") // one line each: a question is one point
+		if q = strings.TrimLeft(q, "-*• "); q == "" {
+			continue
+		}
+		a := clipTo(strings.Join(strings.Fields(o.Assume), " "), 300)
+		some = some || a != ""
+		lines, assumed = append(lines, "- "+q), append(assumed, a)
+	}
+	if !some {
+		assumed = nil
+	}
+	return clipTo(strings.Join(lines, "\n"), 1500), assumed
+}
+
 func pointsText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
@@ -942,9 +970,11 @@ func Estimate(ctx context.Context, dir string, route core.Route, t core.Task, ou
 	prompt := strings.Join([]string{
 		"A developer is deciding whether to give the task below to a coding agent, and how. Before anyone starts, estimate it",
 		"from its text and the repository's layout (you do not see the code). Answer with JSON only, no code fences, in this shape:",
-		`{"clarity":{"score":1,"why":"..."},"questions":["..."],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
+		`{"clarity":{"score":1,"why":"..."},"questions":[{"q":"...","assume":"..."}],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
 		"- clarity: 5 when the task says all that is needed (what, where, how to tell it is done), 1 when the agent would have to guess most of it;",
-		"- questions: at most 4 concrete questions to answer in the tracker first, only for what is really missing ([] when nothing);",
+		"- questions: at most 3, only what the code cannot tell and what changes the result (the behaviour wanted, the scope,",
+		"  which of two readings is right); not how to build it: the agent reads the code and decides that itself ([] when",
+		"  nothing is missing). Each with \"assume\": what the agent will do if nobody answers, one short line;",
 		"- size: \"small\" (a few lines in one place), \"medium\" (several files of one part), or \"big\" (many parts, new subsystems, migrations);",
 		"- parts: which folders or parts of the code it will likely touch, one short line;",
 		"- risk: 1 safe, 5 likely to break something; \"why\" names what it touches (settings, updates, stored data, security, the UI, …);",
@@ -952,7 +982,7 @@ func Estimate(ctx context.Context, dir string, route core.Route, t core.Task, ou
 		"- model: who should do it, by how complex it is: \"haiku\" for a trivial edit in one place, \"sonnet\" for ordinary work",
 		"  (the default), \"opus\" only for complex work: across subsystems, subtle logic, hard to get right;",
 		"- advice: one short sentence on how to take the task.",
-		"All text (why, questions, parts, advice) in " + lang() + ", short.",
+		"All text (why, questions, assumptions, parts, advice) in " + lang() + ", short.",
 		"", taskText(t, 8000, true),
 		"", "Repository:", orNone(outline),
 	}, "\n")
@@ -979,8 +1009,9 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return core.Estimate{}, fmt.Errorf("%w: %v", errNotJSON, err)
 	}
+	questions, assumptions := questionsOf(in.Questions)
 	e := core.Estimate{
-		State: "done", Questions: pointsText(in.Questions), Size: strings.ToLower(strings.TrimSpace(in.Size)),
+		State: "done", Questions: questions, Assumptions: assumptions, Size: strings.ToLower(strings.TrimSpace(in.Size)),
 		Parts: clipTo(strings.TrimSpace(in.Parts), 500), Plan: in.Plan, Split: in.Split,
 		Model: strings.ToLower(strings.TrimSpace(in.Model)), Advice: clipTo(strings.TrimSpace(in.Advice), 500),
 	}

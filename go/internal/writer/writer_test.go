@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,6 +181,26 @@ func TestParseEstimate(t *testing.T) {
 	} {
 		if _, err := ParseEstimate(bad); err == nil {
 			t.Errorf("%s: no error", bad)
+		}
+	}
+}
+
+// The questions come with what to assume for each: the Markdown points as before, the assumptions in their order;
+// plain strings (an older shape) assume nothing, and so do objects that leave every assume empty.
+func TestParseEstimateAssumptions(t *testing.T) {
+	base := `{"clarity":{"score":3},"size":"small","risk":{"score":1},"questions":%s}`
+	for _, c := range []struct{ in, questions, assumed string }{
+		{`[{"q":"Які пороги?","assume":"50% і 3 задачі"},{"q":"  - Що вважати кращим?\n","assume":""},{"q":"","assume":"x"}]`, "- Які пороги?\n- Що вважати кращим?", "50% і 3 задачі|"},
+		{`["Який трекер?"]`, "- Який трекер?", ""},
+		{`[{"q":"Який трекер?"}]`, "- Який трекер?", ""},
+		{`[]`, "", ""},
+	} {
+		e, err := ParseEstimate(fmt.Sprintf(base, c.in))
+		if err != nil {
+			t.Fatalf("%s: %v", c.in, err)
+		}
+		if e.Questions != c.questions || strings.Join(e.Assumptions, "|") != c.assumed {
+			t.Errorf("%s: questions %q, assumptions %q", c.in, e.Questions, e.Assumptions)
 		}
 	}
 }

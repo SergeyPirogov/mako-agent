@@ -13,6 +13,11 @@ func est(size string, clarity int, questions string) *core.Estimate {
 	return &core.Estimate{State: "done", Size: size, Clarity: core.Score{Value: clarity}, Questions: questions}
 }
 
+func assumed(e *core.Estimate, a ...string) *core.Estimate {
+	e.Assumptions = a
+	return e
+}
+
 // freshFor: the estimate made for the task's present text.
 func freshFor(r *core.Record, e *core.Estimate) *core.Estimate {
 	e.For = EstimateKey(r.Task)
@@ -40,6 +45,10 @@ func TestAutoTakeGate(t *testing.T) {
 		{config.AutoTakeSmallClear, est("small", 5, "- який трекер?"), "the description has questions"},
 		{config.AutoTakeSmallClear, est("small", 3, ""), "the description is unclear"},
 		{config.AutoTakeSmallClear, est("big", 5, "- який трекер?"), "large, the description has questions"},
+		// Questions with what to assume for each do not wait for an answer; one without does.
+		{config.AutoTakeSmallClear, assumed(est("small", 5, "- який трекер?\n- де?"), "GitHub", "у шапці"), ""},
+		{config.AutoTakeSmallClear, assumed(est("small", 5, "- який трекер?\n- де?"), "GitHub", " "), "the description has questions"},
+		{config.AutoTakeSmallClear, assumed(est("small", 5, "- який трекер?\n- де?"), "GitHub"), "the description has questions"},
 	}
 	for _, c := range cases {
 		if got := autoTakeGate(config.Notifications{AutoTakeOnly: c.only}, c.e, nil); got != c.want {
@@ -236,5 +245,22 @@ func TestOutlookModelPickedOrDefault(t *testing.T) {
 	r.Model = "haiku"
 	if got := d.OutlookModel(r); got != "haiku" {
 		t.Fatalf("picked: %q", got)
+	}
+}
+
+// The agent gets the estimate's questions with what each assumes, only from an estimate of the task as it is now.
+func TestOpenQuestions(t *testing.T) {
+	r := core.Record{Task: core.Task{ID: "g/a#1", Title: "x", Description: "y"}}
+	if openQuestions(r) != nil {
+		t.Fatal("questions without an estimate")
+	}
+	r.Estimate = freshFor(&r, assumed(est("small", 3, "- Пороги?\n- Той самий PR?"), "50%"))
+	got := fmt.Sprint(openQuestions(r))
+	if got != "[{Пороги? 50%} {Той самий PR? }]" {
+		t.Fatalf("open questions %s", got)
+	}
+	r.Task.Description = "changed since"
+	if openQuestions(r) != nil {
+		t.Error("questions of an estimate of another text")
 	}
 }

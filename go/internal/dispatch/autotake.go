@@ -57,7 +57,8 @@ func autoTakeGate(n config.Notifications, e *core.Estimate, o *core.Outlook) str
 // unclearWhy: why the estimate does not find the task clear, "" when it does.
 func unclearWhy(e *core.Estimate) string {
 	switch {
-	case strings.TrimSpace(e.Questions) != "":
+	case strings.TrimSpace(e.Questions) != "" && !allAssumed(e):
+		// Questions with what to assume do not wait for an answer: the agent goes with it and says so in the MR.
 		return "the description has questions"
 	case e.Clarity.Value < clearEnough:
 		return "the description is unclear"

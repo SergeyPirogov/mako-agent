@@ -71,3 +71,25 @@ eq(html.includes('value="Bash(echo &quot;x&quot;:*)"') && html.includes("echo &l
 eq(allowedRow("Bash(<x>:*)").includes("&lt;x>"), true, "allowed escaped");
 `)
 }
+
+// An estimate's question shows what the agent goes with when it is not answered, and the summary says when every
+// question has it; an older estimate without assumptions shows the question as before.
+func TestBoardQuestionAssumptions(t *testing.T) {
+	src := string(board)
+	from := strings.Index(src, "const splitQuestions = ")
+	end := strings.Index(src[from:], "\n};\n")
+	if from < 0 || end < 0 {
+		t.Fatal("no splitQuestions in board.html")
+	}
+	runNodeScript(t, nodeEq+`const md = (s) => esc(s);
+`+src[from:from+end+4]+cutBlock(t, board, "questions")+`
+const q = questionHTML("Which threshold?", 0, "50% over 3 tasks");
+eq(q.includes("If not answered, the agent will:</span> 50% over 3 tasks") && q.includes("or leave it empty"), true, "the assumption shown");
+eq(questionHTML("Same PR?", 1, "").includes("qa-assume"), false, "no assumption, no line");
+eq(questionHTML("<b>?", 2, "<i>").includes("<i>"), false, "escaped");
+eq(allAssumed({ questions: "- a?\n- b?", assumptions: ["x", "y"] }), true, "all assumed");
+eq(allAssumed({ questions: "- a?\n- b?", assumptions: ["x", " "] }), false, "one empty");
+eq(allAssumed({ questions: "- a?\n- b?" }), false, "an older estimate");
+eq(allAssumed({ questions: "" }), false, "no questions");
+`)
+}
