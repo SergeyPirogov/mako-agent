@@ -190,6 +190,45 @@ func TestBoardDefaultModel(t *testing.T) {
 	}
 }
 
+// A new task gets the outlook of the project's ended tasks of its size once there are enough of them; one of
+// another size, or a task taken already, gets none.
+func TestBoardOutlook(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	for i := 1; i <= core.OutlookMin; i++ {
+		id := fmt.Sprintf("grp/app#%d", 90+i)
+		store.Update(id, func(r *core.Record) {
+			r.Status, r.ReviewState, r.Cost = core.Done, "merged", 1.5
+			r.StartedAt, r.FinishedAt = "2026-10-01T10:00:00Z", "2026-10-01T10:20:00Z"
+			r.Task = core.Task{ID: id, Project: "grp/app", Title: "past"}
+			r.Estimate = &core.Estimate{State: "done", Size: "small"}
+		})
+	}
+	small := core.Task{ID: "grp/app#1", Project: "grp/app", Title: "a"}
+	big := core.Task{ID: "grp/app#2", Project: "grp/app", Title: "b"}
+	store.Update(small.ID, func(r *core.Record) {
+		r.Status, r.Task, r.Estimate = core.Asking, small, &core.Estimate{State: "done", Size: "small"}
+	})
+	store.Update(big.ID, func(r *core.Record) {
+		r.Status, r.Task, r.Estimate = core.Asking, big, &core.Estimate{State: "done", Size: "big"}
+	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Executor: "terminal"}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	res, _ := http.Get(srv.URL + "/api/state")
+	var st stateReply
+	json.NewDecoder(res.Body).Decode(&st)
+	got := map[string]*core.Outlook{}
+	for _, r := range st.Records {
+		got[r.ID] = r.Outlook
+	}
+	if o := got[small.ID]; o == nil || o.Tasks != core.OutlookMin || o.Cost != 1.5 || o.FirstPass != 1 || o.Seconds != 20*60 {
+		t.Fatalf("small: %+v", o)
+	}
+	if got[big.ID] != nil || got["grp/app#91"] != nil {
+		t.Fatalf("big %+v, taken %+v", got[big.ID], got["grp/app#91"])
+	}
+}
+
 // A queued task tells the board why it waits; the board has a «запускаю» state for a task being started.
 func TestBoardQueueWhy(t *testing.T) {
 	store, _ := state.Open(t.TempDir())

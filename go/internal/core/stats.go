@@ -103,6 +103,20 @@ type Forecast struct {
 	Hits     int `json:"hits"` // the same size both times
 	// Matrix[expected][came to]: how many tasks, both in the order of Sizes.
 	Matrix [][]int `json:"matrix"`
+	// Under: the estimate expected a smaller size than the task came to; Over: a bigger one.
+	Under int `json:"under"`
+	Over  int `json:"over"`
+	// ByClarity: how the estimated tasks went by the clarity the estimate gave their description, 1 to 5.
+	ByClarity []ClarityGroup `json:"byClarity"`
+}
+
+// ClarityGroup is how the tasks whose estimate found their description this clear went.
+type ClarityGroup struct {
+	Clarity int `json:"clarity"`
+	// Ended: merged or failed; Merged; Clean: merged with no rework, as in SizeGroup.
+	Ended  int `json:"ended"`
+	Merged int `json:"merged"`
+	Clean  int `json:"clean"`
 }
 
 // SizeGroup is how the tasks the estimate called one size went.
@@ -174,7 +188,10 @@ func Summarize(records []Record, now, since time.Time) Stats {
 
 // SummarizePriced is Summarize with the what-if at prices.
 func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stats {
-	st := Stats{Reasons: []Reason{}, Stages: map[string]float64{}, Phases: map[string]float64{}, PhaseTokens: map[string]int{}, Forecast: Forecast{Matrix: make([][]int, len(Sizes))}, BySize: make([]SizeGroup, len(Sizes))}
+	st := Stats{Reasons: []Reason{}, Stages: map[string]float64{}, Phases: map[string]float64{}, PhaseTokens: map[string]int{}, Forecast: Forecast{Matrix: make([][]int, len(Sizes)), ByClarity: make([]ClarityGroup, 5)}, BySize: make([]SizeGroup, len(Sizes))}
+	for i := range st.Forecast.ByClarity {
+		st.Forecast.ByClarity[i].Clarity = i + 1
+	}
 	for i, size := range Sizes {
 		st.Forecast.Matrix[i] = make([]int, len(Sizes))
 		st.BySize[i].Size = size
@@ -397,6 +414,18 @@ func bySize(st *Stats, r Record) {
 	if e == nil || e.State != "done" {
 		return
 	}
+	failed := r.Status == Failed || r.Status == Cancelled || r.ReviewState == "closed"
+	merged := r.Status == Done && r.ReviewState == "merged"
+	if v := e.Clarity.Value; v >= 1 && v <= len(st.Forecast.ByClarity) && (failed || merged) {
+		c := &st.Forecast.ByClarity[v-1]
+		c.Ended++
+		if merged {
+			c.Merged++
+			if clean(r) {
+				c.Clean++
+			}
+		}
+	}
 	want := slices.Index(Sizes, e.Size)
 	if want < 0 {
 		return
@@ -405,15 +434,18 @@ func bySize(st *Stats, r Record) {
 		if got := slices.Index(Sizes, a.Size); got >= 0 {
 			st.Forecast.Compared++
 			st.Forecast.Matrix[want][got]++
-			if got == want {
+			switch {
+			case got == want:
 				st.Forecast.Hits++
+			case got > want:
+				st.Forecast.Under++
+			default:
+				st.Forecast.Over++
 			}
 		}
 	}
 	g := &st.BySize[want]
 	g.Taken++
-	failed := r.Status == Failed || r.Status == Cancelled || r.ReviewState == "closed"
-	merged := r.Status == Done && r.ReviewState == "merged"
 	if failed || merged {
 		g.Ended++
 	}
