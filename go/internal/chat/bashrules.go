@@ -65,11 +65,16 @@ func bashCommands(line string) [][]string {
 		case c == '\'' || c == '"':
 			inWord = true
 			j := i + 1
+			sub := 0 // depth of $( … ) inside a double-quoted string: a << elsewhere in it is just text
 			for j < len(rs) && rs[j] != c {
 				if c == '"' && rs[j] == '\\' && j+1 < len(rs) {
 					j++
+				} else if c == '"' && rs[j] == '$' && j+1 < len(rs) && rs[j+1] == '(' {
+					sub++
+				} else if c == '"' && sub > 0 && rs[j] == ')' {
+					sub--
 				}
-				if c == '"' && isHeredoc(rs, j) {
+				if c == '"' && sub > 0 && isHeredoc(rs, j) {
 					// "$(cat <<'EOF' … EOF)": the body is text whatever quotes it holds; the string goes on after it.
 					d, k := heredocDelim(rs, j)
 					j = skipHeredoc(rs, lineEnd(rs, k), d)
