@@ -939,9 +939,14 @@ const diskAgo = (iso) => {
   if (m < 1440) return t("s.d.agoHour", { n: Math.round(m / 60) });
   return t("s.d.agoDay", { n: Math.round(m / 1440) });
 };
+// «Remove 5 merged worktrees · 22 MB»: how many the button takes away and the space it frees.
+function cleanLabel(n, bytes) {
+  return n ? t(n === 1 ? "s.d.cleanN.one" : "s.d.cleanN.many", { n, size: size(bytes) }) : t("s.d.clean");
+}
 function worktreeRow(u, w) {
   const bad = (x) => `<span class="badge bad">${x}</span>`, warn = (x) => `<span class="badge warn">${x}</span>`;
   const badges = [
+    w.reviewState === "merged" && `<span class="badge ok">${t("s.d.merged")}</span>`,
     w.dirty > 0 && bad(t("s.d.dirty", { n: w.dirty })),
     w.unpushed > 0 && bad(t("s.d.unpushed", { n: w.unpushed })),
     !w.hasRemote && !w.detached && !w.prunable && w.branch && warn(t("s.d.noRemote")),
@@ -993,7 +998,7 @@ async function renderDisk(msg = "") {
     : `<div class="card muted">${t("s.d.none")}</div>`;
   box.innerHTML = `<div class="card"><div class="row" style="margin-top:0"><b>${t("s.d.total", { size: size(total) })}</b><span class="spacer"></span>
       <button id="disk-remove" class="danger" disabled></button>
-      <button class="primary" id="disk-clean" ${cleanable ? "" : "disabled"}>${t("s.d.clean")}${cleanable ? ` (${cleanable}, ${size(freed)})` : ""}</button></div>
+      <button class="primary" id="disk-clean" ${cleanable ? "" : "disabled"}>${cleanLabel(cleanable, freed)}</button></div>
       ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}</div>${projects}`;
 
   const sync = () => {
