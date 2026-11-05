@@ -187,3 +187,22 @@ func restartFor(r core.Record, next core.Route, idle, kept bool) bool {
 
 // sameRun: the routes start claude the same way.
 func sameRun(a, b core.Route) bool { return a.Model == b.Model && a.Effort == b.Effort }
+
+// RoutesNow: the route each phase and size gets now, the global mode applied (a repo's own mode, an escalation or
+// a model picked for a task aside): the stats tell the route in use from the ones tried before.
+func (d *Dispatcher) RoutesNow() core.RouteTable {
+	cfg := d.Config()
+	table := cfg.Routes
+	if table == nil {
+		table = core.DefaultRoutes()
+	}
+	out := core.RouteTable{}
+	for phase, bySize := range table {
+		out[phase] = map[string]core.Route{}
+		for size, r := range bySize {
+			r = core.Step(r, core.ModeShift(cfg.RouteMode))
+			out[phase][size] = core.Route{Model: r.Model, Effort: r.Effort}
+		}
+	}
+	return out
+}

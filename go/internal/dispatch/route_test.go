@@ -233,3 +233,25 @@ func TestOrcaModelKeepsRoute(t *testing.T) {
 		t.Fatalf("kept %+v", route)
 	}
 }
+
+// RoutesNow: the table of the settings with the global mode applied, model and effort only; none set: the defaults.
+func TestRoutesNow(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	table := core.DefaultRoutes()
+	table[core.PhaseWork]["big"] = core.Route{Model: "sonnet", Effort: "high"}
+	d := New(&config.Config{Routes: table, RouteMode: core.ModeQuality}, store, nil)
+	now := d.RoutesNow()
+	if got := label(now[core.PhaseWork]["big"]); got != "sonnet · xhigh" {
+		t.Errorf("work big in the quality mode: %q", got)
+	}
+	if got := label(now[core.PhaseWork]["small"]); got != "sonnet · high" {
+		t.Errorf("work small in the quality mode: %q", got)
+	}
+	if table[core.PhaseWork]["big"].Effort != "high" {
+		t.Error("the settings' table changed")
+	}
+	d = New(&config.Config{}, store, nil)
+	if got := label(d.RoutesNow()[core.PhaseWork]["big"]); got != "opus · high" {
+		t.Errorf("no table: %q", got)
+	}
+}
