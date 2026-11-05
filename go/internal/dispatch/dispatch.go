@@ -163,6 +163,10 @@ type Dispatcher struct {
 
 	lessonsMu sync.Mutex // lessons.json
 	navMu     sync.Mutex // navretro.json
+	evalMu    sync.Mutex // evals.json
+	// evalRuns: the eval runs going on, by navKey (see evalrun.go); under evalRunMu, which is taken after evalMu.
+	evalRunMu sync.Mutex
+	evalRuns  map[string]*evalLiveRun
 	faultsMu  sync.Mutex // errors.json: Mako's own errors
 
 	// Version and Source: this Mako's version and the clone it is built from ("" when unknown), for the

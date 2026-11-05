@@ -99,6 +99,7 @@ type stateReply struct {
 	E2E            bool                       `json:"e2e,omitempty"`       // …through its sealed tunnel (docs/relay-e2e.md)
 	Stats          core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
 	NavRetros      []dispatch.NavRetroState   `json:"navRetros,omitempty"` // the navigation retros of the stats' project
+	Evals          []dispatch.EvalState       `json:"evals,omitempty"`     // the eval sets and runs of the stats' project
 	Update         *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
 	Release        *update.Release            `json:"release,omitempty"`   // a newer release to download; not on a phone
 	Restart        restartView                `json:"restart"`
@@ -271,6 +272,7 @@ func (s *Server) Handler() http.Handler {
 			core.AddSpends(&reply.Stats, s.D.Spends.All(), since, r.URL.Query().Get("project"))
 		}
 		reply.NavRetros = s.D.NavRetros(r.URL.Query().Get("project"))
+		reply.Evals = s.D.Evals(r.URL.Query().Get("project"), r.URL.Query().Get("evalBase"), r.URL.Query().Get("evalVariant"))
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
 		// sel: the task whose card the board has open: its copy to try is kept while it is.
@@ -501,6 +503,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.createRoutes(mux)
 	s.navRoutes(mux)
+	s.evalRoutes(mux)
 	s.codeRoutes(mux)
 	s.chatRoutes(mux)
 	// «Рев'ю для мене»: «Підготувати ревʼю» (the reviewer drafts my review), a comment of the draft edited or

@@ -242,3 +242,41 @@ func TestRefsDiff(t *testing.T) {
 		}
 	}
 }
+
+// An eval run's worktree: every push is refused, the repository's other hooks still run.
+func TestNoPushHook(t *testing.T) {
+	wt, _, g := syncRepos(t)
+	task := filepath.Join(t.TempDir(), "eval")
+	g(wt, "worktree", "add", "-q", "--detach", task)
+	ran := filepath.Join(t.TempDir(), "ran")
+	own := "#!/bin/sh\necho \"$(basename \"$0\")\" >> " + ran + "\n"
+	os.WriteFile(filepath.Join(wt, ".git", "hooks", "pre-commit"), []byte(own), 0o755)
+	os.WriteFile(filepath.Join(wt, ".git", "hooks", "pre-push"), []byte(own), 0o755)
+	dir := filepath.Join(t.TempDir(), "hooks")
+	if err := WriteNoPushHooks(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallHooks(context.Background(), task, dir); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(task, "c.txt"), []byte("c\n"), 0o644)
+	g(task, "add", ".")
+	g(task, "commit", "-q", "-m", "c")
+	for _, args := range [][]string{
+		{"push", "origin", "HEAD:refs/heads/eval"},
+		{"-c", "alias.ship=!git push origin HEAD:refs/heads/eval", "ship"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = task
+		out, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(out), "this is an eval run") {
+			t.Errorf("%v: not stopped: %v %s", args, err, out)
+		}
+	}
+	if got := g(wt, "ls-remote", "origin", "eval"); got != "" {
+		t.Fatalf("the eval branch reached origin: %s", got)
+	}
+	if b, _ := os.ReadFile(ran); string(b) != "pre-commit\n" {
+		t.Fatalf("the repository's hooks that ran: %q", b)
+	}
+}

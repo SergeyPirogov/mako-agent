@@ -418,6 +418,8 @@ async function load() {
     if (document.visibilityState === "visible") q.set("seen", "1");
     if (statsDays) q.set("days", statsDays);
     if (statsProject) q.set("project", statsProject);
+    // evalBase, evalVariant: the eval runs compared side by side.
+    if (statsTab === "eval") for (const [k, v] of Object.entries(evalPick)) if (v) q.set(k === "base" ? "evalBase" : "evalVariant", v);
     // sel: the open card; its "Try this build" copy is kept while it is open.
     if (selected) q.set("sel", selected);
     // X-Mako: the board's own look; only then does seen=1 count (another site cannot send it).
@@ -3162,8 +3164,8 @@ async function uploadImage(area, t, file, busy, fail) {
 function statsHTML(s) {
   const period = segs("stats-days", [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"], ["", "All time"]], statsDays, "Statistics period");
   const projects = statsProjects();
-  // The navigation retro is a project's: with none picked, it is the one of the task merged last.
-  if (statsTab === "navigation" && !statsProject && projects.length) {
+  // The navigation retro and the eval are a project's: with none picked, it is the one of the task merged last.
+  if ((statsTab === "navigation" || statsTab === "eval") && !statsProject && projects.length) {
     const last = (data?.records || []).filter((r) => r.reviewState === "merged" && projectOf(r)).sort((a, b) => (b.mergedAt || "").localeCompare(a.mergedAt || ""))[0];
     statsProject = last ? projectOf(last) : projects[0];
     try { localStorage.setItem("mako-stats-project", statsProject); } catch {}
@@ -3175,13 +3177,14 @@ function statsHTML(s) {
   const tabs = `<nav class="stats-tabs" role="tablist" aria-label="Stats">${STATS_TABS.map(([k, l]) =>
     `<button type="button" role="tab" data-tab="${k}" aria-selected="${k === statsTab}" class="${k === statsTab ? "on" : ""}">${l}</button>`).join("")}</nav>`;
   if (statsTab === "navigation") return `<div class="stats">${head}${tabs}${navTab()}</div>`;
+  if (statsTab === "eval") return `<div class="stats">${head}${tabs}${evalTab()}</div>`;
   if (!s?.taken && !statsDays && !statsProject) return `<div class="empty">Pick a task on the left. Statistics will appear once the agent takes its first task.</div>`;
   if (!s?.taken) return `<div class="stats">${head}${tabs}<div class="text muted">The agent took no tasks in this period</div></div>`;
   const tab = { time: timeTab, cost: costTab, quality: qualityTab, context: contextTab }[statsTab] || overviewTab;
   return `<div class="stats">${head}${tabs}${tab(s)}</div>`;
 }
 
-const STATS_TABS = [["overview", "Overview"], ["time", "Time"], ["cost", "Cost"], ["quality", "Quality"], ["context", "Context"], ["navigation", "Navigation"]];
+const STATS_TABS = [["overview", "Overview"], ["time", "Time"], ["cost", "Cost"], ["quality", "Quality"], ["context", "Context"], ["navigation", "Navigation"], ["eval", "Eval"]];
 const INFO_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>`;
 const money = (x) => `$${(x || 0).toFixed(2)}`;
 const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
@@ -3774,9 +3777,156 @@ function bindNav() {
   for (const a of d.querySelectorAll("[data-nav-open]")) a.onclick = (e) => { e.preventDefault(); statsOpen = false; select(a.dataset.navOpen); };
 }
 
+// «Stats → Eval» (#622): a repository's set of merged tasks done again with other agent settings, the runs and the
+// baseline next to a variant. The form keeps what is typed in it (the stats re-render every few seconds).
+const EVAL_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const evalForm = {}, evalAll = {};
+// evalPick: the runs compared, by id (the newest baseline and variant when none is picked); load() asks for them.
+const evalPick = { base: "", variant: "" };
+function evalName(v) {
+  if (v?.name) return v.name;
+  const parts = [v?.model, v?.effort, v?.claudeMdFrom && `CLAUDE.md: ${v.claudeMdFrom}`, v?.instructions && t("b.eval.prompt")].filter(Boolean);
+  return parts.length ? parts.join(" · ") : t("b.eval.baselineName");
+}
+const evalState = (s) => t(`b.eval.st.${s || "waiting"}`);
+function evalTab() {
+  if (!statsProject) return `<div class="text muted">${esc(t("b.eval.pick"))}</div>`;
+  const xs = data?.evals || [];
+  if (!xs.length) return `<div class="text muted">${esc(t("b.eval.none", { project: statsProject }))}</div>`;
+  return xs.map((x) => evalCard(x, xs.length > 1)).join("");
+}
+function evalCard(x, several) {
+  const run = x.runs.find((r) => r.state === "running");
+  let body = `<div class="muted">${esc(t("b.eval.about"))}</div>`;
+  if (!x.checks) body += `<div class="eval-warn">${esc(t("b.eval.noChecks"))}</div>`;
+  if (run) {
+    const done = run.results.filter((r) => r.state && r.state !== "running").length;
+    body += `<div class="eval-live"><span>${esc(t("b.eval.running", { name: evalName(run.variant), done, n: run.results.length, spent: money(run.spent), max: money(run.maxCost) }))}</span>`
+      + `<button type="button" class="ghost" data-eval-stop="${esc(x.key)}">${esc(t("b.eval.stop"))}</button></div>`;
+  }
+  body += evalCompare(x) + evalFormHTML(x, !!run) + evalSet(x) + evalHistory(x);
+  return scard(`${esc(t("b.eval.tab"))}${several ? ` · ${esc(x.repo)}` : ""}`, body, "", "eval");
+}
+const evalRunOf = (x, id) => x.runs.find((r) => r.id === id);
+// A task's result in a run: its state, cost, time and the reviewer's must.
+function evalCell(r) {
+  if (!r) return `<span class="muted">—</span>`;
+  const mark = r.state === "passed" ? `<span class="ok">✓</span>` : r.state === "failed" ? `<span class="bad">✗</span>` : "";
+  const why = r.error ? ` title="${esc(r.error)}"` : "";
+  const nums = r.state === "passed" || r.state === "failed" ? ` <span class="muted">${money(r.cost)} · ${durFine(r.seconds)} · ${r.must}/${r.should}</span>` : "";
+  return `<span${why}>${mark} ${esc(evalState(r.state))}${nums}</span>`;
+}
+function evalCompare(x) {
+  const c = x.compare;
+  if (!c) return "";
+  const b = evalRunOf(x, c.base), v = evalRunOf(x, c.variant);
+  if (!b || !v) return "";
+  const pick = (which, id) => `<select data-eval-pick="${which}" aria-label="${esc(t(which === "base" ? "b.eval.base" : "b.eval.variant"))}">`
+    + x.runs.slice().reverse().map((r) => `<option value="${esc(r.id)}"${r.id === id ? " selected" : ""}>${esc(evalName(r.variant))} · ${esc(fmtWhen(r.startedAt))}</option>`).join("") + `</select>`;
+  const pct = (s) => s.ran ? `${Math.round(s.successRate * 100)}% <span class="muted">· ${s.passed} of ${s.ran}</span>` : "—";
+  const mark = (info) => info ? `<span class="info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}">${INFO_ICON}</span>` : "";
+  const row = (label, f, info = "") => `<tr><td>${esc(label)}${mark(info)}</td><td class="n">${f(b.summary)}</td><td class="n">${f(v.summary)}</td></tr>`;
+  const table = `<div class="table-wrap"><table class="stable"><thead><tr><th></th><th class="n">${pick("base", c.base)}</th><th class="n">${pick("variant", c.variant)}</th></tr></thead><tbody>`
+    + row(t("b.eval.success"), pct, t("b.eval.successHint"))
+    + row(t("b.eval.medianCost"), (s) => s.ran ? money(s.medianCost) : "—")
+    + row(t("b.eval.medianTime"), (s) => s.ran ? durFine(s.medianSeconds) : "—")
+    + row(t("b.eval.remarks"), (s) => `${s.must} / ${s.should}`)
+    + row(t("b.eval.spent"), (s) => money(s.cost))
+    + `</tbody></table></div>`;
+  const title = (id) => esc(x.cases.find((k) => k.taskId === id)?.task?.title || "");
+  const tasks = `<div class="table-wrap"><table class="stable"><thead><tr><th>${esc(t("b.eval.task"))}</th><th>${esc(t("b.eval.base"))}</th><th>${esc(t("b.eval.variant"))}</th><th></th></tr></thead><tbody>`
+    + c.deltas.map((d) => `<tr><td><b>${esc(d.taskId)}</b> <span class="muted">${title(d.taskId)}</span></td><td>${evalCell(d.base)}</td><td>${evalCell(d.variant)}</td>`
+      + `<td>${d.change ? `<span class="eval-ch ${esc(d.change)}">${esc(t(`b.eval.${d.change}`))}</span>` : ""}</td></tr>`).join("")
+    + `</tbody></table></div>`;
+  return `<h3 class="eval-h">${esc(t("b.eval.compare"))}</h3>${table}${tasks}`;
+}
+function evalFormHTML(x, running) {
+  const f = evalForm[x.key] || (evalForm[x.key] = { name: "", model: "", effort: "", claudeMdFrom: "", claudeMd: "", instructions: "", maxCost: "" });
+  const opts = (list, v) => `<option value="">${esc(t("b.eval.asNow"))}</option>` + list.map((m) => `<option value="${esc(m)}"${m === v ? " selected" : ""}>${esc(m)}</option>`).join("");
+  const off = running || !x.cases.length ? " disabled" : "";
+  return `<details class="eval-form" data-eval-form="${esc(x.key)}"${f.open ? " open" : ""}><summary>${esc(t("b.eval.run"))}</summary><div class="eval-grid">`
+    + `<label>${esc(t("b.eval.name"))}<input data-f="name" value="${esc(f.name)}" placeholder="${esc(t("b.eval.namePh"))}"></label>`
+    + `<label>${esc(t("b.eval.model"))}<select data-f="model">${opts(data?.models || [], f.model)}</select></label>`
+    + `<label>${esc(t("b.eval.effort"))}<select data-f="effort">${opts(EVAL_EFFORTS, f.effort)}</select></label>`
+    + `<label>${esc(t("b.eval.ceiling"))}<input data-f="maxCost" type="number" min="0" step="0.5" value="${esc(f.maxCost)}" placeholder="${esc(String(x.maxCost))}" title="${esc(t("b.eval.ceilingHint"))}"></label>`
+    + `<label class="wide">${esc(t("b.eval.claudeMd"))}<input data-f="claudeMdFrom" value="${esc(f.claudeMdFrom)}" placeholder="${esc(t("b.eval.claudeMdPh"))}"></label>`
+    + `<label class="wide">${esc(t("b.eval.claudeMdText"))}<textarea data-f="claudeMd" rows="3">${esc(f.claudeMd)}</textarea></label>`
+    + `<label class="wide">${esc(t("b.eval.instructions"))}<textarea data-f="instructions" rows="3" placeholder="${esc(t("b.eval.instructionsPh"))}">${esc(f.instructions)}</textarea></label>`
+    + `</div><div class="nav-act"><button type="button" class="ghost" data-eval-run="base" title="${esc(t("b.eval.runBaseHint"))}"${off}>${esc(t("b.eval.runBase"))}</button>`
+    + `<button type="button" class="primary" data-eval-run="variant"${off}>${esc(t("b.eval.runVariant"))}</button></div></details>`;
+}
+function evalSet(x) {
+  const rows = x.cases.map((c) => `<tr><td><b>${esc(c.taskId)}</b> <span class="muted">${esc(c.task?.title || "")}</span></td><td>${esc(SIZE_NAMES[c.size] || c.size || "—")}</td>`
+    + `<td class="n">+${c.added} −${c.removed}</td><td class="n" title="${esc((c.testFiles || []).join("\n"))}">${(c.testFiles || []).length}</td>`
+    + `<td class="n">${c.cost ? money(c.cost) : "—"}</td><td class="n">${c.seconds ? durFine(c.seconds) : "—"}</td>`
+    + `<td class="n"><button type="button" class="ghost" data-eval-remove="${esc(c.taskId)}" data-key="${esc(x.key)}">${esc(t("b.eval.remove"))}</button></td></tr>`).join("");
+  const set = x.cases.length
+    ? `<div class="table-wrap"><table class="stable"><thead><tr><th>${esc(t("b.eval.task"))}</th><th>${esc(t("b.eval.size"))}</th><th class="n">${esc(t("b.eval.lines"))}</th>`
+      + th(esc(t("b.eval.tests")), t("b.eval.testsHint")) + `<th class="n">${esc(t("b.eval.cost"))}</th><th class="n">${esc(t("b.eval.time"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<div class="muted">${esc(t("b.eval.setEmpty"))}</div>`;
+  // The suggested ones first; with none suggested, the newest few.
+  const all = evalAll[x.key], suggested = x.candidates.filter((c) => c.suggested);
+  const picked = all ? x.candidates : suggested.length ? suggested : x.candidates.slice(0, 10);
+  const cands = x.candidates.length ? `<h3 class="eval-h">${esc(t("b.eval.candidates"))}</h3><div class="eval-cands">`
+    + picked.map((c) => `<div class="eval-cand"><span><b>${esc(c.taskId)}</b> ${esc(c.title)}${c.size ? ` <span class="muted">· ${esc(SIZE_NAMES[c.size] || c.size)}</span>` : ""}`
+      + `${c.suggested ? ` <span class="nav-kind k-claude_md">${esc(t("b.eval.suggested"))}</span>` : ""}</span>`
+      + `<button type="button" class="ghost" data-eval-add="${esc(c.taskId)}">${esc(t("b.eval.add"))}</button></div>`).join("")
+    + (!all && picked.length < x.candidates.length ? `<button type="button" class="ghost" data-eval-all="${esc(x.key)}">${esc(t("b.eval.showAll", { n: x.candidates.length }))}</button>` : "")
+    + `</div>` : "";
+  return `<h3 class="eval-h">${esc(t("b.eval.set"))}</h3>${set}${cands}`;
+}
+function evalHistory(x) {
+  if (!x.runs.length) return "";
+  const rows = x.runs.slice().reverse().map((r) => {
+    const s = r.summary;
+    return `<tr><td>${esc(fmtWhen(r.startedAt))}</td><td>${esc(evalName(r.variant))}</td><td title="${esc(r.reason || "")}">${esc(evalState(r.state))}</td>`
+      + `<td class="n">${s.ran ? `${Math.round(s.successRate * 100)}%` : "—"}</td><td class="n">${s.ran ? money(s.medianCost) : "—"}</td>`
+      + `<td class="n">${s.must} / ${s.should}</td><td class="n">${money(r.spent)}</td></tr>`;
+  }).join("");
+  return `<h3 class="eval-h">${esc(t("b.eval.history"))}</h3><div class="table-wrap"><table class="stable"><thead><tr><th>${esc(t("b.eval.when"))}</th><th>${esc(t("b.eval.variant"))}</th>`
+    + `<th>${esc(t("b.eval.state"))}</th><th class="n">${esc(t("b.eval.success"))}</th><th class="n">${esc(t("b.eval.medianCost"))}</th><th class="n">${esc(t("b.eval.remarks"))}</th><th class="n">${esc(t("b.eval.spent"))}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function bindEval() {
+  const d = $("detail");
+  for (const box of d.querySelectorAll("[data-eval-form]")) {
+    const key = box.dataset.evalForm, f = evalForm[key];
+    box.ontoggle = () => (f.open = box.open);
+    for (const el of box.querySelectorAll("[data-f]")) el.oninput = el.onchange = () => (f[el.dataset.f] = el.value);
+    for (const b of box.querySelectorAll("[data-eval-run]")) b.onclick = async () => {
+      const base = b.dataset.evalRun === "base";
+      const variant = base ? {} : { name: f.name, model: f.model, effort: f.effort, claudeMdFrom: f.claudeMdFrom, claudeMd: f.claudeMd, instructions: f.instructions };
+      if (!base && !variant.model && !variant.effort && !variant.claudeMdFrom.trim() && !variant.claudeMd.trim() && !variant.instructions.trim()) return toast(t("b.eval.noVariant"), true);
+      if (base) variant.name = "";
+      b.disabled = true;
+      const res = await navPost(`/api/eval/run?key=${encodeURIComponent(key)}`, JSON.stringify({ variant, maxCost: Number(f.maxCost) || 0 }));
+      if (res.ok) { toast(t("b.eval.started")); f.open = false; }
+      await load();
+    };
+  }
+  for (const b of d.querySelectorAll("[data-eval-stop]")) b.onclick = async () => {
+    b.disabled = true;
+    await navPost(`/api/eval/stop?key=${encodeURIComponent(b.dataset.evalStop)}`);
+    await load();
+  };
+  for (const b of d.querySelectorAll("[data-eval-add]")) b.onclick = async () => {
+    b.disabled = true;
+    const res = await navPost(`/api/eval/add?id=${encodeURIComponent(b.dataset.evalAdd)}`);
+    if (res.ok) toast(t("b.eval.added"));
+    await load();
+  };
+  for (const b of d.querySelectorAll("[data-eval-remove]")) b.onclick = async () => {
+    b.disabled = true;
+    await navPost(`/api/eval/remove?key=${encodeURIComponent(b.dataset.key)}&id=${encodeURIComponent(b.dataset.evalRemove)}`);
+    await load();
+  };
+  for (const b of d.querySelectorAll("[data-eval-all]")) b.onclick = () => { evalAll[b.dataset.evalAll] = true; render(); };
+  for (const s of d.querySelectorAll("[data-eval-pick]")) s.onchange = () => { evalPick[s.dataset.evalPick] = s.value; s.blur(); load(); };
+}
+
 // The controls of "Stats": the period, the project, the tabs, the cuts and the "Needs attention" rows.
 function bindStats() {
   bindNav();
+  bindEval();
   const d = $("detail");
   for (const b of d.querySelectorAll("#stats-days button")) b.onclick = () => {
     statsDays = b.dataset.v;
@@ -4186,6 +4336,8 @@ function renderDetail() {
     if (document.activeElement?.id === "stats-project") return;
     // A navigation retro's line being edited keeps its cursor.
     if (document.activeElement?.dataset?.navRule != null) return;
+    // The eval's form being filled in keeps its focus.
+    if (document.activeElement?.closest?.(".eval-form")) return;
     $("detail").innerHTML = (statsOpen ? `<button class="ghost back" id="back">← Tasks</button>` : "") + statsHTML(data.stats) + (statsTab === "overview" ? faultsHTML(data.faults) : "");
     if ($("back")) $("back").onclick = () => { statsOpen = false; render(); };
     bindStats();

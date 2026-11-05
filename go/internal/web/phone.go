@@ -97,7 +97,7 @@ func publicPath(p string) bool {
 // and its buttons.
 func macOnly(p string) bool {
 	return p == "/settings" || strings.HasPrefix(p, "/api/settings") || strings.HasPrefix(p, "/api/phone") || p == "/api/show" ||
-		p == "/api/terminalapp" || p == "/api/open" || p == "/api/trybuild"
+		p == "/api/terminalapp" || p == "/api/open" || p == "/api/trybuild" || p == "/api/eval/run"
 }
 
 // guard lets this Mac in as is, and a phone only with a paired device's key.
