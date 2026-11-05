@@ -3,6 +3,8 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -367,5 +369,77 @@ func TestFirstErrorLine(t *testing.T) {
 	}
 	if errorKey("--- FAIL: TestSave (0.01s)") != errorKey("--- FAIL: TestSave (0.30s)") || errorKey("--- FAIL: TestSave") == errorKey("--- FAIL: TestLoad") {
 		t.Error("the key of a failure")
+	}
+}
+
+// watch.json lost after a crash (empty or broken): it is kept aside, and the alerts the watch had already written
+// up are not written up again.
+func TestWatchLostFileMakesNoDuplicates(t *testing.T) {
+	for name, content := range map[string]string{"empty": "", "broken": `{"open": {"security|`} {
+		t.Run(name, func(t *testing.T) {
+			d, _, w := watchSetup(t, config.Watch{Security: true})
+			ctx := context.Background()
+			now := time.Now()
+			w.vulns = []trackers.Vulnerability{{ID: "1", Package: "lodash", Summary: "Prototype pollution"}}
+			d.Watch(ctx, now)
+			if got := made(d, "security"); len(got) != 1 {
+				t.Fatalf("first look: %d tasks", len(got))
+			}
+			file := filepath.Join(d.Cfg.StateDir, "watch.json")
+			if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			store, _ := state.Open(d.Cfg.StateDir)
+			d2 := New(d.Cfg, store, d.Trackers)
+			d2.Watch(ctx, now)
+			if got := made(d2, "security"); len(got) != 1 {
+				t.Fatalf("after the file was lost: %d tasks", len(got))
+			}
+			if _, err := os.Stat(file + ".broken"); err != nil {
+				t.Fatalf("the lost file is not kept aside: %v", err)
+			}
+			if len(d2.Faults()) == 0 {
+				t.Fatal("the loss was not reported")
+			}
+			// Remembered again: the old alert is no news, an alert that is really new is.
+			d2.Watch(ctx, now)
+			if got := made(d2, "security"); len(got) != 1 {
+				t.Fatalf("the old alert again: %d tasks", len(got))
+			}
+			w.vulns = append(w.vulns, trackers.Vulnerability{ID: "2", Package: "qs", Summary: "ReDoS"})
+			d2.Watch(ctx, now)
+			if got := made(d2, "security"); len(got) != 2 {
+				t.Fatalf("a new alert: %d tasks", len(got))
+			}
+			if b, err := os.ReadFile(file); err != nil || !strings.Contains(string(b), `"1"`) {
+				t.Fatalf("watch.json is not written again: %v %s", err, b)
+			}
+		})
+	}
+}
+
+// A missing watch.json is the first start, not a loss: the alerts there are written up.
+func TestWatchMissingFileIsNotALoss(t *testing.T) {
+	d, _, w := watchSetup(t, config.Watch{Security: true})
+	w.vulns = []trackers.Vulnerability{{ID: "1", Package: "lodash", Summary: "Prototype pollution"}}
+	d.Watch(context.Background(), time.Now())
+	if got := made(d, "security"); len(got) != 1 {
+		t.Fatalf("first start: %d tasks", len(got))
+	}
+	if _, err := os.Stat(filepath.Join(d.Cfg.StateDir, "watch.json.broken")); err == nil {
+		t.Fatal("a missing file was kept aside")
+	}
+}
+
+// A save leaves no temporary file behind (it goes through fsx.WriteFile).
+func TestWatchSaveLeavesNoTemp(t *testing.T) {
+	d, _, _ := watchSetup(t, config.Watch{CI: true})
+	d.Watch(context.Background(), time.Now())
+	if left, _ := filepath.Glob(filepath.Join(d.Cfg.StateDir, "watch.json*.tmp")); len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
+	}
+	if _, err := os.Stat(filepath.Join(d.Cfg.StateDir, "watch.json")); err != nil {
+		t.Fatal(err)
 	}
 }
