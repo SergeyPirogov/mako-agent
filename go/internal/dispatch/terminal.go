@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -174,9 +175,12 @@ func (d *Dispatcher) runAgent(id, worktree, view, prompt string, cont bool, setu
 	}
 	d.Chats.Put(chat.Start(chat.Options{
 		ID: id, Worktree: worktree, Command: command, Args: args, Env: d.agentEnv(id), SetupDone: setup, Prompt: prompt, Mode: mode, History: history,
-		OnState:       func() { d.watchTerminals(time.Now()) },
-		OnLimits:      d.limitsReported,
-		OnLimit:       func(until int64, resume bool) { d.noteLimit(id, until, resume) },
+		OnState:  func() { d.watchTerminals(time.Now()) },
+		OnLimits: d.limitsReported,
+		OnLimit:  func(until int64, resume bool) { d.noteLimit(id, until, resume) },
+		OnPermission: func(tool string, input json.RawMessage, rules []string) {
+			d.NotePermission(id, tool, input, rules)
+		},
 		OnAuth:        d.NoteAuth,
 		ResumeOnReset: d.resumeFlag(id),
 		// The task keeps its session: a later resume goes on with exactly this conversation.

@@ -215,7 +215,7 @@ echo "$more" > more.json
 	if !strings.Contains(asked, "Allow → /api/permit?id=grp%2Fapp%235&req=r1&decision=allow") || !strings.Contains(asked, "No → /api/permit?id=grp%2Fapp%235&req=r1&decision=deny") {
 		t.Fatalf("waiting push %q", asked)
 	}
-	s.Permit("r1", "allow")
+	s.Permit("r1", "allow", nil)
 	waitFor(t, func() bool { st, _, _ := s.State(); return st == "done" }, "the chat is not done")
 	d.watchTerminals(time.Now())
 	// Answered elsewhere (here, as on the board): the notification goes away.

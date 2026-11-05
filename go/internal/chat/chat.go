@@ -107,6 +107,9 @@ type Options struct {
 	History   string // a Claude Code transcript: the conversation so far, shown before it continues
 	OnState   func()
 	OnLimits  func(Limits)
+	// OnPermission: the agent asks for a tool you have to allow (not a question or a plan): the tool, its input
+	// and the rules «Always allow» would keep. Mako keeps a journal of them for the settings.
+	OnPermission func(tool string, input json.RawMessage, rules []string)
 	// OnLimit: the Claude limit cut the turn (until: when it resets, unix seconds; 0 when it is no longer cut: a
 	// message went on from it), or the choice to go on by itself changed. Mako keeps it, so the agent goes on after
 	// the reset even if Mako restarts meanwhile; the session itself sends nothing.
@@ -554,6 +557,9 @@ func (s *Session) handle(line []byte) {
 		}
 		s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "asked", Suggestions: r.Suggestions})
 		s.setState("waiting")
+		if s.o.OnPermission != nil && r.ToolName != "AskUserQuestion" && r.ToolName != PlanTool {
+			s.o.OnPermission(r.ToolName, r.Input, SuggestedRules(r.Suggestions))
+		}
 	case "control_cancel_request":
 		// Claude Code takes a request back (its turn was interrupted): nobody can answer it any more.
 		s.cancel(e.RequestID)
@@ -948,7 +954,9 @@ func (s *Session) Send(text string) error {
 func (s *Session) Say(text string) bool { return s.Send(text) == nil }
 
 // Permit answers a permission request: "allow", "always" (allow and keep Claude's suggested rule), "deny".
-func (s *Session) Permit(requestID, decision string) error {
+// rules: for «always», the rules you chose to keep instead of all Claude suggested ("Bash(git add:*)"); nil keeps
+// the suggestions as they are.
+func (s *Session) Permit(requestID, decision string, rules []string) error {
 	s.mu.Lock()
 	input, ok := s.pending[requestID]
 	var suggestions json.RawMessage
@@ -964,7 +972,12 @@ func (s *Session) Permit(requestID, decision string) error {
 	resp := map[string]any{"behavior": "allow", "updatedInput": input}
 	switch decision {
 	case "always":
-		if len(suggestions) > 0 && string(suggestions) != "null" {
+		switch {
+		case rules != nil:
+			if up := rulesUpdate(rules); up != nil {
+				resp["updatedPermissions"] = up
+			}
+		case len(suggestions) > 0 && string(suggestions) != "null":
 			resp["updatedPermissions"] = suggestions
 		}
 	case "deny":

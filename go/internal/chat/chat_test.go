@@ -62,7 +62,7 @@ func TestChat(t *testing.T) {
 	if _, tool, _ := s.State(); tool != "Write: a.txt" {
 		t.Fatalf("waiting for %q", tool)
 	}
-	if err := s.Permit("r1", "always"); err != nil {
+	if err := s.Permit("r1", "always", nil); err != nil {
 		t.Fatal(err)
 	}
 	wait("done")

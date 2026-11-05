@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
@@ -162,6 +163,56 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})
+	})
+	// Settings → Permissions: what the agents asked you to allow, by the rule that would spare it, and the rules
+	// already allowed.
+	mux.HandleFunc("GET /api/settings/permissions", func(w http.ResponseWriter, r *http.Request) {
+		allowed := slices.Clone(s.D.Config().Terminal.AllowedTools)
+		if allowed == nil {
+			allowed = []string{}
+		}
+		writeJSON(w, map[string]any{"ok": true, "groups": s.D.PermissionGroups(allowed), "allowed": allowed})
+	})
+	// «Allow always» (allow), «Dismiss» (dismiss) or «Remove» on an allowed rule (remove).
+	mux.HandleFunc("POST /api/settings/permissions", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var in struct {
+			Allow, Dismiss, Remove []string
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": "could not read the request: " + err.Error()})
+			return
+		}
+		for _, x := range in.Allow {
+			if !chat.ValidRule(x) {
+				writeJSON(w, map[string]any{"ok": false, "error": fmt.Sprintf("%q is not a rule Mako can keep: name the command, e.g. Bash(git push:*)", x)})
+				return
+			}
+		}
+		if len(in.Allow) > 0 || len(in.Remove) > 0 {
+			err := s.changeConfig(r.Context(), func(raw map[string]json.RawMessage) error {
+				if err := allowIn(raw, in.Allow); err != nil {
+					return err
+				}
+				return disallowIn(raw, in.Remove)
+			})
+			if err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		}
+		if len(in.Dismiss) > 0 {
+			s.D.DismissPermissions(in.Dismiss)
+		}
+		// The rules now, for the page's copy of the settings: a later «Save» must not bring a removed one back.
+		allowed := slices.Clone(s.D.Config().Terminal.AllowedTools)
+		if allowed == nil {
+			allowed = []string{}
+		}
+		writeJSON(w, map[string]any{"ok": true, "allowed": allowed})
 	})
 	// How much of the disk the agents' worktrees take, per project.
 	mux.HandleFunc("GET /api/settings/worktrees", func(w http.ResponseWriter, r *http.Request) {
@@ -332,8 +383,28 @@ func (s *Server) allowTools(ctx context.Context, rules []string) error {
 	})
 }
 
-// allowIn: the rules added to the allowedTools of every terminal executor in the settings.
+// allowIn: the rules added to the allowedTools of every terminal executor in the settings; one that is no rule
+// Mako may keep (chat.ValidRule) is left out.
 func allowIn(raw map[string]json.RawMessage, rules []string) error {
+	return editAllowed(raw, func(have []string) []string {
+		for _, r := range rules {
+			if chat.ValidRule(r) && !slices.Contains(have, r) {
+				have = append(have, r)
+			}
+		}
+		return have
+	})
+}
+
+// disallowIn: the rules taken out of the allowedTools of every terminal executor in the settings.
+func disallowIn(raw map[string]json.RawMessage, rules []string) error {
+	return editAllowed(raw, func(have []string) []string {
+		return slices.DeleteFunc(have, func(r string) bool { return slices.Contains(rules, r) })
+	})
+}
+
+// editAllowed changes the allowedTools of every terminal executor in the settings.
+func editAllowed(raw map[string]json.RawMessage, edit func([]string) []string) error {
 	var ex map[string]map[string]json.RawMessage
 	if b, ok := raw["executors"]; ok {
 		if err := json.Unmarshal(b, &ex); err != nil {
@@ -354,12 +425,12 @@ func allowIn(raw map[string]json.RawMessage, rules []string) error {
 				return fmt.Errorf("mako.config.json: executors.%s.allowedTools: %w", name, err)
 			}
 		}
-		for _, r := range rules {
-			if !slices.Contains(have, r) {
-				have = append(have, r)
-			}
+		have = edit(have)
+		if len(have) == 0 {
+			delete(e, "allowedTools")
+		} else {
+			e["allowedTools"], _ = json.Marshal(have)
 		}
-		e["allowedTools"], _ = json.Marshal(have)
 	}
 	if !found {
 		return errors.New("the settings have no Mako terminal agent: add the rules in Settings → Commands without asking")

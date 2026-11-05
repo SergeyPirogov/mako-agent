@@ -79,7 +79,7 @@ read more
 			if s.AlwaysRules("nope") != nil {
 				t.Error("rules for a request that is not waiting")
 			}
-			if err := s.Permit("r1", "always"); err != nil {
+			if err := s.Permit("r1", "always", nil); err != nil {
 				t.Fatal(err)
 			}
 			eventually(t, func() bool { b, _ := os.ReadFile(filepath.Join(dir, "answer.json")); return len(b) > 0 }, func() string { return "no answer" })
