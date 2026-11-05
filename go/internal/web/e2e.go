@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/net/websocket"
 
@@ -24,11 +25,17 @@ import (
 // or bodies.
 
 const (
-	tunnelFrameMax  = 32 << 20 // the biggest frame the tunnel takes
-	tunnelAnswerMax = 24 << 20 // the biggest answer it seals: a bigger one would not fit in a frame
-	tunnelInFlight  = 32       // requests of one tunnel at a time
-	tunnelStreams   = 8        // WebSocket streams of one tunnel at a time
+	tunnelFrameMax   = 32 << 20  // the biggest frame the tunnel takes, once one frame has opened
+	tunnelFrameFirst = 256 << 10 // the biggest before that: whoever has only the device's id gets no 32 MB buffers
+	tunnelBadMax     = 5         // frames in a row that do not open, and the tunnel closes
+	tunnelAnswerMax  = 24 << 20  // the biggest answer it seals: a bigger one would not fit in a frame
+	tunnelInFlight   = 32        // requests of one tunnel at a time
+	tunnelStreams    = 8         // WebSocket streams of one tunnel at a time
 )
+
+// tunnelBadPause: the wait after the first frame that did not open; it doubles with each next one in a row, up to a
+// second. A var, so the tests need not wait.
+var tunnelBadPause = 100 * time.Millisecond
 
 type tunnelKey struct{}
 
@@ -109,7 +116,7 @@ func (s *Server) dropTunnel(id string, t *tunnel) {
 
 func (s *Server) serveTunnel(c *websocket.Conn, inner http.Handler) {
 	defer c.Close()
-	c.MaxPayloadBytes = tunnelFrameMax
+	c.MaxPayloadBytes = tunnelFrameFirst
 	id := c.Request().URL.Query().Get("d")
 	if s.Phones.ByID(id) == nil {
 		return
@@ -128,6 +135,7 @@ func (s *Server) serveTunnel(c *websocket.Conn, inner http.Handler) {
 	defer t.closeStreams()
 	busy := make(chan struct{}, tunnelInFlight)
 	took := false
+	bad := 0
 	for {
 		var f relay.Sealed
 		if err := websocket.JSON.Receive(c, &f); err != nil {
@@ -135,19 +143,29 @@ func (s *Server) serveTunnel(c *websocket.Conn, inner http.Handler) {
 		}
 		payload, err := opener.Open(f)
 		if errors.Is(err, relay.ErrReplay) || errors.Is(err, relay.ErrTag) {
-			continue // a frame the relay made, changed or sent again: nothing to answer
+			// A frame the relay made, changed or sent again: nothing to answer, but not endlessly many.
+			if bad++; bad >= tunnelBadMax {
+				return
+			}
+			time.Sleep(min(tunnelBadPause<<(bad-1), time.Second))
+			continue
 		}
 		if err != nil {
 			return // the device is gone, or its counter cannot be written down
 		}
+		bad = 0
 		d := s.Phones.ByID(id)
 		if d == nil {
 			return
 		}
 		if !took {
 			took = true
+			c.MaxPayloadBytes = tunnelFrameMax
 			s.takeTunnel(id, t)
 			defer s.dropTunnel(id, t)
+			// The exact counter, not the bound ahead of it: a restart then refuses only what was taken. It is written
+			// before the tunnel is dropped, so whoever sees the tunnel gone knows the file is final.
+			defer opener.Flush()
 		}
 		switch f.T {
 		case relay.TypeRequest:

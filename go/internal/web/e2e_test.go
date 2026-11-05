@@ -48,8 +48,22 @@ func e2eServer(t *testing.T) (*httptest.Server, *phone.Phones, *dispatch.Dispatc
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer((&Server{D: d, Phones: phones}).Handler())
-	t.Cleanup(srv.Close)
+	s := &Server{D: d, Phones: phones}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(func() {
+		srv.Close()
+		// A tunnel's handler outlives the server's Close and writes phones.json as it ends: wait, or the temporary
+		// directory is removed under it.
+		for range 200 {
+			s.tunMu.Lock()
+			n := len(s.tunnels)
+			s.tunMu.Unlock()
+			if n == 0 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
 	return srv, phones, d, dir
 }
 
@@ -234,6 +248,89 @@ func TestTunnelRefusesReplayAndForgery(t *testing.T) {
 	p.send(relay.TypeRequest, "gone", relay.Request{U: "/api/i18n"})
 	if _, _, ok := p.next(2 * time.Second); ok {
 		t.Fatal("a removed device was answered")
+	}
+}
+
+// closed: whether the Mac has closed the connection (nothing but a read error comes from it any more).
+func (p *fakePhone) closed(wait time.Duration) bool {
+	p.c.SetReadDeadline(time.Now().Add(wait))
+	var f relay.Sealed
+	err := websocket.JSON.Receive(p.c, &f)
+	if err == nil {
+		return false
+	}
+	ne, timeout := err.(interface{ Timeout() bool })
+	return !(timeout && ne.Timeout())
+}
+
+// Frames that do not open, one after another, close the tunnel: a relay or a stranger with the device's id cannot
+// make the Mac read them for ever. A real frame in between starts the count again.
+func TestTunnelClosesAfterBadFrames(t *testing.T) {
+	tunnelBadPause = time.Millisecond
+	t.Cleanup(func() { tunnelBadPause = 100 * time.Millisecond })
+	srv, phones, _, dir := e2eServer(t)
+	p := pairE2E(t, srv, phones, dir)
+	f := p.send(relay.TypeRequest, "first", relay.Request{U: "/api/i18n"})
+	if g, _, ok := p.next(5 * time.Second); !ok || g.I != "first" {
+		t.Fatal("no answer to the first request")
+	}
+	for range tunnelBadMax - 1 { // one less than the limit, and a real frame after: still open
+		p.sendFrame(f)
+	}
+	if res := p.do(relay.Request{U: "/api/i18n"}); res.S != 200 {
+		t.Fatalf("after %d bad frames: %d", tunnelBadMax-1, res.S)
+	}
+	for range tunnelBadMax {
+		p.sendFrame(f) // sent again: it never opens
+	}
+	if !p.closed(5 * time.Second) {
+		t.Fatal("the tunnel is still open after a run of frames that do not open")
+	}
+}
+
+// Until a frame has opened, the tunnel takes no big frames: the device's id is in the open in every frame, so it
+// proves nothing. After, it takes what the phone sends.
+func TestTunnelFirstFrameLimit(t *testing.T) {
+	srv, phones, _, dir := e2eServer(t)
+	p := pairE2E(t, srv, phones, dir)
+	big := relay.Sealed{V: relay.Version, D: p.id, T: relay.TypeRequest, I: "x", N: 1, C: make([]byte, tunnelFrameFirst)}
+	websocket.JSON.Send(p.c, big) // the write may fail too once the Mac has closed: the read below tells
+	if !p.closed(5 * time.Second) {
+		t.Fatal("a frame over the first limit did not close the tunnel")
+	}
+
+	p.dial()
+	body := bytes.Repeat([]byte("a"), tunnelFrameFirst) // sealed and encoded, over the first limit
+	if res := p.do(relay.Request{U: "/api/i18n"}); res.S != 200 {
+		t.Fatal(res.S)
+	}
+	if res := p.do(relay.Request{M: "POST", U: "/api/i18n", B: body}); res.S == 0 || res.S == http.StatusServiceUnavailable {
+		t.Fatalf("a big frame after the first: %d", res.S)
+	}
+}
+
+// The counter of the phone's frames is written down in blocks: a run of requests does not rewrite phones.json.
+func TestTunnelDoesNotRewritePhonesPerFrame(t *testing.T) {
+	srv, phones, _, dir := e2eServer(t)
+	p := pairE2E(t, srv, phones, dir)
+	if res := p.do(relay.Request{U: "/api/i18n"}); res.S != 200 {
+		t.Fatal(res.S)
+	}
+	file := filepath.Join(dir, "phones.json")
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := os.Stat(file)
+	for range 5 {
+		if res := p.do(relay.Request{U: "/api/i18n"}); res.S != 200 {
+			t.Fatal(res.S)
+		}
+	}
+	after, _ := os.ReadFile(file)
+	st2, _ := os.Stat(file)
+	if !bytes.Equal(before, after) || !st.ModTime().Equal(st2.ModTime()) {
+		t.Fatal("phones.json was written while the requests stayed in one block")
 	}
 }
 
