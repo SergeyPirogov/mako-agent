@@ -471,9 +471,9 @@ function limitsHTML(l) {
   const bad = data.limitPausePct || 85;
   const meter = (label, short, w, what, showReset) => {
     if (!w) return "";
-    const pct = Math.round(w.used * 100), cls = pct >= bad ? "bad" : pct >= 60 ? "warn" : "";
-    // A reset time in the past: the window is fresh again, though no agent has reported it yet.
+    // A reset time in the past: the window is fresh again (0%), though no agent has reported it yet.
     const live = w.resetsAt * 1000 > Date.now(), at = live ? resetTime(w.resetsAt) : "";
+    const pct = live ? Math.round(w.used * 100) : 0, cls = pct >= bad ? "bad" : pct >= 60 ? "warn" : "";
     return `<span class="limit ${cls}" title="${what}: ${pct}% used${live ? `, resets ${at}` : ""}"><span class="lk">${label}</span><span class="ls">${short}</span><span class="lbar"><span style="width:${Math.min(pct, 100)}%"></span></span><b>${pct}%</b>${showReset && live ? `<span class="lr">↻ ${resetTime(w.resetsAt, true)}</span>` : ""}</span>`;
   };
   return meter("5 h", "5h", l?.fiveHour, "Claude limit for 5 hours", true) + meter("Week", "wk", l?.week, "Claude limit for the week");
