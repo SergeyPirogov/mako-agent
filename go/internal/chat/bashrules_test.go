@@ -20,6 +20,17 @@ func TestBashRules(t *testing.T) {
 		{"npm test || npm run lint", "npm test:* npm run:*"},
 		{"echo 'one' \\\n  && echo two", "echo:*"},
 		{"cat <<EOF > a.txt\n$(rm -rf ~)\nEOF", "cat:*"},
+		// a heredoc inside "$(…)": its body, with an unpaired quote, is text, and the line goes on after it
+		{"gh pr create --title t --body \"$(cat <<'EOF'\nТак, після \"цього\" ще \" тут\n🤖 https://claude.com/x\nEOF\n)\" && git push", "gh pr:* git push:*"},
+		{"git commit -m \"$(cat <<'A'\nодна \" лапка\nA\n) $(cat <<'B'\nдруга \" лапка\nB\n)\" && ls", "git commit:* ls:*"},
+		{"echo \"a << b\" && ls", "echo:* ls:*"},
+		{"cat <<\"EOF\" > a\nx && rm y\nEOF\nls", "cat:* ls:*"},
+		{"gh pr create --body \"$(cat <<\"EOF\"\nа \" б\nEOF\n)\" && ls", "gh pr:* ls:*"},
+		{"gh pr create --body \"$(cat <<-'EOF'\n\tа \" б\n\tEOF\n)\" && ls", "gh pr:* ls:*"},
+		{"echo \"$(echo \"x\")\" && ls", "echo:* ls:*"},
+		{"echo \"$(echo x && ls", "echo:*"},  // an unclosed $( swallows the rest of the line
+		{"cat <<'EOF'\nrm -rf x\n", "cat:*"}, // no closing delimiter: the rest is the body
+		{"echo \"$(cat <<'EOF'\nrm -rf x\n", "echo:*"},
 		{"$(curl x) && ls", "curl:* ls:*"}, // a command substitution runs its command too
 		// A heredoc inside a quoted $(…): its body is text, with any quotes, «;» or links in it.
 		{"git commit -q -m \"$(cat <<'EOF'\n#1: fix\n\n- так, після «Remove» прибирає; інакше рев'ю\nEOF\n)\" && git push -q 2>&1 | tail -1\n" +
