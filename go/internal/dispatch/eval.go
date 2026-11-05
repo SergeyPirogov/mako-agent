@@ -390,7 +390,7 @@ type EvalComparison struct {
 }
 
 // compareRuns: the runs base and variant of the set when it has them; else the variant is the last run that
-// changes something (the last run at all when none does) and the base the last finished baseline before it (the
+// changes something, one that ran to its end first (the last run at all when none changes anything) and the base the last finished baseline before it (the
 // run before it when there is none). nil with fewer than two runs.
 func compareRuns(runs []core.EvalRun, base, variant string) *EvalComparison {
 	find := func(id string) int {
@@ -407,6 +407,9 @@ func compareRuns(runs []core.EvalRun, base, variant string) *EvalComparison {
 	b, v := find(base), find(variant)
 	if b == v {
 		v = -1
+	}
+	if v < 0 {
+		v = last(func(i int) bool { return i != b && !runs[i].Variant.Baseline() && runs[i].State == core.EvalDone })
 	}
 	if v < 0 {
 		v = last(func(i int) bool { return i != b && !runs[i].Variant.Baseline() })

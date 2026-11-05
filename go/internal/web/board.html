@@ -3809,7 +3809,7 @@ function evalCard(x, several) {
     body += `<div class="eval-live"><span>${esc(t("b.eval.running", { name: evalName(run.variant), done, n: run.results.length, spent: money(run.spent), max: money(run.maxCost) }))}</span>`
       + `<button type="button" class="ghost" data-eval-stop="${esc(x.key)}">${esc(t("b.eval.stop"))}</button></div>`;
   }
-  body += evalCompare(x) + evalFormHTML(x, !!run) + evalSet(x) + evalHistory(x);
+  body += evalCompare(x) + evalHistory(x) + evalFormHTML(x, !!run) + evalSet(x);
   return scard(`${esc(t("b.eval.tab"))}${several ? ` · ${esc(x.repo)}` : ""}`, body, "", "eval");
 }
 const evalRunOf = (x, id) => x.runs.find((r) => r.id === id);

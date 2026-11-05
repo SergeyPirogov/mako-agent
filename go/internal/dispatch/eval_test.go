@@ -445,6 +445,11 @@ func TestCompareRuns(t *testing.T) {
 		r.Results[0].State = core.EvalFailed
 		return r
 	}
+	stopped := func(id string) core.EvalRun {
+		r := variant(id)
+		r.State = core.EvalStopped
+		return r
+	}
 	pair := func(c *EvalComparison) string {
 		if c == nil {
 			return ""
@@ -463,6 +468,7 @@ func TestCompareRuns(t *testing.T) {
 		{"a variant before any baseline", []core.EvalRun{variant("v1"), base("b1", core.EvalDone)}, "", "", "b1|v1"},
 		{"two baselines", []core.EvalRun{base("b1", core.EvalDone), base("b2", core.EvalDone)}, "", "", "b1|b2"},
 		{"no baseline yet", []core.EvalRun{variant("v1"), variant("v2")}, "", "", "v1|v2"},
+		{"a finished variant over a stopped one", []core.EvalRun{base("b1", core.EvalDone), variant("v1"), stopped("v2")}, "", "", "b1|v1"},
 		{"picked", []core.EvalRun{base("b1", core.EvalDone), variant("v1"), base("b2", core.EvalDone), variant("v2")}, "b1", "v1", "b1|v1"},
 		{"picked from another set", []core.EvalRun{base("b1", core.EvalDone), variant("v1")}, "x", "y", "b1|v1"},
 		{"the same run twice", []core.EvalRun{base("b1", core.EvalDone), variant("v1")}, "v1", "v1", "v1|b1"},
