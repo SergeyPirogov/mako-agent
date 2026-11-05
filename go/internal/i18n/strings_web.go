@@ -523,6 +523,7 @@ var webStrings = map[string]string{
 	// «Stats → Eval»: merged tasks done again with other agent settings.
 	"b.eval.tab":            "Eval",
 	"b.eval.pick":           "Pick a project above: an eval does merged tasks of its repository again with other agent settings and compares what came of it.",
+	"b.eval.loading":        "Loading…",
 	"b.eval.none":           "{project} has no merged tasks yet: an eval set is made of merged tasks.",
 	"b.eval.about":          "Merged tasks done again by an agent with nobody watching, each in a worktree of its own from the commit it started from: the task's own tests, the checks and the reviewer tell whether other settings do as well, and at what cost. Nothing is pushed and the tracker is not touched.",
 	"b.eval.noChecks":       "The repository has no checks before the MR: a run measures only the reviewer, the cost and the size of the change.",

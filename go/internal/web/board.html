@@ -129,6 +129,7 @@ let statsDays = lsGet("mako-stats-days");
 // "Stats": the tab open and the project counted (none: all), remembered; the cut of "Breakdown" and "Heaviest",
 // and the days shown as a table.
 let statsTab = lsGet("mako-stats-tab") || "overview", statsProject = lsGet("mako-stats-project");
+let statsFor = null;
 let breakdownBy = "project", heavyBy = "files", trendTable = false, routesAll = false;
 // The list narrowed from "Needs attention" ({kind, reason}), until its chip is closed.
 let attention = null;
@@ -423,9 +424,12 @@ async function load() {
     // sel: the open card; its "Try this build" copy is kept while it is open.
     if (selected) q.set("sel", selected);
     // X-Mako: the board's own look; only then does seen=1 count (another site cannot send it).
+    const asked = statsProject;
     const fresh = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`, { headers: { "X-Mako": "1" } })).json();
     if (seq !== loadSeq) return;
     data = fresh;
+    // statsFor: the project the stats just read are of (the eval waits for its project's).
+    statsFor = asked;
     // A record without a project is not a task (a stray write made it): no group with no name, no row in «needs attention».
     data.records = (data.records || []).filter((r) => r.task?.project);
     if (data.now) skew = Date.now() - data.now;
@@ -3791,6 +3795,7 @@ function evalName(v) {
 const evalState = (s) => t(`b.eval.st.${s || "waiting"}`);
 function evalTab() {
   if (!statsProject) return `<div class="text muted">${esc(t("b.eval.pick"))}</div>`;
+  if (statsFor !== statsProject) return `<div class="text muted">${esc(t("b.eval.loading"))}</div>`;
   const xs = data?.evals || [];
   if (!xs.length) return `<div class="text muted">${esc(t("b.eval.none", { project: statsProject }))}</div>`;
   return xs.map((x) => evalCard(x, xs.length > 1)).join("");
