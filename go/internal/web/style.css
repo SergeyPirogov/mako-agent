@@ -298,6 +298,31 @@ section { overflow-y: auto; padding: 24px 28px 60px; min-width: 0; }
 .nav-act { display: flex; gap: 8px; }
 .nav-done { font-size: 12.5px; color: var(--mute); }
 .nav-err { color: var(--err); font-size: 13px; }
+/* Stats → Eval: the set, the run form, the baseline next to the variant, the runs. */
+.scard.eval .eval-h { margin: 8px 0 0; font-size: 13px; font-weight: 650; color: var(--mute); }
+.scard.eval .stable th:first-child, .scard.eval .stable td:first-child { padding-left: 0; }
+.scard.eval .stable th:last-child, .scard.eval .stable td:last-child { padding-right: 0; }
+.scard.eval .stable select { font: inherit; font-size: 12.5px; max-width: 220px; }
+.scard.eval .ok { color: var(--ok); }
+.scard.eval .bad { color: var(--err); }
+.eval-warn { font-size: 13px; color: var(--warn); }
+.eval-live { display: flex; align-items: center; gap: 10px; font-size: 13.5px; padding: 8px 12px; border-radius: 8px; background: var(--hover); }
+.eval-live span { flex: 1; }
+.eval-ch { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--mute); white-space: nowrap; }
+.eval-ch.better { color: var(--ok); border-color: var(--ok); }
+.eval-ch.worse { color: var(--err); border-color: var(--err); }
+.eval-form { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.eval-form summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.eval-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 10px 0; }
+.eval-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--mute); min-width: 0; }
+.eval-grid label.wide { grid-column: 1 / -1; }
+.eval-grid input, .eval-grid select, .eval-grid textarea { font: inherit; font-size: 13.5px; padding: 6px 8px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; box-sizing: border-box; width: 100%; }
+.eval-cands { display: flex; flex-direction: column; }
+.eval-cand { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--hover); font-size: 13.5px; }
+.eval-cand > span { flex: 1; min-width: 0; }
+.eval-cands > button { align-self: flex-start; margin-top: 4px; }
+@media (max-width: 760px) { .eval-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .scard-h .aside { font-size: 12.5px; color: var(--mute); text-align: right; }
 .snote { font-size: 12.5px; color: var(--mute); }
 .swarn { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 8px; font-size: 13px;

@@ -61,11 +61,24 @@ exit 0
 
 // WriteHooks fills dir with Mako's hooks; pre-push asks url.
 func WriteHooks(dir, url string) error {
+	return writeHooks(dir, strings.Replace(hookScript, "__URL__", shellQuote(url), 1))
+}
+
+// noPushScript: the hook of a worktree nothing may leave (an eval run): pre-push refuses every push, the other
+// hooks hand over to the repository's own as in hookScript.
+var noPushScript = hookScript[:strings.Index(hookScript, "tmp=$(mktemp")] +
+	"echo \"Mako stopped the push: this is an eval run, nothing leaves its worktree.\" >&2\nexit 1\n"
+
+// WriteNoPushHooks fills dir with hooks that refuse any push.
+func WriteNoPushHooks(dir string) error { return writeHooks(dir, noPushScript) }
+
+// writeHooks fills dir with the hook script and a hook of each name that runs it.
+func writeHooks(dir, script string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	main := filepath.Join(dir, "mako-hook")
-	if err := writeExec(main, strings.Replace(hookScript, "__URL__", shellQuote(url), 1)); err != nil {
+	if err := writeExec(main, script); err != nil {
 		return err
 	}
 	for _, name := range clientHooks {

@@ -97,7 +97,10 @@ func publicPath(p string) bool {
 // and its buttons.
 func macOnly(p string) bool {
 	return p == "/settings" || strings.HasPrefix(p, "/api/settings") || strings.HasPrefix(p, "/api/phone") || p == "/api/show" ||
-		p == "/api/terminalapp" || p == "/api/open" || p == "/api/trybuild"
+		p == "/api/terminalapp" || p == "/api/open" || p == "/api/trybuild" ||
+		// An eval run reads files of the Mac and spends the budget; adding a task fetches into the clone and removing it
+		// deletes a ref there. Stopping a run is not on the list: ending the spending is what a phone may do.
+		p == "/api/eval/run" || p == "/api/eval/add" || p == "/api/eval/remove"
 }
 
 // guard lets this Mac in as is, and a phone only with a paired device's key.

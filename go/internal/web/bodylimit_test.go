@@ -57,6 +57,9 @@ func TestBodyOverLimitIsRefused(t *testing.T) {
 		{"lessons answer", "/api/settings/lessons/answer?id=1&to=base", 4096, func(n int) string { return strings.Repeat("x", n) }},
 		{"redo", "/api/redo?id=" + id, 200 << 10, func(n int) string { return `{"Note":"` + strings.Repeat("x", n-len(`{"Note":""}`)) + `"}` }},
 		{"review-request", "/api/review-request/draft?id=" + url.QueryEscape(mr), 200 << 10, pad},
+		{"eval run", "/api/eval/run?key=k", evalBodyMax, func(n int) string {
+			return `{"variant":{"claudeMd":"` + strings.Repeat("x", n-len(`{"variant":{"claudeMd":""}}`)) + `"}}`
+		}},
 	} {
 		if out := post(c.path, c.body(c.max)); out["error"] == errTooLong || out["error"] == "bad request: "+errTooLong {
 			t.Errorf("%s: %d bytes refused: %v", c.name, c.max, out)
