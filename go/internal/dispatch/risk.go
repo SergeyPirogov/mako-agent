@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"regexp"
@@ -42,8 +43,9 @@ var (
 		"Package.resolved": true, "mix.lock": true, "pubspec.lock": true,
 	}
 	requirements = regexp.MustCompile(`^requirements.*\.txt$`)
-	// revertWord: a commit that undid or fixed in a hurry what was merged.
-	revertWord = regexp.MustCompile(`(?i)^revert\b|\bhotfix\b|\brollback\b`)
+	// revertWord: a commit whose subject starts as one that undid or fixed in a hurry what was merged ("Revert «…»",
+	// "hotfix: …", "[hotfix] …"); a mention in the middle ("Document the hotfix process") is not one.
+	revertWord = regexp.MustCompile(`(?i)^[\s\[(]*(revert|rollback|hotfix)\b`)
 )
 
 // isTestFile: a test, by its name or its folder.
@@ -192,7 +194,7 @@ func historySignal(ctx context.Context, wt, base string, files []gitx.ChangedFil
 	}
 	var out string
 	for _, ref := range []string{"origin/" + base, base} {
-		args := append([]string{"-c", "core.quotePath=false", "log", "-n", strconv.Itoa(historyDepth), "--format=%x00%s", "--name-only", ref, "--"}, paths...)
+		args := append([]string{"-c", "core.quotePath=false", "log", "-n", strconv.Itoa(historyDepth), "--no-merges", "--format=%x00%s", "--name-only", ref, "--"}, paths...)
 		var err error
 		if out, err = gitx.Run(ctx, wt, args...); err == nil {
 			break
@@ -254,6 +256,23 @@ func (d *Dispatcher) lookRisk(ctx context.Context, id string) {
 	if after := look.Level(); after != before && after != "" {
 		d.Log(id, "change risk from the diff: "+after)
 	}
+}
+
+// freshRisk: the record with the risk of the branch as it is now: read again when the branch has commits after the
+// last look (or none yet), so a merge is judged by what is in the branch, not by what the round saw before.
+func (d *Dispatcher) freshRisk(ctx context.Context, r core.Record) core.Record {
+	if !riskOpen(r) {
+		return r
+	}
+	head, err := d.headOf(r.ID)
+	if err != nil || r.Risk != nil && r.Risk.Commit == head {
+		return r
+	}
+	d.lookRisk(ctx, r.ID)
+	if fresh, ok := d.Store.Get(r.ID); ok {
+		return fresh
+	}
+	return r
 }
 
 // riskOpen: the task's MR is open and its branch is there to read: its risk is worth keeping up to date.
@@ -343,17 +362,41 @@ func (d *Dispatcher) RiskView(r core.Record) *RiskView {
 	return v
 }
 
+// pruneRisk forgets what AutoMerge and AutoRiskReview kept of the tasks whose MR is not open any more (merged,
+// closed, archived, gone), so the maps do not grow with every task.
+func (d *Dispatcher) pruneRisk(open map[string]bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for id := range d.autoMerged {
+		if !open[id] {
+			delete(d.autoMerged, id)
+		}
+	}
+	for id := range d.autoReviewFailed {
+		if !open[id] {
+			delete(d.autoReviewFailed, id)
+		}
+	}
+}
+
 // autoReviewRounds: the reviewer rounds Mako starts by itself on a task at most; the rest are yours.
 const autoReviewRounds = 3
 
 // AutoRiskReview starts the reviewer agent by itself where the policy wants it: on a high risk (with gateHigh), and
 // on a low one that may merge by itself. Once per HEAD: a round you skipped, or one already read, is not repeated.
+// When it cannot start, the next round tries again, and the journal says why once per HEAD.
 func (d *Dispatcher) AutoRiskReview() {
 	if d.LimitHold() != nil || d.AuthHold() != nil {
 		return
 	}
+	open := map[string]bool{}
+	defer func() { d.pruneRisk(open) }()
 	for _, r := range d.Store.All() {
-		if !riskOpen(r) || !reviewable(r) || len(r.AgentReviews) >= autoReviewRounds {
+		if !riskOpen(r) {
+			continue
+		}
+		open[r.ID] = true
+		if !reviewable(r) || len(r.AgentReviews) >= autoReviewRounds {
 			continue
 		}
 		level, _ := core.RiskOf(r)
@@ -368,9 +411,17 @@ func (d *Dispatcher) AutoRiskReview() {
 		if head == "" || slices.ContainsFunc(r.AgentReviews, func(a core.AgentReview) bool { return a.Commit == head }) {
 			continue
 		}
-		if err := d.ReviewNow(r.ID); err == nil {
-			d.Log(r.ID, "reviewer agent started by itself: "+level+" risk")
+		if err := d.ReviewNow(r.ID); err != nil {
+			d.mu.Lock()
+			logged := d.autoReviewFailed[r.ID] == head
+			d.autoReviewFailed[r.ID] = head
+			d.mu.Unlock()
+			if !logged {
+				d.Log(r.ID, "reviewer agent not started by itself: "+err.Error())
+			}
+			continue
 		}
+		d.Log(r.ID, "reviewer agent started by itself: "+level+" risk")
 	}
 }
 
@@ -409,21 +460,34 @@ func (d *Dispatcher) autoMergeHold(r core.Record) string {
 }
 
 // AutoMerge merges the low-risk MRs of repos with autoMergeLow, as you would from the board. A merge the host
-// refused is not tried again at the same HEAD.
+// refused is not tried again at the same HEAD; a refusal that may pass by itself (CI running again after a push, a
+// look that failed) is tried again in the next round.
 func (d *Dispatcher) AutoMerge(ctx context.Context) {
+	open := map[string]bool{}
+	defer func() { d.pruneRisk(open) }()
 	for _, r := range d.Store.All() {
+		if riskOpen(r) {
+			open[r.ID] = true
+		}
 		if d.autoMergeHold(r) != "" {
 			continue
 		}
 		head := d.selfHead(r)
 		d.mu.Lock()
-		tried := d.autoMerged[r.ID] == head
-		d.autoMerged[r.ID] = head
+		refused := d.autoMerged[r.ID] == head
 		d.mu.Unlock()
-		if tried {
+		if refused {
 			continue
 		}
-		if err := d.merge(ctx, r, "auto"); err != nil {
+		err := d.merge(ctx, r, "auto")
+		var wait notReady
+		switch {
+		case errors.As(err, &wait):
+			continue
+		case err != nil:
+			d.mu.Lock()
+			d.autoMerged[r.ID] = head
+			d.mu.Unlock()
 			d.Fault(r.ID, "MR not merged by itself", err)
 			continue
 		}

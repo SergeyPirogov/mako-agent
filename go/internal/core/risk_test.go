@@ -111,13 +111,21 @@ func TestSummarizeRiskLevels(t *testing.T) {
 		later("11", "Revert «#1»"),
 		later("12", "Кнопка після #3 зламалась", "bug"),
 		later("13", "Згадка #2 без мітки"),
+		later("14", "Hotfix: pay twice after #2"), // no label: the title says it
+		later("15", "Document the hotfix process, see #3"),
 	}
 	got := Summarize(records, time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC), time.Time{}).RiskLevels
-	want := RiskStats{Merged: 6, Low: 3, Medium: 1, High: 2, AutoMerged: 2, AutoMergedFixed: 1}
+	want := RiskStats{Merged: 6, Low: 3, Medium: 1, High: 2, AutoMerged: 2, AutoMergedFixed: 2}
 	if got != want {
 		t.Fatalf("%+v, want %+v", got, want)
 	}
-	if !isRevert(Record{Task: Task{Title: "Rollback the cart"}}) || !isRevert(Record{Task: Task{Labels: []string{"revert"}}}) || isRevert(Record{Task: Task{Title: "Reverted colours are nice"}}) {
-		t.Fatal("isRevert")
+	for title, want := range map[string]bool{"Rollback the cart": true, "Revert «#1»": true, "[Hotfix] pay twice": true, "hotfix: pay": true,
+		"Reverted colours are nice": false, "Document the hotfix process": false, "Fix the revert button": false} {
+		if isRevert(Record{Task: Task{Title: title}}) != want {
+			t.Errorf("isRevert(%q) = %v, want %v", title, !want, want)
+		}
+	}
+	if !isRevert(Record{Task: Task{Labels: []string{"hotfix"}}}) || !isRevert(Record{Task: Task{Labels: []string{"revert"}}}) {
+		t.Fatal("isRevert by label")
 	}
 }

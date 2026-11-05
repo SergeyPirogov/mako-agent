@@ -62,16 +62,21 @@ func riskStats(records []Record, since time.Time) RiskStats {
 	return st
 }
 
-// revertWord: a task that undoes a merge, by its labels or its title ("Revert «…»", "Rollback the cart").
-var revertWord = regexp.MustCompile(`\b(revert|rollback)\b`)
+// revertWord: a task that undoes a merge or fixes it in a hurry, by a title that starts with it ("Revert «…»",
+// "Hotfix: …", the same reading as the history signal of a diff gives a commit) or by a label that is it. A mention
+// in the middle of a title ("Document the hotfix process") is not one.
+var (
+	revertTitle = regexp.MustCompile(`^[\s\[(]*(revert|rollback|hotfix)\b`)
+	revertLabel = regexp.MustCompile(`\b(revert|rollback|hotfix)\b`)
+)
 
-// isRevert: the task undoes something merged, by its title or its labels.
+// isRevert: the task undoes something merged or hotfixes it, by its title or its labels.
 func isRevert(r Record) bool {
-	if revertWord.MatchString(strings.ToLower(strings.TrimSpace(r.Task.Title))) {
+	if revertTitle.MatchString(strings.ToLower(strings.TrimSpace(r.Task.Title))) {
 		return true
 	}
 	for _, l := range r.Task.Labels {
-		if revertWord.MatchString(strings.ToLower(l)) {
+		if revertLabel.MatchString(strings.ToLower(l)) {
 			return true
 		}
 	}

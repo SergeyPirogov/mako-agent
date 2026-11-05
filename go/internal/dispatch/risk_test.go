@@ -300,25 +300,57 @@ func TestAutoMerge(t *testing.T) {
 		t.Fatalf("a refused merge was tried: %v", d.autoMerged)
 	}
 
-	// The host's CI went red since the card looked: the fresh look refuses, and the same HEAD is not tried again.
-	ready()
-	f.mu.Lock()
-	f.mrs[0]["head_pipeline"] = map[string]any{"id": 2, "status": "failed"}
-	f.mu.Unlock()
-	d.AutoMerge(ctx)
-	if mrState(f) != "opened" || d.autoMerged[id] != head {
-		t.Fatalf("merged on a red CI: %v %v", mrState(f), d.autoMerged)
+	journalN := func(text string) (n int) {
+		for _, l := range d.Logs(id) {
+			if strings.Contains(l.Text, text) {
+				n++
+			}
+		}
+		return n
 	}
-	f.mu.Lock()
-	f.mrs[0]["head_pipeline"] = map[string]any{"id": 2, "status": "success"}
-	f.mu.Unlock()
-	ready()
-	d.AutoMerge(ctx)
-	if mrState(f) != "opened" {
-		t.Fatal("tried again at the same HEAD")
+	setCI := func(status string) {
+		f.mu.Lock()
+		f.mrs[0]["head_pipeline"] = map[string]any{"id": 2, "status": status}
+		f.mu.Unlock()
 	}
 
-	delete(d.autoMerged, id)
+	// The host refuses the merge: that HEAD is not tried again (the journal says it once), a new commit is.
+	f.mu.Lock()
+	f.mergeRefused = true
+	f.mu.Unlock()
+	ready()
+	d.AutoMerge(ctx)
+	f.mu.Lock()
+	f.mergeRefused = false
+	f.mu.Unlock()
+	ready()
+	d.AutoMerge(ctx)
+	if mrState(f) != "opened" || d.autoMerged[id] != head || journalN("MR not merged by itself") != 1 {
+		t.Fatalf("a refused merge: %v, %v, journal %+v", mrState(f), d.autoMerged, d.Logs(id))
+	}
+	// Once the MR is not open (merged elsewhere) its entry goes, so the map does not grow with every task.
+	d.Store.Update(id, func(r *core.Record) { r.ReviewState = "merged" })
+	d.AutoMerge(ctx)
+	d.Store.Update(id, func(r *core.Record) { r.ReviewState = "" })
+	if len(d.autoMerged) != 0 {
+		t.Fatalf("kept after the merge: %v", d.autoMerged)
+	}
+
+	// CI runs again since the card looked (a push a moment ago): the fresh look says wait, which is no refusal: the
+	// HEAD is not marked, nothing is faulted, and once CI is green the next round merges.
+	setCI("running")
+	ready()
+	d.AutoMerge(ctx)
+	if mrState(f) != "opened" || len(d.autoMerged) != 0 || journalN("MR not merged by itself") != 1 {
+		t.Fatalf("waited for CI: %v, %v, journal %+v", mrState(f), d.autoMerged, d.Logs(id))
+	}
+	setCI("failed")
+	ready()
+	d.AutoMerge(ctx)
+	if mrState(f) != "opened" || len(d.autoMerged) != 0 {
+		t.Fatalf("a red CI: %v, %v", mrState(f), d.autoMerged)
+	}
+	setCI("success")
 	ready()
 	r, _ := d.Store.Get(id)
 	if v := d.RiskView(r); v.Level != core.RiskLow || v.Policy != "auto" {
@@ -410,5 +442,120 @@ func TestCheckRisk(t *testing.T) {
 	lookAgain(d, id)
 	if v := d.RiskView(r); !v.Stale {
 		t.Fatalf("not stale: %+v", v)
+	}
+}
+
+// A reviewer that cannot start by itself is tried again in the next round, and the journal says why once per HEAD.
+func TestAutoRiskReviewFailureSaidOnce(t *testing.T) {
+	d, id, wt, _ := riskSetup(t, config.RiskPolicy{GateHigh: true})
+	assessedRisk(d, id, 5)
+	lookAgain(d, id)
+	// A round already running for the task: the start is refused.
+	d.mu.Lock()
+	d.reviewing[id] = true
+	d.mu.Unlock()
+	said := func() (n int) {
+		for _, l := range d.Logs(id) {
+			if strings.Contains(l.Text, "reviewer agent not started by itself") {
+				n++
+			}
+		}
+		return n
+	}
+	if r, _ := d.Store.Get(id); d.ReviewStep(r) != "ready" {
+		t.Fatalf("step %q", d.ReviewStep(r))
+	}
+	for range 3 {
+		d.AutoRiskReview()
+	}
+	if said() != 1 || d.autoReviewFailed[id] != headIn(t, wt) {
+		t.Fatalf("said %d times: %+v", said(), d.Logs(id))
+	}
+	// Not ready is not asked about at all, and the entry goes with the open MR.
+	d.mu.Lock()
+	delete(d.reviewing, id)
+	d.mu.Unlock()
+	d.Store.Update(id, func(r *core.Record) { r.ReviewState = "closed" })
+	d.AutoRiskReview()
+	if len(d.autoReviewFailed) != 0 {
+		t.Fatalf("kept after the MR closed: %v", d.autoReviewFailed)
+	}
+}
+
+// The history signal counts the commits that began as a revert or a hotfix, not merges of a hotfix branch and not
+// a mention of the word.
+func TestRiskHistoryIgnoresMentions(t *testing.T) {
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
+		t.Setenv(k, v)
+	}
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", "-b", "main")
+	write(t, dir, "pay.go", "package app\n")
+	git(t, dir, "add", "-A")
+	git(t, dir, "commit", "-q", "-m", "init")
+	touch := func(subject string) {
+		write(t, dir, "pay.go", "package app\n// "+subject+"\n")
+		git(t, dir, "commit", "-q", "-am", subject)
+	}
+	touch("Document the hotfix process")
+	touch("Add rollback notes to pay")
+	git(t, dir, "checkout", "-q", "-b", "hotfix/pay")
+	touch("Plain change on a hotfix branch")
+	git(t, dir, "checkout", "-q", "main")
+	git(t, dir, "merge", "-q", "--no-ff", "-m", "Merge branch 'hotfix/pay'", "hotfix/pay")
+	wt := filepath.Join(t.TempDir(), "wt")
+	git(t, dir, "worktree", "add", "-q", "-b", "b/pay", wt, "main")
+	files := []gitx.ChangedFile{{Path: "pay.go", Status: "M", Additions: 1}}
+	if s := historySignal(context.Background(), wt, "main", files); s != nil {
+		t.Fatalf("mentions and merges counted: %+v", s)
+	}
+	touch("Revert \"Pay with cards\"")
+	touch("[Hotfix] pay twice")
+	git(t, wt, "merge", "-q", "main")
+	s := historySignal(context.Background(), wt, "main", files)
+	if s == nil || s.Level != core.RiskMedium || !strings.Contains(s.Text, "2 reverts") {
+		t.Fatalf("two real ones: %+v", s)
+	}
+}
+
+// A commit after the round's look that touches a protected path stops the merge at once: the merge reads the risk
+// of the branch as it is, not the board's older look; the same for a risk raised to high and its gate.
+func TestMergeReadsFreshRisk(t *testing.T) {
+	d, id, wt, f := riskSetup(t, config.RiskPolicy{GateHigh: true})
+	for _, r := range d.Config().Trackers[0].Projects["grp/app"].Repos {
+		r.RiskPaths = []config.RiskPath{{Pattern: ".github/**", Level: core.RiskBlock}, {Pattern: "migrations/**", Level: core.RiskHigh}}
+	}
+	assessedRisk(d, id, 1)
+	d.CheckRisk(context.Background())
+	if r, _ := d.Store.Get(id); r.Risk == nil || r.Risk.Level() != "" || !d.MergeReady(r) {
+		t.Fatalf("before: %+v", r.Risk)
+	}
+	write(t, wt, ".github/ci.yml", "on: push\n")
+	git(t, wt, "add", "-A")
+	git(t, wt, "commit", "-q", "-m", "ci")
+	// No CheckRisk since the commit: the record still says nothing is protected.
+	if r, _ := d.Store.Get(id); r.Risk.Level() != "" {
+		t.Fatalf("read early: %+v", r.Risk)
+	}
+	err := d.MergeReview(context.Background(), id)
+	if err == nil || !strings.Contains(err.Error(), "protected paths: .github/ci.yml") || mrState(f) != "opened" {
+		t.Fatalf("merged: %v, %v", err, mrState(f))
+	}
+	if r, _ := d.Store.Get(id); r.Risk.Level() != core.RiskBlock {
+		t.Fatalf("the risk was not kept: %+v", r.Risk)
+	}
+
+	// A commit that makes the risk high: its gate holds the merge, with no round in between.
+	d2, id2, wt2, f2 := riskSetup(t, config.RiskPolicy{GateHigh: true})
+	for _, r := range d2.Config().Trackers[0].Projects["grp/app"].Repos {
+		r.RiskPaths = []config.RiskPath{{Pattern: "migrations/**", Level: core.RiskHigh}}
+	}
+	assessedRisk(d2, id2, 1)
+	d2.CheckRisk(context.Background())
+	write(t, wt2, "migrations/001.sql", "create table t();\n")
+	git(t, wt2, "add", "-A")
+	git(t, wt2, "commit", "-q", "-m", "migration")
+	if err := d2.MergeReview(context.Background(), id2); err == nil || !strings.Contains(err.Error(), "check it yourself") || mrState(f2) != "opened" {
+		t.Fatalf("merged a high risk: %v, %v", err, mrState(f2))
 	}
 }

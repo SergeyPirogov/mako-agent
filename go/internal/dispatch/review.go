@@ -262,6 +262,9 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	if !ok || r.PRURL == "" {
 		return fmt.Errorf("there is no MR")
 	}
+	// The change's risk is of the branch as it is: a commit after the last round's look may have touched a protected
+	// path or raised the level, and the merge button on the board is only as fresh as the board's last look.
+	r = d.freshRisk(ctx, r)
 	switch d.ReviewStep(r) {
 	case "running":
 		return fmt.Errorf("the reviewer agent is still reviewing the branch: you can merge once it finishes")
@@ -287,9 +290,15 @@ func (d *Dispatcher) MergeReview(ctx context.Context, id string) error {
 	return nil
 }
 
+// notReady: the MR cannot merge right now, but may in a moment (CI runs again, the look failed): not the host's
+// refusal, so AutoMerge tries again instead of giving up on the branch's HEAD.
+type notReady string
+
+func (e notReady) Error() string { return string(e) }
+
 // merge merges the task's MR, by "board" or "auto" (AutoMerge), and keeps how it went in for the stats. CI is asked
 // afresh, not from the card's cache: a push a moment ago may have started it again; a merge by itself also wants
-// it green.
+// it green. A refusal that may pass by itself is a notReady; any other error is the host's.
 func (d *Dispatcher) merge(ctx context.Context, r core.Record, by string) error {
 	checked := d.selfAtMerge(r)
 	risk, _ := core.RiskOf(r)
@@ -301,12 +310,12 @@ func (d *Dispatcher) merge(ctx context.Context, r core.Record, by string) error 
 	switch {
 	case err == nil && trackers.CIRunning(c.CI):
 		d.forgetReview(r.ID)
-		return fmt.Errorf("CI is still running: you can merge once it finishes")
+		return notReady("CI is still running: you can merge once it finishes")
 	case by == "auto" && err != nil:
-		return err
+		return notReady("the MR was not looked at: " + err.Error())
 	case by == "auto" && (c.State != "open" || c.CI != "success" || c.Conflicts || len(c.Threads) > 0):
 		d.forgetReview(r.ID)
-		return fmt.Errorf("the MR is no longer ready: CI %q, conflicts %v, %d threads", c.CI, c.Conflicts, len(c.Threads))
+		return notReady(fmt.Sprintf("the MR is no longer ready: CI %q, conflicts %v, %d threads", c.CI, c.Conflicts, len(c.Threads)))
 	}
 	if err := desk.Merge(ctx, r.PRURL); err != nil {
 		return err
