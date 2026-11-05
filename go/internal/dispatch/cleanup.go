@@ -95,7 +95,7 @@ func (d *Dispatcher) CleanTask(ctx context.Context, id string, force bool) (Clea
 		}
 		n, err := gitx.Dirty(ctx, w.Path)
 		if err == nil {
-			n += gitx.Unpushed(ctx, w.Path) // commits the remote branch lacks would go with the local one
+			n += gitx.Unpushed(ctx, w.Path, baseOf(repo)) // commits the remote branch lacks would go with the local one
 		}
 		if err != nil || (n > 0 && !force) {
 			c.Kept += n
@@ -174,6 +174,14 @@ func (d *Dispatcher) CleanMerged(ctx context.Context) Cleanup {
 	return all
 }
 
+// baseOf: the repository's base branch, as configured or as its remote says.
+func baseOf(repo *config.Repo) string {
+	if repo.BaseBranch != "" {
+		return repo.BaseBranch
+	}
+	return gitx.DetectBaseBranch(repo.Path)
+}
+
 // attemptBranches: the task's branch now and those of its earlier attempts (-try2, …).
 func attemptBranches(r core.Record, repo *config.Repo) []string {
 	seen := map[string]bool{}
@@ -224,7 +232,7 @@ type WorktreeUse struct {
 	Base      string         `json:"base,omitempty"` // the base branch ahead/behind are counted against
 	Bytes     int64          `json:"bytes"`
 	Worktrees []WorktreeSize `json:"worktrees"`
-	// Cleanable: the worktrees of merged or archived tasks, which «Прибрати змерджені» takes away.
+	// Cleanable: the worktrees of merged or archived tasks that «Прибрати змерджені» takes away (not those it keeps).
 	Cleanable      int   `json:"cleanable"`
 	CleanableBytes int64 `json:"cleanableBytes"`
 }
@@ -318,6 +326,7 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 		if err != nil || len(wts) == 0 {
 			continue
 		}
+		cmp := baseOf(repo) // what is already on the base is not unpushed work
 		u := WorktreeUse{Repo: repo.Name, Path: repo.Path, Base: repo.BaseBranch, Worktrees: make([]WorktreeSize, len(wts))}
 		for i, w := range wts {
 			s := &u.Worktrees[i]
@@ -334,7 +343,7 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 				defer func() { <-sem }()
 				mctx, cancel := context.WithTimeout(ctx, metaTimeout)
 				defer cancel()
-				fillMeta(mctx, s, repo.BaseBranch)
+				fillMeta(mctx, s, repo.BaseBranch, cmp)
 			}()
 		}
 		out = append(out, u)
@@ -344,7 +353,9 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 		u := &out[i]
 		for _, s := range u.Worktrees {
 			u.Bytes += s.Bytes
-			if s.Cleanable {
+			// Only what «Прибрати змерджені» takes away: CleanTask keeps uncommitted or unpushed work and a
+			// working agent's worktree.
+			if s.Cleanable && s.Dirty == 0 && s.Unpushed == 0 && !s.AgentBusy {
 				u.Cleanable++
 				u.CleanableBytes += s.Bytes
 			}
@@ -356,7 +367,8 @@ func (d *Dispatcher) WorktreeUsage(ctx context.Context) []WorktreeUse {
 }
 
 // fillMeta reads the size and the git state of a worktree; what git cannot tell stays empty.
-func fillMeta(ctx context.Context, s *WorktreeSize, base string) {
+// unpushedBase: the base branch commits already on are not counted as unpushed (base itself may be unset).
+func fillMeta(ctx context.Context, s *WorktreeSize, base, unpushedBase string) {
 	var mod time.Time
 	s.Bytes, mod = gitx.DirStat(ctx, s.Path)
 	if !mod.IsZero() {
@@ -368,7 +380,7 @@ func fillMeta(ctx context.Context, s *WorktreeSize, base string) {
 	if n, err := gitx.Dirty(ctx, s.Path); err == nil {
 		s.Dirty = n
 	}
-	s.Unpushed = gitx.Unpushed(ctx, s.Path)
+	s.Unpushed = gitx.Unpushed(ctx, s.Path, unpushedBase)
 	s.HasRemote = gitx.HasRemoteBranch(ctx, s.Path, s.Branch)
 	if base != "" {
 		s.Ahead, s.Behind, _ = gitx.AheadBehind(ctx, s.Path, base)

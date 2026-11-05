@@ -374,7 +374,7 @@ var webStrings = map[string]string{
 	"s.d.removedOne":       "removed",
 	"s.d.keptOne":          "kept: {dirty}, {unpushed}",
 	"s.d.cleaned":          "Worktrees removed: {worktrees}, branches: {branches}",
-	"s.d.kept":             ". Kept for uncommitted changes: {tasks}",
+	"s.d.kept":             ". Kept for uncommitted or unpushed work: {tasks}",
 	"s.d.dirty":            "{n} uncommitted",
 	"s.d.unpushed":         "{n} unpushed",
 	"s.d.noRemote":         "not on the remote",

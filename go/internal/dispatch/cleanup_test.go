@@ -44,6 +44,10 @@ func TestCleanTaskKeepsUncommittedWork(t *testing.T) {
 	}
 
 	os.WriteFile(filepath.Join(cur, "half-done.txt"), []byte("x"), 0o644)
+	// The button counts only what it takes away: the worktree with uncommitted work stays, so it is not counted.
+	if use := d.WorktreeUsage(ctx); use[0].Cleanable != 1 {
+		t.Fatalf("cleanable with uncommitted work: %d", use[0].Cleanable)
+	}
 	c, err := d.CleanTask(ctx, id, false)
 	if err != nil {
 		t.Fatal(err)
