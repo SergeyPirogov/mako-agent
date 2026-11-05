@@ -366,9 +366,29 @@ func TestDefaultPermissionMode(t *testing.T) {
 }
 
 func TestParseAutoTakeOnly(t *testing.T) {
-	for in, want := range map[string]string{"": AutoTakeAll, "all": AutoTakeAll, "smallClear": AutoTakeSmallClear, "small": AutoTakeSmall, "big": AutoTakeAll} {
+	for in, want := range map[string]string{"": AutoTakeAll, "all": AutoTakeAll, "smallClear": AutoTakeSmallClear, "small": AutoTakeSmall, "likely": AutoTakeLikely, "big": AutoTakeAll} {
 		if c, _ := Parse([]byte(`{"notifications":{"autoTake":true,"autoTakeOnly":"`+in+`"}}`), nil); c.Notifications.AutoTakeOnly != want || !c.Notifications.AutoTake {
 			t.Errorf("autoTakeOnly %q: %+v, want %q", in, c.Notifications, want)
+		}
+	}
+}
+
+// «likely»'s first pass and cost ceiling: 70% and none in a config without them, as an older one is; out of range
+// falls back.
+func TestParseAutoTakeLikelyThresholds(t *testing.T) {
+	cases := map[string][2]float64{
+		`{}`: {DefaultAutoTakeFirstPass, 0},
+		`{"notifications":{"autoTakeFirstPass":85,"autoTakeMaxCost":2.5}}`: {85, 2.5},
+		`{"notifications":{"autoTakeFirstPass":0,"autoTakeMaxCost":-1}}`:   {DefaultAutoTakeFirstPass, 0},
+		`{"notifications":{"autoTakeFirstPass":150}}`:                      {DefaultAutoTakeFirstPass, 0},
+	}
+	for raw, want := range cases {
+		c, err := Parse([]byte(raw), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := c.Notifications; float64(n.AutoTakeFirstPass) != want[0] || n.AutoTakeMaxCost != want[1] {
+			t.Errorf("%s: %d, %v; want %v", raw, n.AutoTakeFirstPass, n.AutoTakeMaxCost, want)
 		}
 	}
 }

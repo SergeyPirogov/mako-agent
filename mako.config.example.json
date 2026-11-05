@@ -14,6 +14,8 @@
     "enabled": true,
     "autoTake": false,
     "autoTakeOnly": "all",
+    "autoTakeFirstPass": 70,
+    "autoTakeMaxCost": 0,
     "snoozeMin": 60,
     "inboxPort": 7777,
     "morningDigest": "09:00",

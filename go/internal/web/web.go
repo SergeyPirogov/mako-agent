@@ -129,6 +129,9 @@ type recordView struct {
 	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
 	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked: its work's route.
 	DefaultModel string `json:"defaultModel,omitempty"`
+	// Outlook: for a task not taken yet, how the project's ended tasks like it went (core.OutlookOf); nil when
+	// the history is too short.
+	Outlook *core.Outlook `json:"outlook,omitempty"`
 	// ReviewStep: what the reviewer agent's row offers: "running", "notes", "fixing", "ready", "idle" or "" (dispatch.ReviewStep).
 	ReviewStep string `json:"reviewStep,omitempty"`
 	// Reviewable: the reviewer's remarks can still be passed to the agent (dispatch.Reviewable): the agent is Mako's,
@@ -273,11 +276,16 @@ func (s *Server) Handler() http.Handler {
 			s.D.TryKeep(sel)
 		}
 		reply.LessonOffers = s.D.LessonOffers()
+		var history *core.History
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
 			if v.Column == "new" {
 				v.DefaultModel = s.D.DefaultModel(rec)
+				if history == nil { // indexed once for all the new cards of this reply
+					history = core.NewHistory(all)
+				}
+				v.Outlook = history.Outlook(rec, s.D.OutlookModel(rec))
 			}
 			v.ReviewStep = s.D.ReviewStep(rec)
 			v.ReviewBlocks = s.D.ReviewBlocks(rec)

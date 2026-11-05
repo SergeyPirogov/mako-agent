@@ -231,7 +231,7 @@ const NAMES = { gitlab: "GitLab", github: "GitHub", jira: "Jira Cloud" };
 function changed() { if (pane) renderNavSoon(); dirty = true; $("msg").className = "msg"; $("msg").textContent = t("s.unsaved"); }
 
 // Small form helpers bound to a path in an object: they write back on input.
-function text(obj, key, label, { hint = "", placeholder = "", type = "text", parse, min, max, step } = {}) {
+function text(obj, key, label, { hint = "", placeholder = "", type = "text", parse, min, max, step, whole = true } = {}) {
   const id = "f" + Math.random().toString(36).slice(2);
   const el = document.createElement("div");
   el.className = "field";
@@ -242,7 +242,7 @@ function text(obj, key, label, { hint = "", placeholder = "", type = "text", par
   input.oninput = (e) => {
     const raw = e.target.value;
     // A number out of its range is not kept: the field says why, and “Save” waits for a right one.
-    const problem = type === "number" && raw.trim() !== "" ? numProblem(Number(raw), min, max) : "";
+    const problem = type === "number" && raw.trim() !== "" ? numProblem(Number(raw), min, max, whole) : "";
     input.setAttribute("aria-invalid", problem ? "true" : "false");
     err.textContent = problem;
     err.hidden = !problem;
@@ -253,9 +253,10 @@ function text(obj, key, label, { hint = "", placeholder = "", type = "text", par
   };
   return el;
 }
-// numProblem: why n cannot be saved in a field with these bounds, "" when it can.
-function numProblem(n, min = -Infinity, max = Infinity) {
-  if (!Number.isInteger(n) || n < min || n > max) return t("s.num.range", { min: Number.isFinite(min) ? min : "…", max: Number.isFinite(max) ? max : "…" });
+// numProblem: why n cannot be saved in a field with these bounds, "" when it can; whole: only a whole number.
+function numProblem(n, min = -Infinity, max = Infinity, whole = true) {
+  if ((whole ? !Number.isInteger(n) : !Number.isFinite(n)) || n < min || n > max)
+    return t(whole ? "s.num.range" : "s.num.rangeAny", { min: Number.isFinite(min) ? min : "…", max: Number.isFinite(max) ? max : "…" });
   return "";
 }
 const num = (obj, key, label, opts = {}) => text(obj, key, label, { step: 1, ...opts, type: "number", parse: (x) => Number(x) });
@@ -857,7 +858,9 @@ function renderNotifications() {
   box.innerHTML = "";
   box.append(check(n, "enabled", t("s.n.enabled"), { def: true }));
   box.append(check(n, "autoTake", t("s.n.autoTake")));
-  box.append(select(n, "autoTakeOnly", t("s.n.autoTakeOnly"), [["all", t("s.n.all")], ["smallClear", t("s.n.smallClear")], ["small", t("s.n.small")]], { def: "all", hint: t("s.n.autoTakeOnlyHint") }));
+  box.append(select(n, "autoTakeOnly", t("s.n.autoTakeOnly"), [["all", t("s.n.all")], ["smallClear", t("s.n.smallClear")], ["small", t("s.n.small")], ["likely", t("s.n.likely")]], { def: "all", hint: t("s.n.autoTakeOnlyHint") }));
+  box.append(num(n, "autoTakeFirstPass", t("s.n.firstPass"), { min: 1, max: 100, placeholder: "70", hint: t("s.n.firstPassHint") }));
+  box.append(num(n, "autoTakeMaxCost", t("s.n.maxCost"), { min: 0, step: 0.1, whole: false, placeholder: "0", hint: t("s.n.maxCostHint") }));
   box.append(num(n, "snoozeMin", t("s.n.snooze"), { min: 1, max: 10080, placeholder: "60" }));
   box.append(text(n, "morningDigest", t("s.n.morning"), { placeholder: "09:00", hint: t("s.n.morningHint") }));
   box.append(num(n, "awayHours", t("s.n.away"), { placeholder: "4", hint: t("s.n.awayHint") }));

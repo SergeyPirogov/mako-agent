@@ -147,7 +147,13 @@ const (
 	AutoTakeAll        = "all"
 	AutoTakeSmallClear = "smallClear"
 	AutoTakeSmall      = "small"
+	// AutoTakeLikely: clear, and the history of tasks like it says it will likely go through (core.Outlook):
+	// its first pass at AutoTakeFirstPass or more, its expected cost at AutoTakeMaxCost or less.
+	AutoTakeLikely = "likely"
 )
+
+// DefaultAutoTakeFirstPass: the first pass, in percent, the history must give a task for «likely» to take it.
+const DefaultAutoTakeFirstPass = 70
 
 // Comments Mako leaves in the issue, written as the developer: {branch} {taskId} {title} {url} {mr} are filled
 // in; "-" leaves no comment.
@@ -166,10 +172,15 @@ type Notifications struct {
 	Enabled  bool
 	AutoTake bool
 	// AutoTakeOnly: which new tasks AutoTake takes, by their estimate: "all", "smallClear" (small, clear and
-	// with no questions about the description) or "small". In the last two a task with no estimate stays.
+	// with no questions about the description), "small" or "likely" (clear, and likely to go through by the
+	// history of tasks like it). In all but "all" a task with no estimate stays.
 	AutoTakeOnly string
-	SnoozeMin    int
-	Port         int
+	// AutoTakeFirstPass: for "likely", the first pass the history must give, in percent (1–100);
+	// AutoTakeMaxCost: the most it may be expected to cost, USD (0: no ceiling).
+	AutoTakeFirstPass int
+	AutoTakeMaxCost   float64
+	SnoozeMin         int
+	Port              int
 	// MorningMin: when the morning digest goes out, in minutes after midnight; -1: never.
 	MorningMin int
 	// AwayHours: the board not seen this long shows what happened meanwhile.
@@ -507,13 +518,15 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 		BranchPattern:    orStr(raw.BranchPattern, DefaultBranchPattern),
 		Env:              env,
 		Notifications: Notifications{
-			Enabled:      raw.Notifications.Enabled == nil || *raw.Notifications.Enabled,
-			AutoTake:     raw.Notifications.AutoTake != nil && *raw.Notifications.AutoTake,
-			AutoTakeOnly: autoTakeOnly(raw.Notifications.AutoTakeOnly),
-			SnoozeMin:    inRange(orInt(raw.Notifications.SnoozeMin, 60), 1, MaxSnoozeMin, 60),
-			Port:         orInt(raw.Notifications.InboxPort, 7777),
-			AwayHours:    orInt(raw.Notifications.AwayHours, 4),
-			Off:          map[string]bool{},
+			Enabled:           raw.Notifications.Enabled == nil || *raw.Notifications.Enabled,
+			AutoTake:          raw.Notifications.AutoTake != nil && *raw.Notifications.AutoTake,
+			AutoTakeOnly:      autoTakeOnly(raw.Notifications.AutoTakeOnly),
+			AutoTakeFirstPass: inRange(orInt(raw.Notifications.AutoTakeFirstPass, DefaultAutoTakeFirstPass), 1, 100, DefaultAutoTakeFirstPass),
+			AutoTakeMaxCost:   maxCost(raw.Notifications.AutoTakeMaxCost),
+			SnoozeMin:         inRange(orInt(raw.Notifications.SnoozeMin, 60), 1, MaxSnoozeMin, 60),
+			Port:              orInt(raw.Notifications.InboxPort, 7777),
+			AwayHours:         orInt(raw.Notifications.AwayHours, 4),
+			Off:               map[string]bool{},
 		},
 		Orca: Orca{Agent: "claude", Setup: "inherit", LinkIssue: true, MRBy: "agent"},
 		Reviewer: Reviewer{Model: strings.TrimSpace(raw.AgentReview.Model), Comments: reviewComments(raw.AgentReview.Comments),
@@ -866,10 +879,18 @@ type rawConfig struct {
 // autoTakeOnly: Notifications' AutoTakeOnly, "all" for anything else.
 func autoTakeOnly(s string) string {
 	switch s = strings.TrimSpace(s); s {
-	case AutoTakeSmallClear, AutoTakeSmall:
+	case AutoTakeSmallClear, AutoTakeSmall, AutoTakeLikely:
 		return s
 	}
 	return AutoTakeAll
+}
+
+// maxCost: a ceiling in USD; 0 (none) for none, zero or less.
+func maxCost(v *float64) float64 {
+	if v == nil || *v <= 0 {
+		return 0
+	}
+	return *v
 }
 
 // executorOrder: the default executor first, so a config with several Orcas uses the chosen one.
@@ -889,10 +910,13 @@ func (r rawConfig) executorOrder() []string {
 type rawNotifications struct {
 	Enabled  *bool `json:"enabled"`
 	AutoTake *bool `json:"autoTake"`
-	// AutoTakeOnly: "all" (default), "smallClear" or "small".
+	// AutoTakeOnly: "all" (default), "smallClear", "small" or "likely".
 	AutoTakeOnly string `json:"autoTakeOnly"`
-	SnoozeMin    *int   `json:"snoozeMin"`
-	InboxPort    *int   `json:"inboxPort"`
+	// AutoTakeFirstPass: for "likely", percent (default 70); AutoTakeMaxCost: USD, none or 0 for no ceiling.
+	AutoTakeFirstPass *int     `json:"autoTakeFirstPass"`
+	AutoTakeMaxCost   *float64 `json:"autoTakeMaxCost"`
+	SnoozeMin         *int     `json:"snoozeMin"`
+	InboxPort         *int     `json:"inboxPort"`
 	// MorningDigest: "09:00", "-" for none.
 	MorningDigest string `json:"morningDigest"`
 	AwayHours     *int   `json:"awayHours"`

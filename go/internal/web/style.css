@@ -1781,6 +1781,11 @@ button.link:hover { background: none; text-decoration: underline; }
   background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
 .rec-line .tchip { flex: none; }
 .rec-line .rec-why { flex: 1 1 240px; min-width: 0; color: var(--mute); white-space: normal; overflow-wrap: anywhere; }
+.rec-line.outlook .rec-why { color: var(--fg); }
+.outlook-similar { flex: 1 1 100%; margin: 2px 0 0 28px; padding: 0; list-style: none; display: grid; gap: 6px; min-width: 0; }
+.outlook-similar li { min-width: 0; overflow-wrap: anywhere; }
+.outlook-similar .outlook-retro { font-size: 12px; margin-top: 1px; }
+.stable.calib { margin-top: 10px; }
 details.qs { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--warn) 6%, var(--card)); }
 details.qs > summary { display: flex; align-items: center; gap: 8px; padding: 10px 16px; cursor: pointer; font-size: 13px; font-weight: 600; list-style: none; }
 details.qs > summary::-webkit-details-marker { display: none; }

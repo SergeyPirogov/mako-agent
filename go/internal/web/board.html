@@ -1952,9 +1952,11 @@ function estimateHTML(r, card) {
   const pick = (m, p) => `&model=${encodeURIComponent(m)}&plan=${p ? 1 : 0}`;
   const chip = (on, label, x, title) => fresh ? `<button type="button" class="tchip pick${on ? " on" : ""}" data-a="pick" data-x="${esc(x)}" title="${esc(title)}" aria-pressed="${on}">${on ? "✓ " : ""}${label}</button>`
     : `<span class="tchip">${label}</span>`;
+  const adv = fresh ? r.outlook?.advice : null;
   const advice = [
     e.plan ? chip(plan, "plan first", pick(model, !plan), plan ? "The agent will start with a plan. Click to cancel" : "The agent will start with a plan: it will change nothing until you approve it") : "",
     e.split ? `<span class="tchip note" title="Split the task into several in the tracker yourself; Mako does not do it">split it in the tracker</span>` : "",
+    adv ? chip(model === adv.model, t("b.outlook.adviceChip", { model: esc(adv.model) }), pick(model === adv.model ? "" : adv.model, plan), adviceTitle(adv)) : "",
   ].filter(Boolean);
   const rec = advice.length || e.advice ? `<div class="rec-line"><span class="ic">→</span><b>Recommendation</b>${advice.join("")}${e.advice ? `<span class="rec-why">${esc(e.advice)}</span>` : ""}</div>` : "";
   // While the estimate runs again (after the answers were sent) the old questions are answered: no empty form.
@@ -1962,7 +1964,33 @@ function estimateHTML(r, card) {
   const questions = !fresh || !n ? "" : e.state === "running" ? `<div class="sec"><h4><span class="ic">?</span>Questions about the task</h4><p class="muted">Analysing the answers and estimating the task again…</p></div>`
     : `<details class="qs" data-qs ${qOpen[r.id] ? "open" : ""}><summary><span class="ic">?</span>${n} ${plural(n, "question", "questions")} for the tracker<span class="muted"> ▸</span></summary>${questionsHTML(r, e)}</details>`;
   const note = e.state === "running" ? `<span class="muted">estimating again…</span>` : btn("Assess again");
-  return card("Estimate", `<div class="tcard-b">${line}</div>${rec}${questions}`, "assess", note);
+  return card("Estimate", `<div class="tcard-b">${line}</div>${fresh ? outlookHTML(r.outlook) : ""}${rec}${questions}`, "assess", note);
+}
+
+// The outlook by the history: how the project's ended tasks of the same size (and, with enough of them, touching
+// the same parts of the code) went: the median cost and time to the MR, the first pass, and the most alike of them
+// with what their retro found. Nothing when the history is too short.
+const pctOf = (x) => Math.round((x || 0) * 100);
+function outlookHTML(o) {
+  if (!o?.tasks) return "";
+  const bits = [o.priced ? `~${money(o.cost)}` : "", o.timed ? `~${durText(o.seconds)}` : "", t("b.outlook.firstPass", { pct: pctOf(o.firstPass) })].filter(Boolean);
+  const tip = [
+    t(o.bySimilar ? "b.outlook.ofSimilar" : "b.outlook.ofSize", { n: o.tasks, size: SIZE_NAMES[o.size] ?? o.size }),
+    o.priced || o.timed ? t("b.outlook.p80", { cost: o.priced ? money(o.cost80) : "—", time: o.timed ? durText(o.seconds80) : "—" }) : "",
+    o.failRate ? t("b.outlook.failed", { pct: pctOf(o.failRate), reasons: (o.reasons || []).map((x) => `${x.text} ×${x.count}`).join("; ") }) : "",
+  ].filter(Boolean).join(". ");
+  const tag = (x) => x.firstPass ? t("b.outlook.tagFirst") : x.merged ? t("b.outlook.tagRework") : t("b.outlook.tagFailed");
+  const similar = (o.similar || []).map((x) => `<li><a href="#${esc(encodeURIComponent(x.id))}" title="${esc(x.id)}">${esc(x.title || x.id)}</a>`
+    + ` <span class="muted">· ${tag(x)}${x.cost ? ` · ${money(x.cost)}` : ""}${x.seconds ? ` · ${durText(x.seconds)}` : ""}</span>`
+    + `${x.retro ? `<div class="muted outlook-retro">${t("b.outlook.retro")} ${esc(x.retro)}</div>` : ""}</li>`).join("");
+  return `<div class="rec-line outlook" title="${esc(tip)}"><span class="ic">≈</span><b>${t("b.outlook.title")}</b>`
+    + `<span class="rec-why">${bits.join(", ")} ${t("b.outlook.of", { n: o.tasks })}${o.failRate ? ` · ${t("b.outlook.failRate", { pct: pctOf(o.failRate) })}` : ""}</span>`
+    + `${similar ? `<ul class="outlook-similar">${similar}</ul>` : ""}</div>`;
+}
+// The model the history advises, against the one the task would start with (or all the tasks like it).
+function adviceTitle(a) {
+  return t(a.than ? "b.outlook.adviceThan" : "b.outlook.adviceAll", { model: a.model, pct: pctOf(a.firstPass), n: a.tasks, cost: a.cost ? money(a.cost) : "—",
+    than: a.than, thanPct: pctOf(a.thanFirstPass), thanCost: a.thanCost ? money(a.thanCost) : "—" });
 }
 
 // The estimate's questions, each with a field for its answer; "Send to tracker" posts the filled ones as one
@@ -3551,8 +3579,15 @@ function forecastCard(f) {
   if (!f?.compared) return "";
   const sizes = Object.keys(SIZE_NAMES);
   const cells = f.matrix.map((row, i) => `<span class="mx-l">${SIZE_NAMES[sizes[i]]}</span>${row.map((n, j) => `<b class="${i === j ? "hit" : ""}${n ? "" : " zero"}">${n}</b>`).join("")}`).join("");
+  // Calibration: which way the misses go, and how the clarity the estimate gave went with the outcome.
+  const skew = `<div class="snote">${t("b.calib.skew", { under: f.under || 0, over: f.over || 0 })}</div>`;
+  const warn = (f.under || 0) > (f.over || 0) && f.under / f.compared >= 0.25 ? `<div class="swarn"><span>${t("b.calib.under", { pct: Math.round((f.under / f.compared) * 100) })}</span></div>` : "";
+  const cl = (f.byClarity || []).filter((c) => c.ended);
+  const clarity = cl.length ? `<div class="table-wrap"><table class="stable calib"><thead><tr><th>${t("b.calib.clarity")}</th><th class="n">${t("b.calib.ended")}</th><th class="n">${t("b.calib.merged")}</th><th class="n">${t("b.calib.firstPass")}</th></tr></thead><tbody>`
+    + cl.map((c) => `<tr><td>${c.clarity}/5</td><td class="n">${c.ended}</td><td class="n">${pctOf(c.merged / c.ended)}%</td><td class="n">${pctOf(c.clean / c.ended)}%</td></tr>`).join("")
+    + `</tbody></table></div>` : "";
   return scard("Size estimate", `<div class="matrix"><span></span>${sizes.map((x) => `<span class="mx-h">${SIZE_NAMES[x]}</span>`).join("")}${cells}</div>`
-    + `<div class="snote">Rows: the estimate before the work · columns: the assessment after it. Outlined: the same size both times.</div>`,
+    + `<div class="snote">Rows: the estimate before the work · columns: the assessment after it. Outlined: the same size both times.</div>${skew}${warn}${clarity}`,
     `right ${f.hits} of ${f.compared} · ${Math.round((f.hits / f.compared) * 100)}%`, "grow");
 }
 

@@ -113,7 +113,7 @@ func TestSummarizeForecast(t *testing.T) {
 		failedEstimate,                   // the estimate failed: in neither
 	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
 	f := st.Forecast
-	if f.Compared != 6 || f.Hits != 4 {
+	if f.Compared != 6 || f.Hits != 4 || f.Under != 2 || f.Over != 0 {
 		t.Fatalf("forecast %+v", f)
 	}
 	want := [][]int{{1, 1, 0}, {0, 1, 1}, {0, 0, 2}}
@@ -136,6 +136,48 @@ func TestSummarizeForecast(t *testing.T) {
 		if st.BySize[i] != wantSizes[i] {
 			t.Fatalf("by size %d: %+v, want %+v", i, st.BySize[i], wantSizes[i])
 		}
+	}
+}
+
+// Calibration: which way the size estimate misses, and how the clarity it gave went with the outcome.
+func TestSummarizeCalibration(t *testing.T) {
+	at := "2026-10-01T10:00:00Z"
+	task := func(expected, came string, clarity int, rec Record) Record {
+		rec.Task.Project, rec.StartedAt = "g/app", at
+		rec.Estimate = &Estimate{State: "done", Size: expected, Clarity: Score{Value: clarity}}
+		if came != "" {
+			rec.Assessment = &Assessment{State: "done", Size: came}
+		}
+		return rec
+	}
+	merged := Record{Status: Done, ReviewState: "merged", FinishedAt: "2026-10-01T11:00:00Z"}
+	redone := merged
+	redone.Attempt = 2
+	failed := Record{Status: Failed, Error: "x"}
+	running := Record{Status: HandedOff}
+	st := Summarize([]Record{
+		task("big", "small", 5, merged),  // over, clarity 5: clean
+		task("big", "medium", 5, merged), // over, clarity 5: clean
+		task("small", "big", 2, redone),  // under, clarity 2: merged with rework
+		task("small", "", 2, failed),     // not compared, clarity 2: failed
+		task("small", "", 2, running),    // not ended: not in the clarity
+		task("small", "", 0, merged),     // no clarity
+	}, time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), time.Time{})
+	f := st.Forecast
+	if f.Compared != 3 || f.Hits != 0 || f.Under != 1 || f.Over != 2 {
+		t.Fatalf("forecast %+v", f)
+	}
+	if len(f.ByClarity) != 5 {
+		t.Fatalf("by clarity %+v", f.ByClarity)
+	}
+	if c := f.ByClarity[1]; c != (ClarityGroup{Clarity: 2, Ended: 2, Merged: 1, Clean: 0}) {
+		t.Errorf("clarity 2: %+v", c)
+	}
+	if c := f.ByClarity[4]; c != (ClarityGroup{Clarity: 5, Ended: 2, Merged: 2, Clean: 2}) {
+		t.Errorf("clarity 5: %+v", c)
+	}
+	if c := f.ByClarity[0]; c != (ClarityGroup{Clarity: 1}) {
+		t.Errorf("clarity 1: %+v", c)
 	}
 }
 
