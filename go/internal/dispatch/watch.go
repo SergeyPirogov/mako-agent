@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/notify"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
@@ -43,6 +45,10 @@ type watchState struct {
 	mu     sync.Mutex
 	loaded bool
 	file   string
+	// recovered: watch.json was there but could not be read, so what the watch knew is lost. Until a project's
+	// alerts are seen again they are only remembered, not turned into a task (they were most likely written up
+	// already); not kept.
+	recovered bool
 	// asked: when each project's CI and alerts were last asked, by "ci|…", "security|…"; not kept.
 	asked map[string]time.Time
 	// CI: whether the default branch was green when last seen, by "tracker|project".
@@ -56,16 +62,38 @@ type watchState struct {
 	Routines map[string]int64 `json:"routines"`
 }
 
-func (w *watchState) load(dir string) {
+// load reads watch.json once. A file that cannot be read (empty after a crash, broken) is kept aside as
+// watch.json.broken and returned as an error: the watch then starts with nothing remembered, but w.recovered
+// keeps it from writing tasks it has most likely written already.
+func (w *watchState) load(dir string) error {
 	if w.loaded {
-		return
+		return nil
 	}
 	w.loaded = true
 	w.asked = map[string]time.Time{}
+	var problem error
 	if dir != "" {
 		w.file = filepath.Join(dir, "watch.json")
-		if data, err := os.ReadFile(w.file); err == nil {
-			_ = json.Unmarshal(data, w)
+		data, err := os.ReadFile(w.file)
+		if err == nil {
+			if len(data) == 0 {
+				err = fmt.Errorf("the file is empty")
+			} else {
+				err = json.Unmarshal(data, w)
+			}
+			if err != nil {
+				w.CI, w.Open, w.Vulns, w.Routines = nil, nil, nil, nil
+				to, rerr := keepAsideBroken(w.file)
+				if rerr != nil {
+					err = fmt.Errorf("%w; and it cannot be kept aside: %v", err, rerr)
+				} else {
+					err = fmt.Errorf("%w; kept as %s", err, to)
+				}
+			}
+		}
+		if err != nil && !os.IsNotExist(err) {
+			w.recovered, problem = true, err
+			log.Printf("watch.json: CANNOT BE READ (%v): the watch starts from nothing", err)
 		}
 	}
 	if w.CI == nil {
@@ -80,15 +108,30 @@ func (w *watchState) load(dir string) {
 	if w.Routines == nil {
 		w.Routines = map[string]int64{}
 	}
+	return problem
+}
+
+// keepAsideBroken moves a file that cannot be read to file.broken, or to file.broken-<time> when an earlier one
+// is already there, so no broken copy is ever written over. It returns where the file went.
+func keepAsideBroken(file string) (string, error) {
+	to := file + ".broken"
+	if _, err := os.Lstat(to); err == nil {
+		to = file + ".broken-" + time.Now().UTC().Format("20060102T150405.000000000Z")
+	}
+	return to, os.Rename(file, to)
 }
 
 func (w *watchState) save() {
 	if w.file == "" {
 		return
 	}
-	data, _ := json.MarshalIndent(w, "", "  ")
-	if os.WriteFile(w.file+".tmp", data, 0o600) == nil {
-		_ = os.Rename(w.file+".tmp", w.file)
+	data, err := json.MarshalIndent(w, "", "  ")
+	if err == nil {
+		err = fsx.WriteFile(w.file, data, 0o600)
+	}
+	if err != nil {
+		// What the watch knows stays in memory only: a restart now would forget it.
+		log.Printf("watch.json: not saved: %v", err)
 	}
 }
 
@@ -117,7 +160,9 @@ func (d *Dispatcher) Watch(ctx context.Context, now time.Time) {
 	w := &d.watch
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.load(d.Config().StateDir)
+	if err := w.load(d.Config().StateDir); err != nil {
+		d.Fault("watch", "watch.json could not be read", err)
+	}
 	for _, t := range d.TrackerList() {
 		if t.Config().Paused {
 			continue
@@ -283,6 +328,7 @@ func (d *Dispatcher) watchSecurity(ctx context.Context, t trackers.Tracker, w tr
 		return
 	}
 	state := t.ID() + "|" + p.key
+	_, seen := d.watch.Vulns[state]
 	known := map[string]bool{}
 	for _, id := range d.watch.Vulns[state] {
 		known[id] = true
@@ -295,6 +341,14 @@ func (d *Dispatcher) watchSecurity(ctx context.Context, t trackers.Tracker, w tr
 		}
 	}
 	sort.Strings(ids)
+	if d.watch.recovered && !seen {
+		// The memory of the watch was lost: these alerts were most likely written up already. They are only
+		// remembered, so a new task comes for the alerts that appear from now on.
+		d.Log(t.ID(), "security alerts of "+p.key+": watch.json was lost, "+fmt.Sprint(len(ids))+" known alerts are remembered without a task")
+		d.watch.Vulns[state] = ids
+		d.watch.save()
+		return
+	}
 	key := "security|" + state
 	if fresh > 0 && d.openTask(ctx, t, key) {
 		// Its task is open: the new alerts stay new, so they make the next task once this one is closed.
