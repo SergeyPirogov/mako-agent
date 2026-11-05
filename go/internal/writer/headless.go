@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,9 +27,30 @@ type HeadlessOpts struct {
 // HeadlessTools: what the agent with no person may use besides reading: edit files and run commands.
 var HeadlessTools = []string{"Bash", "Edit", "Write", "NotebookEdit"}
 
-// HeadlessDenied: what it may not: ask a question nobody would answer, push or reach the code host. The worktree's
-// pre-push hook stops a push hidden from these rules too.
-var HeadlessDenied = []string{"AskUserQuestion", "Bash(git push:*)", "Bash(gh:*)", "Bash(glab:*)"}
+// HeadlessDenied: what it may not: ask a question nobody would answer, push, reach the code host with its CLIs, or
+// loosen what stops a push: `git -c` and `git config` would unset the worktree's hooksPath. The worktree's pre-push
+// hook stops a push these rules do not see, and pushCredentials leaves the agent nothing to push with. This keeps an
+// agent from pushing by accident; it is not a sandbox: a shell has more ways to run a command than a list of
+// prefixes names (a script, `sh -c`), and a `curl` to the code host's API is not denied, as a task may need curl.
+var HeadlessDenied = []string{"AskUserQuestion", "Bash(git push:*)", "Bash(git -c:*)", "Bash(git config:*)", "Bash(gh:*)", "Bash(glab:*)"}
+
+// pushCredentials: what lets a push or an API call of the code host through without asking, in the environment Mako
+// runs in: the ssh agent and the tokens of the host CLIs.
+var pushCredentials = []string{"SSH_AUTH_SOCK", "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "GLAB_TOKEN", "GITLAB_ACCESS_TOKEN"}
+
+// headlessEnv: env for the agent with no person: without pushCredentials, git never asks for a password
+// (GIT_TERMINAL_PROMPT, GIT_ASKPASS) and goes over ssh by nothing (GIT_SSH_COMMAND); marked as an eval run.
+func headlessEnv(env []string) []string {
+	out := make([]string, 0, len(env)+4)
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(pushCredentials, name) || name == "GIT_ASKPASS" || name == "GIT_SSH_COMMAND" || name == "GIT_TERMINAL_PROMPT" {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "MAKO_EVAL=1", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "GIT_SSH_COMMAND=false")
+}
 
 // Headless runs a coding agent with no person in dir (an eval run): `claude -p`, keeping no session, edits accepted
 // and the tools of HeadlessTools allowed, those of HeadlessDenied not. Its answer is its last message (the plan, in
@@ -43,7 +65,7 @@ func Headless(ctx context.Context, dir, prompt string, o HeadlessOpts) (string, 
 	cmd := proc.Command(ctx, path, headlessArgs(o)...)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(prompt)
-	cmd.Env = append(cmd.Env, "MAKO_EVAL=1")
+	cmd.Env = headlessEnv(cmd.Env)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := run(cmd)

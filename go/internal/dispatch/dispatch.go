@@ -163,7 +163,9 @@ type Dispatcher struct {
 
 	lessonsMu sync.Mutex // lessons.json
 	navMu     sync.Mutex // navretro.json
-	evalMu    sync.Mutex // evals.json
+	evalMu    sync.Mutex // evals.json, and what follows, which it guards
+	evalSeen  *evalCached
+	evalReads int // how many times evals.json was parsed (a test counts them)
 	// evalRuns: the eval runs going on, by navKey (see evalrun.go); under evalRunMu, which is taken after evalMu.
 	evalRunMu sync.Mutex
 	evalRuns  map[string]*evalLiveRun

@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
+	"github.com/SergeyPirogov/mako-agent/go/internal/phone"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
 )
 
@@ -55,20 +57,26 @@ func TestEvalRoutes(t *testing.T) {
 		}
 	}
 
-	post := func(path, body string, phone bool) (int, map[string]any) {
-		req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(body))
-		req.Header.Set("Origin", srv.URL)
-		if phone {
+	phones, _ := phone.Open(t.TempDir())
+	srv2 := httptest.NewServer((&Server{D: d, Version: "test", Phones: phones}).Handler())
+	defer srv2.Close()
+	device := pairPhone(t, srv2, phones)
+	post := func(path, body string, fromPhone bool) (int, string, map[string]any) {
+		req, _ := http.NewRequest("POST", srv2.URL+path, strings.NewReader(body))
+		req.Header.Set("Origin", srv2.URL)
+		if fromPhone {
 			req.Header.Set("X-Forwarded-For", "100.64.0.2")
+			req.AddCookie(device)
 		}
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer res.Body.Close()
+		raw, _ := io.ReadAll(res.Body)
 		var out map[string]any
-		json.NewDecoder(res.Body).Decode(&out)
-		return res.StatusCode, out
+		json.Unmarshal(raw, &out)
+		return res.StatusCode, string(raw), out
 	}
 	for _, c := range []struct{ path, body, want string }{
 		{"/api/eval/add?id=grp%2Fapp%2399", "", "no such task"},
@@ -78,15 +86,24 @@ func TestEvalRoutes(t *testing.T) {
 		{"/api/eval/run?key=nope", `{"variant":`, "could not read"},
 		{"/api/eval/stop?key=gl%2Fgrp%2Fapp%2Fapp", "", "no eval run"},
 	} {
-		code, out := post(c.path, c.body, false)
+		code, _, out := post(c.path, c.body, false)
 		if got, _ := out["error"].(string); code != 200 || out["ok"] != false || !strings.Contains(got, c.want) {
 			t.Errorf("%s: %d %v", c.path, code, out)
 		}
 	}
-	if code, _ := post("/api/eval/run?key=gl%2Fgrp%2Fapp%2Fapp", `{"variant":{}}`, true); code == 200 {
-		t.Error("an eval run started from a phone")
+	// A paired phone: starting a run, adding a task and removing one are the Mac's, as the guard says, not only
+	// refused for want of a key; stopping a run is let through to its handler.
+	for _, path := range []string{"/api/eval/run?key=nope", "/api/eval/add?id=grp%2Fapp%2399", "/api/eval/remove?key=k&id=grp%2Fapp%2399"} {
+		if code, raw, _ := post(path, `{"variant":{}}`, true); code != http.StatusForbidden || !strings.Contains(raw, "only on the Mac") {
+			t.Errorf("%s from a paired phone: %d %q", path, code, raw)
+		}
 	}
-	if !macOnly("/api/eval/run") || macOnly("/api/eval/add") {
-		t.Error("only starting a run is Mac-only")
+	if code, _, out := post("/api/eval/stop?key=nope", "", true); code != 200 || out["ok"] != false || !strings.Contains(out["error"].(string), "no eval run") {
+		t.Errorf("stop from a paired phone: %d %v", code, out)
+	}
+	for path, want := range map[string]bool{"/api/eval/run": true, "/api/eval/add": true, "/api/eval/remove": true, "/api/eval/stop": false} {
+		if macOnly(path) != want {
+			t.Errorf("macOnly(%s) = %v", path, !want)
+		}
 	}
 }

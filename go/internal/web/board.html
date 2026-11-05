@@ -3817,10 +3817,14 @@ const evalRunOf = (x, id) => x.runs.find((r) => r.id === id);
 function evalCell(r) {
   if (!r) return `<span class="muted">—</span>`;
   const mark = r.state === "passed" ? `<span class="ok">✓</span>` : r.state === "failed" ? `<span class="bad">✗</span>` : "";
-  const why = r.error ? ` title="${esc(r.error)}"` : "";
-  const nums = r.state === "passed" || r.state === "failed" ? ` <span class="muted">${money(r.cost)} · ${durFine(r.seconds)} · ${r.must}/${r.should}</span>` : "";
+  const why = r.error || r.reviewError ? ` title="${esc([r.error, r.reviewError && `${t("b.eval.noReview")}: ${r.reviewError}`].filter(Boolean).join("\n"))}"` : "";
+  // The reviewer's remarks are "—" where it did not read the result: zero of them would say it found none.
+  const nums = r.state === "passed" || r.state === "failed" ? ` <span class="muted">${money(r.cost)} · ${durFine(r.seconds)} · ${r.reviewError ? "—" : `${r.must}/${r.should}`}</span>`
+    : r.cost > 0 ? ` <span class="muted">${money(r.cost)}</span>` : "";
   return `<span${why}>${mark} ${esc(evalState(r.state))}${nums}</span>`;
 }
+// «3 / 4», and how many of the results it counts them over were not read by the reviewer.
+const evalRemarks = (s) => `${s.must} / ${s.should}${s.unreviewed ? ` <span class="muted">· ${esc(t("b.eval.unreviewed", { n: s.unreviewed }))}</span>` : ""}`;
 function evalCompare(x) {
   const c = x.compare;
   if (!c) return "";
@@ -3835,7 +3839,7 @@ function evalCompare(x) {
     + row(t("b.eval.success"), pct, t("b.eval.successHint"))
     + row(t("b.eval.medianCost"), (s) => s.ran ? money(s.medianCost) : "—")
     + row(t("b.eval.medianTime"), (s) => s.ran ? durFine(s.medianSeconds) : "—")
-    + row(t("b.eval.remarks"), (s) => `${s.must} / ${s.should}`)
+    + row(t("b.eval.remarks"), evalRemarks)
     + row(t("b.eval.spent"), (s) => money(s.cost))
     + `</tbody></table></div>`;
   const title = (id) => esc(x.cases.find((k) => k.taskId === id)?.task?.title || "");
@@ -3886,7 +3890,7 @@ function evalHistory(x) {
     const s = r.summary;
     return `<tr><td>${esc(fmtWhen(r.startedAt))}</td><td>${esc(evalName(r.variant))}</td><td title="${esc(r.reason || "")}">${esc(evalState(r.state))}</td>`
       + `<td class="n">${s.ran ? `${Math.round(s.successRate * 100)}%` : "—"}</td><td class="n">${s.ran ? money(s.medianCost) : "—"}</td>`
-      + `<td class="n">${s.must} / ${s.should}</td><td class="n">${money(r.spent)}</td></tr>`;
+      + `<td class="n">${evalRemarks(s)}</td><td class="n">${money(r.spent)}</td></tr>`;
   }).join("");
   return `<h3 class="eval-h">${esc(t("b.eval.history"))}</h3><div class="table-wrap"><table class="stable"><thead><tr><th>${esc(t("b.eval.when"))}</th><th>${esc(t("b.eval.variant"))}</th>`
     + `<th>${esc(t("b.eval.state"))}</th><th class="n">${esc(t("b.eval.success"))}</th><th class="n">${esc(t("b.eval.medianCost"))}</th><th class="n">${esc(t("b.eval.remarks"))}</th><th class="n">${esc(t("b.eval.spent"))}</th></tr></thead><tbody>${rows}</tbody></table></div>`;

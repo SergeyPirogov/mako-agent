@@ -85,10 +85,12 @@ type EvalResult struct {
 	OracleOK *bool         `json:"oracleOk,omitempty"`
 	Checks   []CheckResult `json:"checks,omitempty"`
 	Oracle   []CheckResult `json:"oracle,omitempty"`
-	// The reviewer's remarks on the agent's result.
-	Must   int    `json:"must"`
-	Should int    `json:"should"`
-	Review string `json:"review,omitempty"`
+	// The reviewer's remarks on the agent's result. ReviewError: the reviewer did not read it (it failed, or the
+	// ceiling left it no budget): then no remarks were counted, and zero of them says nothing.
+	Must        int    `json:"must"`
+	Should      int    `json:"should"`
+	Review      string `json:"review,omitempty"`
+	ReviewError string `json:"reviewError,omitempty"`
 	// What the agent changed, what it cost and how long the case took.
 	Added   int     `json:"added"`
 	Removed int     `json:"removed"`
@@ -96,6 +98,9 @@ type EvalResult struct {
 	Cost    float64 `json:"cost"`
 	Seconds int     `json:"seconds"`
 }
+
+// Reviewed: the reviewer read the result, so Must and Should count its remarks.
+func (r EvalResult) Reviewed() bool { return r.ReviewError == "" }
 
 // Passed: the agent's result passes the checks and the task's tests (those the repository has).
 func (r EvalResult) Passed() bool {
@@ -144,9 +149,11 @@ type EvalSummary struct {
 	SuccessRate   float64 `json:"successRate"`
 	MedianCost    float64 `json:"medianCost"`
 	MedianSeconds float64 `json:"medianSeconds"`
-	Must          int     `json:"must"`
-	Should        int     `json:"should"`
-	Cost          float64 `json:"cost"`
+	// Must and Should: the reviewer's remarks, over the results it read; Unreviewed: the measured results it did not.
+	Must       int     `json:"must"`
+	Should     int     `json:"should"`
+	Unreviewed int     `json:"unreviewed"`
+	Cost       float64 `json:"cost"`
 }
 
 // SummarizeEval: the run's success rate, the medians of what a case cost and took, the reviewer's remarks.
@@ -167,8 +174,12 @@ func SummarizeEval(run EvalRun) EvalSummary {
 		if r.Passed() {
 			s.Passed++
 		}
-		s.Must += r.Must
-		s.Should += r.Should
+		if r.Reviewed() {
+			s.Must += r.Must
+			s.Should += r.Should
+		} else {
+			s.Unreviewed++
+		}
 		costs = append(costs, r.Cost)
 		secs = append(secs, float64(r.Seconds))
 	}
@@ -209,6 +220,8 @@ func CompareEval(base, variant EvalRun) []EvalDelta {
 				d.Change = "better"
 			case b.Passed() && !v.Passed():
 				d.Change = "worse"
+			case !b.Reviewed() || !v.Reviewed(): // no remarks to compare: zero is not "no blockers"
+				d.Change = "same"
 			case v.Must < b.Must:
 				d.Change = "better"
 			case v.Must > b.Must:

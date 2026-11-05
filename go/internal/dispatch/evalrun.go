@@ -235,27 +235,15 @@ func (d *Dispatcher) evalRun(ctx context.Context, key string, repo *config.Repo,
 	gitx.Run(fctx, repo.Path, "fetch", "--quiet", "origin")
 	fcancel()
 
-	var mu sync.Mutex
-	spent := 0.0
-	b := &evalBudget{
-		spend: func(usd float64) {
-			mu.Lock()
-			defer mu.Unlock()
-			spent += usd
-			if spent >= run.MaxCost {
-				live.cancel(errEvalCeiling)
-			}
-		},
-		left: func() float64 {
-			mu.Lock()
-			defer mu.Unlock()
-			return run.MaxCost - spent
-		},
+	workers := d.Config().WipLimit
+	if workers <= 0 {
+		workers = config.AutoWip()
 	}
+	workers = max(min(workers, len(cases)), 1)
+	b := &evalBudget{max: run.MaxCost, workers: workers}
+	ensureWorktreeConfig(ctx, repo.Path) // once, before the workers: their worktrees each set their own config
 	save := func(i int, res core.EvalResult) {
-		mu.Lock()
-		total := spent
-		mu.Unlock()
+		total := b.total()
 		d.saveEvalRun(key, run.ID, func(r *core.EvalRun) {
 			r.Spent = total
 			if i < len(r.Results) {
@@ -263,11 +251,6 @@ func (d *Dispatcher) evalRun(ctx context.Context, key string, repo *config.Repo,
 			}
 		})
 	}
-	workers := d.Config().WipLimit
-	if workers <= 0 {
-		workers = config.AutoWip()
-	}
-	workers = max(min(workers, len(cases)), 1)
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	for range workers {
@@ -276,7 +259,9 @@ func (d *Dispatcher) evalRun(ctx context.Context, key string, repo *config.Repo,
 			defer wg.Done()
 			for i := range jobs {
 				c := cases[i]
-				if ctx.Err() != nil {
+				// The ceiling stops new cases only: one under way goes on to its checks and tests, which cost no
+				// budget, and its spend stays in its result.
+				if ctx.Err() != nil || b.exhausted() {
 					continue
 				}
 				save(i, core.EvalResult{TaskID: c.TaskID, State: core.EvalRunning})
@@ -294,25 +279,32 @@ func (d *Dispatcher) evalRun(ctx context.Context, key string, repo *config.Repo,
 	}
 	close(jobs)
 	wg.Wait()
-	mu.Lock()
-	total := spent
-	mu.Unlock()
+	total := b.total()
 	d.saveEvalRun(key, run.ID, func(r *core.EvalRun) {
 		r.Spent, r.FinishedAt = total, now()
 		r.State = core.EvalDone
-		if cause := context.Cause(ctx); cause != nil {
-			r.State, r.Reason = core.EvalStopped, cause.Error()
+		reason := errEvalCeiling.Error()
+		cause := context.Cause(ctx)
+		if cause != nil {
+			reason = cause.Error()
 		}
-		skipRest(r)
+		skipRest(r, reason)
+		skipped := slices.ContainsFunc(r.Results, func(x core.EvalResult) bool { return x.State == core.EvalSkipped })
+		switch {
+		case cause != nil:
+			r.State, r.Reason = core.EvalStopped, reason
+		case skipped && b.ceilingHit():
+			r.State, r.Reason = core.EvalStopped, errEvalCeiling.Error()
+		}
 	})
 	log.Printf("eval %s of %s: over, $%.2f", run.ID, key, total)
 }
 
-// skipRest marks the cases of a run that ended before them as skipped.
-func skipRest(r *core.EvalRun) {
+// skipRest marks the cases of a run that ended before them as skipped, with why.
+func skipRest(r *core.EvalRun, why string) {
 	for i := range r.Results {
 		if s := r.Results[i].State; s == "" || s == core.EvalRunning {
-			r.Results[i].State = core.EvalSkipped
+			r.Results[i].State, r.Results[i].Error = core.EvalSkipped, why
 		}
 	}
 }
@@ -333,10 +325,71 @@ func (d *Dispatcher) saveEvalRun(key, id string, change func(r *core.EvalRun)) {
 	}
 }
 
-// evalBudget: what a run may still spend, and what its calls spent.
+// evalBudget is what a run may still spend. The ceiling is kept in two ways: each call of the agent reserves its
+// share of what is left first (claude's --max-budget-usd), the rest divided among the workers that hold no
+// reservation, so that calls running side by side cannot each take it all; and what the calls really cost, told when
+// they end, is counted, so the next ones start from what is left. The reviewer takes no budget of its own: it is
+// asked only while something is left. A call may overshoot its share by the turn it was in; the ceiling is
+// approximate by that much.
 type evalBudget struct {
-	spend func(usd float64)
-	left  func() float64
+	mu       sync.Mutex
+	max      float64
+	workers  int
+	spent    float64
+	reserved float64
+	held     int  // calls holding a reservation now
+	hit      bool // the ceiling was reached, or left no budget for a call: later cases are skipped
+}
+
+// spend counts what a call cost.
+func (b *evalBudget) spend(usd float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.spent += usd
+	if b.max-b.spent < evalMinBudget {
+		b.hit = true
+	}
+}
+
+// reserve: the budget of one call of the agent; false when the ceiling leaves it none.
+func (b *evalBudget) reserve() (float64, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	share := (b.max - b.spent - b.reserved) / float64(max(b.workers-b.held, 1))
+	if share < evalMinBudget {
+		b.hit = true
+		return 0, false
+	}
+	b.reserved += share
+	b.held++
+	return share, true
+}
+
+// release gives a call's reservation back once what it cost is counted.
+func (b *evalBudget) release(share float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.reserved -= share
+	b.held--
+}
+
+// exhausted: nothing is left for another call.
+func (b *evalBudget) exhausted() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.max-b.spent < evalMinBudget
+}
+
+func (b *evalBudget) ceilingHit() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.hit
+}
+
+func (b *evalBudget) total() float64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.spent
 }
 
 // runCase does the case again in a worktree of its own and measures what came of it.
@@ -359,6 +412,9 @@ func (d *Dispatcher) runCase(ctx context.Context, repo *config.Repo, run core.Ev
 	})
 	fail := func(err error) core.EvalResult {
 		res.State, res.Error = core.EvalError, clipText(err.Error(), 400)
+		if errors.Is(err, errEvalCeiling) { // no budget for the agent: the case is left, not broken
+			res.State, res.Error = core.EvalSkipped, errEvalCeiling.Error()
+		}
 		return res
 	}
 	cfg := d.Config()
@@ -368,8 +424,8 @@ func (d *Dispatcher) runCase(ctx context.Context, repo *config.Repo, run core.Ev
 	}
 	defer drop()
 	if run.Variant.ClaudeMD != "" {
-		if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(run.Variant.ClaudeMD), 0o644); err != nil {
-			return fail(err)
+		if err := placeClaudeMD(ctx, dir, dir+".exclude", run.Variant.ClaudeMD); err != nil {
+			return fail(fmt.Errorf("the variant's CLAUDE.md: %w", err))
 		}
 	}
 	if cmd := setupOf(repo, cfg.Terminal, dir); cmd != "" {
@@ -395,24 +451,28 @@ func (d *Dispatcher) runCase(ctx context.Context, repo *config.Repo, run core.Ev
 		}
 		return r
 	}
+	// call runs the agent with the share of the budget it reserves; no share, no call.
+	call := func(prompt string, o writer.HeadlessOpts) (string, error) {
+		share, ok := b.reserve()
+		if !ok {
+			return "", errEvalCeiling
+		}
+		defer b.release(share)
+		o.Budget, o.Timeout = share, evalAgentTimeout
+		return Headless(actx, dir, prompt, o)
+	}
 	prompt := d.evalPrompt(repo, c, run.Variant, branch)
 	if wantsPlan(cfg.Terminal, c.Task, nil, false) {
-		if b.left() < evalMinBudget {
-			return fail(errEvalCeiling)
-		}
-		plan, err := Headless(actx, dir, prompt+"\n\n"+i18n.TA("agent.evalPlanAsk"), writer.HeadlessOpts{Route: routeOf(core.PhasePlan), Plan: true, Budget: b.left(), Timeout: evalAgentTimeout})
+		plan, err := call(prompt+"\n\n"+i18n.TA("agent.evalPlanAsk"), writer.HeadlessOpts{Route: routeOf(core.PhasePlan), Plan: true})
 		if err != nil {
 			return fail(fmt.Errorf("plan: %w", err))
 		}
 		res.Planned = true
 		prompt += "\n\n" + i18n.TA("agent.evalPlan", plan)
 	}
-	if b.left() < evalMinBudget {
-		return fail(errEvalCeiling)
-	}
 	work := routeOf(core.PhaseWork)
 	res.Route = work.Label()
-	if _, err := Headless(actx, dir, prompt, writer.HeadlessOpts{Route: work, Budget: b.left(), Timeout: evalAgentTimeout}); err != nil {
+	if _, err := call(prompt, writer.HeadlessOpts{Route: work}); err != nil {
 		return fail(fmt.Errorf("agent: %w", err))
 	}
 	if err := commitLeft(ctx, dir, c.TaskID); err != nil {
@@ -438,9 +498,11 @@ func (d *Dispatcher) runCase(ctx context.Context, repo *config.Repo, run core.Ev
 	if base == "" {
 		base = gitx.DetectBaseBranch(repo.Path)
 	}
-	if notes, err := ReviewBranch(actx, dir, base, c.Task, routeOf(core.PhaseReview), nil); err != nil {
-		res.Review = "the reviewer failed: " + clipText(err.Error(), 300)
-	} else {
+	switch notes, err := reviewIfBudget(actx, b, dir, base, c.Task, routeOf(core.PhaseReview)); {
+	case err != nil:
+		// No remarks were counted: the result says so, and the summaries and the comparison leave it out.
+		res.ReviewError = clipText(err.Error(), 300)
+	default:
 		a := judge(notes, nil, 1)
 		for _, r := range a.Remarks {
 			if r.Weight == core.Must {
@@ -480,6 +542,7 @@ func (d *Dispatcher) evalWorktree(ctx context.Context, repo *config.Repo, runID 
 			gitx.Run(bctx, repo.Path, "branch", "-D", branch)
 		}
 		os.RemoveAll(hooks)
+		os.RemoveAll(dir + ".exclude")
 	}
 	if _, err := gitx.Run(ctx, repo.Path, "cat-file", "-e", c.Base+"^{commit}"); err != nil {
 		return "", "", nil, fmt.Errorf("the commit %.10s the task started from is not in the clone", c.Base)
@@ -496,6 +559,47 @@ func (d *Dispatcher) evalWorktree(ctx context.Context, repo *config.Repo, runID 
 		return "", "", nil, fmt.Errorf("the worktree's push guard: %w", err)
 	}
 	return dir, branch, drop, nil
+}
+
+// reviewIfBudget asks the reviewer to read the branch while the ceiling leaves something: its call has no budget of
+// its own to cap it, so with nothing left it is not made.
+func reviewIfBudget(ctx context.Context, b *evalBudget, dir, base string, task core.Task, route core.Route) (string, error) {
+	if b.exhausted() {
+		return "", errEvalCeiling
+	}
+	return ReviewBranch(ctx, dir, base, task, route, nil)
+}
+
+// ensureWorktreeConfig lets the repository's worktrees have a config of their own (extensions.worktreeConfig):
+// the push guard's hooks and the hidden CLAUDE.md are set that way. Done once before the cases run side by side, as
+// two of them setting it at once would fight for the config's lock; a failure shows in the case that needs it.
+func ensureWorktreeConfig(ctx context.Context, repoPath string) {
+	if out, _ := gitx.Run(ctx, repoPath, "config", "--type=bool", "--get", "extensions.worktreeConfig"); out == "true" {
+		return
+	}
+	if out, _ := gitx.Run(ctx, repoPath, "config", "--get", "core.worktree"); out != "" {
+		return // a worktree config would move it: gitx.InstallHooks refuses too
+	}
+	gitx.Run(ctx, repoPath, "config", "extensions.worktreeConfig", "true")
+}
+
+// placeClaudeMD puts the variant's CLAUDE.md in the worktree for the agent to read, and keeps it out of what the run
+// measures: it is no work of the agent's, so it must not be committed with it, counted in its diff or shown to the
+// reviewer as a change. A tracked file is hidden from the worktree's index (skip-worktree: `git add -A` passes it
+// by); one the repository has none of is excluded by an excludes file of the worktree's own, in exclude.
+func placeClaudeMD(ctx context.Context, dir, exclude, text string) error {
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(text), 0o644); err != nil {
+		return err
+	}
+	if _, err := gitx.Run(ctx, dir, "ls-files", "--error-unmatch", "CLAUDE.md"); err == nil {
+		_, err = gitx.Run(ctx, dir, "update-index", "--skip-worktree", "CLAUDE.md")
+		return err
+	}
+	if err := os.WriteFile(exclude, []byte("/CLAUDE.md\n"), 0o600); err != nil {
+		return err
+	}
+	_, err := gitx.Run(ctx, dir, "config", "--worktree", "core.excludesFile", exclude)
+	return err
 }
 
 // evalPrompt: the task as the agent gets it, with the end of the prompt the settings (or the variant) give, and

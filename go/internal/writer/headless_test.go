@@ -17,7 +17,7 @@ func TestHeadlessArgs(t *testing.T) {
 	work := headlessArgs(HeadlessOpts{Route: core.Route{Model: "sonnet", Effort: "high"}, Budget: 2.5})
 	joined := strings.Join(work, " ")
 	for _, want := range []string{"-p ", "--permission-mode acceptEdits", "--max-budget-usd 2.50", "--model sonnet", "--effort high",
-		"--disallowedTools AskUserQuestion Bash(git push:*) Bash(gh:*) Bash(glab:*) --allowedTools Bash Edit Write NotebookEdit",
+		"--disallowedTools AskUserQuestion Bash(git push:*) Bash(git -c:*) Bash(git config:*) Bash(gh:*) Bash(glab:*) --allowedTools Bash Edit Write NotebookEdit",
 		"--no-session-persistence"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("no %q in %s", want, joined)
@@ -26,6 +26,24 @@ func TestHeadlessArgs(t *testing.T) {
 	plan := headlessArgs(HeadlessOpts{Plan: true})
 	if !slices.Contains(plan, "plan") || !slices.Contains(plan, "ExitPlanMode") || slices.Contains(plan, "--allowedTools") || slices.Contains(plan, "--max-budget-usd") || slices.Contains(plan, "--model") {
 		t.Errorf("plan args %v", plan)
+	}
+}
+
+// The agent has nothing to push with: no ssh agent, no host tokens, no prompt for a password; the rest of the
+// environment is as it was.
+func TestHeadlessEnv(t *testing.T) {
+	got := headlessEnv([]string{"PATH=/usr/bin", "SSH_AUTH_SOCK=/tmp/agent", "GH_TOKEN=x", "GITLAB_TOKEN=y", "GIT_ASKPASS=/usr/bin/ask", "HOME=/h", "GIT_SSH_COMMAND=ssh -i k"})
+	want := []string{"PATH=/usr/bin", "HOME=/h", "MAKO_EVAL=1", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "GIT_SSH_COMMAND=false"}
+	if !slices.Equal(got, want) {
+		t.Errorf("env %v, want %v", got, want)
+	}
+	// And it is the env of the run: a fake Claude reports what it was given.
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent")
+	t.Setenv("GITHUB_TOKEN", "secret")
+	fakeClaude(t, `printf '{"type":"result","result":"[%s][%s][%s]","total_cost_usd":0}\n' "$SSH_AUTH_SOCK" "$GITHUB_TOKEN" "$GIT_SSH_COMMAND"`)
+	text, err := Headless(context.Background(), t.TempDir(), "x", HeadlessOpts{Timeout: 10 * time.Second})
+	if err != nil || text != "[][][false]" {
+		t.Errorf("%q %v", text, err)
 	}
 }
 

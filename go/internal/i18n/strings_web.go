@@ -570,6 +570,8 @@ var webStrings = map[string]string{
 	"b.eval.medianCost":     "Median cost",
 	"b.eval.medianTime":     "Median time",
 	"b.eval.remarks":        "Reviewer: must / should",
+	"b.eval.unreviewed":     "{n} not reviewed",
+	"b.eval.noReview":       "The reviewer did not read it",
 	"b.eval.spent":          "Spent",
 	"b.eval.better":         "better",
 	"b.eval.worse":          "worse",

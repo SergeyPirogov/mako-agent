@@ -27,6 +27,33 @@ func TestSummarizeEval(t *testing.T) {
 	}
 }
 
+// A result the reviewer did not read has no remarks to count: not as "no blockers" in the sums, not as "better".
+func TestEvalUnreviewed(t *testing.T) {
+	run := EvalRun{Results: []EvalResult{
+		{TaskID: "a", State: EvalPassed, Must: 2, Should: 1},
+		{TaskID: "b", State: EvalPassed, ReviewError: "the reviewer failed"},
+		{TaskID: "c", State: EvalFailed, ReviewError: "cost ceiling reached", Must: 0},
+	}}
+	s := SummarizeEval(run)
+	if s.Ran != 3 || s.Must != 2 || s.Should != 1 || s.Unreviewed != 2 {
+		t.Errorf("summary %+v", s)
+	}
+	base := EvalRun{Results: []EvalResult{{TaskID: "a", State: EvalPassed, Must: 2}, {TaskID: "b", State: EvalPassed, Must: 3}, {TaskID: "c", State: EvalPassed, Must: 1}}}
+	variant := EvalRun{Results: []EvalResult{{TaskID: "a", State: EvalPassed, ReviewError: "x"}, {TaskID: "b", State: EvalPassed, Must: 0}, {TaskID: "c", State: EvalFailed, ReviewError: "x"}}}
+	want := map[string]string{"a": "same", "b": "better", "c": "worse"} // a: no remarks to compare; c: fails now
+	for _, d := range CompareEval(base, variant) {
+		if d.Change != want[d.TaskID] {
+			t.Errorf("%s: %q, want %q", d.TaskID, d.Change, want[d.TaskID])
+		}
+	}
+	// And the other way round: the baseline unread.
+	for _, d := range CompareEval(variant, base) {
+		if d.TaskID == "a" && d.Change != "same" {
+			t.Errorf("a, baseline unread: %q", d.Change)
+		}
+	}
+}
+
 func TestEvalResultJudge(t *testing.T) {
 	cases := []struct {
 		checks, oracle *bool

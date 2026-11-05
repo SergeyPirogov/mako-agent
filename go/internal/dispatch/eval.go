@@ -51,6 +51,7 @@ func (d *Dispatcher) evalFile() string { return filepath.Join(d.Config().StateDi
 // readEvals: the sets kept, by navKey; the caller holds evalMu. A file that cannot be read is kept aside (and told
 // to Mako's errors) and the sets start empty.
 func (d *Dispatcher) readEvals() map[string]*EvalSet {
+	d.evalReads++
 	all := map[string]*EvalSet{}
 	b, err := os.ReadFile(d.evalFile())
 	if err != nil {
@@ -78,17 +79,45 @@ func (d *Dispatcher) readEvals() map[string]*EvalSet {
 		for i := range s.Runs {
 			if r := &s.Runs[i]; r.State == core.EvalRunning && !d.evalLive(key, r.ID) {
 				r.State, r.Reason = core.EvalStopped, "Mako restarted"
-				skipRest(r)
+				skipRest(r, r.Reason)
 			}
 		}
 	}
 	return all
 }
 
+// evalCached is the parsed evals.json as it was when the file had this modification time and size.
+type evalCached struct {
+	mtime time.Time
+	size  int64
+	sets  map[string]*EvalSet
+}
+
+// evalSnapshot: the sets kept, for reading only (the caller holds evalMu and changes nothing in them). The board
+// asks for them with every /api/state, and the file holds the tests of each case and the reviewers' notes of each
+// run: it is parsed again only when it changed. Changes go through updateEval, which parses afresh.
+func (d *Dispatcher) evalSnapshot() map[string]*EvalSet {
+	info, err := os.Stat(d.evalFile())
+	if err != nil {
+		d.evalSeen = nil
+		return map[string]*EvalSet{}
+	}
+	if c := d.evalSeen; c != nil && c.size == info.Size() && c.mtime.Equal(info.ModTime()) {
+		return c.sets
+	}
+	sets := d.readEvals()
+	d.evalSeen = &evalCached{mtime: info.ModTime(), size: info.Size(), sets: sets}
+	if _, err := os.Stat(d.evalFile()); err != nil { // kept aside as broken: nothing to remember it by
+		d.evalSeen = nil
+	}
+	return sets
+}
+
 // updateEval changes the set of key in evals.json; change returns an error to leave the file as it is.
 func (d *Dispatcher) updateEval(key string, change func(s *EvalSet) error) (EvalSet, error) {
 	d.evalMu.Lock()
 	defer d.evalMu.Unlock()
+	d.evalSeen = nil
 	all := d.readEvals()
 	s := all[key]
 	if s == nil {
@@ -118,7 +147,7 @@ func (d *Dispatcher) updateEval(key string, change func(s *EvalSet) error) (Eval
 func (d *Dispatcher) evalSet(key string) EvalSet {
 	d.evalMu.Lock()
 	defer d.evalMu.Unlock()
-	if s := d.readEvals()[key]; s != nil {
+	if s := d.evalSnapshot()[key]; s != nil {
 		return *s
 	}
 	return EvalSet{}
@@ -384,6 +413,31 @@ type EvalRunView struct {
 	Baseline bool             `json:"baseline"`
 }
 
+// Of a result the board gets what it shows: the reviewer's notes cut to what a tooltip holds and no tails of the
+// failed commands' output, which the file keeps whole.
+const evalNotesInView = 300
+
+func trimResults(rs []core.EvalResult) []core.EvalResult {
+	out := make([]core.EvalResult, len(rs))
+	for i, r := range rs {
+		r.Review = clipText(r.Review, evalNotesInView)
+		r.Checks, r.Oracle = withoutTails(r.Checks), withoutTails(r.Oracle)
+		out[i] = r
+	}
+	return out
+}
+
+func withoutTails(cs []core.CheckResult) []core.CheckResult {
+	if cs == nil {
+		return nil
+	}
+	out := slices.Clone(cs)
+	for i := range out {
+		out[i].Tail = ""
+	}
+	return out
+}
+
 // EvalComparison: two runs of a set, the one compared with (Base) and the other (Variant), by run id.
 type EvalComparison struct {
 	Base    string           `json:"base"`
@@ -457,7 +511,7 @@ func (d *Dispatcher) Evals(project, base, variant string) []EvalState {
 	}
 	repos := d.navRepos(project)
 	d.evalMu.Lock()
-	kept := d.readEvals()
+	kept := d.evalSnapshot()
 	d.evalMu.Unlock()
 	out := []EvalState{}
 	keys := map[string]bool{}
@@ -487,7 +541,9 @@ func (d *Dispatcher) Evals(project, base, variant string) []EvalState {
 		}
 		e.MaxCost = evalCaseCost * float64(max(len(s.Cases), 1))
 		for _, r := range s.Runs {
-			e.Runs = append(e.Runs, EvalRunView{EvalRun: r, Summary: core.SummarizeEval(r), Baseline: r.Variant.Baseline()})
+			sum := core.SummarizeEval(r)
+			r.Results = trimResults(r.Results) // the kept run is shared: a copy goes out
+			e.Runs = append(e.Runs, EvalRunView{EvalRun: r, Summary: sum, Baseline: r.Variant.Baseline()})
 			if r.State == core.EvalRunning {
 				e.Running = true
 			}

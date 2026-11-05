@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -18,14 +19,15 @@ import (
 )
 
 // evalClaude: Claude Code of an eval test. The reviewer (read-only tools) finds one must; the plan is a line; the
-// agent writes feature.txt as the switches in $EVAL_LOG say (pay: what the task's test wants; cash: not; fail:
-// exits 1; slow: hangs) and commits it. Each call costs $1 ($0.5 the reviewer) and is logged in $EVAL_LOG.
+// agent writes feature.txt as the switches in $EVAL_LOG say (the word file: what it writes; fail: exits 1; slow:
+// hangs; nothing: changes nothing; barrier: waits for a second agent to start) and commits it. Each call costs $1 ($0.5 the reviewer) and is logged in $EVAL_LOG.
 const evalClaude = `#!/bin/sh
 prompt=$(cat)
 echo "$*" >> "$EVAL_LOG/args"
 case "$*" in
 *"--disallowedTools Edit"*)
 	echo review >> "$EVAL_LOG/calls"
+	printf '%s' "$prompt" > "$EVAL_LOG/review-prompt"
 	printf '%s\n' '{"type":"result","result":"R1 [must] feature.txt:1 — the word is not checked\nR2 [should] feature.txt:1 — say why","total_cost_usd":0.5}'
 	exit 0 ;;
 *"--permission-mode plan"*)
@@ -38,6 +40,15 @@ printf '%s' "$prompt" > "$EVAL_LOG/work-prompt"
 [ -f CLAUDE.md ] && cp CLAUDE.md "$EVAL_LOG/claude-md"
 pwd > "$EVAL_LOG/dir"
 [ -f "$EVAL_LOG/slow" ] && exec sleep 30
+if [ -f "$EVAL_LOG/barrier" ]; then # two agents at work at once: each waits for the other to start
+	touch "$EVAL_LOG/started.$$"
+	n=0
+	while [ "$(ls "$EVAL_LOG" | grep -c '^started\.')" -lt 2 ] && [ $n -lt 500 ]; do sleep 0.02; n=$((n+1)); done
+fi
+if [ -f "$EVAL_LOG/nothing" ]; then
+	printf '%s\n' '{"type":"result","result":"nothing to do","total_cost_usd":1}'
+	exit 0
+fi
 if [ -f "$EVAL_LOG/fail" ]; then
 	printf '%s\n' '{"type":"result","result":"I could not","total_cost_usd":1}'
 	exit 1
@@ -312,6 +323,118 @@ func TestEvalRunVariantAndOracle(t *testing.T) {
 	if md, _ := os.ReadFile(filepath.Join(e.log, "claude-md")); string(md) != "new rules\n" {
 		t.Errorf("CLAUDE.md the agent saw: %q", md)
 	}
+	// The variant's CLAUDE.md is no work of the agent's: not in its diff, not in what the reviewer reads.
+	if r.Files != 1 || r.Added != 1 {
+		t.Errorf("the agent's diff counts the CLAUDE.md of the variant: %+v", r)
+	}
+	// The prompt's own words name CLAUDE.md among the conventions; what the branch changed is after "Commits:".
+	review, _ := os.ReadFile(filepath.Join(e.log, "review-prompt"))
+	_, changes, _ := strings.Cut(string(review), "Commits:")
+	if !strings.Contains(changes, "feature.txt") || strings.Contains(changes, "CLAUDE.md") || strings.Contains(changes, "new rules") {
+		t.Errorf("what the reviewer reads of the branch:\n%s", changes)
+	}
+	e.noWorktrees(t)
+}
+
+// The variant's CLAUDE.md differs from the repository's and the agent changes nothing: nothing was done, not a
+// change of CLAUDE.md.
+func TestEvalVariantAndNothingDone(t *testing.T) {
+	e := evalSetup(t, 5)
+	os.WriteFile(filepath.Join(e.log, "nothing"), nil, 0o644)
+	if _, err := e.d.StartEval(context.Background(), e.key, core.EvalVariant{ClaudeMD: "new rules\n"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	run := e.wait(t)
+	if r := run.Results[0]; r.State != core.EvalFailed || r.Error != "the agent changed nothing" || r.Files != 0 || r.Cost != 1 {
+		t.Fatalf("result %+v", r)
+	}
+	if e.calls() != "work" {
+		t.Errorf("calls: %s", e.calls())
+	}
+	e.noWorktrees(t)
+}
+
+// placeClaudeMD: the file is in the worktree for the agent, and neither committed with its work (commitLeft) nor
+// seen as a change, whether the repository has a CLAUDE.md or not.
+func TestPlaceClaudeMD(t *testing.T) {
+	for _, tracked := range []bool{true, false} {
+		name := map[bool]string{true: "tracked", false: "untracked"}[tracked]
+		t.Run(name, func(t *testing.T) {
+			for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"} {
+				t.Setenv(k, v)
+			}
+			ctx := context.Background()
+			root := t.TempDir()
+			repo := filepath.Join(root, "repo")
+			os.MkdirAll(repo, 0o755)
+			git(t, repo, "init", "-q", "-b", "main")
+			os.WriteFile(filepath.Join(repo, "README.md"), []byte("hi\n"), 0o644)
+			if tracked {
+				os.WriteFile(filepath.Join(repo, "CLAUDE.md"), []byte("the repository's rules\n"), 0o644)
+			}
+			git(t, repo, "add", ".")
+			git(t, repo, "commit", "-q", "-m", "base")
+			base := strings.TrimSpace(gitOut(t, repo, "rev-parse", "HEAD"))
+			ensureWorktreeConfig(ctx, repo)
+			wt := filepath.Join(root, "wt")
+			git(t, repo, "worktree", "add", "-q", "--detach", wt, base)
+
+			if err := placeClaudeMD(ctx, wt, wt+".exclude", "new rules\n"); err != nil {
+				t.Fatal(err)
+			}
+			if b, _ := os.ReadFile(filepath.Join(wt, "CLAUDE.md")); string(b) != "new rules\n" {
+				t.Fatalf("CLAUDE.md in the worktree: %q", b)
+			}
+			// Nothing else changed: nothing to commit.
+			if err := commitLeft(ctx, wt, "t#1"); err != nil {
+				t.Fatal(err)
+			}
+			if head := strings.TrimSpace(gitOut(t, wt, "rev-parse", "HEAD")); head != base {
+				t.Fatalf("CLAUDE.md was committed: %s", gitOut(t, wt, "show", "--stat", "HEAD"))
+			}
+			// The agent's own file goes in, CLAUDE.md does not.
+			os.WriteFile(filepath.Join(wt, "feature.txt"), []byte("x\n"), 0o644)
+			if err := commitLeft(ctx, wt, "t#1"); err != nil {
+				t.Fatal(err)
+			}
+			if files := strings.Fields(gitOut(t, wt, "diff", "--name-only", base, "HEAD")); len(files) != 1 || files[0] != "feature.txt" {
+				t.Errorf("committed %v", files)
+			}
+			if b, _ := os.ReadFile(filepath.Join(wt, "CLAUDE.md")); string(b) != "new rules\n" {
+				t.Errorf("CLAUDE.md after the commit: %q", b)
+			}
+			// The main checkout is untouched.
+			if tracked {
+				if b, _ := os.ReadFile(filepath.Join(repo, "CLAUDE.md")); string(b) != "the repository's rules\n" {
+					t.Errorf("the clone's CLAUDE.md: %q", b)
+				}
+			} else if _, err := os.Stat(filepath.Join(repo, "CLAUDE.md")); err == nil {
+				t.Error("the clone got a CLAUDE.md")
+			}
+		})
+	}
+}
+
+// The reviewer fails: the case is measured all the same (its checks and tests are), but it says the reviewer did not
+// read it, and no zero of remarks is counted for it.
+func TestEvalReviewerFails(t *testing.T) {
+	e := evalSetup(t, 5)
+	old := ReviewBranch
+	t.Cleanup(func() { ReviewBranch = old })
+	ReviewBranch = func(context.Context, string, string, core.Task, core.Route, []core.Remark) (string, error) {
+		return "", errors.New("the reviewer did not answer")
+	}
+	if _, err := e.d.StartEval(context.Background(), e.key, core.EvalVariant{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	run := e.wait(t)
+	r := run.Results[0]
+	if r.State != core.EvalPassed || r.Reviewed() || !strings.Contains(r.ReviewError, "did not answer") || r.Must != 0 || r.Should != 0 {
+		t.Fatalf("result %+v", r)
+	}
+	if s := core.SummarizeEval(run); s.Unreviewed != 1 || s.Must != 0 {
+		t.Errorf("summary %+v", s)
+	}
 	e.noWorktrees(t)
 }
 
@@ -337,22 +460,101 @@ func TestEvalClaudeMDFromBranchAndFile(t *testing.T) {
 	}
 }
 
-// The ceiling: the run stops at it, the case under way and the rest are skipped, the worktrees go.
+// The ceiling stops the run's new cases, not the one under way: the spent budget leaves the next case skipped, with
+// why, and what was spent stays in the results. The call gets the whole rest of the ceiling: one worker holds it.
 func TestEvalCostCeiling(t *testing.T) {
 	e := evalSetup(t, 5, 6)
 	e.cfg.WipLimit = 1
+	if _, err := e.d.StartEval(context.Background(), e.key, core.EvalVariant{}, 1.2); err != nil {
+		t.Fatal(err)
+	}
+	run := e.wait(t)
+	if run.State != core.EvalStopped || run.Reason != "cost ceiling reached" || run.Spent != 1.5 {
+		t.Fatalf("run %+v", run)
+	}
+	if r := run.Results[0]; r.State != core.EvalPassed || !r.Reviewed() || r.Cost != 1.5 {
+		t.Errorf("the case under way: %+v", r)
+	}
+	if r := run.Results[1]; r.State != core.EvalSkipped || r.Error != "cost ceiling reached" || r.Cost != 0 {
+		t.Errorf("the case after the ceiling: %+v", r)
+	}
+	if e.calls() != "work review" {
+		t.Errorf("calls: %s", e.calls())
+	}
+	if args, _ := os.ReadFile(filepath.Join(e.log, "args")); !strings.Contains(string(args), "--max-budget-usd 1.20") {
+		t.Errorf("args: %s", args)
+	}
+	e.noWorktrees(t)
+}
+
+// The ceiling is reached by the agent's work: the case goes on to its checks and its tests, which cost nothing, and is
+// measured, only the reviewer is not asked (it has no budget of its own to be capped by), and the result says so.
+func TestEvalCeilingMidCase(t *testing.T) {
+	e := evalSetup(t, 5)
+	if _, err := e.d.StartEval(context.Background(), e.key, core.EvalVariant{}, 1); err != nil {
+		t.Fatal(err)
+	}
+	run := e.wait(t)
+	r := run.Results[0]
+	if run.State != core.EvalDone || run.Reason != "" || r.State != core.EvalPassed || r.Cost != 1 || run.Spent != 1 {
+		t.Fatalf("run %+v", run)
+	}
+	if r.OracleOK == nil || !*r.OracleOK || r.Reviewed() || r.ReviewError != "cost ceiling reached" || r.Must != 0 {
+		t.Errorf("result %+v", r)
+	}
+	if e.calls() != "work" {
+		t.Errorf("calls: %s", e.calls())
+	}
+	if s := core.SummarizeEval(run); s.Ran != 1 || s.Unreviewed != 1 || s.Must != 0 {
+		t.Errorf("summary %+v", s)
+	}
+	e.noWorktrees(t)
+}
+
+// Agents at work side by side each reserve their share of the ceiling, so together they cannot be given more than
+// there is: two calls under a ceiling of 2 get 1 each, not 2 each; and once it is spent the third case is not begun.
+func TestEvalParallelCeiling(t *testing.T) {
+	e := evalSetup(t, 5, 6, 7)
+	e.cfg.WipLimit = 2
+	os.WriteFile(filepath.Join(e.log, "barrier"), nil, 0o644)
 	if _, err := e.d.StartEval(context.Background(), e.key, core.EvalVariant{}, 2); err != nil {
 		t.Fatal(err)
 	}
 	run := e.wait(t)
-	if run.State != core.EvalStopped || !strings.Contains(run.Reason, "cost ceiling") || run.Spent != 2.5 {
+	if run.State != core.EvalStopped || run.Reason != "cost ceiling reached" {
 		t.Fatalf("run %+v", run)
 	}
-	if run.Results[0].State != core.EvalPassed || run.Results[1].State != core.EvalSkipped || !strings.Contains(run.Results[1].Error, "cost ceiling") {
-		t.Errorf("results %+v", run.Results)
+	args, _ := os.ReadFile(filepath.Join(e.log, "args"))
+	var shares []string
+	for _, line := range strings.Split(string(args), "\n") {
+		if strings.Contains(line, "acceptEdits") {
+			shares = append(shares, line[strings.Index(line, "--max-budget-usd"):][:len("--max-budget-usd 1.00")])
+		}
 	}
-	if e.calls() != "work review work" {
-		t.Errorf("calls: %s", e.calls())
+	if len(shares) != 2 || shares[0] != "--max-budget-usd 1.00" || shares[1] != "--max-budget-usd 1.00" {
+		t.Errorf("the work calls' budgets: %q", shares)
+	}
+	passed := 0
+	for _, r := range run.Results {
+		switch r.State {
+		case core.EvalPassed:
+			passed++
+			if r.Cost < 1 || (r.Reviewed() && r.Must != 1) || (!r.Reviewed() && r.ReviewError != "cost ceiling reached") {
+				t.Errorf("a case under way keeps its spend, and its review or the word that it has none: %+v", r)
+			}
+		case core.EvalSkipped:
+			if r.Error != "cost ceiling reached" || r.Cost != 0 {
+				t.Errorf("skipped %+v", r)
+			}
+		default:
+			t.Errorf("result %+v", r)
+		}
+	}
+	if passed != 2 || run.Results[2].State != core.EvalSkipped || strings.Count(e.calls(), "work") != 2 {
+		t.Errorf("passed %d, results %+v, calls %s", passed, run.Results, e.calls())
+	}
+	if run.Spent > 3 { // two works and two reviews at most; never the 4 of two whole ceilings
+		t.Errorf("spent %v", run.Spent)
 	}
 	e.noWorktrees(t)
 }
@@ -533,4 +735,49 @@ func TestEvalNeedsThePushGuard(t *testing.T) {
 		t.Fatal("the guard was not asked")
 	}
 	e.noWorktrees(t)
+}
+
+// The board asks for the sets with every /api/state: the file is parsed again only when it changed, and what goes out
+// is what the board shows (the reviewer's notes cut, no tails of commands' output), while the file keeps it whole.
+func TestEvalsAreReadWhenChanged(t *testing.T) {
+	e := evalSetup(t, 5)
+	long := strings.Repeat("remark ", 300)
+	e.d.updateEval(e.key, func(s *EvalSet) error {
+		s.Runs = append(s.Runs, core.EvalRun{ID: "r1", State: core.EvalDone, Results: []core.EvalResult{{
+			TaskID: "grp/app#5", State: core.EvalPassed, Review: long, Checks: []core.CheckResult{{Name: "tests", OK: true, Tail: "tail of the output"}}}}})
+		return nil
+	})
+	reads := func() int {
+		e.d.evalMu.Lock()
+		defer e.d.evalMu.Unlock()
+		return e.d.evalReads
+	}
+	first := e.d.Evals("grp/app", "", "")
+	n := reads()
+	for range 5 {
+		e.d.Evals("grp/app", "", "")
+	}
+	if reads() != n {
+		t.Errorf("the file was parsed %d times more for the same state", reads()-n)
+	}
+	r := first[0].Runs[0].Results[0]
+	if len(r.Review) >= len(long) || len(r.Review) > 3*evalNotesInView || r.Checks[0].Tail != "" || r.Checks[0].Name != "tests" {
+		t.Errorf("the result as the board gets it: %d bytes of notes, %+v", len(r.Review), r.Checks)
+	}
+	if kept := e.d.evalSet(e.key).Runs[0].Results[0]; kept.Review != long || kept.Checks[0].Tail != "tail of the output" {
+		t.Errorf("the file lost what the board does not get: %d bytes, %+v", len(kept.Review), kept.Checks)
+	}
+
+	// A change by Mako is seen at once; so is one made to the file by someone else.
+	e.d.updateEval(e.key, func(s *EvalSet) error { s.Runs[0].Variant.Name = "renamed"; return nil })
+	if got := e.d.Evals("grp/app", "", "")[0].Runs[0].Variant.Name; got != "renamed" {
+		t.Errorf("after Mako's change: %q", got)
+	}
+	b, _ := os.ReadFile(e.d.evalFile())
+	os.WriteFile(e.d.evalFile(), []byte(strings.Replace(string(b), "renamed", "edited!", 1)), 0o600)
+	later := time.Now().Add(time.Hour)
+	os.Chtimes(e.d.evalFile(), later, later)
+	if got := e.d.Evals("grp/app", "", "")[0].Runs[0].Variant.Name; got != "edited!" {
+		t.Errorf("after an edit of the file: %q", got)
+	}
 }
