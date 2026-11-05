@@ -14,7 +14,13 @@ import (
 // A merged task on its second attempt: the worktree and branch of the first attempt and of this one, and
 // someone else's worktree beside them.
 func cleanupSetup(t *testing.T) (d *Dispatcher, id, repo, old, cur, oldBranch, curBranch, other string) {
-	d, _, _ = setup(t)
+	d, _, id, repo, old, cur, oldBranch, curBranch, other = cleanupSetupGL(t)
+	return
+}
+
+// cleanupSetupGL: cleanupSetup, with the fake GitLab too (for the tests that move the MR).
+func cleanupSetupGL(t *testing.T) (d *Dispatcher, f *fakeGitLab, id, repo, old, cur, oldBranch, curBranch, other string) {
+	d, f, _ = setup(t)
 	ctx := context.Background()
 	d.Poll(ctx)
 	id = "grp/app#5"
@@ -32,7 +38,7 @@ func cleanupSetup(t *testing.T) (d *Dispatcher, id, repo, old, cur, oldBranch, c
 		r.Status, r.ReviewState, r.Executor, r.Attempt = core.Done, "merged", terminalExecutor, 2
 		r.Worktree, r.Branch = cur, curBranch
 	})
-	return
+	return d, f, id, repo, old, cur, oldBranch, curBranch, other
 }
 
 func TestCleanTaskKeepsUncommittedWork(t *testing.T) {
@@ -441,5 +447,33 @@ func TestAgentBusyOnReviewFix(t *testing.T) {
 	term.agent("done", orca.AgentRow{PaneKey: "main", State: "done", AgentType: "codex"})
 	if d.agentBusy(r) {
 		t.Fatal("a finished agent is busy")
+	}
+}
+
+// The MR of an archived task is still followed: when it is merged the worktree goes, though archiving left it.
+func TestArchivedOpenMRCleanedAtMerge(t *testing.T) {
+	d, f, id, repo, _, cur, _, curBranch, _ := cleanupSetupGL(t)
+	ctx := context.Background()
+	url := f.base + "/grp/app/-/merge_requests/9"
+	d.Store.Update(id, func(r *core.Record) { r.ReviewState, r.PRURL = "", url })
+	f.mu.Lock()
+	f.mrs = append(f.mrs, map[string]any{"iid": 9, "state": "opened", "web_url": url, "source_branch": curBranch})
+	f.mu.Unlock()
+
+	d.Archive(id, true)
+	d.CheckMerges(ctx)
+	if !exists(cur) || !gitx.HasBranch(ctx, repo, curBranch) {
+		t.Fatal("the worktree of an open MR is gone")
+	}
+
+	f.mu.Lock()
+	f.mrs[0]["state"] = "merged"
+	f.mu.Unlock()
+	d.CheckMerges(ctx)
+	if r, _ := d.Store.Get(id); r.ReviewState != "merged" {
+		t.Fatalf("the merge of an archived task is not seen: %+v", r.ReviewState)
+	}
+	if exists(cur) || gitx.HasBranch(ctx, repo, curBranch) {
+		t.Fatal("the merged task's worktree is left")
 	}
 }

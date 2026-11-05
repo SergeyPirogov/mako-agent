@@ -1195,7 +1195,7 @@ func (d *Dispatcher) AutoArchive(at time.Time) int {
 	}
 	n := 0
 	for _, r := range d.Store.All() {
-		if r.ArchivedAt != 0 || (r.Status != core.Done && r.Status != core.Cancelled) || (r.Status == core.Done && r.PRURL != "" && r.ReviewState == "") {
+		if r.ArchivedAt != 0 || (r.Status != core.Done && r.Status != core.Cancelled) || mrOpen(r) {
 			continue
 		}
 		when := r.MergedAt
