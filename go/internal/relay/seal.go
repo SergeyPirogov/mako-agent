@@ -24,9 +24,9 @@ const (
 	// reserveAhead: how many counter values a Sealer reserves at once. They are written down before use, so after
 	// a crash the sender continues above them and never reuses a nonce; at worst it skips some numbers.
 	reserveAhead = 1000
-	// recvAhead: the same for an Opener, which writes its counter down in blocks too. It is shorter: after a crash the
-	// frames up to the written-down bound are refused, so the window of numbers a phone has to get past is kept small.
-	recvAhead = 100
+	// RecvAhead: the same for an Opener, which writes its counter down in blocks too. It is shorter: after a crash the
+	// frames up to the written-down bound are refused (a phone's counter has to get past it), so the window is kept small.
+	RecvAhead = 50
 )
 
 // Frame types of the pairing.
@@ -246,10 +246,10 @@ func (o *Opener) Open(f Sealed) ([]byte, error) {
 		return nil, err
 	}
 	if f.N > o.reserved {
-		if f.N > math.MaxUint64-recvAhead {
+		if f.N > math.MaxUint64-RecvAhead {
 			return nil, ErrTag
 		}
-		upto := f.N + recvAhead
+		upto := f.N + RecvAhead
 		if o.reserve != nil {
 			if err := o.reserve(o.reserved, upto); err != nil {
 				return nil, err

@@ -41,6 +41,12 @@ type fakePhone struct {
 
 func e2eServer(t *testing.T) (*httptest.Server, *phone.Phones, *dispatch.Dispatcher, string) {
 	t.Helper()
+	return e2eServerWith(t, nil)
+}
+
+// e2eServerWith: e2eServer with the Server set up by tune first.
+func e2eServerWith(t *testing.T, tune func(*Server)) (*httptest.Server, *phone.Phones, *dispatch.Dispatcher, string) {
+	t.Helper()
 	store, _ := state.Open(t.TempDir())
 	d := dispatch.New(&config.Config{StateDir: t.TempDir()}, store, nil)
 	dir := t.TempDir()
@@ -49,6 +55,9 @@ func e2eServer(t *testing.T) (*httptest.Server, *phone.Phones, *dispatch.Dispatc
 		t.Fatal(err)
 	}
 	s := &Server{D: d, Phones: phones}
+	if tune != nil {
+		tune(s)
+	}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() {
 		srv.Close()
@@ -263,28 +272,85 @@ func (p *fakePhone) closed(wait time.Duration) bool {
 	return !(timeout && ne.Timeout())
 }
 
-// Frames that do not open, one after another, close the tunnel: a relay or a stranger with the device's id cannot
+// forged: a frame of the device that does not decrypt (its counter is far ahead, the bytes are changed).
+func forged(f relay.Sealed) relay.Sealed {
+	f.N, f.C = 1<<40, bytes.Clone(f.C)
+	f.C[3] ^= 1
+	return f
+}
+
+// Frames that do not decrypt, one after another, close the tunnel: a relay or a stranger with the device's id cannot
 // make the Mac read them for ever. A real frame in between starts the count again.
 func TestTunnelClosesAfterBadFrames(t *testing.T) {
-	tunnelBadPause = time.Millisecond
-	t.Cleanup(func() { tunnelBadPause = 100 * time.Millisecond })
-	srv, phones, _, dir := e2eServer(t)
+	srv, phones, _, dir := e2eServerWith(t, func(s *Server) { s.TunnelBadPause = time.Millisecond })
 	p := pairE2E(t, srv, phones, dir)
-	f := p.send(relay.TypeRequest, "first", relay.Request{U: "/api/i18n"})
+	bad := forged(p.send(relay.TypeRequest, "first", relay.Request{U: "/api/i18n"}))
 	if g, _, ok := p.next(5 * time.Second); !ok || g.I != "first" {
 		t.Fatal("no answer to the first request")
 	}
 	for range tunnelBadMax - 1 { // one less than the limit, and a real frame after: still open
-		p.sendFrame(f)
+		p.sendFrame(bad)
 	}
 	if res := p.do(relay.Request{U: "/api/i18n"}); res.S != 200 {
 		t.Fatalf("after %d bad frames: %d", tunnelBadMax-1, res.S)
 	}
 	for range tunnelBadMax {
-		p.sendFrame(f) // sent again: it never opens
+		p.sendFrame(bad)
 	}
 	if !p.closed(5 * time.Second) {
-		t.Fatal("the tunnel is still open after a run of frames that do not open")
+		t.Fatal("the tunnel is still open after a run of frames that do not decrypt")
+	}
+}
+
+// The wait after a bad frame doubles from the first one and stops at the cap, however many came.
+func TestBadPauseGrowsAndIsCapped(t *testing.T) {
+	base := 100 * time.Millisecond
+	want := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond, time.Second, time.Second}
+	for i, w := range want {
+		if got := badPause(base, i+1); got != w {
+			t.Errorf("pause after %d bad frames: %v, want %v", i+1, got, w)
+		}
+	}
+	for _, n := range []int{31, 64, 1 << 20} {
+		if got := badPause(base, n); got != time.Second {
+			t.Errorf("pause after %d bad frames: %v", n, got)
+		}
+	}
+	if got := badPause(0, 3); got != 0 {
+		t.Errorf("a zero base: %v", got)
+	}
+}
+
+// A Mac that crashed refuses a phone's frames up to the counter it had written down; the phone counts on one by one.
+// The tunnel outlasts that gap (those frames are not bad ones) and answers once the phone is past it, but not for ever.
+func TestTunnelOutlastsTheCountersGap(t *testing.T) {
+	srv, phones, _, dir := e2eServer(t)
+	p := pairE2E(t, srv, phones, dir)
+	// The Mac took frames up to 40 (as after a crash with the bound at 40): the phone's own are numbered from 1.
+	in, err := phones.Opener(p.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ahead, _ := relay.NewSealer(p.keys.P2M, relay.P2M, p.mac, p.id, 39, nil)
+	f, _ := ahead.Seal(relay.TypeRequest, "x", []byte(`{"u":"/api/i18n"}`))
+	if _, err := in.Open(f); err != nil {
+		t.Fatal(err)
+	}
+	for range 40 {
+		p.send(relay.TypeRequest, "gap", relay.Request{U: "/api/i18n"}) // numbers 1..40: not above the counter
+	}
+	if res := p.do(relay.Request{U: "/api/i18n"}); res.S != 200 { // this is 41
+		t.Fatalf("after the gap: %d", res.S)
+	}
+
+	// Past the limit it is a flood, not a gap.
+	again, _ := relay.NewSealer(p.keys.P2M, relay.P2M, p.mac, p.id, 0, nil)
+	old, _ := again.Seal(relay.TypeRequest, "old", nil)
+	for range tunnelReplayMax {
+		websocket.JSON.Send(p.c, old)
+	}
+	if !p.closed(5 * time.Second) {
+		t.Fatal("the tunnel is still open after a flood of frames under the counter")
 	}
 }
 

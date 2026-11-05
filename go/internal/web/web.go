@@ -56,6 +56,8 @@ type Server struct {
 	Show func(url string)
 	// Phones: the paired phones (iPhone, Android); nil turns the phone off.
 	Phones *phone.Phones
+	// TunnelBadPause: the wait after a phone-tunnel frame that does not decrypt; 0 is the default (tests shorten it).
+	TunnelBadPause time.Duration
 	// Update: Mako's own new commits and their install; nil when Mako is not built from a clone.
 	Update *update.Updater
 	// Release: a newer release of Mako, for one installed from a release (no clone); nil otherwise.

@@ -221,14 +221,14 @@ func TestOpenerWritesCountersInBlocks(t *testing.T) {
 		return nil
 	})
 	var last Sealed
-	for range recvAhead {
+	for range RecvAhead {
 		last, _ = s.Seal("req", "1", nil)
 		if _, err := o.Open(last); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if len(calls) != 1 || calls[0][1] < last.N {
-		t.Fatalf("%d frames in one block wrote %v", recvAhead, calls)
+		t.Fatalf("%d frames in one block wrote %v", RecvAhead, calls)
 	}
 	for last.N < calls[0][1] { // up to the bound still costs no write
 		last, _ = s.Seal("req", "1", nil)
