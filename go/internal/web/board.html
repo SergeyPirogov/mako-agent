@@ -406,7 +406,11 @@ $("stats-btn").onclick = () => {
 };
 $("poll").onclick = async () => { $("poll").classList.add("busy"); await post("poll"); setTimeout(() => $("poll").classList.remove("busy"), 1500); };
 
+// The number of the last /api/state asked for: an answer that comes after a newer one was asked for is old news and is dropped
+// (a slow poll must not put back the card that a later reload has just moved).
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
   try {
     // seen=1: the board is on screen, so Mako knows you are back (and how long you were away).
     // days: the period "Stats" counts over.
@@ -417,7 +421,9 @@ async function load() {
     // sel: the open card; its "Try this build" copy is kept while it is open.
     if (selected) q.set("sel", selected);
     // X-Mako: the board's own look; only then does seen=1 count (another site cannot send it).
-    data = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`, { headers: { "X-Mako": "1" } })).json();
+    const fresh = await (await fetch(`/api/state${q.toString() ? `?${q}` : ""}`, { headers: { "X-Mako": "1" } })).json();
+    if (seq !== loadSeq) return;
+    data = fresh;
     // A record without a project is not a task (a stray write made it): no group with no name, no row in «needs attention».
     data.records = (data.records || []).filter((r) => r.task?.project);
     if (data.now) skew = Date.now() - data.now;
@@ -425,8 +431,10 @@ async function load() {
     if (!Object.keys(I18N).length) {
       await loadI18n();
       boardWords();
+      if (seq !== loadSeq) return;
     }
   } catch {
+    if (seq !== loadSeq) return; // a newer answer is on its way or has come: this failure is not the board's state
     $("search").textContent = t("s.noAnswer");
     $("search").className = "search err";
     return;
@@ -436,9 +444,34 @@ async function load() {
   // A copy of Mako to try a branch on: its own data, nothing reaches out; the header tells it from the real one.
   document.body.classList.toggle("try-build", !!data.try);
   if (data.digest) return openDigest(data.digest);
+  pruneDrafts();
   await Promise.all([loadCard(), loadWork()]);
   render();
   if (cv) drawChatResume(cv);
+}
+
+// Drafts kept in the browser (comments on the diff, answers to the agent's questions) are per task: those of a task
+// that has no record any more are dropped, or they pile up for good and, once the storage is full, new drafts do not
+// survive a reload. A board with no tasks at all is more likely a glitch than a clean slate: nothing is dropped then.
+function pruneDrafts() {
+  const ids = new Set((data?.records ?? []).map((r) => r.id));
+  if (!ids.size) return;
+  const drop = (m) => { let n = 0; for (const k of Object.keys(m)) if (!ids.has(k)) { delete m[k]; n++; } return n; };
+  if (drop(notes)) saveNotes();
+  if (drop(answerDrafts)) saveAnswers();
+}
+// The tickets made from a chat's drafts are kept per chat ("thread#index", "thread#index#plan"): those of a chat that is
+// deleted (and is not a task either) are dropped. Called with a fresh history of the chats.
+function pruneTickets() {
+  if (!data?.records?.length) return;
+  const ids = new Set([...freeChats.map((c) => c.id), ...data.records.map((r) => r.id)]);
+  const all = ticketsMade();
+  let n = 0;
+  for (const k of Object.keys(all)) {
+    const m = /^(.*)#\d+(?:#plan)?$/.exec(k);
+    if (m && !ids.has(m[1])) { delete all[k]; n++; }
+  }
+  if (n) try { localStorage.setItem(TICKETS_KEY, JSON.stringify(all)); } catch {}
 }
 
 // The digest takes the place of the open card; its links open the tasks.
@@ -1475,7 +1508,7 @@ function markAsked(id, kind) {
 }
 const fixBtn = (id, live, kind, label) => !live ? ""
   : isAsked(id, kind) ? `<button type="button" class="fix-btn sent" disabled title="Already passed to the agent" aria-label="Already passed to the agent">${ICON.check}</button>`
-  : `<button type="button" class="fix-btn" data-ask="${kind}" title="${label}" aria-label="${label}">${ICON.fix}</button>`;
+  : `<button type="button" class="fix-btn" data-ask="${kind}" title="${esc(label)}" aria-label="${esc(label)}">${ICON.fix}</button>`;
 const commits = (n) => `${n} ${plural(n, "commit", "commits")}`;
 
 // The branch's name for the panel: the prefix ("feature/") muted, a line may break only after "/" and "-".
@@ -2569,6 +2602,7 @@ async function loadFreeChats() {
   if (!$("fc-list")) return;
   freeChats = r.chats ?? [];
   fcLoaded = true;
+  if (Array.isArray(r.chats)) pruneTickets(); // an error is no list: it must not drop every ticket
   fcHead();
   drawFreeChats();
   // The question was not in the list when it was opened (a reload on its link): now it can be shown. A mark
