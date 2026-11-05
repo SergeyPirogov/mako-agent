@@ -64,7 +64,9 @@ func (d *Dispatcher) readEvals() map[string]*EvalSet {
 		if rerr == nil {
 			err = fmt.Errorf("%w; kept as %s", err, to)
 		}
-		go d.Fault("mako", "evals.json cannot be read", err)
+		// Not in a goroutine: Fault takes faultsMu and the journal, never evalMu, and a write that outlives its caller
+		// lands in a state folder that may be gone (a test's).
+		d.Fault("mako", "evals.json cannot be read", err)
 		return map[string]*EvalSet{}
 	}
 	for key, s := range all {

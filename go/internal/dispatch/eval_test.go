@@ -433,6 +433,9 @@ func TestEvalBrokenFile(t *testing.T) {
 	if _, err := os.Stat(d.evalFile() + ".broken"); err != nil {
 		t.Errorf("not kept aside: %v", err)
 	}
+	if fs := d.Faults(); len(fs) != 1 || !strings.Contains(fs[0].What, "evals.json") {
+		t.Errorf("not among Mako's errors: %+v", fs)
+	}
 }
 
 func TestCompareRuns(t *testing.T) {
