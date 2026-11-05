@@ -461,7 +461,8 @@ function pruneDrafts() {
   if (drop(answerDrafts)) saveAnswers();
 }
 // The tickets made from a chat's drafts are kept per chat ("thread#index", "thread#index#plan"): those of a chat that is
-// deleted (and is not a task either) are dropped. Called with a fresh history of the chats.
+// deleted (and is not a task either) are dropped. Called with a fresh history of the chats: /api/chats gives all of
+// them (no limit, no pages), so a chat missing from it is gone; keep it so, or this drops the tickets of live chats.
 function pruneTickets() {
   if (!data?.records?.length) return;
   const ids = new Set([...freeChats.map((c) => c.id), ...data.records.map((r) => r.id)]);

@@ -84,22 +84,23 @@ func TestBoardLoadOrderFixHintAndDrafts(t *testing.T) {
 	}
 
 	// 2. Two reloads in flight: the older one answers last and must not replace the newer board. (The page's own
-	// polling is let through; only the first two /api/state requests after the stub is set are held.)
+	// polling is let through; only the /api/state requests of the two load() calls, made in one go, are held.)
 	var order struct {
 		Column string `json:"column"`
 		Error  string `json:"error"`
 	}
 	run(`
 		const real = window.fetch, held = [];
+		let hold = false; // only the two load() calls below are held, never the page's own polling
 		window.fetch = (url, init) => {
-			if (String(url).startsWith("/api/state") && held.length < 2) {
+			if (hold && String(url).startsWith("/api/state")) {
 				return new Promise((ok) => held.push((body) => ok({ ok: true, json: async () => body })));
 			}
 			return real(url, init);
 		};
 		const board = (column) => ({ ...data, digest: null, records: [{ id: "g/app#1", column, status: "queued", task: { id: "g/app#1", title: "T", project: "g/app" } }] });
 		try {
-			const old = load(), fresh = load();           // the older request is asked first
+			hold = true; const old = load(), fresh = load(); hold = false; // the older request is asked first
 			held[1](board("doing")); await fresh;          // the newer answer comes first
 			held[0](board("new"));  await old;             // the older one comes after it
 			await new Promise((r) => setTimeout(r, 50));
@@ -111,15 +112,16 @@ func TestBoardLoadOrderFixHintAndDrafts(t *testing.T) {
 	// An old request that fails after the newer one has answered says nothing: the board is fine.
 	run(`
 		const real = window.fetch, held = [];
+		let hold = false;
 		window.fetch = (url, init) => {
-			if (String(url).startsWith("/api/state") && held.length < 2) {
+			if (hold && String(url).startsWith("/api/state")) {
 				return new Promise((ok, no) => held.push({ ok, no }));
 			}
 			return real(url, init);
 		};
 		try {
 			$("search").className = "search"; $("search").textContent = "";
-			const old = load(), fresh = load();
+			hold = true; const old = load(), fresh = load(); hold = false;
 			held[1].ok({ ok: true, json: async () => ({ ...data, digest: null }) }); await fresh;
 			held[0].no(new Error("down")); await old;
 			return { error: $("search").className };
