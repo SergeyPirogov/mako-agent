@@ -1275,7 +1275,8 @@ func (d *Dispatcher) Retry(ctx context.Context, id string) {
 	d.Take(ctx, id)
 }
 
-// Archive takes the task off the board (on) or brings it back; an archived task's worktree is cleaned up.
+// Archive takes the task off the board (on) or brings it back; an archived task's worktree is cleaned up,
+// unless its MR is still open: then only the card goes, and the worktree goes with the merge.
 func (d *Dispatcher) Archive(id string, on bool) {
 	d.Store.Update(id, func(r *core.Record) {
 		r.ArchivedAt = 0
@@ -1284,6 +1285,10 @@ func (d *Dispatcher) Archive(id string, on bool) {
 		}
 	})
 	if on {
+		if r, ok := d.Store.Get(id); ok && mrOpen(r) {
+			d.Log(id, "archived; the MR is open, so the worktree stays")
+			return
+		}
 		go d.cleanUp(context.Background(), id)
 	}
 }

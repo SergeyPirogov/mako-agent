@@ -8,6 +8,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
+	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 )
 
 // A merged task on its second attempt: the worktree and branch of the first attempt and of this one, and
@@ -381,5 +382,64 @@ func TestRemoveWorktreesKeepsBaseBranch(t *testing.T) {
 	res := d.RemoveWorktrees(ctx, []WorktreeRef{{Repo: rp.Name, Path: wt}}, false)
 	if res.Removed != 1 || exists(wt) || !gitx.HasBranch(ctx, repo, base) {
 		t.Fatalf("base branch: %+v", res)
+	}
+}
+
+// Archiving a task whose MR is open only takes the card off the board: the worktree and the branch stay for
+// «Fix CI», resume and the auto-fix; the merge cleans them up.
+func TestArchiveKeepsWorktreeOfOpenMR(t *testing.T) {
+	d, id, repo, _, cur, _, curBranch, _ := cleanupSetup(t)
+	ctx := context.Background()
+	d.Store.Update(id, func(r *core.Record) { r.ReviewState, r.PRURL = "", "https://example.com/mr/1" })
+
+	d.Archive(id, true)
+	if r, _ := d.Store.Get(id); r.ArchivedAt == 0 {
+		t.Fatal("the card is not archived")
+	}
+	d.cleanUp(ctx, id) // what the goroutine would do
+	if c := d.CleanMerged(ctx); c.Worktrees != 0 || c.Branches != 0 {
+		t.Fatalf("cleaned a task with an open MR: %+v", c)
+	}
+	if !exists(cur) || !gitx.HasBranch(ctx, repo, curBranch) {
+		t.Fatal("archiving removed the worktree or branch of an open MR")
+	}
+	for _, u := range d.WorktreeUsage(ctx) {
+		for _, w := range u.Worktrees {
+			if w.Task == id && w.Cleanable {
+				t.Fatal("a worktree of an open MR is offered for cleaning")
+			}
+		}
+	}
+
+	// Merged: now it goes.
+	d.Store.Update(id, func(r *core.Record) { r.ReviewState = "merged" })
+	d.cleanUp(ctx, id)
+	if exists(cur) || gitx.HasBranch(ctx, repo, curBranch) {
+		t.Fatal("the merged task's worktree is left")
+	}
+}
+
+// A task past its MR is not in WatchAgents' list, yet its Orca agent may be fixing the review's remarks: that
+// agent is busy, and its workspace is not taken away.
+func TestAgentBusyOnReviewFix(t *testing.T) {
+	d, id, _, _, cur, _, curBranch, _ := cleanupSetup(t)
+	term := &fakeTerminals{ws: &orca.Workspace{Path: cur, Branch: "refs/heads/" + curBranch}}
+	d.Term = term
+	d.Store.Update(id, func(r *core.Record) {
+		r.ReviewState, r.PRURL, r.Executor = "", "https://example.com/mr/1", "orca"
+	})
+	r, _ := d.Store.Get(id)
+
+	term.agent("working", orca.AgentRow{PaneKey: "main", State: "working", AgentType: "codex"})
+	if !d.agentBusy(r) {
+		t.Fatal("an agent fixing the review is not busy")
+	}
+	if _, err := d.CleanTask(context.Background(), id, true); err == nil || !exists(cur) {
+		t.Fatalf("cleaned under a working agent: %v", err)
+	}
+
+	term.agent("done", orca.AgentRow{PaneKey: "main", State: "done", AgentType: "codex"})
+	if d.agentBusy(r) {
+		t.Fatal("a finished agent is busy")
 	}
 }
