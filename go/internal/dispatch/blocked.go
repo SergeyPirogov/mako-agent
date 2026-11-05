@@ -31,6 +31,8 @@ func (d *Dispatcher) Blocked(r core.Record) string {
 			why = "the MR has conflicts"
 		case l.check.CI == "failed":
 			why = "CI failed"
+		case riskBlockText(r) != "":
+			why = riskBlockText(r)
 		}
 		if why != "" && stopped {
 			return "agent stopped: " + why + ", continue it in the chat"
@@ -64,7 +66,7 @@ func (d *Dispatcher) MergeReady(r core.Record) bool {
 	if d.ReviewBlocks(r) {
 		return false
 	}
-	if _, _, blocks := d.SelfBlocks(r); blocks {
+	if _, _, blocks := d.SelfBlocks(r); blocks || riskBlockText(r) != "" {
 		return false
 	}
 	d.mu.Lock()

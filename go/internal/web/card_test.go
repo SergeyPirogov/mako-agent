@@ -264,3 +264,15 @@ func TestCardSelfCheckOnChecksStage(t *testing.T) {
 		t.Errorf("checks %q, merge %q", checks, merge)
 	}
 }
+
+// A change that touches the repo's protected paths offers no Merge: the MR is opened instead; any other level, the
+// Merge as before.
+func TestCardRiskBlockHoldsMerge(t *testing.T) {
+	mr := core.Record{Task: core.Task{ID: "g/a#1", Title: "x"}, Status: core.Done, PRURL: "https://gitlab.example/g/a/-/merge_requests/1", Executor: "orca"}
+	for level, want := range map[string]string{core.RiskBlock: "open-mr", core.RiskHigh: "merge", core.RiskLow: "merge"} {
+		v := recordView{Record: mr, Column: "review", Risk: &dispatch.RiskView{Level: level}}
+		if got := cardOf(v, time.Now()).Primary; got != want {
+			t.Errorf("%s: action %q, want %q", level, got, want)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -533,5 +534,37 @@ func TestParseTakesDefaultForNumbersOutOfRange(t *testing.T) {
 	}
 	if c, _ := Parse([]byte(`{"pollIntervalSec": 5}`), nil); c.PollIntervalSec != 5 {
 		t.Fatalf("5 s is allowed: %d", c.PollIntervalSec)
+	}
+}
+
+// The risk policy per repo: the paths with their levels (an unknown one is high, an empty pattern dropped), the
+// thresholds and the switches; an older config without them gets the defaults: no auto-merge, high held.
+func TestParseRisk(t *testing.T) {
+	c, err := Parse([]byte(`{"trackers":[{"type":"gitlab","projects":{
+		"grp/app":{"riskPaths":[{"pattern":"migrations/**","level":"block"},{"pattern":" **/auth/** ","level":"Medium"},{"pattern":"*.env*","level":"huge"},{"pattern":" "}],
+			"risk":{"autoMergeLow":true,"gateHigh":false,"maxLines":100,"maxFiles":-3}},
+		"grp/web":{},
+		"grp/many":{"repos":{"api":{"risk":{"maxFiles":4}},"ui":{}}}}}]}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := c.Trackers[0].Projects
+	app := p["grp/app"].Repos["app"]
+	want := []RiskPath{{"migrations/**", core.RiskBlock}, {"**/auth/**", core.RiskMedium}, {"*.env*", core.RiskHigh}}
+	if !reflect.DeepEqual(app.RiskPaths, want) {
+		t.Fatalf("paths %+v", app.RiskPaths)
+	}
+	if app.Risk != (RiskPolicy{AutoMergeLow: true, GateHigh: false, MaxLines: 100, MaxFiles: DefaultRiskMaxFiles}) {
+		t.Fatalf("policy %+v", app.Risk)
+	}
+	def := RiskPolicy{GateHigh: true, MaxLines: DefaultRiskMaxLines, MaxFiles: DefaultRiskMaxFiles}
+	if web := p["grp/web"].Repos["web"]; web.Risk != def || web.RiskPaths != nil {
+		t.Fatalf("an older project: %+v %+v", web.Risk, web.RiskPaths)
+	}
+	if api := p["grp/many"].Repos["api"]; api.Risk.MaxFiles != 4 || !api.Risk.GateHigh || p["grp/many"].Repos["ui"].Risk != def {
+		t.Fatalf("repos of a project: %+v %+v", api.Risk, p["grp/many"].Repos["ui"].Risk)
+	}
+	if (&Config{}).NewRepo("x", "/tmp/x", "", "", "").Risk != def {
+		t.Fatal("a repo Mako adds by itself has no defaults")
 	}
 }

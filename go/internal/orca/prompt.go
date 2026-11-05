@@ -139,6 +139,9 @@ func FullPrompt(j Job, o config.Orca) string {
 		parts = append(parts, shots)
 	}
 	parts = append(parts, i18n.AgentNote(j.Language))
+	if p := Protected(j); p != "" {
+		parts = append(parts, p)
+	}
 	return strings.Join(append(parts, Instructions(o.Instructions, o.MRBy, j)), "\n\n")
 }
 
@@ -187,6 +190,24 @@ func Screenshots(j Job) string {
 		"3. Never leave that section out of a merge request that changes the pages: if a screenshot cannot be taken (no\n" +
 		"   Chrome, the app does not start, the state cannot be shown), say why there; if the change does not alter the\n" +
 		"   look, say so there and why."
+}
+
+// Protected: the repo's paths the agent must not touch (riskPaths with the level "block"), in the agent's
+// language; "" when there are none.
+func Protected(j Job) string {
+	if j.Repo == nil {
+		return ""
+	}
+	var lines []string
+	for _, p := range j.Repo.RiskPaths {
+		if p.Level == core.RiskBlock {
+			lines = append(lines, "- `"+p.Pattern+"`")
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return i18n.In(j.Language, "agent.protected", strings.Join(lines, "\n"))
 }
 
 // ShellQuote: s as one word for the shell.

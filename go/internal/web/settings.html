@@ -562,6 +562,7 @@ function projectsTable(tk) {
       body.append(cr);
     }
     if (tk.type !== "jira") body.append(watchRow(tk, () => current, multi));
+    if (!multi) body.append(riskRow(tk, () => current));
   }
   wrap.insertAdjacentHTML("beforeend", lessonsHTML(tk));
   wireLessons(wrap);
@@ -625,6 +626,64 @@ function watchRow(tk, key, multi) {
   };
   requestAnimationFrame(fit);
   return tr;
+}
+
+// The change's risk policy of a project (#623): auto-merge of a low risk (off by default), the gate of a high one (on
+// by default), the size thresholds, and the risky paths, a line each: «pattern level», the level medium, high (when
+// none) or block. A project of several repos sets it per repo in mako.config.json.
+const RISK_LEVELS = ["medium", "high", "block"];
+function riskRow(tk, key) {
+  const tr = document.createElement("tr");
+  tr.className = "watch-row risk-row";
+  const p = tk.projects[key()] ?? {};
+  const k = p.risk ?? {};
+  const num = (f, label, hint, def) => `<label class="cost" title="${esc(hint)}">${label} <input type="number" min="0" step="1" placeholder="${def}" value="${esc(k[f] ?? "")}" data-rn="${f}"></label>`;
+  tr.innerHTML = `<td colspan="6"><div class="watch-checks"><b>${t("s.pr.risk")}</b>
+      <label class="check" title="${esc(t("s.pr.riskAutoHint"))}"><input type="checkbox" data-rb="autoMergeLow" ${k.autoMergeLow ? "checked" : ""}><span>${t("s.pr.riskAuto")}</span></label>
+      <label class="check" title="${esc(t("s.pr.riskGateHint"))}"><input type="checkbox" data-rb="gateHigh" ${k.gateHigh === false ? "" : "checked"}><span>${t("s.pr.riskGate")}</span></label>
+      ${num("maxLines", t("s.pr.riskLines"), t("s.pr.riskSizeHint"), 400)}${num("maxFiles", t("s.pr.riskFiles"), t("s.pr.riskSizeHint"), 15)}</div>
+    <textarea rows="1" placeholder="${esc(t("s.pr.riskPathsPh"))}" title="${esc(t("s.pr.riskPathsTitle"))}"></textarea></td><td></td>`;
+  const setRisk = (change) => {
+    const pp = (tk.projects[key()] ??= {});
+    const kk = { ...(pp.risk ?? {}) };
+    change(kk);
+    if (Object.keys(kk).length) pp.risk = kk; else delete pp.risk;
+    changed();
+  };
+  // Only what differs from the defaults is kept: auto-merge on, the gate off.
+  for (const inp of tr.querySelectorAll("[data-rb]")) {
+    inp.onchange = () => setRisk((kk) => {
+      const f = inp.dataset.rb, def = f === "gateHigh";
+      if (inp.checked === def) delete kk[f]; else kk[f] = inp.checked;
+    });
+  }
+  for (const inp of tr.querySelectorAll("[data-rn]")) {
+    inp.oninput = () => setRisk((kk) => {
+      const v = Math.floor(Number(inp.value));
+      if (inp.value.trim() && v > 0) kk[inp.dataset.rn] = v; else delete kk[inp.dataset.rn];
+    });
+  }
+  const ta = tr.querySelector("textarea");
+  ta.value = (p.riskPaths ?? []).map((r) => `${r.pattern ?? ""} ${r.level ?? "high"}`.trim()).join("\n");
+  const fit = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + 2 + "px"; };
+  ta.oninput = () => {
+    const pp = (tk.projects[key()] ??= {});
+    const list = riskPathsOf(ta.value);
+    if (list.length) pp.riskPaths = list; else delete pp.riskPaths;
+    fit();
+    changed();
+  };
+  requestAnimationFrame(fit);
+  return tr;
+}
+// riskPathsOf: the lines «pattern level» as riskPaths; a line without a known level at its end is a pattern of a
+// high risk.
+function riskPathsOf(text) {
+  return text.split("\n").map((x) => x.trim()).filter(Boolean).map((line) => {
+    const parts = line.split(/\s+/), last = parts[parts.length - 1].toLowerCase();
+    const level = parts.length > 1 && RISK_LEVELS.includes(last) ? (parts.pop(), last) : "high";
+    return { pattern: parts.join(" "), level };
+  });
 }
 
 // The Orca executor: the default one, or the first; made when there is none.

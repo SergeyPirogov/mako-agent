@@ -39,6 +39,8 @@ type fakeGitLab struct {
 	unindexed map[int]bool // open, but the search does not find them yet
 	base      string
 	trace     string // every CI job's log
+	// mergeRefused: the host refuses to merge the MR (a rule of the project, a race with another merge).
+	mergeRefused bool
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +165,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PUT" {
 			var ch map[string]any
 			json.Unmarshal(body, &ch)
+			if strings.HasSuffix(p, "/merge") && f.mergeRefused {
+				w.WriteHeader(405)
+				reply(map[string]string{"message": "405 Method Not Allowed"})
+				return
+			}
 			if strings.HasSuffix(p, "/merge") {
 				mr["state"] = "merged"
 			} else if ch["state_event"] == "close" {

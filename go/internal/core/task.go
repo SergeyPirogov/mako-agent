@@ -177,6 +177,12 @@ type Record struct {
 	// CheckedAtMerge: how the MR went in, for the stats: "checked" (every step ticked at its last commit),
 	// "skipped" (with a reason), "unchecked"; "" when no check was asked for.
 	CheckedAtMerge string `json:"checkedAtMerge,omitempty"`
+	// Risk: what Mako read of the branch's diff by itself for the change's risk (see RiskOf), at the HEAD it read.
+	Risk *RiskLook `json:"risk,omitempty"`
+	// RiskAtMerge: the change's level when the MR went in, for the stats ("" when Mako did not know it);
+	// MergedBy: "auto" when Mako merged it by itself (a low risk), "board" from the board, "" elsewhere.
+	RiskAtMerge string `json:"riskAtMerge,omitempty"`
+	MergedBy    string `json:"mergedBy,omitempty"`
 	// Retro: the look back at the task once its MR is merged: what went well, what did not, what to do
 	// differently next time.
 	Retro *Retro `json:"retro,omitempty"`

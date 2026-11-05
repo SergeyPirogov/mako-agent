@@ -38,6 +38,13 @@ func (r Record) Clone() Record {
 		v.Synced = slices.Clone(v.Synced)
 		return v
 	})
+	r.Risk = clonePtr(r.Risk, func(v RiskLook) RiskLook {
+		v.Signals = cloneEach(v.Signals, func(s RiskSignal) RiskSignal {
+			s.Files = slices.Clone(s.Files)
+			return s
+		})
+		return v
+	})
 	r.Retro = clonePtr(r.Retro, func(v Retro) Retro { return v })
 	r.Estimate = clonePtr(r.Estimate, func(v Estimate) Estimate { return v })
 	r.Secrets = slices.Clone(r.Secrets)

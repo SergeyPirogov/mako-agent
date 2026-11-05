@@ -343,6 +343,79 @@ type Repo struct {
 	Try string
 	// RouteMode: the routes' mode for this repo's tasks; "" the global one.
 	RouteMode string
+	// RiskPaths: the paths that make a change risky, each with its level ("high": always high; "block": the
+	// change does not merge and the agent is told not to touch it); Risk: the thresholds and what each level does.
+	RiskPaths []RiskPath
+	Risk      RiskPolicy
+}
+
+// RiskPath: a pattern of paths in the repo ("migrations/**", "**/auth/**", "*.env*") and the level a change that
+// touches it gets: core.RiskMedium, core.RiskHigh or core.RiskBlock.
+type RiskPath struct {
+	Pattern string `json:"pattern"`
+	Level   string `json:"level"`
+}
+
+// RiskPolicy: the repo's policy by the change's risk. AutoMergeLow: Mako merges a low-risk MR by itself once its
+// CI is green and the reviewer agent found nothing to fix (off by default). GateHigh: a high-risk MR gets the
+// reviewer agent by itself and waits for «Check it yourself» (on by default). MaxLines, MaxFiles: a diff above them
+// is medium, above three times them high.
+type RiskPolicy struct {
+	AutoMergeLow bool
+	GateHigh     bool
+	MaxLines     int
+	MaxFiles     int
+}
+
+// The default thresholds of RiskPolicy.
+const (
+	DefaultRiskMaxLines = 400
+	DefaultRiskMaxFiles = 15
+)
+
+// rawRisk: RiskPolicy in the JSON.
+type rawRisk struct {
+	AutoMergeLow bool  `json:"autoMergeLow"`
+	GateHigh     *bool `json:"gateHigh"`
+	MaxLines     int   `json:"maxLines"`
+	MaxFiles     int   `json:"maxFiles"`
+}
+
+// riskPolicy: the policy with the defaults for thresholds not set (0 or less).
+func riskPolicy(r *rawRisk) RiskPolicy {
+	p := RiskPolicy{GateHigh: true, MaxLines: DefaultRiskMaxLines, MaxFiles: DefaultRiskMaxFiles}
+	if r == nil {
+		return p
+	}
+	p.AutoMergeLow = r.AutoMergeLow
+	if r.GateHigh != nil {
+		p.GateHigh = *r.GateHigh
+	}
+	if r.MaxLines > 0 {
+		p.MaxLines = r.MaxLines
+	}
+	if r.MaxFiles > 0 {
+		p.MaxFiles = r.MaxFiles
+	}
+	return p
+}
+
+// riskPaths: the patterns set, without the empty ones; a level Mako does not know (or none) is high, low is no
+// reason to name a path.
+func riskPaths(list []RiskPath) []RiskPath {
+	var out []RiskPath
+	for _, p := range list {
+		pattern := strings.TrimSpace(p.Pattern)
+		if pattern == "" {
+			continue
+		}
+		level := strings.TrimSpace(strings.ToLower(p.Level))
+		if level != core.RiskMedium && level != core.RiskBlock {
+			level = core.RiskHigh
+		}
+		out = append(out, RiskPath{Pattern: pattern, Level: level})
+	}
+	return out
 }
 
 // ErrMissing: there is no mako.config.json yet (first start).
@@ -693,6 +766,8 @@ func (c *Config) tracker(rt rawTracker) (*Tracker, error) {
 			if m := strings.TrimSpace(r.RouteMode); slices.Contains(core.Modes, m) {
 				project.Repos[name].RouteMode = m // an unknown one: the global mode
 			}
+			project.Repos[name].RiskPaths = riskPaths(r.RiskPaths)
+			project.Repos[name].Risk = riskPolicy(r.Risk)
 		}
 		t.Projects[key] = project
 	}
@@ -715,6 +790,7 @@ func (c *Config) NewRepo(name, path, cloneURL, base, pattern string) *Repo {
 		BaseBranch:    base,
 		BranchPattern: orStr(pattern, c.BranchPattern),
 		WorktreesDir:  filepath.Join(filepath.Dir(p), ".worktrees", name),
+		Risk:          riskPolicy(nil),
 	}
 }
 
@@ -1007,14 +1083,16 @@ type rawRoutine struct {
 }
 
 type rawRepo struct {
-	RepoPath      string   `json:"repoPath"`
-	CloneURL      string   `json:"cloneUrl"`
-	BaseBranch    string   `json:"baseBranch"`
-	Setup         string   `json:"setup"`
-	BranchPattern string   `json:"branchPattern"`
-	Checks        []string `json:"checks"`
-	Try           string   `json:"try"`
-	RouteMode     string   `json:"routeMode"`
+	RepoPath      string     `json:"repoPath"`
+	CloneURL      string     `json:"cloneUrl"`
+	BaseBranch    string     `json:"baseBranch"`
+	Setup         string     `json:"setup"`
+	BranchPattern string     `json:"branchPattern"`
+	Checks        []string   `json:"checks"`
+	Try           string     `json:"try"`
+	RouteMode     string     `json:"routeMode"`
+	RiskPaths     []RiskPath `json:"riskPaths"`
+	Risk          *rawRisk   `json:"risk"`
 }
 
 // routes: the default routes with the config's changes; a model or an effort Mako does not know keeps the
