@@ -39,8 +39,8 @@ type Device struct {
 	Origin string                `json:"origin,omitempty"`
 	Push   *webpush.Subscription `json:"push,omitempty"`
 	// The end-to-end keys through the relay, derived from the QR's secret (empty: paired before there were any),
-	// and their counters: SendN is the highest counter reserved for the Mac's frames, RecvN the last of the
-	// phone's frames accepted. Both are written down before use, so a restart neither reuses a nonce nor lets an
+	// and their counters: SendN is the highest counter reserved for the Mac's frames, RecvN the bound the
+	// phone's accepted frames are written down up to. Both are written down before use, so a restart neither reuses a nonce nor lets an
 	// old frame in again.
 	KeyP2M []byte `json:"keyP2M,omitempty"`
 	KeyM2P []byte `json:"keyM2P,omitempty"`
@@ -304,9 +304,9 @@ func (p *Phones) Sealer(id string) (*relay.Sealer, error) {
 	return s, nil
 }
 
-// Opener opens the device's frames to the Mac: the same one for every connection of the device. Each accepted
-// counter is written to phones.json before the frame goes on, and one not above what is stored is refused there
-// too; a removed device's frames stop opening.
+// Opener opens the device's frames to the Mac: the same one for every connection of the device. The counters it
+// accepts are reserved in blocks and written to phones.json before a frame above the stored bound goes on, so a
+// restart refuses the frames up to it and most frames cost no write; a removed device's frames stop opening.
 func (p *Phones) Opener(id string) (*relay.Opener, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -317,17 +317,17 @@ func (p *Phones) Opener(id string) (*relay.Opener, error) {
 	if o := p.openers[id]; o != nil {
 		return o, nil
 	}
-	o, err := relay.NewOpener(d.KeyP2M, relay.P2M, relay.MacID(d.Origin), d.ID, d.RecvN, func(n uint64) error {
+	o, err := relay.NewOpener(d.KeyP2M, relay.P2M, relay.MacID(d.Origin), d.ID, d.RecvN, func(from, upto uint64) error {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		d, err := p.byIDLocked(id)
 		if err != nil {
 			return err
 		}
-		if n <= d.RecvN {
-			return relay.ErrReplay
+		if d.RecvN != from {
+			return errors.New("the device's counters were taken elsewhere: reconnect the phone")
 		}
-		d.RecvN = n
+		d.RecvN = upto
 		return p.saveLocked()
 	})
 	if err != nil {

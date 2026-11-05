@@ -192,14 +192,116 @@ func TestAcceptedCounterIsWrittenFirst(t *testing.T) {
 	k := keys(t, "c")
 	s, _ := NewSealer(k.P2M, P2M, mac, "dev1", 0, nil)
 	f, _ := s.Seal("req", "1", nil)
-	o, _ := NewOpener(k.P2M, P2M, mac, "dev1", 0, func(uint64) error { return errors.New("disk full") })
+	o, _ := NewOpener(k.P2M, P2M, mac, "dev1", 0, func(uint64, uint64) error { return errors.New("disk full") })
 	if _, err := o.Open(f); err == nil {
 		t.Fatal("let a frame through without writing its counter down")
 	}
-	var last uint64
-	o, _ = NewOpener(k.P2M, P2M, mac, "dev1", 0, func(n uint64) error { last = n; return nil })
-	if _, err := o.Open(f); err != nil || last != f.N {
-		t.Fatalf("%v, written %d", err, last)
+	if _, err := o.Open(f); err == nil {
+		t.Fatal("a frame that was not written down was taken the second time")
+	}
+	var from, upto uint64
+	o, _ = NewOpener(k.P2M, P2M, mac, "dev1", 0, func(f, u uint64) error { from, upto = f, u; return nil })
+	if _, err := o.Open(f); err != nil || from != 0 || upto < f.N {
+		t.Fatalf("%v, written %d..%d", err, from, upto)
+	}
+}
+
+// The counters are written down in blocks, not one by one: a frame under the written bound costs no write.
+func TestOpenerWritesCountersInBlocks(t *testing.T) {
+	k := keys(t, "blocks")
+	s, _ := NewSealer(k.P2M, P2M, mac, "dev1", 0, nil)
+	var calls [][2]uint64
+	bound := uint64(0)
+	o, _ := NewOpener(k.P2M, P2M, mac, "dev1", 0, func(from, upto uint64) error {
+		if from != bound {
+			t.Fatalf("reserved from %d, the bound was %d", from, bound)
+		}
+		calls = append(calls, [2]uint64{from, upto})
+		bound = upto
+		return nil
+	})
+	var last Sealed
+	for range RecvAhead {
+		last, _ = s.Seal("req", "1", nil)
+		if _, err := o.Open(last); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(calls) != 1 || calls[0][1] < last.N {
+		t.Fatalf("%d frames in one block wrote %v", RecvAhead, calls)
+	}
+	for last.N < calls[0][1] { // up to the bound still costs no write
+		last, _ = s.Seal("req", "1", nil)
+		if _, err := o.Open(last); err != nil || len(calls) != 1 {
+			t.Fatalf("%v, wrote %v", err, calls)
+		}
+	}
+	f, _ := s.Seal("req", "1", nil) // above the bound: the next block
+	if _, err := o.Open(f); err != nil || len(calls) != 2 || calls[1][0] != calls[0][1] {
+		t.Fatalf("%v, wrote %v", err, calls)
+	}
+	// A restart continues from the bound: what was under it is not opened again, even if never taken.
+	again, _ := NewOpener(k.P2M, P2M, mac, "dev1", bound, nil)
+	g, _ := s.Seal("req", "1", nil)
+	if _, err := again.Open(g); !errors.Is(err, ErrReplay) {
+		t.Fatalf("a frame under the bound after a restart: %v", err)
+	}
+}
+
+// A counter that could not be written down does not move: the same frame opens once the disk is back.
+func TestOpenerRefusedWriteKeepsTheCounter(t *testing.T) {
+	k := keys(t, "refused")
+	s, _ := NewSealer(k.P2M, P2M, mac, "dev1", 0, nil)
+	fail := true
+	o, _ := NewOpener(k.P2M, P2M, mac, "dev1", 0, func(uint64, uint64) error {
+		if fail {
+			return errors.New("disk full")
+		}
+		return nil
+	})
+	f, _ := s.Seal("req", "1", nil)
+	if _, err := o.Open(f); err == nil {
+		t.Fatal("opened without writing down")
+	}
+	fail = false
+	if _, err := o.Open(f); err != nil {
+		t.Fatalf("after the disk came back: %v", err)
+	}
+}
+
+// Flush brings the bound down to the last counter taken, so a restart after a clean close refuses only what was taken.
+func TestOpenerFlush(t *testing.T) {
+	k := keys(t, "flush")
+	s, _ := NewSealer(k.P2M, P2M, mac, "dev1", 0, nil)
+	bound := uint64(0)
+	o, _ := NewOpener(k.P2M, P2M, mac, "dev1", 0, func(from, upto uint64) error {
+		if from != bound {
+			t.Fatalf("reserved from %d, the bound was %d", from, bound)
+		}
+		bound = upto
+		return nil
+	})
+	var last Sealed
+	for range 3 {
+		last, _ = s.Seal("req", "1", nil)
+		o.Open(last)
+	}
+	if bound <= last.N {
+		t.Fatalf("the bound %d is not ahead of %d", bound, last.N)
+	}
+	if err := o.Flush(); err != nil || bound != last.N {
+		t.Fatalf("flush: %v, bound %d, last %d", err, bound, last.N)
+	}
+	if err := o.Flush(); err != nil { // nothing to write the second time
+		t.Fatal(err)
+	}
+	again, _ := NewOpener(k.P2M, P2M, mac, "dev1", bound, nil)
+	next, _ := s.Seal("req", "1", nil)
+	if _, err := again.Open(next); err != nil {
+		t.Fatalf("the next frame after a restart: %v", err)
+	}
+	if _, err := again.Open(last); !errors.Is(err, ErrReplay) {
+		t.Fatalf("the last frame again: %v", err)
 	}
 }
 

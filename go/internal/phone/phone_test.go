@@ -319,3 +319,91 @@ func TestOneSessionPerDevice(t *testing.T) {
 		t.Fatalf("a frame replayed into another connection: %v", err)
 	}
 }
+
+func storedRecvN(t *testing.T, dir, id string) uint64 {
+	t.Helper()
+	var kept struct{ Devices []Device }
+	data, err := os.ReadFile(filepath.Join(dir, "phones.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	json.Unmarshal(data, &kept)
+	for _, d := range kept.Devices {
+		if d.ID == id {
+			return d.RecvN
+		}
+	}
+	t.Fatal("no device")
+	return 0
+}
+
+// A poll every few seconds must not rewrite phones.json every time: the counter is written once per block, the
+// frames under the bound cost no write, and a restart refuses what was under it.
+func TestOpenerDoesNotRewriteTheFilePerFrame(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := Open(dir)
+	const origin = "https://abc.relay.example.com"
+	code, secret := p.NewPairingKey()
+	raw, _ := base64.RawURLEncoding.DecodeString(secret)
+	k, _ := relay.DeriveKeys(raw, []byte(code))
+	d, _ := p.Pair(code, "iPhone", origin)
+	phoneOut, _ := relay.NewSealer(k.P2M, relay.P2M, relay.MacID(origin), d.ID, 0, nil)
+	in, _ := p.Opener(d.ID)
+
+	f, _ := phoneOut.Seal("req", "1", nil)
+	if _, err := in.Open(f); err != nil {
+		t.Fatal(err)
+	}
+	bound := storedRecvN(t, dir, d.ID)
+	if bound < f.N {
+		t.Fatalf("the stored bound %d is under the counter %d", bound, f.N)
+	}
+	// Writes to the file would show as a changed modification time and content; take both after removing the file.
+	if err := os.Remove(filepath.Join(dir, "phones.json")); err != nil {
+		t.Fatal(err)
+	}
+	for f.N+1 <= bound {
+		f, _ = phoneOut.Seal("req", "1", nil)
+		if _, err := in.Open(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "phones.json")); !os.IsNotExist(err) {
+		t.Fatalf("a frame under the bound wrote phones.json: %v", err)
+	}
+}
+
+// A clean close writes the exact counter: the restart after it takes the next frame and refuses the last one.
+func TestOpenerFlushKeepsTheFramesAfterARestart(t *testing.T) {
+	dir := t.TempDir()
+	p, _ := Open(dir)
+	const origin = "https://abc.relay.example.com"
+	code, secret := p.NewPairingKey()
+	raw, _ := base64.RawURLEncoding.DecodeString(secret)
+	k, _ := relay.DeriveKeys(raw, []byte(code))
+	d, _ := p.Pair(code, "iPhone", origin)
+	phoneOut, _ := relay.NewSealer(k.P2M, relay.P2M, relay.MacID(origin), d.ID, 0, nil)
+	in, _ := p.Opener(d.ID)
+	var last relay.Sealed
+	for range 3 {
+		last, _ = phoneOut.Seal("req", "1", nil)
+		if _, err := in.Open(last); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := in.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if n := storedRecvN(t, dir, d.ID); n != last.N {
+		t.Fatalf("stored %d after a flush, the last counter is %d", n, last.N)
+	}
+	again, _ := Open(dir)
+	in, _ = again.Opener(d.ID)
+	if _, err := in.Open(last); !errors.Is(err, relay.ErrReplay) {
+		t.Fatalf("the last frame after a restart: %v", err)
+	}
+	next, _ := phoneOut.Seal("req", "1", nil)
+	if _, err := in.Open(next); err != nil {
+		t.Fatalf("the next frame after a restart: %v", err)
+	}
+}

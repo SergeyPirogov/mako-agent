@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/net/websocket"
 
@@ -24,11 +25,36 @@ import (
 // or bodies.
 
 const (
-	tunnelFrameMax  = 32 << 20 // the biggest frame the tunnel takes
+	tunnelFrameMax   = 32 << 20  // the biggest frame the tunnel takes, once one frame has opened
+	tunnelFrameFirst = 256 << 10 // the biggest before that: whoever has only the device's id gets no 32 MB buffers
+	tunnelBadMax     = 5         // frames in a row that do not decrypt, and the tunnel closes
+	// tunnelReplayMax: frames in a row under the Opener's counter. A Mac that crashed refuses a phone's frames up to the
+	// bound it had written down, and the phone, which counts one by one, has to get past it: a tunnel must outlast those.
+	tunnelReplayMax = relay.RecvAhead + tunnelBadMax
 	tunnelAnswerMax = 24 << 20 // the biggest answer it seals: a bigger one would not fit in a frame
 	tunnelInFlight  = 32       // requests of one tunnel at a time
 	tunnelStreams   = 8        // WebSocket streams of one tunnel at a time
 )
+
+// tunnelBadPause: the wait after the first frame that did not decrypt; it doubles with each next one in a row, up to
+// tunnelBadPauseMax.
+const (
+	tunnelBadPause    = 100 * time.Millisecond
+	tunnelBadPauseMax = time.Second
+)
+
+// badPause: the wait after the n-th frame in a row that did not decrypt (n ≥ 1), base the first wait. A frame that
+// cannot be a real one is slowed down, so a stranger who knows the device's id cannot make the Mac decrypt at the
+// speed of his line.
+func badPause(base time.Duration, n int) time.Duration {
+	if base <= 0 {
+		return 0
+	}
+	if n < 1 || n > 30 { // the shift below would overflow
+		return tunnelBadPauseMax
+	}
+	return min(base<<(n-1), tunnelBadPauseMax)
+}
 
 type tunnelKey struct{}
 
@@ -109,7 +135,7 @@ func (s *Server) dropTunnel(id string, t *tunnel) {
 
 func (s *Server) serveTunnel(c *websocket.Conn, inner http.Handler) {
 	defer c.Close()
-	c.MaxPayloadBytes = tunnelFrameMax
+	c.MaxPayloadBytes = tunnelFrameFirst
 	id := c.Request().URL.Query().Get("d")
 	if s.Phones.ByID(id) == nil {
 		return
@@ -128,26 +154,53 @@ func (s *Server) serveTunnel(c *websocket.Conn, inner http.Handler) {
 	defer t.closeStreams()
 	busy := make(chan struct{}, tunnelInFlight)
 	took := false
+	bad, replays := 0, 0
+	pause := s.TunnelBadPause
+	if pause == 0 {
+		pause = tunnelBadPause
+	}
 	for {
 		var f relay.Sealed
 		if err := websocket.JSON.Receive(c, &f); err != nil {
 			return
 		}
 		payload, err := opener.Open(f)
-		if errors.Is(err, relay.ErrReplay) || errors.Is(err, relay.ErrTag) {
-			continue // a frame the relay made, changed or sent again: nothing to answer
+		if errors.Is(err, relay.ErrReplay) {
+			// Under the counter: sent again by the relay, or by a phone that has not yet got past what a crashed Mac had
+			// written down. It costs no decrypting, so it is not slowed, but not endless either.
+			if replays++; replays >= tunnelReplayMax {
+				return
+			}
+			continue
+		}
+		if errors.Is(err, relay.ErrTag) {
+			// A frame the relay made or changed: nothing to answer, but not endlessly many.
+			if bad++; bad >= tunnelBadMax {
+				return
+			}
+			time.Sleep(badPause(pause, bad))
+			continue
 		}
 		if err != nil {
 			return // the device is gone, or its counter cannot be written down
 		}
+		bad, replays = 0, 0
 		d := s.Phones.ByID(id)
 		if d == nil {
 			return
 		}
 		if !took {
 			took = true
+			c.MaxPayloadBytes = tunnelFrameMax
 			s.takeTunnel(id, t)
 			defer s.dropTunnel(id, t)
+			// The exact counter, not the bound ahead of it: a restart then refuses only what was taken. It is written
+			// before the tunnel is dropped, so whoever sees the tunnel gone knows the file is final.
+			defer func() {
+				if err := opener.Flush(); err != nil {
+					log.Printf("tunnel: the counter of device %s was not written down: %v", id, err)
+				}
+			}()
 		}
 		switch f.T {
 		case relay.TypeRequest:

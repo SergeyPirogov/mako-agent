@@ -24,6 +24,9 @@ const (
 	// reserveAhead: how many counter values a Sealer reserves at once. They are written down before use, so after
 	// a crash the sender continues above them and never reuses a nonce; at worst it skips some numbers.
 	reserveAhead = 1000
+	// RecvAhead: the same for an Opener, which writes its counter down in blocks too. It is shorter: after a crash the
+	// frames up to the written-down bound are refused (a phone's counter has to get past it), so the window is kept small.
+	RecvAhead = 50
 )
 
 // Frame types of the pairing.
@@ -210,18 +213,21 @@ type Opener struct {
 	aead     cipher.AEAD
 	dir      Dir
 	mac, dev string
-	last     uint64
-	accept   func(n uint64) error
+	last     uint64 // the last counter accepted
+	reserved uint64 // the counters up to it may have been accepted, and that is written down
+	reserve  func(from, upto uint64) error
 }
 
-// NewOpener takes frames above last, the last counter accepted before. accept writes a newly accepted counter down
-// before the frame is let through (nil: only in memory), so a restart does not open the door to old frames.
-func NewOpener(key []byte, dir Dir, mac, dev string, last uint64, accept func(n uint64) error) (*Opener, error) {
+// NewOpener takes frames above last, the last counter accepted before. reserve moves the written-down bound from
+// the old one to upto before a frame above it is let through (nil: only in memory), so a restart does not open the
+// door to old frames; the bound runs ahead of the counters in blocks, so most frames cost no write. It must refuse
+// when the stored bound is no longer from: another Opener took the counters.
+func NewOpener(key []byte, dir Dir, mac, dev string, last uint64, reserve func(from, upto uint64) error) (*Opener, error) {
 	a, err := newAEAD(key)
 	if err != nil {
 		return nil, err
 	}
-	return &Opener{aead: a, dir: dir, mac: mac, dev: dev, last: last, accept: accept}, nil
+	return &Opener{aead: a, dir: dir, mac: mac, dev: dev, last: last, reserved: last, reserve: reserve}, nil
 }
 
 // Open: the frame's payload. A counter that does not grow is refused before decrypting (ErrReplay); a frame that
@@ -239,13 +245,37 @@ func (o *Opener) Open(f Sealed) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if o.accept != nil {
-		if err := o.accept(f.N); err != nil {
-			return nil, err
+	if f.N > o.reserved {
+		if f.N > math.MaxUint64-RecvAhead {
+			return nil, ErrTag
 		}
+		upto := f.N + RecvAhead
+		if o.reserve != nil {
+			if err := o.reserve(o.reserved, upto); err != nil {
+				return nil, err
+			}
+		}
+		o.reserved = upto
 	}
 	o.last = f.N
 	return payload, nil
+}
+
+// Flush writes the exact last counter down in place of the bound ahead of it, when the connection ends: nothing
+// above last was accepted, so the frames between last and the old bound are not refused after a restart.
+func (o *Opener) Flush() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.reserved == o.last {
+		return nil
+	}
+	if o.reserve != nil {
+		if err := o.reserve(o.reserved, o.last); err != nil {
+			return err
+		}
+	}
+	o.reserved = o.last
+	return nil
 }
 
 // PairRequest is what the phone sends sealed under K_pair: the code itself travels open in the frame's I, the
