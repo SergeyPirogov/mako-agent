@@ -87,32 +87,68 @@ func ended(r Record) (merged, ok bool) {
 	return merged, merged || failed && !cancelled(r)
 }
 
-// OutlookOf: the outlook of r by the other records, nil when r has no estimate of its size yet or the history is
-// too short. startModel: the model r's agent would start with, the one the advice weighs another against.
-func OutlookOf(records []Record, r Record, startModel string) *Outlook {
-	e := r.Estimate
-	if e == nil || e.State != "done" || e.Size == "" {
-		return nil
-	}
-	project := projectOf(r)
-	words := wordsOf(e.Parts + " " + r.Task.Title)
-	type past struct {
-		r      Record
-		merged bool
-		alike  float64
-	}
-	var all, similar []past
+// similarMin: how alike (Jaccard of their Parts' words) two tasks must be to count as touching the same parts of
+// the code; a single shared word among many does not.
+const similarMin = 0.2
+
+// History is the ended tasks the outlooks are made of, indexed once so that many new tasks are weighed over one
+// pass of the records: the words of each one's Parts are cut once, not per new task.
+type History struct {
+	by map[histKey][]endedTask
+}
+
+type histKey struct{ project, size string }
+
+// endedTask: an ended task with an estimate of its size, with the words of its Parts.
+type endedTask struct {
+	r      Record
+	merged bool
+	words  map[string]bool
+}
+
+// NewHistory indexes the records that ended (merged, or failed short of a merge) and have an estimate of their size.
+func NewHistory(records []Record) *History {
+	h := &History{by: map[histKey][]endedTask{}}
 	for _, x := range records {
-		if x.ID == r.ID || projectOf(x) != project || x.Estimate == nil || x.Estimate.State != "done" || x.Estimate.Size != e.Size {
+		if x.Estimate == nil || x.Estimate.State != "done" || x.Estimate.Size == "" {
 			continue
 		}
 		merged, ok := ended(x)
 		if !ok {
 			continue
 		}
-		p := past{r: x, merged: merged, alike: jaccard(words, wordsOf(x.Estimate.Parts+" "+x.Task.Title))}
+		k := histKey{projectOf(x), x.Estimate.Size}
+		h.by[k] = append(h.by[k], endedTask{r: x, merged: merged, words: wordsOf(x.Estimate.Parts)})
+	}
+	return h
+}
+
+// OutlookOf: the outlook of r by the other records (see History.Outlook); one call indexes them all, so for
+// several tasks use NewHistory once.
+func OutlookOf(records []Record, r Record, startModel string) *Outlook {
+	return NewHistory(records).Outlook(r, startModel)
+}
+
+// Outlook: the outlook of r, nil when r has no estimate of its size yet or the history is too short. startModel:
+// the model r's agent would start with, the one the advice weighs another against.
+func (h *History) Outlook(r Record, startModel string) *Outlook {
+	e := r.Estimate
+	if e == nil || e.State != "done" || e.Size == "" {
+		return nil
+	}
+	words := wordsOf(e.Parts)
+	type scored struct {
+		endedTask
+		alike float64
+	}
+	var all, similar []scored
+	for _, x := range h.by[histKey{projectOf(r), e.Size}] {
+		if x.r.ID == r.ID {
+			continue
+		}
+		p := scored{endedTask: x, alike: jaccard(words, x.words)}
 		all = append(all, p)
-		if p.alike > 0 {
+		if p.alike >= similarMin {
 			similar = append(similar, p)
 		}
 	}

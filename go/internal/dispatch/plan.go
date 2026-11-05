@@ -167,6 +167,15 @@ func (d *Dispatcher) DefaultModel(r core.Record) string {
 	return d.StartModel(r)
 }
 
+// OutlookModel: the model the outlook of a new task weighs another against, the one its agent would start with:
+// the one picked for the task, else its work's route. The board's card and the auto-take gate both go by it.
+func (d *Dispatcher) OutlookModel(r core.Record) string {
+	if r.Model != "" {
+		return r.Model
+	}
+	return d.DefaultModel(r)
+}
+
 // WillPlan: the task's agent will start with a plan once it leaves the queue: only Mako's own agent plans, as
 // wantsPlan decides at its start.
 func (d *Dispatcher) WillPlan(r core.Record) bool {

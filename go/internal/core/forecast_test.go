@@ -126,6 +126,50 @@ func TestOutlookBySimilarParts(t *testing.T) {
 	}
 }
 
+// One shared word among many does not make tasks alike, and neither does the title: a task with five of its
+// parts' words unlike the new one's stays out of the narrowed outlook.
+func TestOutlookSimilarNeedsEnoughInCommon(t *testing.T) {
+	var history []Record
+	for i := 1; i <= 5; i++ {
+		history = append(history, past(i, "small", "dispatch autotake gate settings config example", pastMerged, 1, 10))
+	}
+	// Shares only "board" of ten words with the new task: 1/10 of the words, below similarMin.
+	for i := 6; i <= 10; i++ {
+		history = append(history, past(i, "small", "board alpha beta gamma delta epsilon zeta theta iota", pastFailed, 9, 0))
+	}
+	o := OutlookOf(history, fresh("small", "board dispatch autotake gate settings config example"), "")
+	if o == nil || !o.BySimilar || o.Tasks != 5 || o.FailRate != 0 {
+		t.Fatalf("narrowed: %+v", o)
+	}
+	// Only a shared title word (the title is not weighed): all the size's tasks count.
+	titled := fresh("small", "something else entirely")
+	titled.Task.Title = "task"
+	if o := OutlookOf(history, titled, ""); o == nil || o.BySimilar || o.Tasks != 10 {
+		t.Fatalf("by title: %+v", o)
+	}
+}
+
+// A History indexed once answers for each new task as OutlookOf does.
+func TestHistoryOutlookMatchesOutlookOf(t *testing.T) {
+	var history []Record
+	for i := 1; i <= 6; i++ {
+		history = append(history, past(i, "small", "internal/web/board.html", pastMerged, float64(i), 10*i))
+	}
+	for i := 7; i <= 12; i++ {
+		history = append(history, past(i, "medium", "internal/trackers/jira.go", pastFailed, 3, 0))
+	}
+	h := NewHistory(history)
+	for _, task := range []Record{fresh("small", "internal/web/board.html"), fresh("medium", ""), fresh("big", "")} {
+		got, want := h.Outlook(task, "opus"), OutlookOf(history, task, "opus")
+		if fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", want) {
+			t.Errorf("%s: %+v, want %+v", task.Estimate.Size, got, want)
+		}
+	}
+	if h.Outlook(fresh("big", ""), "") != nil {
+		t.Error("no big history, no outlook")
+	}
+}
+
 func TestOutlookModelAdvice(t *testing.T) {
 	model := func(rec Record, m string) Record { rec.AgentModel = m; return rec }
 	var history []Record

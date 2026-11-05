@@ -95,7 +95,7 @@ func (d *Dispatcher) autoTake(ctx context.Context, id string) {
 	n := d.Config().Notifications
 	var outlook *core.Outlook
 	if n.AutoTake && n.AutoTakeOnly == config.AutoTakeLikely {
-		outlook = core.OutlookOf(d.Store.All(), r, d.DefaultModel(r))
+		outlook = core.OutlookOf(d.Store.All(), r, d.OutlookModel(r))
 	}
 	why := autoTakeGate(n, r.Estimate, outlook)
 	// An estimate of the task's earlier text says nothing of its present one.

@@ -274,16 +274,16 @@ func (s *Server) Handler() http.Handler {
 			s.D.TryKeep(sel)
 		}
 		reply.LessonOffers = s.D.LessonOffers()
+		var history *core.History
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
 			v.Live = s.D.Live(rec.ID)
 			if v.Column == "new" {
 				v.DefaultModel = s.D.DefaultModel(rec)
-				start := rec.Model
-				if start == "" {
-					start = v.DefaultModel
+				if history == nil { // indexed once for all the new cards of this reply
+					history = core.NewHistory(all)
 				}
-				v.Outlook = core.OutlookOf(all, rec, start)
+				v.Outlook = history.Outlook(rec, s.D.OutlookModel(rec))
 			}
 			v.ReviewStep = s.D.ReviewStep(rec)
 			v.ReviewBlocks = s.D.ReviewBlocks(rec)

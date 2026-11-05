@@ -211,6 +211,12 @@ func TestBoardOutlook(t *testing.T) {
 	store.Update(big.ID, func(r *core.Record) {
 		r.Status, r.Task, r.Estimate = core.Asking, big, &core.Estimate{State: "done", Size: "big"}
 	})
+	bare := core.Task{ID: "grp/app#3", Project: "grp/app", Title: "c"} // not estimated yet
+	store.Update(bare.ID, func(r *core.Record) { r.Status, r.Task = core.Asking, bare })
+	running := core.Task{ID: "grp/app#4", Project: "grp/app", Title: "d"} // estimate still running: no size to go by
+	store.Update(running.ID, func(r *core.Record) {
+		r.Status, r.Task, r.Estimate = core.Asking, running, &core.Estimate{State: "running", Size: "small"}
+	})
 	d := dispatch.New(&config.Config{StateDir: t.TempDir(), Executor: "terminal"}, store, nil)
 	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
 	defer srv.Close()
@@ -226,6 +232,9 @@ func TestBoardOutlook(t *testing.T) {
 	}
 	if got[big.ID] != nil || got["grp/app#91"] != nil {
 		t.Fatalf("big %+v, taken %+v", got[big.ID], got["grp/app#91"])
+	}
+	if got[bare.ID] != nil || got[running.ID] != nil {
+		t.Fatalf("not estimated %+v, estimate running %+v", got[bare.ID], got[running.ID])
 	}
 }
 

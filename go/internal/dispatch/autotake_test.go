@@ -223,3 +223,18 @@ func TestAutoTakeStaleEstimate(t *testing.T) {
 		t.Fatalf("estimate of old text: %s %q, %d jobs", r.Status, r.AutoSkip, len(*jobs))
 	}
 }
+
+// The board's outlook and the auto-take gate weigh a model against the same one: the one picked for the task,
+// else its work's route.
+func TestOutlookModelPickedOrDefault(t *testing.T) {
+	d, _, _ := setup(t)
+	r := core.Record{ID: "grp/app#5", Status: core.Asking, Task: core.Task{ID: "grp/app#5"}}
+	def := d.OutlookModel(r)
+	if def == "" || def != d.DefaultModel(r) {
+		t.Fatalf("default %q, route %q", def, d.DefaultModel(r))
+	}
+	r.Model = "haiku"
+	if got := d.OutlookModel(r); got != "haiku" {
+		t.Fatalf("picked: %q", got)
+	}
+}
