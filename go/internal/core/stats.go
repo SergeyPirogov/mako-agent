@@ -137,6 +137,12 @@ type SizeGroup struct {
 	// Tokens: the average over the Tokened tasks.
 	Tokens  float64 `json:"tokens"`
 	Tokened int     `json:"tokened"`
+	// Per100Lines: USD per 100 changed lines (added and removed) over the Lined merged tasks with a price and a
+	// change kept: what a unit of work costs, so sizes compare by the work, not by the task.
+	Per100Lines float64 `json:"per100Lines,omitempty"`
+	Lined       int     `json:"lined,omitempty"`
+	lineCost    float64
+	lines       int
 }
 
 // Group is how the tasks of one project or one executor went.
@@ -377,6 +383,9 @@ func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stat
 		if g.Tokened > 0 {
 			g.Tokens /= float64(g.Tokened)
 		}
+		if g.lines > 0 {
+			g.Per100Lines = g.lineCost / float64(g.lines) * 100
+		}
 	}
 	st.Projects, st.Executors, st.Authors, st.Models = sorted(projects), sorted(executors), sorted(authors), sorted(models)
 	for _, x := range reasons {
@@ -468,6 +477,11 @@ func bySize(st *Stats, r Record) {
 	if n := r.TokensUsed(); n > 0 {
 		g.Tokens += float64(n)
 		g.Tokened++
+	}
+	if ch := r.Changed; merged && r.Cost > 0 && ch != nil && ch.Added+ch.Removed > 0 {
+		g.lineCost += r.Cost
+		g.lines += ch.Added + ch.Removed
+		g.Lined++
 	}
 }
 

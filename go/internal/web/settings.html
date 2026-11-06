@@ -43,6 +43,19 @@ body { display: block; }
 .wt-title code { font-size: 13px; font-weight: 600; color: var(--fg); }
 .wt-meta { font-size: 12.5px; line-height: 1.4; margin-top: 2px; }
 .wt-git { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Models and effort: what the stats tell to change, and the cells it is about. */
+.advice-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; }
+.advice { padding: 10px 12px; border-radius: 8px; background: var(--hover); font-size: 13px; }
+.advice.warn { background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
+.advice.wait .advice-h b { font-weight: 600; color: var(--mute); }
+.advice-t { margin: 6px 0 4px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.advice-t td { padding: 2px 14px 2px 0; vertical-align: top; }
+.advice-t td:first-child { white-space: nowrap; font-weight: 600; }
+.advice-x { color: var(--mute); }
+.routes td.advise.warn { outline: 2px solid var(--warn); outline-offset: -2px; border-radius: 6px; background: color-mix(in srgb, var(--warn) 8%, var(--card)); }
+.routes td.advise.wait { outline: 1px dashed var(--mute); outline-offset: -2px; border-radius: 6px; }
+.routes td.advised { outline: 2px solid var(--ok); outline-offset: -2px; border-radius: 6px; }
+.routes .use-route { display: block; margin-top: 4px; font-size: 12px; padding: 2px 8px; }
 /* Permissions: a rule asked for (editable before it is kept) and the rules allowed. */
 .perm-g { align-items: flex-start; }
 .perm-g .wt-title input { width: 100%; max-width: 520px; font: 13px var(--mono); }
@@ -902,11 +915,60 @@ function renderRoutes() {
   };
   box.append(wrap);
   paintEffective();
+  paintAdvice(box, wrap);
   const reset = document.createElement("button");
   reset.className = "ghost";
   reset.textContent = t("s.r.reset");
   reset.onclick = () => { delete cfg.routes.table; changed(); renderRoutes(); };
   box.append(reset);
+}
+
+// What the stats tell to change in the table (core.CostAdvice, the last 30 days): the suggestions above it, and the
+// cells they are about marked, with a button that puts the suggested route in (saved with «Save», as any change).
+// advice:begin
+function adviceHTML(a) {
+  return `<div class="advice ${esc(a.kind)}"><div class="advice-h">${{ warn: "⚠", tip: "💡", wait: "⏳" }[a.kind] ?? "•"} <b>${esc(a.title)}</b></div>`
+    + (a.rows?.length ? `<table class="advice-t">${a.rows.map((r) => `<tr><td>${esc(r.label)}${r.now ? ` <span class="muted">${t("s.r.adviceNow")}</span>` : ""}</td><td>${esc(r.figures)}</td></tr>`).join("")}</table>` : "")
+    + `<div class="advice-x">${esc(a.text)}</div></div>`;
+}
+const routeLabelOf = (r) => [r.model ? r.model[0].toUpperCase() + r.model.slice(1) : "", r.effort].filter(Boolean).join(" · ");
+// advice:end
+let routeAdvice = null;
+async function paintAdvice(box, wrap) {
+  if (!routeAdvice) {
+    const r = await fetch("/api/settings/advice").then((x) => x.json()).catch(() => null);
+    routeAdvice = r?.ok ? r : { advice: [], days: 30 };
+  }
+  if (!box.isConnected) return;
+  const list = routeAdvice.advice ?? [];
+  box.querySelector(".advice-list")?.remove();
+  if (list.length) {
+    const top = document.createElement("div");
+    top.className = "advice-list";
+    top.innerHTML = `<b style="font-size:13px">${t("s.r.adviceTitle", { n: routeAdvice.days })}</b>` + list.map(adviceHTML).join("");
+    box.insertBefore(top, wrap);
+  }
+  for (const a of list) {
+    const td = a.phase && wrap.querySelector(`select[data-p="${a.phase}"][data-s="${a.size}"]`)?.closest("td");
+    if (!td) continue;
+    td.classList.add("advise", a.kind);
+    td.title = a.title;
+    if (!a.set) continue;
+    const use = document.createElement("button");
+    use.type = "button";
+    use.className = "use-route";
+    use.textContent = t("s.r.adviceUse", { route: routeLabelOf(a.set) });
+    use.onclick = () => {
+      for (const k of ["model", "effort"]) {
+        const sel = td.querySelector(`select[data-k="${k}"]`);
+        if (sel && a.set[k]) { sel.value = a.set[k]; sel.onchange(); }
+      }
+      td.classList.remove("advise", a.kind);
+      td.classList.add("advised");
+      use.remove();
+    };
+    td.append(use);
+  }
 }
 
 function renderLimits() {

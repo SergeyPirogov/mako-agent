@@ -98,7 +98,8 @@ type stateReply struct {
 	Remote         bool                       `json:"remote"`              // the page is open on a phone
 	E2E            bool                       `json:"e2e,omitempty"`       // …through its sealed tunnel (docs/relay-e2e.md)
 	Stats          core.Stats                 `json:"stats"`               // how the taken tasks went, archived ones too
-	RoutesNow      core.RouteTable            `json:"routesNow"`           // the route each phase and size gets now, for the cost advice
+	RoutesNow      core.RouteTable            `json:"routesNow"`           // the route each phase and size gets now
+	CostAdvice     []core.Advice              `json:"costAdvice"`          // how to spend less, by the period's stats
 	NavRetros      []dispatch.NavRetroState   `json:"navRetros,omitempty"` // the navigation retros of the stats' project
 	Evals          []dispatch.EvalState       `json:"evals,omitempty"`     // the eval sets and runs of the stats' project
 	Update         *update.Status             `json:"update,omitempty"`    // new commits of Mako itself; not on a phone
@@ -273,6 +274,7 @@ func (s *Server) Handler() http.Handler {
 			core.AddSpends(&reply.Stats, s.D.Spends.All(), since, r.URL.Query().Get("project"))
 		}
 		reply.RoutesNow = s.D.RoutesNow()
+		reply.CostAdvice = core.CostAdvice(reply.Stats, reply.RoutesNow, s.D.Config().RouteMode)
 		reply.NavRetros = s.D.NavRetros(r.URL.Query().Get("project"))
 		reply.Evals = s.D.Evals(r.URL.Query().Get("project"), r.URL.Query().Get("evalBase"), r.URL.Query().Get("evalVariant"))
 		reply.ReviewRequests = s.D.ReviewList()
