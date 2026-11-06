@@ -109,13 +109,18 @@ func workAdvice(routes []RouteGroup, size string, want Route, mode string) (Advi
 				ended += g.Ended
 			}
 		}
-		so := "no finished task on it yet"
-		if ended > 0 {
+		so, text := "no finished task on it yet", fmt.Sprintf("Mako compares it with the routes tried before once %d tasks have ended on it.", AdviceMin)
+		switch {
+		case ended >= AdviceMin:
+			// Enough ended, none with a price (an agent in Orca reports none): nothing to weigh the cost by.
+			so = fmt.Sprintf("%d finished tasks on it, none with a price", ended)
+			text = "Mako compares the routes by what their tasks cost; an agent in Orca does not report it."
+		case ended > 0:
 			so = fmt.Sprintf("%d of %d finished tasks on it", ended, AdviceMin)
 		}
 		return Advice{Kind: "wait", Phase: PhaseWork, Size: size,
 			Title: fmt.Sprintf("%s: now %s, %s", where, routeName(want.Model, want.Effort), so),
-			Text:  fmt.Sprintf("Mako compares it with the routes tried before once %d tasks have ended on it.", AdviceMin),
+			Text:  text,
 		}, true
 	}
 	var alt *RouteGroup

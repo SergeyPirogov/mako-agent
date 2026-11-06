@@ -935,7 +935,6 @@ const routeLabelOf = (r) => [r.model ? r.model[0].toUpperCase() + r.model.slice(
 // usable: the table's selects offer the suggested model and effort; another value set on a select would be kept
 // as an empty one.
 const usable = (set, rc) => !!set && rc.models.includes(set.model) && rc.efforts.includes(set.effort);
-// advice:end
 let routeAdvice = null;
 async function paintAdvice(box, wrap) {
   if (!routeAdvice) {
@@ -973,6 +972,7 @@ async function paintAdvice(box, wrap) {
     td.append(use);
   }
 }
+// advice:end
 
 function renderLimits() {
   const box = $("limits");

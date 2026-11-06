@@ -54,6 +54,14 @@ func TestCostAdviceRoutes(t *testing.T) {
 	if got := titles(CostAdvice(Stats{Routes: routes2}, now, "")); got != "wait: Big tasks · Work: now Opus · medium, 2 of 3 finished tasks on it" {
 		t.Errorf("a new route with 2 tasks: %s", got)
 	}
+	// Enough tasks ended on it, none with a price: said so, not «5 of 3».
+	unpriced := workRoute("big", "opus", "medium", 5, 5, 4, 0)
+	unpriced.Priced = 0
+	routes3 := append(routes[:len(routes):len(routes)], unpriced)
+	if as := CostAdvice(Stats{Routes: routes3}, now, ""); titles(as) != "wait: Big tasks · Work: now Opus · medium, 5 finished tasks on it, none with a price" ||
+		strings.Contains(as[0].Text, "once 3 tasks") {
+		t.Errorf("a new route with no price: %s %+v", titles(as), as)
+	}
 	// Too few finished tasks: nothing.
 	if got := titles(CostAdvice(Stats{Routes: []RouteGroup{workRoute("big", "sonnet", "high", 2, 2, 0, 30), workRoute("big", "opus", "high", 2, 2, 2, 5)}},
 		RouteTable{PhaseWork: {"big": {Model: "sonnet", Effort: "high"}}}, "")); got != "" {
