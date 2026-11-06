@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
@@ -294,5 +295,105 @@ func TestEstimateSplitProposes(t *testing.T) {
 	}
 	if *calls != 1 {
 		t.Errorf("subtasks were split on their own: %d calls", *calls)
+	}
+}
+
+// The tracker refuses to close the split task: it stays open, the card says why, and the next round closes it.
+func TestCheckSplitsCloseFails(t *testing.T) {
+	d, f, _ := setup(t)
+	ctx := context.Background()
+	d.Poll(ctx)
+	const id = "grp/app#5"
+	if err := d.CreateSplit(ctx, id, threeSubtasks[:2]); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{"grp/app#101", "grp/app#102"} {
+		d.Store.Update(c, func(r *core.Record) { r.Status, r.ReviewState = core.Done, "merged" })
+	}
+	f.mu.Lock()
+	f.closeFails = true
+	f.mu.Unlock()
+	d.CheckSplits(ctx)
+	r, _ := d.Store.Get(id)
+	if r.Breakdown.ClosedAt != "" || r.Column(0) != "split" || f.issues[5]["state"] != "opened" {
+		t.Fatalf("closed though the tracker refused: %+v, issue %v", r.Breakdown, f.issues[5]["state"])
+	}
+	if r.TrackerStatus == nil || r.TrackerStatus.OK || !strings.Contains(r.TrackerStatus.Text, "403") {
+		t.Errorf("the card does not say why: %+v", r.TrackerStatus)
+	}
+	if logs := d.Logs(id); !strings.Contains(logs[len(logs)-1].Text, "was not closed in the tracker") {
+		t.Errorf("journal: %q", logs[len(logs)-1].Text)
+	}
+
+	f.mu.Lock()
+	f.closeFails = false
+	f.mu.Unlock()
+	d.CheckSplits(ctx)
+	r, _ = d.Store.Get(id)
+	if r.Breakdown.ClosedAt == "" || r.Column(0) != "done" || f.issues[5]["state"] != "closed" {
+		t.Fatalf("not closed on the next round: %+v, issue %v", r.Breakdown, f.issues[5]["state"])
+	}
+	if r.TrackerStatus == nil || !r.TrackerStatus.OK {
+		t.Errorf("the card still says it failed: %+v", r.TrackerStatus)
+	}
+}
+
+// A split task goes to the archive like a finished one, once closed and ArchiveAfterDays have passed; one still
+// waiting for its subtasks does not, however old.
+func TestAutoArchiveSplit(t *testing.T) {
+	d, _, _ := setup(t)
+	ctx := context.Background()
+	d.Poll(ctx)
+	const id = "grp/app#5"
+	if err := d.CreateSplit(ctx, id, threeSubtasks[:2]); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Duration(d.Config().ArchiveAfterDays)*24*time.Hour + time.Hour)
+	d.AutoArchive(later)
+	if r, _ := d.Store.Get(id); r.ArchivedAt != 0 {
+		t.Fatal("an open split task was archived")
+	}
+	d.Store.Update(id, func(r *core.Record) {
+		b := *r.Breakdown
+		b.ClosedAt = now()
+		r.Breakdown, r.FinishedAt = &b, b.ClosedAt
+	})
+	// Closed just now: not yet.
+	d.AutoArchive(time.Now())
+	if r, _ := d.Store.Get(id); r.ArchivedAt != 0 {
+		t.Fatal("archived before ArchiveAfterDays")
+	}
+	d.AutoArchive(later)
+	if r, _ := d.Store.Get(id); r.ArchivedAt == 0 {
+		t.Fatal("a closed split task was not archived")
+	}
+}
+
+// The comment listing the subtasks fails: the subtasks are in the tracker all the same (each says whose part it is),
+// so the split is done, and the journal says the comment is missing.
+func TestCreateSplitCommentFails(t *testing.T) {
+	d, f, _ := setup(t)
+	ctx := context.Background()
+	d.Poll(ctx)
+	const id = "grp/app#5"
+	f.mu.Lock()
+	f.failNotes = true
+	f.mu.Unlock()
+	if err := d.CreateSplit(ctx, id, threeSubtasks[:2]); err != nil {
+		t.Fatalf("the split failed for the comment: %v", err)
+	}
+	r, _ := d.Store.Get(id)
+	if r.Status != core.Split || r.Breakdown.State != "created" || r.Breakdown.Error != "" {
+		t.Fatalf("after a failed comment: %s %+v", r.Status, r.Breakdown)
+	}
+	if len(f.notesOf[5]) != 0 {
+		t.Errorf("a comment got through: %q", f.notesOf[5])
+	}
+	said := false
+	for _, l := range d.Logs(id) {
+		said = said || strings.Contains(l.Text, "the list of subtasks was not commented in the tracker")
+	}
+	if !said {
+		t.Errorf("the journal does not say the comment failed: %+v", d.Logs(id))
 	}
 }

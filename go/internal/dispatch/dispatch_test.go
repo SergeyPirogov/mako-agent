@@ -47,6 +47,7 @@ type fakeGitLab struct {
 	// createLimited: the tracker opens createsLeft more issues, then refuses.
 	createLimited bool
 	createsLeft   int
+	closeFails    bool // the tracker refuses to close an issue
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +153,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(body, &ch)
 			if ids, ok := ch["assignee_ids"]; ok {
 				f.assigned = append(f.assigned, ids)
+			}
+			if ch["state_event"] == "close" && f.closeFails {
+				w.WriteHeader(403)
+				reply(map[string]string{"message": "403 Forbidden"})
+				return
 			}
 			if ch["state_event"] == "close" {
 				is["state"] = "closed"
