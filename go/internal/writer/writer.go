@@ -205,6 +205,14 @@ func Ask(ctx context.Context, dir, prompt string) (string, error) {
 
 // AskModel runs `claude -p --model <model> [--effort <effort>]` with the prompt on stdin, for up to timeout.
 func AskModel(ctx context.Context, dir string, route core.Route, prompt string, timeout time.Duration) (string, error) {
+	return askModelUpTo(ctx, dir, route, prompt, timeout, answerMax)
+}
+
+// answerMax: the longest answer AskModel takes; a longer one is not what was asked for.
+const answerMax = 6000
+
+// askModelUpTo is AskModel for an answer of up to most bytes: a list of subtasks in Ukrainian is longer than a verdict.
+func askModelUpTo(ctx context.Context, dir string, route core.Route, prompt string, timeout time.Duration, most int) (string, error) {
 	path, err := exec.LookPath(Claude)
 	if err != nil {
 		return "", errors.New("no Claude Code found")
@@ -224,7 +232,7 @@ func AskModel(ctx context.Context, dir string, route core.Route, prompt string, 
 		return "", fmt.Errorf("claude: %v: %s", err, failDetail(stderr.String(), out))
 	}
 	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, route.Model)), ""))
-	if text == "" || len(text) > 6000 {
+	if text == "" || len(text) > most {
 		return "", errors.New("empty answer from Claude")
 	}
 	return text, nil

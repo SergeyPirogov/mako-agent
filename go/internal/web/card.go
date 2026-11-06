@@ -108,6 +108,9 @@ func primaryAction(v recordView) string {
 		return "merge"
 	case v.Column == "failed":
 		return "retry"
+	case v.Column == "split":
+		// Waits for its subtasks: nothing to do with it until they are merged.
+		return ""
 	}
 	return "archive"
 }

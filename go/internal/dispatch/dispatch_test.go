@@ -44,6 +44,10 @@ type fakeGitLab struct {
 	links        map[int][]map[string]any // each issue's links, as GitLab lists them
 	// retargetFails: the host refuses to change an MR's target branch.
 	retargetFails bool
+	// createLimited: the tracker opens createsLeft more issues, then refuses.
+	createLimited bool
+	createsLeft   int
+	closeFails    bool // the tracker refuses to close an issue
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +79,14 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"name": "Issue", "widgetDefinitions": []any{map[string]any{}, map[string]any{"allowedStatuses": statuses}}},
 		}}}}})
 	case (p == "/api/v4/projects/grp%2Fapp/issues" || r.URL.RawPath == "/api/v4/projects/grp%2Fapp/issues") && r.Method == "POST":
+		if f.createLimited {
+			if f.createsLeft == 0 {
+				w.WriteHeader(403)
+				reply(map[string]string{"message": "403 Forbidden"})
+				return
+			}
+			f.createsLeft--
+		}
 		var in map[string]any
 		json.Unmarshal(body, &in)
 		iid := 100 + len(f.issues)
@@ -141,6 +153,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			json.Unmarshal(body, &ch)
 			if ids, ok := ch["assignee_ids"]; ok {
 				f.assigned = append(f.assigned, ids)
+			}
+			if ch["state_event"] == "close" && f.closeFails {
+				w.WriteHeader(403)
+				reply(map[string]string{"message": "403 Forbidden"})
+				return
 			}
 			if ch["state_event"] == "close" {
 				is["state"] = "closed"

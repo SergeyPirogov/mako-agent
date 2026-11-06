@@ -85,6 +85,10 @@ func TestCardByState(t *testing.T) {
 		{"MR closed", view(func() core.Record { r := mr; r.ReviewState = "closed"; return r }(), nil), "retry", "skip skip done todo fail"},
 		{"failed", view(core.Record{Status: core.Failed, Estimate: est}, nil), "retry", "done skip fail todo todo"},
 		{"archived", view(core.Record{Status: core.Done, ArchivedAt: 1}, nil), "unarchive", "skip skip done todo skip"},
+		// Split: it waits for its subtasks, nothing to press; closed, it is done and can be archived. (The board
+		// shows its subtasks instead of the strip.)
+		{"split", view(core.Record{Status: core.Split, Estimate: est, Breakdown: &core.Breakdown{State: "created"}}, nil), "", "done skip todo todo todo"},
+		{"split, closed", view(core.Record{Status: core.Split, Estimate: est, Breakdown: &core.Breakdown{State: "created", ClosedAt: "x"}}, nil), "archive", "done skip done todo skip"},
 	}
 	for _, c := range cases {
 		got := cardOf(c.v, now)

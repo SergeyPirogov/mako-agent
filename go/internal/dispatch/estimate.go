@@ -134,6 +134,9 @@ func (d *Dispatcher) estimate(ctx context.Context, id string) {
 	}
 	// The task may have left the board while the agent worked: its estimate must not make an empty record.
 	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Estimate = &e })
+	if err == nil && e.Split {
+		d.maybeSplit(id)
+	}
 }
 
 var sizeName = map[string]string{"small": "small", "medium": "medium", "big": "large"}

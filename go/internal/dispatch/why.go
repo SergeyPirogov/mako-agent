@@ -23,7 +23,7 @@ type Why struct {
 	Verdict string `json:"verdict"`
 }
 
-var columnName = map[string]string{"new": "\"New\"", "doing": "\"In progress\"", "review": "\"In review\"", "done": "\"Done\"", "failed": "\"Failed\""}
+var columnName = map[string]string{"new": "\"New\"", "doing": "\"In progress\"", "review": "\"In review\"", "done": "\"Done\"", "failed": "\"Failed\"", "split": "\"Split\""}
 
 // WhyNot looks the link up in the tracker it belongs to and says why the task is or is not on the board.
 func (d *Dispatcher) WhyNot(ctx context.Context, link string) (Why, error) {
