@@ -35,6 +35,9 @@ const h = adviceHTML({ kind: "warn", title: "Big <x>", text: "t", rows: [{ label
 eq(h.includes("Sonnet · high <span class=\"muted\">(now)</span>") && !h.includes("Big <x>"), true, "marked and escaped");
 eq(routeLabelOf({ model: "opus", effort: "high" }), "Opus · high", "the button's route");
 eq(routeLabelOf({ effort: "max" }), "max", "effort only");
+const rc = { models: ["haiku", "sonnet", "opus"], efforts: ["low", "medium", "high", "xhigh", "max"] };
+eq(usable({ model: "opus", effort: "high" }, rc), true, "a route the table offers");
+eq(usable({ model: "—", effort: "high" }, rc) || usable({ model: "gpt", effort: "high" }, rc) || usable({ model: "opus" }, rc) || usable(undefined, rc), false, "one it does not");
 `)
 }
 
