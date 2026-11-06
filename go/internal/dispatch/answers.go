@@ -10,6 +10,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
+	"github.com/SergeyPirogov/mako-agent/go/internal/orca"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
@@ -41,6 +42,31 @@ func SplitQuestions(md string) []string {
 		}
 	}
 	return out
+}
+
+// assumed: the estimate's questions that come with an assumption, for the agent's prompt; none for an estimate
+// that is not done or is from before assumptions.
+func assumed(e *core.Estimate) []orca.Question {
+	if e == nil || e.State != "done" {
+		return nil
+	}
+	var out []orca.Question
+	for _, q := range SplitQuestions(e.Questions) {
+		if a := strings.TrimSpace(e.Assume[q]); a != "" {
+			out = append(out, orca.Question{Q: q, Assume: a})
+		}
+	}
+	return out
+}
+
+// unassumed: the estimate asks a question it has no assumption for, one that only an answer settles.
+func unassumed(e *core.Estimate) bool {
+	for _, q := range SplitQuestions(e.Questions) {
+		if strings.TrimSpace(e.Assume[q]) == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Answer: one question of the estimate as the card showed it, and what was written under it.

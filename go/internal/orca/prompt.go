@@ -135,6 +135,9 @@ func FullPrompt(j Job, o config.Orca) string {
 	if again := Again(j.RetryNote, j.LastAttempt); again != "" {
 		parts = append(parts, again)
 	}
+	if qs := Assumptions(j); qs != "" {
+		parts = append(parts, qs)
+	}
 	if shots := Screenshots(j); shots != "" {
 		parts = append(parts, shots)
 	}
@@ -161,6 +164,20 @@ func Again(note, last string) string {
 		b.WriteString("\n\n### What the developer wants done differently\n" + note + "\n\nFollow this over anything the last attempt did.")
 	}
 	return b.String()
+}
+
+// Assumptions: the estimate's open questions with their assumptions, in the agent's language; the text is the
+// model's reading of the tracker's, so it comes fenced as data. "" when there are none.
+func Assumptions(j Job) string {
+	if len(j.Questions) == 0 {
+		return ""
+	}
+	q, a := i18n.In(j.Language, "agent.question"), i18n.In(j.Language, "agent.assumption")
+	var items []string
+	for _, x := range j.Questions {
+		items = append(items, core.Untrusted("estimate question", false, q+" "+x.Q+"\n"+a+" "+x.Assume))
+	}
+	return i18n.In(j.Language, "agent.assumptions", strings.Join(items, "\n"))
 }
 
 // MakoCommand: how the agent runs this Mako (its executable, quoted for the shell); "" leaves screenshots out of

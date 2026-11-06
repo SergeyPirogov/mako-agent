@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -172,6 +173,9 @@ func TestParseEstimate(t *testing.T) {
 		e.Model != "" || e.Questions != "- Який трекер?\n- Де кнопка?" || e.Advice != "розбити" {
 		t.Fatalf("%+v", e)
 	}
+	if e.Assume != nil {
+		t.Fatalf("plain questions with an assumption: %+v", e.Assume)
+	}
 	for _, bad := range []string{
 		`{"clarity":{"score":6},"size":"small","risk":{"score":1}}`,
 		`{"clarity":{"score":3},"size":"huge","risk":{"score":1}}`,
@@ -313,5 +317,28 @@ func TestLessonFencesMessage(t *testing.T) {
 	b, _ := os.ReadFile(seen)
 	if !strings.Contains(string(b), core.Untrusted("message to the agent", false, attack)) || strings.Count(string(b), attack) != 1 {
 		t.Fatalf("the message is not fenced:\n%s", b)
+	}
+}
+
+// Each question comes with what the agent does when nobody answers; the text the board splits into questions is
+// the text the assumptions are kept by. At most 3 questions.
+func TestParseEstimateAssumptions(t *testing.T) {
+	e, err := ParseEstimate(`{"clarity":{"score":3},"size":"small","risk":{"score":1},"questions":[` +
+		`{"q":"- Яка кнопка\n  на сторінці?","assume":"  Кнопка «Оплатити»\n у кошику "},` +
+		`"1. Який браузер?",` +
+		`{"q":"Чи потрібна міграція?","assume":""},` +
+		`{"q":"Четверте?","assume":"зайве"}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Questions != "- Яка кнопка на сторінці?\n- Який браузер?\n- Чи потрібна міграція?" {
+		t.Fatalf("questions %q", e.Questions)
+	}
+	if want := map[string]string{"Яка кнопка на сторінці?": "Кнопка «Оплатити» у кошику"}; !reflect.DeepEqual(e.Assume, want) {
+		t.Fatalf("assume %+v", e.Assume)
+	}
+	// The old shape, one Markdown string, stays as it is.
+	if e, err := ParseEstimate(`{"clarity":{"score":3},"size":"small","risk":{"score":1},"questions":"- a?\n- b?"}`); err != nil || e.Questions != "- a?\n- b?" || e.Assume != nil {
+		t.Fatalf("%+v %v", e, err)
 	}
 }

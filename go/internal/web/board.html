@@ -2035,7 +2035,13 @@ let answerDrafts = (() => { try { return JSON.parse(localStorage.getItem("mako-a
 const saveAnswers = () => { try { localStorage.setItem("mako-answers", JSON.stringify(answerDrafts)); } catch {} };
 const answersErr = {}, answersBusy = {};
 function questionsHTML(r, e) {
-  const items = splitQuestions(e.questions).map((q, i) => `<li class="qa-item"><div class="qa-q">${md(q)}</div><textarea class="qa" data-qa="${i}" data-q="${esc(q)}" rows="2" placeholder="Answer (can be left empty)" aria-label="Answer to question ${i + 1}"></textarea></li>`).join("");
+  // A question with an assumption: Mako goes by it when the answer is left empty.
+  const items = splitQuestions(e.questions).map((q, i) => {
+    const a = e.assume?.[q];
+    const assume = a ? `<div class="qa-assume muted">${esc(t("b.est.assumes", { text: a }))}</div>` : "";
+    const hint = a ? t("b.est.answerOrAccept") : "Answer (can be left empty)";
+    return `<li class="qa-item"><div class="qa-q">${md(q)}</div>${assume}<textarea class="qa" data-qa="${i}" data-q="${esc(q)}" rows="2" placeholder="${esc(hint)}" aria-label="Answer to question ${i + 1}"></textarea></li>`;
+  }).join("");
   const err = answersErr[r.id] ? `<div class="mr-err">${esc(answersErr[r.id])}</div>` : "";
   return `<div class="sec warn"><h4><span class="ic">?</span>What to clarify in the tracker</h4><ol class="qa-list">${items}</ol>${err}
     <div class="qa-bar"><button type="button" class="ghost" data-answers ${answersBusy[r.id] ? "disabled" : ""} title="Mako will post one comment with the answers to the task and estimate it again">${answersBusy[r.id] ? "Sending…" : "Send to tracker"}</button></div></div>`;

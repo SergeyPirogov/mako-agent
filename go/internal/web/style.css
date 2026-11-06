@@ -699,6 +699,7 @@ section.ws #term-slot:has(.term-wrap) { padding: 0; }
 .qa-item + .qa-item { margin-top: 10px; }
 .qa-q > :first-child { margin-top: 0; }
 .qa-q > :last-child { margin-bottom: 4px; }
+.qa-assume { margin: 0 0 6px; font-size: 12px; }
 textarea.qa { display: block; width: 100%; box-sizing: border-box; padding: 6px 8px; font: inherit; color: var(--fg); background: var(--bg);
   border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
 textarea.qa:focus { outline: none; border-color: var(--accent); }

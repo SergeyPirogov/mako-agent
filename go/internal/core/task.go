@@ -259,6 +259,9 @@ type Estimate struct {
 	Clarity Score `json:"clarity"`
 	// Questions: what to ask in the tracker before the agent starts, Markdown points ("" none).
 	Questions string `json:"questions,omitempty"`
+	// Assume: what the agent does when nobody answers a question, by the question's text as the points of
+	// Questions read; an estimate from before assumptions has none, and its questions stay open.
+	Assume map[string]string `json:"assume,omitempty"`
 	// Size: "small", "medium" or "big".
 	Size string `json:"size,omitempty"`
 	// Parts: which parts of the code it will likely touch.

@@ -378,7 +378,7 @@ func (d *Dispatcher) taskPrompt(r core.Record) (string, error) {
 		return "", err
 	}
 	cfg := d.Config()
-	j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo), Language: cfg.AgentLanguage}
+	j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo), Language: cfg.AgentLanguage, Questions: assumed(r.Estimate)}
 	return orca.FullPrompt(j, cfg.Orca), nil
 }
 

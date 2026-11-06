@@ -13,6 +13,15 @@ func est(size string, clarity int, questions string) *core.Estimate {
 	return &core.Estimate{State: "done", Size: size, Clarity: core.Score{Value: clarity}, Questions: questions}
 }
 
+// assuming: the estimate with an assumption for each of the questions qs.
+func assuming(e *core.Estimate, qs ...string) *core.Estimate {
+	e.Assume = map[string]string{}
+	for _, q := range qs {
+		e.Assume[q] = "як зазвичай"
+	}
+	return e
+}
+
 // freshFor: the estimate made for the task's present text.
 func freshFor(r *core.Record, e *core.Estimate) *core.Estimate {
 	e.For = EstimateKey(r.Task)
@@ -40,6 +49,10 @@ func TestAutoTakeGate(t *testing.T) {
 		{config.AutoTakeSmallClear, est("small", 5, "- який трекер?"), "the description has questions"},
 		{config.AutoTakeSmallClear, est("small", 3, ""), "the description is unclear"},
 		{config.AutoTakeSmallClear, est("big", 5, "- який трекер?"), "large, the description has questions"},
+		// Questions with an assumption each do not hold the task; one without does.
+		{config.AutoTakeSmallClear, assuming(est("small", 5, "- який трекер?\n- яка гілка?"), "який трекер?", "яка гілка?"), ""},
+		{config.AutoTakeSmallClear, assuming(est("small", 5, "- який трекер?\n- яка гілка?"), "який трекер?"), "the description has questions"},
+		{config.AutoTakeSmallClear, assuming(est("small", 3, "- який трекер?"), "який трекер?"), "the description is unclear"},
 	}
 	for _, c := range cases {
 		if got := autoTakeGate(config.Notifications{AutoTakeOnly: c.only}, c.e, nil); got != c.want {
@@ -65,6 +78,7 @@ func TestAutoTakeGateLikely(t *testing.T) {
 		{n, est("big", 5, ""), good, ""}, // the size is the history's to weigh
 		{n, est("small", 5, ""), nil, none},
 		{n, est("small", 5, "- який трекер?"), good, "the description has questions"},
+		{n, assuming(est("small", 5, "- який трекер?"), "який трекер?"), good, ""},
 		{n, est("small", 3, ""), nil, "the description is unclear, " + none},
 		{n, est("small", 5, ""), &core.Outlook{Tasks: 8, FirstPass: 0.4, Cost: 1.2}, "first pass by the history 40%, below 70%"},
 		{n, est("small", 5, ""), &core.Outlook{Tasks: 8, FirstPass: 0.695, Cost: 1.2}, ""}, // 70% rounded

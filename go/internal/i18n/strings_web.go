@@ -496,6 +496,10 @@ var webStrings = map[string]string{
 	"s.p.wait":           "Wait…",
 	"s.p.sent":           "Sent",
 
+	// The board: a question of the estimate with its assumption (core.Estimate.Assume).
+	"b.est.assumes":        "Mako assumes: {text}",
+	"b.est.answerOrAccept": "Answer, or leave empty to accept the assumption",
+
 	// The board: the outlook of a new task by the history (core.Outlook) and the size estimate's calibration.
 	"b.outlook.title":      "Similar tasks",
 	"b.outlook.firstPass":  "first pass {pct}%",
