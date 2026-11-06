@@ -34,6 +34,13 @@ type Job struct {
 	Checks []string
 	// Language: the agent language (agentLanguage) the agent is told to write in; "" is English.
 	Language string
+	// Questions: the estimate's open questions, each with what the agent does when nobody answers it.
+	Questions []Question
+}
+
+// Question: a question of the estimate nobody answered, and the assumption to work by.
+type Question struct {
+	Q, Assume string
 }
 
 // Result: where Orca put the work. Branch may differ from Job.Branch: Orca suffixes a taken name.
