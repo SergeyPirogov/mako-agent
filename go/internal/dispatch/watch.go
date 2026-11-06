@@ -232,7 +232,7 @@ func (d *Dispatcher) writeTask(ctx context.Context, t trackers.Tracker, key, by 
 		take = false
 		d.Log(t.ID(), "«"+n.Title+"» is not taken at once: the cost ceiling needs Mako's own agent (Orca does not report its spending)")
 	}
-	id, err := d.createTask(ctx, t.ID(), n, take, false, by, w.MaxCost, "")
+	id, err := d.createTask(ctx, t.ID(), n, take, false, by, w.MaxCost, "", nil)
 	if err != nil {
 		d.Fault(t.ID(), "could not write the task «"+n.Title+"»", err)
 		return false

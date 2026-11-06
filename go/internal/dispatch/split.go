@@ -17,7 +17,8 @@ import (
 
 // The split of a big task (core.Breakdown): «Розбити» on a new task (or its estimate saying split) asks the agent
 // for 2–6 subtasks; you edit the list on the board, and «Створити» opens them in the tracker one by one, in the
-// task's project, each with «Частина #N» and a «Після #M» for each subtask it waits for. The task itself is then
+// task's project, each with «Частина #N» and a «Після #M» for each subtask it waits for; Mako holds such a subtask
+// back itself (core.Record.After, see deps.go) until those are merged. The task itself is then
 // split: it waits, out of «Нові», and Mako closes it in the tracker once all its subtasks are merged.
 
 // SplitFrom asks the model for the subtasks; tests replace it.
@@ -235,12 +236,14 @@ func (d *Dispatcher) CreateSplit(ctx context.Context, id string, items []core.Sp
 			continue
 		}
 		lines := []string{i18n.TA("split.partOf", parent)}
+		var waits []string
 		for _, a := range items[i].After {
 			lines = append(lines, i18n.TA("split.after", shortRef(items[a-1].Task)))
+			waits = append(waits, items[a-1].Task)
 		}
 		desc := strings.TrimSpace(items[i].Description + "\n\n" + strings.Join(lines, "\n"))
 		n := trackers.NewIssue{Project: r.Task.Project, Title: items[i].Title, Description: desc}
-		child, err := d.createTask(ctx, t.ID(), n, false, false, "", 0, id)
+		child, err := d.createTask(ctx, t.ID(), n, false, false, "", 0, id, waits)
 		if err != nil {
 			why := fmt.Sprintf("created %d of %d subtasks: %v", countCreated(items), len(items), err)
 			save("done", why)

@@ -72,6 +72,22 @@ func TestSplitTask(t *testing.T) {
 			t.Errorf("subtask %s: %s %q %q parent %q", w.id, c.Status, c.Task.Title, c.Task.Description, c.ParentID)
 		}
 	}
+	// What the text says, Mako holds to: the second waits for the first, the third for the second (and the first, merged).
+	second, _ := d.Store.Get("grp/app#102")
+	if strings.Join(second.After, ",") != "grp/app#101" {
+		t.Errorf("the second waits for %v", second.After)
+	}
+	if w := d.WaitsFor(second); w == nil || w.On != "grp/app#101" || w.Why != "merge" {
+		t.Errorf("the second is not held back: %+v", w)
+	}
+	if first, _ := d.Store.Get("grp/app#101"); len(first.After) != 0 || d.WaitsFor(first) != nil {
+		t.Errorf("the first waits for %v", first.After)
+	}
+	d.Store.Update("grp/app#101", func(r *core.Record) { r.Status, r.ReviewState = core.Done, "merged" })
+	if w := d.WaitsFor(second); w != nil {
+		t.Errorf("the second still waits, the first being merged: %+v", w)
+	}
+	d.Store.Update("grp/app#101", func(r *core.Record) { r.Status, r.ReviewState = core.Snoozed, "" })
 	if len(f.notesOf[5]) != 1 || !strings.Contains(f.notesOf[5][0], "- #101 Модель\n- #102 API\n- #103 Картка на дошці") {
 		t.Errorf("parent's comment %q", f.notesOf[5])
 	}
