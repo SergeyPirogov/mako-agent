@@ -109,6 +109,7 @@ var webStrings = map[string]string{
 	"s.r.adviceTitle":     "What to change, by the last {n} days",
 	"s.r.adviceNow":       "(now)",
 	"s.r.adviceUse":       "Use {route}",
+	"s.r.adviceDone":      "Already applied",
 	"s.perm.title":        "Permissions",
 	"s.perm.lead":         "What the agents asked you to allow, by the rule that would spare the question. Allow a rule once and every agent after this uses it without asking; edit it first to make it narrower or wider, e.g. Bash(go run:*) for every go run.",
 	"s.perm.askedTitle":   "Asked lately",

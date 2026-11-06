@@ -55,6 +55,7 @@ body { display: block; }
 .routes td.advise.warn { outline: 2px solid var(--warn); outline-offset: -2px; border-radius: 6px; background: color-mix(in srgb, var(--warn) 8%, var(--card)); }
 .routes td.advise.wait { outline: 1px dashed var(--mute); outline-offset: -2px; border-radius: 6px; }
 .routes td.advised { outline: 2px solid var(--ok); outline-offset: -2px; border-radius: 6px; }
+.routes .advice-done { font-size: 12px; margin-top: 4px; }
 .routes .use-route { display: block; margin-top: 4px; font-size: 12px; padding: 2px 8px; }
 /* Permissions: a rule asked for (editable before it is kept) and the rules allowed. */
 .perm-g { align-items: flex-start; }
@@ -954,6 +955,14 @@ async function paintAdvice(box, wrap) {
   for (const a of list) {
     const td = a.phase && wrap.querySelector(`select[data-p="${a.phase}"][data-s="${a.size}"]`)?.closest("td");
     if (!td) continue;
+    // The suggested route is already in the cell: nothing to suggest, only say so.
+    if (a.set && ["model", "effort"].every((k) => td.querySelector(`select[data-k="${k}"]`)?.value === a.set[k])) {
+      const done = document.createElement("div");
+      done.className = "advice-done muted";
+      done.textContent = t("s.r.adviceDone");
+      td.append(done);
+      continue;
+    }
     td.classList.add("advise", a.kind);
     td.title = a.title;
     if (!usable(a.set, routeChoices)) continue;
@@ -1547,6 +1556,7 @@ $("save").onclick = async () => {
     showProblems(r.problems);
     $("msg").className = "msg ok";
     $("msg").textContent = r.problems?.length ? t("s.savedProblems") : t("s.saved");
+    routeAdvice = null; // the server no longer advises what was just saved: ask again
     render();
   } catch (e) {
     $("msg").className = "msg bad";
