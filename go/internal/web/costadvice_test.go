@@ -51,17 +51,19 @@ const el = (tag) => ({ tag, kids: [], classes: new Set(), classList: { add(...c)
 const mk = (tag) => { const e = el(tag); e.classList.o = e; return e; };
 const document = { createElement: mk };
 const cells = {};
-for (const s of ["medium", "big"]) {
+for (const s of ["medium", "big", "small"]) {
   const td = mk("td"), sels = {};
-  for (const k of ["model", "effort"]) sels[k] = { value: "", changed: 0, onchange() { this.changed++; }, closest: () => td };
+  for (const k of ["model", "effort"]) sels[k] = { value: s === "small" ? { model: "opus", effort: "high" }[k] : "", changed: 0, onchange() { this.changed++; }, closest: () => td };
   td.querySelector = (q) => sels[q.match(/data-k="(\w+)"/)[1]];
   cells[s] = { td, sels };
 }
 const wrap = { querySelector: (q) => cells[q.match(/data-s="(\w+)"/)?.[1]]?.sels.model ?? null };
 const box = { isConnected: true, querySelector: () => null, insertBefore() {} };
-const fetch = async () => ({ json: async () => ({ ok: true, days: 30, advice: [
+let fetched = 0;
+const fetch = async () => (fetched++, { json: async () => ({ ok: true, days: 30, advice: [
   { kind: "warn", title: "a", text: "", phase: "work", size: "medium", set: { model: "opus", effort: "high" } },
-  { kind: "warn", title: "b", text: "", phase: "work", size: "big", set: { model: "—", effort: "high" } }] }) });
+  { kind: "warn", title: "b", text: "", phase: "work", size: "big", set: { model: "—", effort: "high" } },
+  { kind: "tip", title: "c", text: "", phase: "work", size: "small", set: { model: "opus", effort: "high" } }] }) });
 `+cutBlock(t, settingsPage, "advice")+`
 (async () => {
   await paintAdvice(box, wrap);
@@ -72,6 +74,12 @@ const fetch = async () => ({ json: async () => ({ ok: true, days: 30, advice: [
   btn("medium")[0].onclick();
   eq([cells.medium.sels.model.value, cells.medium.sels.effort.value, cells.medium.sels.model.changed], ["opus", "high", 1], "the button puts the route in");
   eq(cells.medium.td.classes.has("advised"), true, "the cell marked as changed");
+  eq([btn("small").length, cells.small.td.classes.has("advise"), cells.small.td.kids.map((k) => k.textContent)], [0, false, ["s.r.adviceDone"]], "a route already in: no button, a note");
+  await paintAdvice(box, wrap);
+  eq(fetched, 1, "the answer kept until the page drops it");
+  routeAdvice = null;
+  await paintAdvice(box, wrap);
+  eq(fetched, 2, "asked again after a save");
 })();
 `)
 }
