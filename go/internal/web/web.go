@@ -800,6 +800,30 @@ func (s *Server) Handler() http.Handler {
 				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
 				return
 			}
+		case "split":
+			// «Розбити»: the agent proposes the task's subtasks.
+			if err := s.D.SplitTask(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "splitdrop":
+			if err := s.D.DropSplit(id); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+		case "splitcreate":
+			// «Створити»: the subtasks as edited on the board, opened in the tracker.
+			var in struct {
+				Items []core.SplitItem `json:"items"`
+			}
+			if err := decodeJSON(r, 64<<10, &in); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": "could not read the subtasks: " + err.Error()})
+				return
+			}
+			if err := s.D.CreateSplit(ctx, id, in.Items); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		case "answers":
 			// «Надіслати в трекер»: the answers to the estimate's questions, each with its question.
 			var in struct {

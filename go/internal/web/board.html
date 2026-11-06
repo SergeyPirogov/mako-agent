@@ -93,9 +93,9 @@
 // The columns, the tasks' states and the agent's notes, in Mako's language: made again when it changes.
 let COLUMNS = [], LABEL = {}, AGENT_NOTE = {};
 function boardWords() {
-  COLUMNS = ["doing", "blocked", "review", "merge", "forme", "new", "failed", "later", "done"].map((c) => [c, t("b.col." + c)]);
+  COLUMNS = ["doing", "blocked", "review", "merge", "forme", "new", "split", "failed", "later", "done"].map((c) => [c, t("b.col." + c)]);
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
-  LABEL = Object.fromEntries(["new", "later", "queued", "starting", "doing", "review", "done", "failed",
+  LABEL = Object.fromEntries(["new", "later", "queued", "starting", "doing", "review", "done", "failed", "split",
     "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"].map((k) => [k, t("b.label." + k)]));
   AGENT_NOTE = Object.fromEntries(["waiting", "done", "idle", "unknown"].map((k) => [k, t("b.agent." + k)]));
 }
@@ -273,6 +273,7 @@ const cardStatus = (r) => {
   if (r.checks?.attention && r.status === "handed-off") return ["needs attention", "warn", `Pre-MR check failed:  ${checksLine(r.checks)}`];
   if (r.reviewState === "closed") return ["MR closed", "err"];
   if (r.reviewState === "merged") return ["merged", ""];
+  if (r.status === "split" && !r.breakdown?.closedAt) return [t("b.split.status", splitCount(r)), ""];
   const st = state(r);
   if (st === "later") return ["snoozed", "", `Snoozed ${untilText(r.snoozedUntil)}`];
   // Left in "New" by auto-take: why, in the row ("large", "description has questions").
@@ -1979,7 +1980,7 @@ function estimateHTML(r, card) {
   const size = `<span class="eb" title="${esc(e.parts || "")}">Size<span class="size ${esc(e.size)}">${SIZE_NAMES[e.size] ?? esc(e.size)}</span></span>`;
   const line = `<div class="est-line">${bit("Clarity", "up", e.clarity)}${size}${bit("Risk", "down", e.risk)}</div>`;
   // "plan first" and the model are taken with a click, before "Start work"; a second click lets them go.
-  // Splitting is the person's to do in the tracker: a plain chip.
+  // "split" asks the agent for the subtasks (the Split card below).
   const plan = !!r.planFirst, model = r.model || "";
   const pick = (m, p) => `&model=${encodeURIComponent(m)}&plan=${p ? 1 : 0}`;
   const chip = (on, label, x, title) => fresh ? `<button type="button" class="tchip pick${on ? " on" : ""}" data-a="pick" data-x="${esc(x)}" title="${esc(title)}" aria-pressed="${on}">${on ? "✓ " : ""}${label}</button>`
@@ -1987,7 +1988,7 @@ function estimateHTML(r, card) {
   const adv = fresh ? r.outlook?.advice : null;
   const advice = [
     e.plan ? chip(plan, "plan first", pick(model, !plan), plan ? "The agent will start with a plan. Click to cancel" : "The agent will start with a plan: it will change nothing until you approve it") : "",
-    e.split ? `<span class="tchip note" title="Split the task into several in the tracker yourself; Mako does not do it">split it in the tracker</span>` : "",
+    e.split && fresh && !r.breakdown ? `<button type="button" class="tchip" data-a="split" title="${esc(t("b.split.chipTitle"))}">${t("b.split.chip")}</button>` : "",
     adv ? chip(model === adv.model, t("b.outlook.adviceChip", { model: esc(adv.model) }), pick(model === adv.model ? "" : adv.model, plan), adviceTitle(adv)) : "",
   ].filter(Boolean);
   const rec = advice.length || e.advice ? `<div class="rec-line"><span class="ic">→</span><b>Recommendation</b>${advice.join("")}${e.advice ? `<span class="rec-why">${esc(e.advice)}</span>` : ""}</div>` : "";
@@ -1997,6 +1998,127 @@ function estimateHTML(r, card) {
     : `<details class="qs" data-qs ${qOpen[r.id] ? "open" : ""}><summary><span class="ic">?</span>${n} ${plural(n, "question", "questions")} for the tracker<span class="muted"> ▸</span></summary>${questionsHTML(r, e)}</details>`;
   const note = e.state === "running" ? `<span class="muted">estimating again…</span>` : btn("Assess again");
   return card("Estimate", `<div class="tcard-b">${line}</div>${fresh ? outlookHTML(r.outlook) : ""}${rec}${questions}`, "assess", note);
+}
+
+// The split of a big task (r.breakdown): the agent's subtasks as a list to edit, then «Create in tracker»; once created,
+// the subtasks with how far each got, and the task closes when all are merged. The draft of the edits is kept per task
+// (and per proposal: a new one starts afresh), outside the HTML: the board redraws every 5 s.
+let splitDrafts = (() => { try { return JSON.parse(localStorage.getItem("mako-split")) || {}; } catch { return {}; } })();
+const saveSplit = () => { try { localStorage.setItem("mako-split", JSON.stringify(splitDrafts)); } catch {} };
+const splitErr = {}, splitBusy = {};
+const SPLIT_MOST = 6;
+const splitNums = (s) => [...new Set(String(s ?? "").split(/[^0-9]+/).filter(Boolean).map(Number))];
+function splitDraft(r) {
+  const b = r.breakdown;
+  let d = splitDrafts[r.id];
+  if (!d || d.at !== b.at) {
+    d = splitDrafts[r.id] = { at: b.at, items: (b.items || []).map((x) => ({ title: x.title, description: x.description || "", after: (x.after || []).join(", "), task: x.task || "" })) };
+    saveSplit();
+  }
+  return d;
+}
+function splitCount(r) {
+  const items = r.breakdown?.items || [];
+  const done = items.filter((x) => { const c = recordOf(x.task); return c && (c.reviewState === "merged" || c.gone); }).length;
+  return { done, n: items.length };
+}
+const recordOf = (id) => id && data.records.find((x) => x.id === id);
+const subtaskLink = (id) => `<a href="#${esc(encodeURIComponent(id))}" title="${esc(id)}">${esc(shortId(id))}</a>`;
+function subtaskState(id) {
+  const c = recordOf(id);
+  if (!c) return [t("b.split.gone"), "muted"];
+  if (c.reviewState === "merged") return [t("b.split.merged"), "ok"];
+  if (c.gone) return [t("b.split.closed"), "muted"];
+  return [cardStatus(c)[0], "muted"];
+}
+// A subtask says which task it was split from.
+function parentNote(r) {
+  if (!r.parentId) return "";
+  const p = recordOf(r.parentId);
+  return `<div class="notice parent">${t("b.split.partOf")} ${subtaskLink(r.parentId)}${p ? ` · ${esc(p.task.title)}` : ""}</div>`;
+}
+function splitHTML(r, card) {
+  const b = r.breakdown, fresh = r.column === "new";
+  if (!b) return "";
+  const again = (label) => `<button class="ghost" data-a="split" title="${esc(t("b.split.againTitle"))}">${label}</button>`;
+  if (b.state === "running") return card(t("b.split.title"), `<div class="tcard-b muted">${t("b.split.running")}</div>`, "split-card");
+  if (b.state === "failed") return card(t("b.split.title"), `<div class="tcard-b"><div class="mr-err">${esc(b.error || t("b.split.failed"))}</div></div>`, "split-card",
+    (fresh ? again(t("b.split.retry")) : "") + `<button class="ghost" data-a="splitdrop">${t("b.split.drop")}</button>`);
+  if (b.state === "created") {
+    const rows = (b.items || []).map((x, i) => {
+      const [st, cls] = subtaskState(x.task);
+      return `<li class="sp-done"><span class="sp-n">${i + 1}</span>${subtaskLink(x.task)}<span class="sp-t">${esc(x.title)}</span>`
+        + `${x.after?.length ? `<span class="muted sp-after-note">${t("b.split.afterNote", { n: x.after.join(", ") })}</span>` : ""}<span class="sp-st ${cls}">${esc(st)}</span></li>`;
+    }).join("");
+    const note = b.closedAt ? t("b.split.closedNote") : t("b.split.waitNote", splitCount(r));
+    return card(t("b.split.title"), `<div class="tcard-b"><ol class="sp-list">${rows}</ol><p class="muted sp-note">${note}</p></div>`, "split-card");
+  }
+  if (!fresh) return "";
+  const d = splitDraft(r), n = d.items.length, created = d.items.some((x) => x.task);
+  const rows = d.items.map((x, i) => {
+    if (x.task) return `<li class="sp-done"><span class="sp-n">${i + 1}</span>${subtaskLink(x.task)}<span class="sp-t">${esc(x.title)}</span><span class="sp-st ok">${t("b.split.inTracker")}</span></li>`;
+    const up = i === 0 || d.items[i - 1].task, down = i === n - 1 || d.items[i + 1].task;
+    return `<li class="sp-item"><div class="sp-row"><span class="sp-n">${i + 1}</span>`
+      + `<input class="sp-title" data-sp="${i}:title" maxlength="200" placeholder="${esc(t("b.split.titleHint"))}" aria-label="${esc(t("b.split.titleOf", { n: i + 1 }))}">`
+      + `<span class="sp-ctl"><button type="button" class="icon" data-sp-move="${i}:-1" ${up ? "disabled" : ""} title="${esc(t("b.split.up"))}" aria-label="${esc(t("b.split.up"))}">↑</button>`
+      + `<button type="button" class="icon" data-sp-move="${i}:1" ${down ? "disabled" : ""} title="${esc(t("b.split.down"))}" aria-label="${esc(t("b.split.down"))}">↓</button>`
+      + `<button type="button" class="icon" data-sp-del="${i}" title="${esc(t("b.split.remove"))}" aria-label="${esc(t("b.split.remove"))}">×</button></span></div>`
+      + `<textarea data-sp="${i}:description" rows="3" placeholder="${esc(t("b.split.descHint"))}" aria-label="${esc(t("b.split.descOf", { n: i + 1 }))}"></textarea>`
+      + `${i ? `<label class="sp-after">${t("b.split.after")}<input data-sp="${i}:after" inputmode="numeric" placeholder="${esc(t("b.split.afterHint"))}"></label>` : ""}</li>`;
+  }).join("");
+  const err = splitErr[r.id] || b.error;
+  const bar = `<div class="qa-bar sp-bar"><button type="button" class="ghost" data-sp-add ${n >= SPLIT_MOST ? "disabled" : ""}>${t("b.split.add")}</button>`
+    + `<button type="button" class="primary" data-sp-create ${splitBusy[r.id] ? "disabled" : ""} title="${esc(t("b.split.createTitle"))}">${splitBusy[r.id] ? t("b.split.creating") : t("b.split.create")}</button></div>`;
+  const note = created ? "" : again(t("b.split.again")) + `<button class="ghost" data-a="splitdrop">${t("b.split.drop")}</button>`;
+  return card(t("b.split.title"), `<div class="tcard-b"><p class="muted sp-note">${t("b.split.intro")}</p><ol class="sp-list">${rows}</ol>${err ? `<div class="mr-err">${esc(err)}</div>` : ""}${bar}</div>`, "split-card", note);
+}
+// The list redrawn after a change of its shape (added, removed, moved): the numbers of "after" follow the subtasks,
+// and a subtask can wait only for those above it.
+function splitReshape(r, order) {
+  const d = splitDrafts[r.id], pos = new Map(order.map((old, i) => [old, i + 1]));
+  d.items = order.map((old, i) => {
+    const x = old === -1 ? { title: "", description: "", after: "", task: "" } : d.items[old];
+    if (x.task) return x;
+    return { ...x, after: splitNums(x.after).map((a) => pos.get(a - 1)).filter((a) => a && a < i + 1).join(", ") };
+  });
+  saveSplit(); shown = ""; renderDetail();
+}
+function bindSplit(r, focused) {
+  const card = $("detail").querySelector(".split-card");
+  const d = splitDrafts[r.id];
+  if (!card || !d || r.breakdown?.state !== "done") return;
+  for (const f of card.querySelectorAll("[data-sp]")) {
+    const [i, key] = f.dataset.sp.split(":");
+    f.value = d.items[i]?.[key] ?? "";
+    f.oninput = () => { d.items[i][key] = f.value; saveSplit(); };
+  }
+  if (focused) {
+    const f = card.querySelector(`[data-sp="${focused.sp}"]`);
+    if (f) { f.focus(); f.setSelectionRange?.(focused.at[0], focused.at[1]); }
+  }
+  const keep = d.items.map((_, i) => i);
+  for (const b of card.querySelectorAll("[data-sp-move]")) b.onclick = () => {
+    const [i, by] = b.dataset.spMove.split(":").map(Number), order = [...keep];
+    [order[i], order[i + by]] = [order[i + by], order[i]];
+    splitReshape(r, order);
+  };
+  for (const b of card.querySelectorAll("[data-sp-del]")) b.onclick = () => splitReshape(r, keep.filter((i) => i !== Number(b.dataset.spDel)));
+  const add = card.querySelector("[data-sp-add]");
+  if (add) add.onclick = () => splitReshape(r, [...keep, -1]);
+  const create = card.querySelector("[data-sp-create]");
+  if (create) create.onclick = async () => {
+    const items = d.items.map((x) => ({ title: x.title.trim(), description: x.description.trim(), after: splitNums(x.after), task: x.task || undefined }));
+    if (items.some((x) => !x.title)) { splitErr[r.id] = t("b.split.noTitle"); shown = ""; renderDetail(); return; }
+    splitBusy[r.id] = true; delete splitErr[r.id]; shown = ""; renderDetail();
+    const res = await postJSON(`/api/splitcreate?id=${encodeURIComponent(r.id)}`, { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+    delete splitBusy[r.id];
+    if (res.ok === false) splitErr[r.id] = t("b.split.notCreated", { error: res.error || "error" });
+    else { toast(t("b.split.created", { n: items.length })); }
+    // What the server keeps (the edited list, the subtasks created) is the list from now on.
+    delete splitDrafts[r.id]; saveSplit();
+    shown = "";
+    await load();
+  };
 }
 
 // The outlook by the history: how the project's ended tasks of the same size (and, with enough of them, touching
@@ -4193,10 +4315,11 @@ function moreMenu(r) {
     if (!data.remote) it(`data-open="finder"`, "Show in Finder"); // Finder and the editor open on the Mac
     it(`data-copy="${esc(r.worktree)}" title="${esc(r.worktree)}"`, "Copy worktree path");
   }
+  if (r.column === "new" && !r.breakdown) it(`data-a="split" title="${esc(t("b.split.menuTitle"))}"`, t("b.split.menu"));
   if (r.task.url) it(`data-copy="${esc(r.task.url)}"`, "Copy task link");
   if (r.status === "queued" && p !== "cancel") it(`data-a="cancel"`, "Cancel", "danger");
   if (r.column === "doing" && r.status !== "queued") it(`data-a="cancel"`, term ? "Stop watching" : "Stop watching the agent", "danger");
-  if (!r.archivedAt && p !== "archive" && r.column !== "new" && r.column !== "doing") it(`data-a="archive"`, "Archive");
+  if (!r.archivedAt && p !== "archive" && r.column !== "new" && r.column !== "doing" && r.column !== "split") it(`data-a="archive"`, "Archive");
   if (!items.length) return "";
   return `<details class="menu more"><summary class="btn icon" title="More actions" aria-label="More actions">⋯</summary><div class="menu-pop">${items.join("")}</div></details>`;
 }
@@ -4404,11 +4527,13 @@ function renderDetail() {
   // The content follows the task's state: what matters now on top, the description folded once the task is taken.
   const col = r.column;
   const agentSummary = r.summary && col !== "doing" ? card("Agent summary", summaryHTML(r.summary), "sum") : "";
-  const byState = col === "new" ? descHTML(r, false) + estimateHTML(r, card)
+  const byState = r.status === "split" ? splitHTML(r, card) + descHTML(r, true)
+    : col === "new" ? descHTML(r, false) + estimateHTML(r, card) + splitHTML(r, card)
     : col === "doing" ? nowHTML(r, card, !!(term || r.worktree || agentOf(r))) + checksHTML(r, card) + descHTML(r, true)
     : col === "review" ? blockersHTML(r) + reviewerHTML(r) + agentSummary + descHTML(r, true)
     : (col === "done" ? doneHTML(r, card) : "") + (col === "failed" ? checksHTML(r, card, true) : "") + agentSummary + assessmentHTML(r, card) + retroHTML(r, card) + descHTML(r, col !== "failed");
-  const stages = stripHTML(r, card);
+  // A split task is done by its subtasks: its card lists them instead of the stages.
+  const stages = r.status === "split" ? "" : stripHTML(r, card);
   const task = `
     ${byState}
     ${r.retryNote ? card(`Attempt ${r.attempt || 2}: what to do differently`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
@@ -4438,6 +4563,7 @@ function renderDetail() {
     ${r.column === "new" && r.waits ? waitsNote(r.waits, T_WAITS.new()) : ""}
     ${r.stack && !r.reviewState ? stackNote(r.stack) : ""}
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Postponed ${untilText(r.snoozedUntil)}: Mako will remind you about the task then</div>` : ""}
+    ${parentNote(r)}
     ${r.column === "new" && r.autoSkip ? `<div class="notice auto-skip">Not taken automatically: ${esc(r.autoSkip)}. Take it with the button, or Mako will take it on its own once the estimate fits the settings</div>` : ""}
     ${r.error ? whyFailedHTML(r, logs.length > 0) : ""}
     ${r.secrets?.length && !r.archivedAt ? secretsHTML(r) : ""}
@@ -4504,6 +4630,7 @@ function renderDetail() {
   const writing = document.activeElement?.id === "note-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   if (lessonEdit) lessonEdit.at = document.activeElement?.id === "lesson-input" && [document.activeElement.selectionStart, document.activeElement.selectionEnd];
   const answering = document.activeElement?.dataset?.qa != null && { qa: document.activeElement.dataset.qa, at: [document.activeElement.selectionStart, document.activeElement.selectionEnd] };
+  const splitting = document.activeElement?.dataset?.sp != null && { sp: document.activeElement.dataset.sp, at: [document.activeElement.selectionStart, document.activeElement.selectionEnd] };
   // An open menu ("⋯", Snooze, model) stays open: the board re-renders every few seconds.
   const openMenus = [...$("detail").querySelectorAll("details.menu")].map((m) => m.open);
   const strip0 = $("detail").querySelector(".stage-strip");
@@ -4513,6 +4640,7 @@ function renderDetail() {
   revealStage($("detail").querySelector(".stage-strip"), r.id);
   $("detail").querySelectorAll("details.menu").forEach((m, i) => { if (openMenus[i]) m.open = true; });
   bindAnswers(r, answering);
+  bindSplit(r, splitting);
   const tp2 = $("detail").querySelector(".task-pane");
   if (tp2) {
     tp2.scrollTop = taskScroll[r.id] ?? 0;

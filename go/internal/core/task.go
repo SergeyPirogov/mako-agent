@@ -71,6 +71,7 @@ type Attachment struct {
 //	handed-off      – in Orca, waiting for its MR
 //	done            – the MR is open (in review) or merged
 //	failed, cancelled
+//	split           – split into subtasks on the board; closed once they all are merged (Breakdown)
 type Status string
 
 const (
@@ -81,6 +82,7 @@ const (
 	Done      Status = "done"
 	Failed    Status = "failed"
 	Cancelled Status = "cancelled"
+	Split     Status = "split"
 )
 
 // Record is Mako's memory of one task: where it is and what happened to it.
@@ -196,6 +198,10 @@ type Record struct {
 	// AutoSkip: why «Віддавати нові задачі без питань» left this new task in «Нові» («велика», «є питання до
 	// опису», …); "" when it did not. Mako looks again each poll, so a task taken once its estimate fits.
 	AutoSkip string `json:"autoSkip,omitempty"`
+	// Breakdown: the agent's proposal to split the task into subtasks, as edited on the board, and what of it was
+	// created in the tracker. ParentID: the task this one is a subtask of.
+	Breakdown *Breakdown `json:"breakdown,omitempty"`
+	ParentID  string     `json:"parentId,omitempty"`
 	// Secrets: what the last push Mako stopped found in the branch's changes; empty once a push passes.
 	// SecretsAllowed: the lines «Це не секрет» let through (secrets.Finding.Key).
 	Secrets        []secrets.Finding `json:"secrets,omitempty"`
@@ -297,6 +303,30 @@ type Estimate struct {
 	Model  string `json:"model,omitempty"`
 	Advice string `json:"advice,omitempty"`
 	Error  string `json:"error,omitempty"`
+}
+
+// Breakdown is a big task split into subtasks: the agent proposes them («Розбити»), you edit the list on the
+// board, «Створити» opens them in the tracker one by one, and the task closes once all of them are merged.
+type Breakdown struct {
+	At string `json:"at"`
+	// State: "running", "done" (a list to edit), "failed", "creating" or "created".
+	State string `json:"state"`
+	// For: the key of the task's text it was made for (EstimateKey).
+	For   string      `json:"for,omitempty"`
+	Items []SplitItem `json:"items,omitempty"`
+	Error string      `json:"error,omitempty"`
+	// ClosedAt: all the subtasks were merged and the task was closed in the tracker.
+	ClosedAt string `json:"closedAt,omitempty"`
+}
+
+// SplitItem is one subtask of a Breakdown, in the order they are to be done.
+type SplitItem struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	// After: the numbers (from 1) of the subtasks above it that are to be merged first.
+	After []int `json:"after,omitempty"`
+	// Task: the id of the subtask once it is created in the tracker.
+	Task string `json:"task,omitempty"`
 }
 
 // Sizes a task can be, the smallest first: what the estimate expects and what the finished task came to.
@@ -604,6 +634,11 @@ func (r *Record) Column(now int64) string {
 		return "doing"
 	case Failed, Cancelled:
 		return "failed"
+	case Split:
+		if r.Breakdown == nil || r.Breakdown.ClosedAt == "" {
+			return "split"
+		}
+		return "done"
 	}
 	if r.ReviewState == "closed" {
 		return "failed"

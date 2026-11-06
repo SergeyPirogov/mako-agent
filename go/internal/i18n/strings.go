@@ -87,6 +87,7 @@ var goStrings = map[string][2]string{
 	"tray.col.new":     {"new", "нова"},
 	"tray.col.doing":   {"at work", "в роботі"},
 	"tray.col.review":  {"in review", "на рев'ю"},
+	"tray.col.split":   {"split", "розбита"},
 	"tray.starting":    {"starting…", "запускаю…"},
 	"tray.queued":      {"queued", "у черзі"},
 	"tray.waiting":     {"waiting for you", "чекає на вас"},
@@ -113,6 +114,9 @@ var goStrings = map[string][2]string{
 	// The issue, the merge request, the commits.
 	"comment.summary":          {"What was done:", "Що зроблено:"},
 	"comment.answers":          {"Answers to the task's questions:", "Відповіді на питання до задачі:"},
+	"split.partOf":             {"Part of %s", "Частина %s"},
+	"split.after":              {"Depends on %s", "Після %s"},
+	"split.comment":            {"Split into subtasks; this task closes once all of them are merged:", "Розбито на підзадачі; задача закриється, коли всі вони будуть змерджені:"},
 	"comment.reviewSeen":       {"The reviewer left comments on MR %s. The agent sees them and is fixing them", "Рев'юер залишив коментарі до MR %s. Агент їх бачить і виправляє"},
 	"comment.review":           {"🔍 **The reviewer agent, round %d.**", "🔍 **Рев'ю агентом, раунд %d.**"},
 	"comment.reviewChecks":     {"The earlier remarks:", "Попередні зауваження:"},
