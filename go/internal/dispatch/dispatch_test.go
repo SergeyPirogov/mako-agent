@@ -42,6 +42,8 @@ type fakeGitLab struct {
 	// mergeRefused: the host refuses to merge the MR (a rule of the project, a race with another merge).
 	mergeRefused bool
 	links        map[int][]map[string]any // each issue's links, as GitLab lists them
+	// retargetFails: the host refuses to change an MR's target branch.
+	retargetFails bool
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +184,11 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			} else if ch["state_event"] == "close" {
 				mr["state"] = "closed"
 			} else if b, ok := ch["target_branch"]; ok {
+				if f.retargetFails {
+					w.WriteHeader(403)
+					reply(map[string]string{"message": "403 Forbidden"})
+					return
+				}
 				mr["target_branch"] = b
 			} else {
 				mr["title"], mr["description"] = ch["title"], ch["description"]

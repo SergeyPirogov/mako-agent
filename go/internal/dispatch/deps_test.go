@@ -206,6 +206,27 @@ func TestRestackAfterTheMerge(t *testing.T) {
 	}
 
 	d.Store.Update(b, func(r *core.Record) { r.Status = core.Done })
+	// The host refuses to point the MR elsewhere: the branch is moved, the stack stays until the MR is, and the
+	// reason is said once.
+	f.mu.Lock()
+	f.retargetFails = true
+	f.mu.Unlock()
+	for range 2 {
+		d.Restack(ctx, time.Now())
+	}
+	if r := mustGet(t, d, b); r.Stack == nil || f.mrs[0]["target_branch"] != "fix/5" {
+		t.Fatalf("unstacked though the MR still goes into fix/5: %+v", r.Stack)
+	}
+	git(t, wtB, "fetch", "-q", "origin")
+	if n := out(wtB, "rev-list", "--count", "origin/main..origin/fix/6"); n != "1" {
+		t.Fatalf("the branch not moved before the MR: %s commits past main", n)
+	}
+	if n := loggedTimes(d, b, "branch moved onto main, the MR still goes into fix/5"); n != 1 {
+		t.Fatalf("said %d times: %+v", n, d.Logs(b))
+	}
+	f.mu.Lock()
+	f.retargetFails = false
+	f.mu.Unlock()
 	d.Restack(ctx, time.Now())
 	if r := mustGet(t, d, b); r.Stack != nil {
 		t.Fatalf("still stacked: %+v, logs %+v", r.Stack, d.Logs(b))
