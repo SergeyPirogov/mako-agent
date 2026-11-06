@@ -954,6 +954,9 @@ async function paintAdvice(box, wrap) {
   for (const a of list) {
     const td = a.phase && wrap.querySelector(`select[data-p="${a.phase}"][data-s="${a.size}"]`)?.closest("td");
     if (!td) continue;
+    // The cell holds the suggested route already (put in, not saved yet): nothing to mark or offer.
+    const holds = a.set && ["model", "effort"].every((k) => td.querySelector(`select[data-k="${k}"]`)?.value === a.set[k]);
+    if (holds) continue;
     td.classList.add("advise", a.kind);
     td.title = a.title;
     if (!usable(a.set, routeChoices)) continue;
@@ -1547,6 +1550,8 @@ $("save").onclick = async () => {
     showProblems(r.problems);
     $("msg").className = "msg ok";
     $("msg").textContent = r.problems?.length ? t("s.savedProblems") : t("s.saved");
+    // The suggestions are told against the saved table: asked again, one just followed is gone.
+    routeAdvice = null;
     render();
   } catch (e) {
     $("msg").className = "msg bad";
