@@ -85,6 +85,9 @@ func chatInTheChat(t *testing.T, turn bool) (d *Dispatcher, wt string, s *chat.S
 	t.Cleanup(func() {
 		d.StopTerminal("t#1")
 		s.Wait()
+		if c := d.Chats.Get("t#1"); c != nil {
+			c.Wait() // the chat a switch started: it saves the task when it exits
+		}
 		if ts := d.Sessions.Get("t#1"); ts != nil {
 			ts.Stop()
 			ts.Wait()
