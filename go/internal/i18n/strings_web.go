@@ -295,7 +295,7 @@ var webStrings = map[string]string{
 	"s.o.checkAttempts":        "Check attempts before «needs attention»",
 	"s.o.checkAttemptsHint":    "This many times in a row the agent gets a failed check's output to fix it. Then the MR is not opened, the task waits for you",
 	"s.o.autoFix":              "MR autofix",
-	"s.o.autoFixHint":          "When the agent ends its turn, Mako asks it by itself to resolve conflicts, fix a failed CI and new review comments, like the ✨ buttons. Each problem once, up to 5 requests a task",
+	"s.o.autoFixHint":          "When the agent ends its turn, Mako asks it by itself to resolve conflicts, fix a failed CI, new review comments and the reviewer agent's remarks, like the ✨ buttons. Each problem once, up to 5 requests a task",
 	"s.o.confirmPush":          "Confirm pushes",
 	"s.o.confirmPushHint":      "While tasks are taken or MRs are fixed by themselves (AutoTake, MR autofix), Mako asks you before a critical push: to a branch other than the task's, deleting a branch, or in a task with text by someone outside the project. Pushes to the task's own branch and new MRs go by themselves. «Always allow» does not skip this question; turning this off does",
 	"s.o.autoRebase":           "Update the branch from the base one",

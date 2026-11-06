@@ -16,7 +16,8 @@ import (
 // Autofix: with Terminal.AutoFix, the agent in Mako is asked by itself to fix what its MR in review needs: the
 // conflicts, a failed CI, new review comments; the same requests as the MR card's ✨ buttons. Each problem is
 // asked about once (a new pipeline or a new comment is a new problem), one request a round, only when the agent
-// has finished its turn: an agent that closed while idle is resumed with the request.
+// has finished its turn: an agent that closed while idle is resumed with the request. The reviewer agent's remarks
+// (AutoFixReview) go the same way.
 
 // autoFixLimit: requests a task gets by itself at most, so an MR the agent cannot fix does not burn the budget.
 const autoFixLimit = 5
@@ -70,6 +71,38 @@ func (d *Dispatcher) AutoFix(ctx context.Context, now time.Time) {
 		if r.AutoFixes+1 >= autoFixLimit {
 			d.Log(r.ID, fmt.Sprintf("MR autofix: this is request #%d, from here on only via the ✨ buttons", autoFixLimit))
 		}
+	}
+}
+
+// AutoFixReview hands the agents the remarks of the reviewer agent's last round, as the board's «Виправити» does:
+// only a round with remarks that block the merge (state «notes»), not the suggestions of a clean one (passing
+// those on is the person's choice), and not a round the rounds ran out on (Escalated: a person decides). The same
+// budget as AutoFix: autoFixLimit requests a task.
+func (d *Dispatcher) AutoFixReview(now time.Time) {
+	if !d.Config().Terminal.AutoFix || d.LimitHold() != nil || d.AuthHold() != nil {
+		return
+	}
+	for _, r := range d.Store.All() {
+		if !reviewable(r) || r.AutoFixes >= autoFixLimit || lastReview(r).Escalated || d.ReviewStep(r) != "notes" {
+			continue
+		}
+		commit := lastReview(r).Commit
+		if err := d.FixReview(r.ID); err != nil {
+			// Said once a round: the same failure is not repeated every tick; the «Виправити» button still is there.
+			d.mu.Lock()
+			logged := d.autoFixReviewFailed[r.ID] == commit
+			d.autoFixReviewFailed[r.ID] = commit
+			d.mu.Unlock()
+			if !logged {
+				d.Log(r.ID, "reviewer remarks not sent by itself: "+err.Error())
+			}
+			continue
+		}
+		d.mu.Lock()
+		delete(d.autoFixReviewFailed, r.ID) // a later failure is said again
+		d.mu.Unlock()
+		d.Store.Update(r.ID, func(rec *core.Record) { rec.AutoFixes++ })
+		d.Log(r.ID, "autofix: reviewer remarks sent to the agent")
 	}
 }
 

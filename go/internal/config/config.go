@@ -221,7 +221,8 @@ type Terminal struct {
 	SetupCommand string
 	// View: how the agent is shown, "chat" (default) or "terminal".
 	View string
-	// AutoFix: the agent is asked by itself to fix its MR's failed CI, conflicts and new review comments.
+	// AutoFix: the agent is asked by itself to fix its MR's failed CI, conflicts, new review comments and the
+	// remarks of the reviewer agent.
 	AutoFix bool
 	// NoPushConfirm: while tasks are taken (AutoTake) or MRs fixed (AutoFix) by themselves, even a critical push
 	// (beyond the task's branch, or in a task with an outsider's text) goes without asking you («confirmPush»:

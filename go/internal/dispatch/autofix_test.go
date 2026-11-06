@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,110 @@ func TestAutoFix(t *testing.T) {
 	}
 	if !logged {
 		t.Fatalf("logs %+v", d.Logs(id))
+	}
+}
+
+// AutoFixReview: the reviewer agent's remarks go to the agent by themselves, once, only with Terminal.AutoFix, only
+// while the agent is free, not past the rounds a person decides on, and not the suggestions of a clean round.
+func TestAutoFixReview(t *testing.T) {
+	d, id, wt, idle, _ := numberedReview(t, "", func([]core.Remark) string { return "" })
+	// received: how many times the agent got the reviewer's remark.
+	received := func() int {
+		b, _ := os.ReadFile(filepath.Join(wt, "said.json"))
+		return strings.Count(string(b), "порожній кошик")
+	}
+	tick := func() { d.AutoFixReview(time.Now()) }
+	setRound := func(f func(*core.AgentReview)) {
+		d.Store.Update(id, func(r *core.Record) { r.AgentReviews = withLast(r.AgentReviews, f) })
+	}
+	untouched := func(what string) {
+		t.Helper()
+		idle()
+		if r, _ := d.Store.Get(id); lastReview(r).Sent || r.AutoFixes != 0 || received() != 0 {
+			t.Fatalf("%s: sent %v, fixes %d, the agent got %d", what, lastReview(r).Sent, r.AutoFixes, received())
+		}
+	}
+
+	tick()
+	untouched("AutoFix off")
+	d.Cfg.Terminal.AutoFix = true
+
+	d.Store.Update(id, func(r *core.Record) { r.AutoFixes = autoFixLimit })
+	tick()
+	d.Store.Update(id, func(r *core.Record) { r.AutoFixes = 0 })
+	untouched("past the limit")
+
+	setRound(func(a *core.AgentReview) { a.Escalated = true })
+	tick()
+	setRound(func(a *core.AgentReview) { a.Escalated = false })
+	untouched("a round left to a person")
+
+	setRound(func(a *core.AgentReview) { a.State = "clean" }) // its remarks are suggestions now
+	tick()
+	setRound(func(a *core.AgentReview) { a.State = "notes" })
+	untouched("the suggestions of a clean round")
+
+	_ = d.Chats.Get(id).Send("повільно")
+	tick()
+	untouched("the agent works")
+
+	// Free: sent once.
+	tick()
+	r, _ := d.Store.Get(id)
+	if !lastReview(r).Sent || r.AutoFixes != 1 {
+		t.Fatalf("not sent: %+v fixes %d", lastReview(r), r.AutoFixes)
+	}
+	idle()
+	if received() != 1 {
+		t.Fatalf("the agent got the remarks %d times", received())
+	}
+	tick()
+	idle()
+	if r, _ = d.Store.Get(id); r.AutoFixes != 1 || received() != 1 {
+		t.Fatalf("sent twice: fixes %d, the agent got %d", r.AutoFixes, received())
+	}
+	if !slices.ContainsFunc(d.Logs(id), func(l LogLine) bool { return l.Text == "autofix: reviewer remarks sent to the agent" }) {
+		t.Fatalf("journal %+v", d.Logs(id))
+	}
+}
+
+// A failed send is said once a round, is not counted, and is tried again; after it went through, a later failure is
+// said again.
+func TestAutoFixReviewFailure(t *testing.T) {
+	d, id, wt, idle, _ := numberedReview(t, "", func([]core.Remark) string { return "" })
+	d.Cfg.Terminal.AutoFix = true
+	failures := func() int {
+		n := 0
+		for _, l := range d.Logs(id) {
+			if strings.HasPrefix(l.Text, "reviewer remarks not sent by itself") {
+				n++
+			}
+		}
+		return n
+	}
+	gone := wt + ".gone"
+	if err := os.Rename(wt, gone); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		d.AutoFixReview(time.Now())
+	}
+	r, _ := d.Store.Get(id)
+	if failures() != 1 || r.AutoFixes != 0 || lastReview(r).Sent {
+		t.Fatalf("failures %d, fixes %d, round %+v", failures(), r.AutoFixes, lastReview(r))
+	}
+	if err := os.Rename(gone, wt); err != nil {
+		t.Fatal(err)
+	}
+	d.AutoFixReview(time.Now())
+	idle()
+	if r, _ = d.Store.Get(id); !lastReview(r).Sent || r.AutoFixes != 1 {
+		t.Fatalf("not sent after the worktree came back: %+v fixes %d", lastReview(r), r.AutoFixes)
+	}
+	d.mu.Lock()
+	left := len(d.autoFixReviewFailed)
+	d.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("the failure is still remembered: %d", left)
 	}
 }
