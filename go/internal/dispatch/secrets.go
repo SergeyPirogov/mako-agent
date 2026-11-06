@@ -103,8 +103,8 @@ func (d *Dispatcher) GuardPush(ctx context.Context, id string, hook []byte) map[
 		return hookDecision("deny", secretsRequest(found))
 	}
 	// Unattended (AutoTake, AutoFix): what a task's text or an MR's comment talked the agent into stays on this
-	// machine until you let it out.
-	if unattended(d.Config()) {
+	// machine until you let it out, unless you turned that off (confirmPush: false).
+	if cfg := d.Config(); unattended(cfg) && !cfg.Terminal.NoPushConfirm {
 		return hookDecision("ask", unattendedPush)
 	}
 	return nil
@@ -132,7 +132,8 @@ func (d *Dispatcher) mrBy(r core.Record) string {
 }
 
 // unattendedPush: why the guard asks you about a push or a new MR while tasks go to work by themselves.
-const unattendedPush = "Mako asks a human to confirm pushes and new merge requests while tasks are taken (AutoTake) or MRs are fixed (AutoFix) automatically."
+const unattendedPush = "Mako asks a human to confirm pushes and new merge requests while tasks are taken (AutoTake) or MRs are fixed (AutoFix) automatically. " +
+	"«Always allow» does not change that: turn off «Confirm pushes» in Settings → Agent."
 
 // hookDecision: Claude Code's PreToolUse hook output with the decision ("deny", "ask") and its reason.
 func hookDecision(decision, reason string) map[string]any {

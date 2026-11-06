@@ -68,6 +68,7 @@
       "setupCommand": "",
       "view": "chat",
       "autoFix": false,
+      "confirmPush": true,
       "autoRebase": "rebase",
       "rebaseEveryMin": 30,
       "planFirst": "never",

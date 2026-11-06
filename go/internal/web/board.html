@@ -5402,7 +5402,7 @@ function chatItem(it, i, v) {
       const always = picks ? "Always allow selected" : !sug ? "" : sug.type === "addRules" ? `Allow ${(sug.rules ?? []).map((r) => r.ruleContent || r.toolName).join(", ")}`
         : sug.type === "setMode" && sug.mode === "acceptEdits" ? "Allow file edits" : "Always allow";
       return `<div class="perm"><div class="perm-h"><b>The agent asks for permission</b><span class="muted">· ${esc(it.tool)}</span></div>
-        <code class="perm-cmd">${esc(arg)}</code>${picks}<div class="perm-warn" hidden></div>
+        <code class="perm-cmd">${esc(arg)}</code>${permWhy(it)}${picks}<div class="perm-warn" hidden></div>
         <div class="perm-btns"><button type="button" class="primary" data-permit="${esc(it.id)}" data-d="allow">Allow</button>
           ${always ? `<button type="button" data-permit="${esc(it.id)}" data-d="always" title="${esc(always)}">${esc(always.length > 48 ? always.slice(0, 47) + "…" : always)}</button>` : ""}
           <button type="button" class="danger" data-permit="${esc(it.id)}" data-d="deny">No</button></div></div>`;
@@ -5548,6 +5548,9 @@ document.addEventListener("input", permRuleInput);
 document.addEventListener("change", permRuleInput);
 // perm-rules:end
 const dockWarn = (v, msg) => { const w = v.el.querySelector(".dock-warn"); if (w) { w.hidden = !msg; w.textContent = msg ? `⚠ ${msg}` : ""; } };
+// Why a hook asks about the call (it.reason, e.g. Mako's push guard): it asks again whatever the rules say, so the
+// request has no «Always allow».
+const permWhy = (it) => it.reason ? `<div class="perm-why">${esc(it.reason)}</div>` : "";
 // «Always allow» names the rule Claude suggests keeping.
 function alwaysLabel(it) {
   const sug = Array.isArray(it.suggestions) ? it.suggestions[0] : null;
@@ -5601,7 +5604,7 @@ function drawDock(v, it) {
   }
   const picks = permRulesHTML(it), arg = permArg(it.input), always = picks ? "Always allow selected" : alwaysLabel(it);
   d.innerHTML = `<div class="dock-in"><div class="dock-h"><span class="dock-ic" aria-hidden="true">!</span><b>The agent asks for permission</b><span class="muted">· ${esc(it.tool)}</span>${wait}</div>
-    <code class="perm-cmd">${esc(arg)}</code>${picks}${warn}
+    <code class="perm-cmd">${esc(arg)}</code>${permWhy(it)}${picks}${warn}
     <div class="dock-row">${instead}<span class="spacer"></span>
       <button type="button" class="danger" data-permit="${esc(it.id)}" data-d="deny">No</button>
       ${always ? `<button type="button" data-permit="${esc(it.id)}" data-d="always" title="${esc(always)}">${esc(always.length > 56 ? always.slice(0, 55) + "…" : always)}</button>` : ""}
