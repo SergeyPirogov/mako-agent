@@ -91,14 +91,38 @@ type jiraIssue struct {
 		Assignee *struct {
 			AccountID string `json:"accountId"`
 		} `json:"assignee"`
-		Reporter *jiraUser    `json:"reporter"`
-		Comment  jiraComments `json:"comment"`
-		Status   struct {
-			StatusCategory struct {
-				Key string `json:"key"`
-			} `json:"statusCategory"`
-		} `json:"status"`
+		Reporter   *jiraUser    `json:"reporter"`
+		Comment    jiraComments `json:"comment"`
+		Status     jiraStatus   `json:"status"`
+		IssueLinks []struct {
+			Type struct {
+				Inward string `json:"inward"`
+			} `json:"type"`
+			InwardIssue *struct {
+				Key    string `json:"key"`
+				Fields struct {
+					Status jiraStatus `json:"status"`
+				} `json:"fields"`
+			} `json:"inwardIssue"`
+		} `json:"issuelinks"`
 	} `json:"fields"`
+}
+
+type jiraStatus struct {
+	StatusCategory struct {
+		Key string `json:"key"`
+	} `json:"statusCategory"`
+}
+
+// blockedBy: the issues linked to this one as blocking it («is blocked by») that are not done yet.
+func (is jiraIssue) blockedBy() []string {
+	var keys []string
+	for _, l := range is.Fields.IssueLinks {
+		if in := l.InwardIssue; in != nil && strings.EqualFold(l.Type.Inward, "is blocked by") && in.Fields.Status.StatusCategory.Key != "done" {
+			keys = append(keys, in.Key)
+		}
+	}
+	return keys
 }
 
 // jiraComment: one comment, its text in Atlassian's document format.
@@ -149,7 +173,7 @@ func (u *jiraUser) member(me string, assignees []string) bool {
 const jiraMax = ListMax
 
 // jiraFields: what a task is made of.
-var jiraFields = []string{"summary", "updated", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter"}
+var jiraFields = []string{"summary", "updated", "description", "issuetype", "priority", "project", "comment", "labels", "components", "assignee", "reporter", "issuelinks"}
 
 // pages reads up to max issues of a query with the given fields, a page after a page by nextPageToken, and stops
 // after the page for which done says so (nil: reads to the end).
@@ -218,7 +242,7 @@ func (j *Jira) searchMemo(ctx context.Context, jql string, max int) ([]core.Task
 			ID: is.Key, Slug: is.Key, TrackerID: j.cfg.ID, Project: is.Fields.Project.Key,
 			Title: is.Fields.Summary, Description: strings.TrimSpace(adfToText(is.Fields.Description)),
 			URL: j.base + "/browse/" + is.Key, Labels: orEmpty(is.Fields.Labels), Components: []string{}, Comments: []core.Comment{},
-			ClosingRef: is.Key, Assignees: []string{},
+			ClosingRef: is.Key, Assignees: []string{}, BlockedBy: is.blockedBy(),
 		}
 		priority := "?"
 		if is.Fields.Priority != nil {

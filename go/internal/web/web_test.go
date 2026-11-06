@@ -238,6 +238,43 @@ func TestBoardOutlook(t *testing.T) {
 	}
 }
 
+// A task that waits for another tells the board what for, not the queue's reason: queued or still new.
+func TestBoardWaits(t *testing.T) {
+	store, _ := state.Open(t.TempDir())
+	store.Update("grp/app#1", func(r *core.Record) {
+		r.Status, r.Task = core.Done, core.Task{ID: "grp/app#1", Title: "a", Project: "grp/app", URL: "https://gl/1"}
+		r.PRURL, r.Branch = "https://gl/mr/1", "fix/1"
+	})
+	store.Update("grp/app#2", func(r *core.Record) {
+		r.Status, r.Task, r.After = core.Queued, core.Task{ID: "grp/app#2", Title: "b"}, []string{"grp/app#1"}
+	})
+	store.Update("grp/app#3", func(r *core.Record) {
+		r.Status, r.Task = core.Snoozed, core.Task{ID: "grp/app#3", Title: "c", BlockedBy: []string{"grp/app#9"}}
+	})
+	d := dispatch.New(&config.Config{StateDir: t.TempDir(), WipLimit: 1}, store, nil)
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+	res, _ := http.Get(srv.URL + "/api/state")
+	var st stateReply
+	json.NewDecoder(res.Body).Decode(&st)
+	got := map[string]*dispatch.Wait{}
+	for _, r := range st.Records {
+		got[r.ID] = r.Waits
+		if r.ID == "grp/app#2" && r.QueueWhy != "" {
+			t.Fatalf("queueWhy %q for a task waiting for another", r.QueueWhy)
+		}
+	}
+	if w := got["grp/app#2"]; w == nil || w.On != "grp/app#1" || w.Why != "merge" || w.URL != "https://gl/1" {
+		t.Fatalf("queued waits %+v", w)
+	}
+	if w := got["grp/app#3"]; w == nil || w.On != "grp/app#9" || w.Why != "open" {
+		t.Fatalf("new waits %+v", w)
+	}
+	if got["grp/app#1"] != nil {
+		t.Fatalf("a task in review waits %+v", got["grp/app#1"])
+	}
+}
+
 // A queued task tells the board why it waits; the board has a «запускаю» state for a task being started.
 func TestBoardQueueWhy(t *testing.T) {
 	store, _ := state.Open(t.TempDir())

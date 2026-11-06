@@ -411,6 +411,15 @@ func (g *GitHub) DescribeReview(ctx context.Context, reviewURL, title, descripti
 	return g.do(ctx, "PATCH", "/repos/"+m[1]+"/pulls/"+m[2], map[string]any{"title": title, "body": description}, nil)
 }
 
+// Retarget points the PR into base.
+func (g *GitHub) Retarget(ctx context.Context, reviewURL, base string) error {
+	m := prURL.FindStringSubmatch(reviewURL)
+	if m == nil {
+		return fmt.Errorf("not a GitHub PR: %s", reviewURL)
+	}
+	return g.do(ctx, "PATCH", "/repos/"+m[1]+"/pulls/"+m[2], map[string]any{"base": base}, nil)
+}
+
 func (g *GitHub) OpenReview(ctx context.Context, repo, branch, base, title, description string) (*Review, error) {
 	var p ghPull
 	body := map[string]any{"title": title, "head": branch, "base": base, "body": description}

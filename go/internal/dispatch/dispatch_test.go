@@ -41,6 +41,7 @@ type fakeGitLab struct {
 	trace     string // every CI job's log
 	// mergeRefused: the host refuses to merge the MR (a rule of the project, a race with another merge).
 	mergeRefused bool
+	links        map[int][]map[string]any // each issue's links, as GitLab lists them
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +104,12 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch {
+		case strings.HasSuffix(rest, "/links") && r.Method == "GET":
+			list := []any{}
+			for _, l := range f.links[iid] {
+				list = append(list, l)
+			}
+			reply(list)
 		case strings.HasSuffix(rest, "/notes") && r.Method == "GET" && f.notesDown:
 			w.WriteHeader(502)
 			reply(map[string]string{"message": "502 Bad Gateway"})
@@ -174,6 +181,8 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				mr["state"] = "merged"
 			} else if ch["state_event"] == "close" {
 				mr["state"] = "closed"
+			} else if b, ok := ch["target_branch"]; ok {
+				mr["target_branch"] = b
 			} else {
 				mr["title"], mr["description"] = ch["title"], ch["description"]
 			}

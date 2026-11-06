@@ -795,6 +795,9 @@ func (d *Dispatcher) workOf(id string) (worktree, baseBranch string, err error) 
 	if !ok || r.Worktree == "" || !exists(r.Worktree) {
 		return "", "", fmt.Errorf("the task has no worktree")
 	}
+	if r.Stack != nil && r.Stack.Branch != "" {
+		return r.Worktree, r.Stack.Branch, nil
+	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
 		if repo, err := d.route(t, r.Task); err == nil {
 			if repo.BaseBranch != "" {

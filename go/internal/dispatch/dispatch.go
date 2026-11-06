@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -356,6 +357,7 @@ func (d *Dispatcher) Tick(ctx context.Context) {
 	step("gates", d.CheckGates)
 	step("handoffs", func() { d.CheckHandoffs(ctx) })
 	step("merges", func() { d.CheckMerges(ctx) })
+	step("restack", func() { d.Restack(ctx, time.Now()) })
 	step("self-check lists", func() { d.SyncSelfLists(ctx) })
 	step("stages", func() { d.TrackStages(ctx, time.Now()) })
 	step("rebase", func() { d.AutoRebase(ctx, time.Now()) })
@@ -471,6 +473,9 @@ func withComments(fresh, had core.Task) core.Task {
 	if fresh.CommentsUnread {
 		fresh.Comments = had.Comments
 	}
+	if fresh.LinksUnread {
+		fresh.BlockedBy = had.BlockedBy
+	}
 	return fresh
 }
 
@@ -503,6 +508,9 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 		if r.AutoSkip != "" {
 			d.autoTake(ctx, task.ID)
 		}
+	case r.Status == core.Queued && !task.LinksUnread && !slices.Equal(r.Task.BlockedBy, task.BlockedBy):
+		// What blocks a task in the queue is all that is read of it again: the rest is what it was taken with.
+		d.Store.Update(task.ID, func(r *core.Record) { r.Task.BlockedBy = task.BlockedBy })
 	}
 }
 
@@ -607,7 +615,9 @@ func (d *Dispatcher) take(ctx context.Context, id, said string) {
 	// Not started at once: it really waits, and the journal says for what.
 	if d.Starting(id) == nil {
 		if r, _ := d.Store.Get(id); r.Status == core.Queued {
-			if why := d.QueueReason(); why != "" {
+			if w := d.WaitsFor(r); w != nil {
+				d.Log(id, "in the queue: "+w.String())
+			} else if why := d.QueueReason(); why != "" {
 				d.Log(id, "in the queue: "+why)
 			}
 		}
@@ -633,6 +643,11 @@ func (d *Dispatcher) Push(ctx context.Context, id string) {
 	r, ok := d.Store.Get(id)
 	if !ok || r.Status != core.Queued || d.starting[id] {
 		d.mu.Unlock()
+		return
+	}
+	if w := d.WaitsFor(r); w != nil {
+		d.mu.Unlock()
+		d.Log(id, "not started now: "+w.String())
 		return
 	}
 	sctx := d.begin(ctx, id)
@@ -684,8 +699,20 @@ func (d *Dispatcher) release(ctx context.Context, id string) {
 		}
 	}
 	start := map[string]context.Context{}
-	for _, r := range d.Store.All() {
-		if r.Status == core.Queued && !d.starting[r.ID] && (d.Config().WipLimit <= 0 || active < d.Config().WipLimit) {
+	all := d.Store.All()
+	byID := map[string]core.Record{}
+	for _, r := range all {
+		byID[r.ID] = r
+	}
+	get := func(id string) (core.Record, bool) { r, ok := byID[id]; return r, ok }
+	for _, r := range all {
+		if r.Status != core.Queued || d.starting[r.ID] {
+			continue
+		}
+		if w, _ := waitingFor(r, get); w != nil {
+			continue // waits for another task: no place in the WIP limit until it may start
+		}
+		if d.Config().WipLimit <= 0 || active < d.Config().WipLimit {
 			start[r.ID] = d.begin(ctx, r.ID)
 			active++
 		}
@@ -762,11 +789,22 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 		return
 	}
 	logf := func(s string) { d.Log(id, s) }
+	if w, _ := waitingFor(r, d.Store.Get); w != nil {
+		d.Log(id, "not started: "+w.String())
+		return // stays in the queue: release starts it once what it waits for is done
+	}
 	d.startPlan(id, executor, repo.BaseBranch, executor == terminalExecutor && setupOf(repo, d.Config().Terminal, repo.Path) != "")
 	// The task as it is now, before anything is cloned or recorded: one written in Russian goes no further.
 	d.step(id, "tracker", "updating the task in the tracker")
 	if task, ok := d.refresh(ctx, t, id); ok {
 		r.Task = task
+	}
+	// The tracker may have linked a blocker meanwhile.
+	w, stack := waitingFor(r, d.Store.Get)
+	if w != nil {
+		d.endSteps(id)
+		d.Log(id, "not started: "+w.String())
+		return
 	}
 	if i18n.IsRussian(r.Task.Title + "\n" + r.Task.Description) {
 		d.endSteps(id)
@@ -787,9 +825,17 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 	}
 	attempt := max(r.Attempt, 1)
 	branch := gitx.BranchName(repo.BranchPattern, r.Task, attempt)
+	var stacked *core.Stack
+	if stack != nil {
+		repo, stacked = d.stackRepo(ctx, id, repo, *stack)
+		d.Log(id, stackNote(stacked))
+	}
 	d.Store.Update(id, func(r *core.Record) {
 		r.Repo, r.Executor, r.BranchName, r.StartedAt, r.Attempt = repo.Name, executor, branch, now(), attempt
 		r.AgentModel = "" // this attempt's agent names its own
+		if stacked != nil {
+			r.Stack = stacked
+		}
 	})
 
 	if t.Config().AssignOnTake {
@@ -1056,7 +1102,7 @@ func (d *Dispatcher) CheckHandoffs(ctx context.Context) {
 			d.mu.Unlock()
 		}
 		d.recordContext(r.ID) // an agent in Orca or a terminal tells its context only in its transcript
-		d.summarize(ctx, r, repo.BaseBranch, review.URL)
+		d.summarize(ctx, r, taskBase(r, repo), review.URL)
 		if d.startAssess(r.ID) == nil {
 			d.assess(ctx, r.ID)
 		}
@@ -1087,7 +1133,7 @@ func (d *Dispatcher) describeIfBare(ctx context.Context, host trackers.CodeHost,
 	if len(body) >= 120 || (len(body) >= 40 && structured.MatchString(body)) {
 		return nil
 	}
-	newTitle, summary, err := writer.ReviewText(d.spending(ctx, r.ID, core.PhaseWork), r.Worktree, repo.BaseBranch, r.Task)
+	newTitle, summary, err := writer.ReviewText(d.spending(ctx, r.ID, core.PhaseWork), r.Worktree, taskBase(r, repo), r.Task)
 	if err != nil || summary == "" {
 		return err
 	}

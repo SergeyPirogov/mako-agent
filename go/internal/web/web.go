@@ -157,6 +157,8 @@ type recordView struct {
 	// not being started waits.
 	Starting *dispatch.StartProgress `json:"starting,omitempty"`
 	QueueWhy string                  `json:"queueWhy,omitempty"`
+	// Waits: the task it waits for before it may start (a blocker in the tracker, a part of a split before it).
+	Waits *dispatch.Wait `json:"waits,omitempty"`
 	// WillPlan: the queued task's agent starts with a plan (dispatch.WillPlan): the card puts the plan next.
 	WillPlan bool `json:"-"`
 	// Card: the card's main action and its stages for the task's state.
@@ -304,9 +306,12 @@ func (s *Server) Handler() http.Handler {
 				v.CIWait = s.D.CIWait(rec)
 				v.MergeReady = s.D.MergeReady(rec)
 			}
+			if v.Column == "new" || rec.Status == core.Queued {
+				v.Waits = s.D.WaitsFor(rec)
+			}
 			if rec.Status == core.Queued {
 				v.WillPlan = s.D.WillPlan(rec)
-				if v.Starting = s.D.Starting(rec.ID); v.Starting == nil {
+				if v.Starting = s.D.Starting(rec.ID); v.Starting == nil && v.Waits == nil {
 					v.QueueWhy = queueWhy
 				}
 			}

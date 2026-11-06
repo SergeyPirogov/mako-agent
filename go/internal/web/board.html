@@ -282,9 +282,18 @@ const cardStatus = (r) => {
     return ["ready to merge", "ok", "CI passed, no conflicts or open threads: the MR can be merged"];
   if (st === "review") return !r.agentReviews?.length && adviseReview(r) ? ["MR in review · AI review advised", "warn", ADVISE + (r.assessment.review?.why ? `: ${r.assessment.review.why}` : "")] : ["MR in review", ""];
   if (st === "starting") return [LABEL[st], "", `Starting: ${startStep(r)?.label ?? "preparing the start"}`];
+  if (r.waits && (st === "queued" || r.column === "new")) return [t("b.waits.label"), "", waitsText(r.waits)];
   if (st === "queued") return [LABEL[st], "", r.queueWhy ? `Queued:  ${r.queueWhy}` : ""];
   return [LABEL[st] ?? st, st === "ag-waiting" ? "warn" : st === "ag-stopped" ? "err" : ""];
 };
+// What a task waits for before it starts (dispatch.Wait).
+const waitsText = (w) => ({ merge: t("b.waits.merge", { id: w.on }), mr: t("b.waits.mr", { id: w.on }), closed: t("b.waits.closed", { id: w.on }),
+  open: t("b.waits.open", { id: w.on }) })[w.why] ?? w.on;
+const waitsLink = (w) => w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(waitsText(w))}</a>` : esc(waitsText(w));
+// The card's notice of it: what the task waits for and what then.
+const T_WAITS = { queued: () => t("b.waits.queued"), new: () => t("b.waits.new") };
+const waitsNote = (w, then) => `<div class="notice later-note waits">${ICON.clock}<span>${waitsLink(w)}. ${esc(then)}</span></div>`;
+const stackNote = (s) => `<div class="notice later-note stack">${esc(t("b.stack.note", { id: s.on, branch: s.branch }))}</div>`;
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
 // The start of a task taken: the steps done (with their time), the one going on, and those still to come.
 const START_STEPS = { tracker: "updating the task in the tracker", main: "updating the base branch", worktree: "creating the worktree", setup: "setup",
@@ -4467,7 +4476,10 @@ function renderDetail() {
   workStarted = started;
   const notices = `
     ${r.status === "queued" && r.starting ? `<!--st--><div id="starting-slot">${startingHTML(r)}</div><!--/st-->` : ""}
-    ${r.status === "queued" && !r.starting ? `<div class="notice later-note">${ICON.clock}Queued${r.queueWhy ? `: ${esc(r.queueWhy)}` : ""}. Mako will start it on its own</div>` : ""}
+    ${r.status === "queued" && !r.starting && r.waits ? waitsNote(r.waits, T_WAITS.queued()) : ""}
+    ${r.status === "queued" && !r.starting && !r.waits ? `<div class="notice later-note">${ICON.clock}Queued${r.queueWhy ? `: ${esc(r.queueWhy)}` : ""}. Mako will start it on its own</div>` : ""}
+    ${r.column === "new" && r.waits ? waitsNote(r.waits, T_WAITS.new()) : ""}
+    ${r.stack && !r.reviewState ? stackNote(r.stack) : ""}
     ${r.column === "new" && r.postponed ? `<div class="notice later-note">${ICON.clock}Postponed ${untilText(r.snoozedUntil)}: Mako will remind you about the task then</div>` : ""}
     ${r.column === "new" && r.autoSkip ? `<div class="notice auto-skip">Not taken automatically: ${esc(r.autoSkip)}. Take it with the button, or Mako will take it on its own once the estimate fits the settings</div>` : ""}
     ${r.error ? whyFailedHTML(r, logs.length > 0) : ""}

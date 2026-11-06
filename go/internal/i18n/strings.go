@@ -172,6 +172,7 @@ var goStrings = map[string][2]string{
 	"agent.pushForce":         {"push with --force-with-lease", "запуш з --force-with-lease"},
 	"agent.pushPlain":         {"push", "запуш"},
 	"agent.howRebase":         {"Rebase the branch %s onto origin/%s", "Зроби rebase гілки %s на origin/%s"},
+	"agent.howOnto":           {"Move only the branch's own commits, those after %[2]s, onto origin/%[1]s: git rebase --onto origin/%[1]s %[2]s", "Перенеси лише власні коміти гілки, ті, що після %[2]s, на origin/%[1]s: git rebase --onto origin/%[1]s %[2]s"},
 	"agent.howMerge":          {"Merge origin/%s into the branch %s", "Змерджи origin/%s у гілку %s"},
 	"agent.conflictBehind":    {"The branch %s of the MR %s is behind %s and conflicts with it in the files: %s. git fetch origin %s. %s, resolve the conflicts, run the tests and the project's checks, and %s.", "Гілка %s MR %s відстала від %s і конфліктує з нею у файлах: %s. git fetch origin %s. %s, розвʼяжи конфлікти, прожени тести й перевірки проєкту і %s."},
 	"agent.reviewCommit":      {"commit", "закоміть"},
