@@ -737,9 +737,10 @@ textarea.qa:focus { outline: none; border-color: var(--accent); }
 .mr-advice.risk.high > .mi, .mr-advice.risk.high .mr-adv > b { color: var(--warn); }
 .mr-advice.risk.block > .mi, .mr-advice.risk.block .mr-adv > b { color: var(--err); }
 .risk-sigs { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 18px; }
-.risk-s { display: flex; gap: 6px; align-items: flex-start; }
+/* The level pill sits in the line: the text wraps under it, at the full width, not in a narrow column beside it. */
+.risk-s { display: block; }
 .risk-s .mono-list { display: block; font-size: 11.5px; }
-.risk-l { flex: none; min-width: 48px; text-align: center; font-size: 11px; font-weight: 600; border-radius: 9px; padding: 0 6px; color: var(--mute); background: var(--hover); }
+.risk-l { display: inline-block; margin-right: 6px; vertical-align: 1px; min-width: 48px; text-align: center; font-size: 11px; line-height: 16px; font-weight: 600; border-radius: 9px; padding: 0 6px; color: var(--mute); background: var(--hover); }
 .risk-l.medium { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
 .risk-l.high { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, var(--card)); }
 .risk-l.block { color: var(--err); background: color-mix(in srgb, var(--err) 12%, var(--card)); }
