@@ -98,6 +98,9 @@ func (d *Dispatcher) AutoFixReview(now time.Time) {
 			}
 			continue
 		}
+		d.mu.Lock()
+		delete(d.autoFixReviewFailed, r.ID) // a later failure is said again
+		d.mu.Unlock()
 		d.Store.Update(r.ID, func(rec *core.Record) { rec.AutoFixes++ })
 		d.Log(r.ID, "autofix: reviewer remarks sent to the agent")
 	}
