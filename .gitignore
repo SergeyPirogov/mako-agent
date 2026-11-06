@@ -4,3 +4,4 @@ mako.config.json
 .mako/
 go/mako
 *.log
+.DS_Store
