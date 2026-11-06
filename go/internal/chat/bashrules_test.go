@@ -116,3 +116,47 @@ read more
 		})
 	}
 }
+
+// A hook's «ask» (Mako's push guard while tasks go by themselves) asks again whatever the rules say: the request
+// says why and offers no «Always allow», and «always» keeps no rule.
+func TestHookAskOffersNoAlwaysAllow(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "claude")
+	script := `#!/bin/sh
+read init
+read msg
+echo '{"type":"system","subtype":"init","session_id":"s-1"}'
+echo '{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"git add -A && git commit -m x && git push"},"decision_reason":" Mako asks a human to confirm pushes. ","decision_reason_type":"hook","decision_reason_hook_event":"PreToolUse","permission_suggestions":[{"type":"addRules","behavior":"allow","destination":"localSettings","rules":[{"toolName":"Bash","ruleContent":"git push:*"}]}]}}'
+read -r answer
+printf '%s\n' "$answer" > answer.json
+echo '{"type":"result","subtype":"success"}'
+read more
+`
+	os.WriteFile(bin, []byte(script), 0o755)
+	s := Start(Options{ID: "a#1", Worktree: dir, Command: bin, Prompt: "go"})
+	defer func() {
+		s.Stop()
+		eventually(t, func() bool { return !s.Running() }, func() string { return "agent still running" })
+	}()
+	eventually(t, func() bool { st, _, _ := s.State(); return st == "waiting" }, func() string { return fmt.Sprintf("%+v", s.Snapshot()) })
+	var it Item
+	for _, x := range s.Snapshot().Items {
+		if x.Kind == "permission" && x.ID == "r1" {
+			it = x
+		}
+	}
+	if it.Reason != "Mako asks a human to confirm pushes." || len(it.Suggestions) != 0 {
+		t.Fatalf("request %+v", it)
+	}
+	if got := s.AlwaysRules("r1"); got != nil {
+		t.Fatalf("always rules %q for a hook's ask", got)
+	}
+	if err := s.Permit("r1", "always", nil); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { b, _ := os.ReadFile(filepath.Join(dir, "answer.json")); return len(b) > 0 }, func() string { return "no answer" })
+	b, _ := os.ReadFile(filepath.Join(dir, "answer.json"))
+	if !strings.Contains(string(b), `"behavior":"allow"`) || strings.Contains(string(b), "updatedPermissions") {
+		t.Fatalf("answer %s", b)
+	}
+}

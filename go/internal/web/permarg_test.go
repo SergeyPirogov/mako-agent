@@ -36,3 +36,31 @@ eq(toolArg({ command: "a\nb" }), ": a", "a step's head: the first line");
 		t.Fatalf("%v\n%s", err, out)
 	}
 }
+
+// A request a hook asks about says why, escaped, in both of its views (the dock and the conversation); one without
+// a reason adds nothing.
+func TestBoardPermissionWhy(t *testing.T) {
+	src := string(board)
+	if n := strings.Count(src, "${permWhy(it)}"); n != 2 {
+		t.Fatalf("permWhy in %d permission views, want 2", n)
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	line := func(prefix string) string {
+		i := strings.Index(src, prefix)
+		if i < 0 {
+			t.Fatalf("board.html has no %q", prefix)
+		}
+		return src[i : i+strings.Index(src[i:], "\n")]
+	}
+	script := line("const esc = ") + "\n" + line("const permWhy = ") + `
+const eq = (got, want, what) => { if (got !== want) { console.log(what + ": got " + JSON.stringify(got) + ", want " + JSON.stringify(want)); process.exitCode = 1; } };
+eq(permWhy({ reason: "Mako asks <you>" }), '<div class="perm-why">Mako asks &lt;you&gt;</div>', "a reason");
+eq(permWhy({}), "", "no reason");
+`
+	if out, err := exec.Command(node, "-e", script).CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}

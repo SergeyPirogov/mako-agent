@@ -777,6 +777,7 @@ function renderOrca() {
     box.append(num(tm, "checkTimeoutSec", t("s.o.checkTimeout"), { placeholder: "600", hint: t("s.o.checkTimeoutHint") }));
     box.append(num(tm, "checkAttempts", t("s.o.checkAttempts"), { placeholder: "3", hint: t("s.o.checkAttemptsHint") }));
     box.append(check(tm, "autoFix", t("s.o.autoFix"), { hint: t("s.o.autoFixHint") }));
+    box.append(check(tm, "confirmPush", t("s.o.confirmPush"), { def: true, hint: t("s.o.confirmPushHint") }));
     box.append(select(tm, "autoRebase", t("s.o.autoRebase"), [["", t("s.no")], ["rebase", t("s.o.rebase")], ["merge", t("s.o.merge")]], { def: "", hint: t("s.o.autoRebaseHint") }));
     box.append(num(tm, "rebaseEveryMin", t("s.o.rebaseEvery"), { placeholder: "30" }));
   } else {

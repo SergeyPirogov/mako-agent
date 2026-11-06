@@ -140,7 +140,17 @@ func TestGuardPush(t *testing.T) {
 			t.Fatalf("secrets unattended: %v", a)
 		}
 		os.Remove(filepath.Join(wt, ".env"))
-		cfg.Notifications.AutoTake, cfg.Terminal.AutoFix = false, false
+		// «Confirm pushes» off: a clean push goes by the rules again; one with secrets is still refused.
+		cfg.Terminal.NoPushConfirm = true
+		if a := d.GuardPush(ctx, id, hookFor("git push -u origin feature/5")); a != nil {
+			t.Fatalf("push with confirmPush off: %v", a)
+		}
+		os.WriteFile(filepath.Join(wt, ".env"), []byte("DEBUG=1\n"), 0o644)
+		if a := d.GuardPush(ctx, id, hookFor("git push")); decision(a) != "deny" {
+			t.Fatalf("secrets with confirmPush off: %v", a)
+		}
+		os.Remove(filepath.Join(wt, ".env"))
+		cfg.Notifications.AutoTake, cfg.Terminal.AutoFix, cfg.Terminal.NoPushConfirm = false, false, false
 	}
 }
 
