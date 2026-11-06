@@ -297,7 +297,7 @@ var webStrings = map[string]string{
 	"s.o.autoFix":              "MR autofix",
 	"s.o.autoFixHint":          "When the agent ends its turn, Mako asks it by itself to resolve conflicts, fix a failed CI and new review comments, like the ✨ buttons. Each problem once, up to 5 requests a task",
 	"s.o.confirmPush":          "Confirm pushes",
-	"s.o.confirmPushHint":      "While tasks are taken or MRs are fixed by themselves (AutoTake, MR autofix), Mako asks you before the agent pushes or opens an MR: a task's text or a review comment could talk it into that. «Always allow» does not skip this question; turning this off does",
+	"s.o.confirmPushHint":      "While tasks are taken or MRs are fixed by themselves (AutoTake, MR autofix), Mako asks you before a critical push: to a branch other than the task's, deleting a branch, or in a task with text by someone outside the project. Pushes to the task's own branch and new MRs go by themselves. «Always allow» does not skip this question; turning this off does",
 	"s.o.autoRebase":           "Update the branch from the base one",
 	"s.o.rebase":               "rebase and push --force-with-lease",
 	"s.o.merge":                "merge the base into the branch and push",

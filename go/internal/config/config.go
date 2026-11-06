@@ -223,9 +223,9 @@ type Terminal struct {
 	View string
 	// AutoFix: the agent is asked by itself to fix its MR's failed CI, conflicts and new review comments.
 	AutoFix bool
-	// NoPushConfirm: while tasks are taken (AutoTake) or MRs fixed (AutoFix) by themselves, the agent's pushes and
-	// new MRs go without asking you («confirmPush»: false). Off by default: a task's text or an MR's comment could
-	// talk the agent into pushing, so Mako asks you first.
+	// NoPushConfirm: while tasks are taken (AutoTake) or MRs fixed (AutoFix) by themselves, even a critical push
+	// (beyond the task's branch, or in a task with an outsider's text) goes without asking you («confirmPush»:
+	// false). Off by default: such a push waits for you; the task's own branch and its MR never do.
 	NoPushConfirm bool
 	// AutoRebase: how Mako brings the branch of an MR in review up to its base branch by itself, "rebase" or
 	// "merge"; "" never. Conflicts go to the agent.
