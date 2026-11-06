@@ -42,7 +42,8 @@ eq(usable({ model: "—", effort: "high" }, rc) || usable({ model: "gpt", effort
 }
 
 // Settings → Models and effort, the table painted: each cell a suggestion is about is marked; the «Use …» button is
-// there only for a route the selects offer, and puts it in.
+// there only for a route the selects offer, and puts it in; a cell that holds the suggested route already is left
+// alone.
 func TestSettingsAdviceButtons(t *testing.T) {
 	runNodeScript(t, nodeEq+`const t = (k, v = {}) => k === "s.r.adviceUse" ? "Use " + v.route : k;
 const routeChoices = { models: ["haiku", "sonnet", "opus"], efforts: ["low", "medium", "high", "xhigh", "max"] };
@@ -51,9 +52,10 @@ const el = (tag) => ({ tag, kids: [], classes: new Set(), classList: { add(...c)
 const mk = (tag) => { const e = el(tag); e.classList.o = e; return e; };
 const document = { createElement: mk };
 const cells = {};
-for (const s of ["medium", "big"]) {
+for (const s of ["small", "medium", "big"]) {
   const td = mk("td"), sels = {};
   for (const k of ["model", "effort"]) sels[k] = { value: "", changed: 0, onchange() { this.changed++; }, closest: () => td };
+  if (s === "small") Object.assign(sels.model, { value: "opus" }), Object.assign(sels.effort, { value: "high" });
   td.querySelector = (q) => sels[q.match(/data-k="(\w+)"/)[1]];
   cells[s] = { td, sels };
 }
@@ -61,6 +63,7 @@ const wrap = { querySelector: (q) => cells[q.match(/data-s="(\w+)"/)?.[1]]?.sels
 const box = { isConnected: true, querySelector: () => null, insertBefore() {} };
 const fetch = async () => ({ json: async () => ({ ok: true, days: 30, advice: [
   { kind: "warn", title: "a", text: "", phase: "work", size: "medium", set: { model: "opus", effort: "high" } },
+  { kind: "warn", title: "c", text: "", phase: "work", size: "small", set: { model: "opus", effort: "high" } },
   { kind: "warn", title: "b", text: "", phase: "work", size: "big", set: { model: "—", effort: "high" } }] }) });
 `+cutBlock(t, settingsPage, "advice")+`
 (async () => {
@@ -69,6 +72,7 @@ const fetch = async () => ({ json: async () => ({ ok: true, days: 30, advice: [
   eq([cells.medium.td.classes.has("advise"), cells.big.td.classes.has("advise")], [true, true], "both cells marked");
   eq(btn("medium").map((b) => b.textContent), ["Use Opus · high"], "a button for a route the table offers");
   eq(btn("big").length, 0, "none for a model it does not");
+  eq([cells.small.td.classes.has("advise"), btn("small").length], [false, 0], "none for a cell that holds the route");
   btn("medium")[0].onclick();
   eq([cells.medium.sels.model.value, cells.medium.sels.effort.value, cells.medium.sels.model.changed], ["opus", "high", 1], "the button puts the route in");
   eq(cells.medium.td.classes.has("advised"), true, "the cell marked as changed");
