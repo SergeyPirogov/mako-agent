@@ -164,6 +164,17 @@ func (s *Server) settingsRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, map[string]any{"ok": true})
 	})
+	// Settings → Models and effort: how to spend less over the last 30 days, each with the cell of the routes'
+	// table it is about and the value to set.
+	mux.HandleFunc("GET /api/settings/advice", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.D.Config()
+		st := core.SummarizePriced(s.D.Store.All(), time.Now(), time.Now().AddDate(0, 0, -adviceDays), cfg.Prices)
+		advice := core.CostAdvice(st, s.D.RoutesNow(), cfg.RouteMode)
+		if advice == nil {
+			advice = []core.Advice{}
+		}
+		writeJSON(w, map[string]any{"ok": true, "days": adviceDays, "advice": advice})
+	})
 	// Settings → Permissions: what the agents asked you to allow, by the rule that would spare it, and the rules
 	// already allowed.
 	mux.HandleFunc("GET /api/settings/permissions", func(w http.ResponseWriter, r *http.Request) {
@@ -375,6 +386,9 @@ func (s *Server) changeConfig(ctx context.Context, change func(map[string]json.R
 	_, err = s.saveConfigLocked(ctx, out, nil)
 	return err
 }
+
+// adviceDays: the period the settings' advice on the routes looks at.
+const adviceDays = 30
 
 // allowTools adds rules to «Commands without asking» of Mako's terminal agents in the settings, each once.
 func (s *Server) allowTools(ctx context.Context, rules []string) error {

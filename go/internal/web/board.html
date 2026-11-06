@@ -3403,76 +3403,27 @@ function bySizeCard(groups) {
     `the size from the agent's estimate · ${n} estimated ${plural(n, "task", "tasks")}`, "flush");
 }
 
-// cost-advice:begin
-// How to spend less: what the period's tasks tell to change, the biggest saving first. Each: { kind: "warn" or
-// "tip", title, text, rows: [[label, figures, now]], save: $ the period would have saved, link }.
-// A route needs this many finished tasks before it is compared or judged.
-const ADVICE_MIN = 3;
-const routeName = (g) => [cap(g.model === "—" ? "default" : g.model), g.effort].filter(Boolean).join(" · ");
-const firstPass = (g) => (g.clean || 0) / g.ended;
-const passText = (g) => `first pass ${g.clean || 0} of ${g.ended} (${Math.round(firstPass(g) * 100)}%)`;
-function costAdvice(s, now) {
-  const out = [];
-  for (const size of ["small", "medium", "big"]) {
-    // Work: the phase with most of the money and a result to judge it by.
-    const gs = (s.routes || []).filter((g) => g.phase === "work" && g.size === size && g.ended >= ADVICE_MIN && g.priced);
-    const want = now?.work?.[size];
-    const cur = want && gs.find((g) => g.model === want.model && (g.effort || "") === (want.effort || ""));
-    if (!cur) continue; // the route in use has no record yet: nothing to compare it with
-    const where = `${cap(SIZE_NAMES[size])} tasks · Work`;
-    // Another route tried for this size that is better, or as good and cheaper.
-    let alt = null;
-    for (const g of gs) {
-      if (g === cur) continue;
-      const better = firstPass(g) - firstPass(cur) >= 0.1, worse = firstPass(cur) - firstPass(g) >= 0.1, cheaper = g.cost <= cur.cost * 0.8;
-      if (worse || !(better || cheaper)) continue;
-      if (!alt || g.cost < alt.cost) alt = { ...g, better, cheaper };
-    }
-    if (alt) {
-      const save = Math.max(0, (cur.cost - alt.cost) * cur.taken);
-      out.push({
-        kind: "warn", save, link: "routes",
-        title: `${where}: ${routeName(alt)} is ${alt.better && alt.cheaper ? "cheaper and does better" : alt.better ? "does better" : "cheaper, as good"}`,
-        rows: [[routeName(cur), `${money(cur.cost)} a task · ${passText(cur)}`, true], [routeName(alt), `${money(alt.cost)} a task · ${passText(alt)}`, false]],
-        text: save ? `On ${routeName(alt)} the ${cur.taken} tasks of this period would have cost about ${money(save)} less.` : "Rework costs more than the dearer route: fewer rounds, fewer runs.",
-      });
-    } else if (firstPass(cur) < 0.5) {
-      out.push({
-        kind: "warn", save: 0, link: "routes",
-        title: `${where}: ${routeName(cur)} gets ${Math.round(firstPass(cur) * 100)}% through first time`,
-        rows: [[routeName(cur), `${money(cur.cost)} a task · ${passText(cur)}`, true]],
-        text: "Each rework is another run: a level up, or smaller tasks, usually costs less than the rounds.",
-      });
-    }
-  }
-  // Big tasks: most of the money, the least first pass.
-  const sz = Object.fromEntries((s.bySize || []).filter((g) => g.priced).map((g) => [g.size, g]));
-  const spend = (g) => g ? g.cost * g.priced : 0, all = spend(sz.small) + spend(sz.medium) + spend(sz.big);
-  if (sz.big && sz.medium && all && spend(sz.big) / all >= 0.4 && sz.big.cost >= 3 * sz.medium.cost) {
-    out.push({
-      kind: "tip", save: 0,
-      title: `Big tasks take ${Math.round((spend(sz.big) / all) * 100)}% of the spend`,
-      rows: [["Big", `${money(sz.big.cost)} a task${sz.big.ended ? ` · first pass ${sz.big.clean} of ${sz.big.ended}` : ""}`, false],
-        ["Medium", `${money(sz.medium.cost)} a task${sz.medium.ended ? ` · first pass ${sz.medium.clean} of ${sz.medium.ended}` : ""}`, false]],
-      text: `A big task costs ${Math.round(sz.big.cost / sz.medium.cost)}× a medium one: split it into medium tasks before the hand-off.`,
-    });
-  }
-  return out.sort((a, b) => b.save - a.save);
+// How to spend less: what the period's stats tell to change (core.CostAdvice), the biggest saving first; one
+// about a route links to its cell in Settings → Models and effort.
+// advice:begin
+const ADVICE_ICON = { warn: "⚠", tip: "💡", wait: "⏳" };
+function adviceItemHTML(a) {
+  return `<div class="advice ${esc(a.kind)}"><div class="advice-h">${ADVICE_ICON[a.kind] ?? "•"} <b>${esc(a.title)}</b></div>`
+    + (a.rows?.length ? `<table class="advice-t">${a.rows.map((r) => `<tr><td>${esc(r.label)}${r.now ? ` <span class="muted">(now)</span>` : ""}</td><td>${esc(r.figures)}</td></tr>`).join("")}</table>` : "")
+    + `<div class="advice-x">${esc(a.text)}${a.phase ? ` <a href="/settings#routes">${a.set ? "Change it in Settings →" : "Settings →"}</a>` : ""}</div></div>`;
 }
-// cost-advice:end
-function adviceCard(s, now) {
-  const items = costAdvice(s, now);
-  const body = items.length ? items.map((a) => `<div class="advice ${a.kind}"><div class="advice-h">${a.kind === "warn" ? "⚠" : "💡"} <b>${esc(a.title)}</b></div>`
-    + (a.rows?.length ? `<table class="advice-t">${a.rows.map(([l, f, isNow]) => `<tr><td>${esc(l)}${isNow ? ` <span class="muted">(now)</span>` : ""}</td><td>${esc(f)}</td></tr>`).join("")}</table>` : "")
-    + `<div class="advice-x">${esc(a.text)}${a.link ? ` <a href="/settings#${a.link}">Settings → Routes</a>` : ""}</div></div>`).join("")
-    : `<div class="snote">Nothing to change yet: no route does worse than another tried for the same size, and no size takes the money out of proportion.</div>`;
+// advice:end
+function adviceCard(advice) {
+  const items = advice ?? [];
+  const body = items.length ? items.map(adviceItemHTML).join("")
+    : `<div class="snote">Nothing to change yet: no route does worse than another tried for the same size, and big tasks cost no more per line of work than medium ones.</div>`;
   return scard("How to spend less", `<div class="pad">${body}</div>`, items.length ? `${items.length} ${plural(items.length, "suggestion", "suggestions")}` : "", "advice-card flush");
 }
 
 function costTab(s) {
   const ph = s.phases || {};
   const around = (ph.estimate || 0) + (ph.review || 0) + (ph.assess || 0);
-  return `${adviceCard(s, data?.routesNow)}<div class="metrics">
+  return `${adviceCard(data?.costAdvice)}<div class="metrics">
       ${metric("Spent", s.cost ? money(s.cost) : "—", s.priced ? `${s.priced} ${plural(s.priced, "task", "tasks")} with a price` : "Mako's agent only", "What Mako's own agent spent on the plan and the work; an agent in Orca does not report it.")}
       ${metric("Per task", s.priced ? money(s.cost / s.priced) : "—", "average")}
       ${metric("Tokens", s.tokens ? tok(s.tokens) : "—", "read and written, cache included")}
