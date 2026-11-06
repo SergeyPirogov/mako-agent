@@ -6087,8 +6087,7 @@ function closeTerminal() {
 }
 // The agent shown the other way. In the middle of a turn Mako moves it once the turn ends; now: at once.
 async function switchView(id, to, now) {
-  await fetch(`/api/view?id=${encodeURIComponent(id)}&to=${to}${now ? "&now=1" : ""}`, { method: "POST" });
-  await load();
+  await act(`/api/view?id=${encodeURIComponent(id)}&to=${to}${now ? "&now=1" : ""}`); // a refusal is a toast
 }
 // The switch asked for during the turn, over the terminal or the chat: Cancel, or Switch now.
 function drawViewNext(el, r) {

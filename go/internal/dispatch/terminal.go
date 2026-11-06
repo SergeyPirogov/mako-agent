@@ -231,6 +231,9 @@ func (d *Dispatcher) sayTo(id, text string) error {
 	return fmt.Errorf("the agent is not running: press \"Continue\" first")
 }
 
+// closeWait: how long a switch waits for the old agent to end.
+var closeWait = 5 * time.Second
+
 // SwitchView shows the task's agent the other way: it stops where it runs and continues the same conversation
 // in the chat or the terminal. In the middle of a turn the switch waits for the turn to end (ViewNext) unless now;
 // to the view it is in already, it cancels such a wait.
@@ -257,14 +260,24 @@ func (d *Dispatcher) SwitchView(id, to string, now bool) error {
 		return nil
 	}
 	live := d.Live(id)
+	// Cut in the middle of a step (or while it waited for you): the resumed agent is told so, else it would stand at
+	// its prompt. One that had ended its turn lost nothing and goes on when you write.
+	interrupted := live && !d.agentIdle(id)
 	d.StopTerminal(id)
-	for i := 0; i < 50 && d.Live(id); i++ {
-		time.Sleep(100 * time.Millisecond) // one claude at a time on a conversation
+	for end := time.Now().Add(closeWait); d.Live(id) && time.Now().Before(end); {
+		time.Sleep(10 * time.Millisecond) // one claude at a time on a conversation
+	}
+	if d.Live(id) {
+		// The view stays as it was (and a switch asked for stays asked): resuming now would do nothing.
+		return errors.New("the agent is still closing: try again in a moment")
 	}
 	d.Store.Update(id, func(r *core.Record) { r.View, r.ViewNext = to, "" })
 	d.Log(id, map[string]string{"chat": "the agent is now in the chat", "terminal": "the agent is now in the terminal"}[to])
 	if !live {
 		return nil
+	}
+	if interrupted {
+		return d.resume(id, i18n.TA("agent.switched"))
 	}
 	return d.ResumeTerminal(id)
 }

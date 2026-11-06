@@ -4,10 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/SergeyPirogov/mako-agent/go/internal/chat"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/i18n"
 	"github.com/SergeyPirogov/mako-agent/go/internal/term"
 )
 
@@ -42,6 +45,118 @@ func TestSwitchViewWaitsForTheTurn(t *testing.T) {
 	waitFor(t, func() bool { r, _ := d.Store.Get("t#1"); return r.View == "chat" && r.ViewNext == "" }, "the switch did not follow the turn's end")
 	if s.Running() {
 		t.Fatal("the terminal's agent still runs after the switch")
+	}
+}
+
+// chatInTheChat: a task whose agent runs in the chat on a fake claude with a conversation to resume. The fake notes
+// its arguments, and then ends its turn (turn) or goes on with it for ever. Its next start notes them again.
+func chatInTheChat(t *testing.T, turn bool) (d *Dispatcher, wt string, s *chat.Session) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	d, _, _ = setup(t)
+	wt = t.TempDir()
+	bin := t.TempDir()
+	result := ""
+	if turn {
+		result = `echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.01}'`
+	}
+	script := "#!/bin/sh\necho \"$@\" > args.txt\nread init\nread msg\n" +
+		`echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'` + "\n" + result + "\ncat > /dev/null\n"
+	os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755)
+	cfg := *d.Config()
+	cfg.Terminal.Command, cfg.StateDir = filepath.Join(bin, "claude"), t.TempDir()
+	d.Cfg = &cfg
+	projects := filepath.Join(home, ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(wt, "-"))
+	os.MkdirAll(projects, 0o755)
+	os.WriteFile(filepath.Join(projects, "sess-1.jsonl"), []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"Готово"}]}}`+"\n"), 0o644)
+	d.Store.Update("t#1", func(r *core.Record) {
+		r.Worktree, r.Executor, r.Status, r.View, r.SessionID = wt, terminalExecutor, core.HandedOff, "chat", "sess-1"
+	})
+	s = chat.Start(chat.Options{ID: "t#1", Worktree: wt, Command: cfg.Terminal.Command, Prompt: "work", OnState: func() { d.watchTerminals(time.Now()) }})
+	d.Chats.Put(s)
+	want := "working"
+	if turn {
+		want = "done"
+	}
+	waitFor(t, func() bool { st, _, _ := s.State(); return st == want }, "the chat is not "+want)
+	os.Remove(filepath.Join(wt, "args.txt"))
+	t.Cleanup(func() {
+		d.StopTerminal("t#1")
+		s.Wait()
+		if ts := d.Sessions.Get("t#1"); ts != nil {
+			ts.Stop()
+			ts.Wait()
+		}
+		d.WaitContexts()
+	})
+	return d, wt, s
+}
+
+func agentArgs(wt string) string {
+	b, _ := os.ReadFile(filepath.Join(wt, "args.txt"))
+	return string(b)
+}
+
+// An agent that has ended its turn is switched at once, and nothing is said to it: nothing was interrupted.
+func TestSwitchViewOfAnIdleAgent(t *testing.T) {
+	d, wt, s := chatInTheChat(t, true)
+	if err := d.SwitchView("t#1", "terminal", false); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := d.Store.Get("t#1")
+	if r.View != "terminal" || r.ViewNext != "" || s.Running() {
+		t.Fatalf("view %q, next %q, the chat runs %v", r.View, r.ViewNext, s.Running())
+	}
+	waitFor(t, func() bool { return agentArgs(wt) != "" }, "the agent did not start in the terminal")
+	if args := agentArgs(wt); !strings.Contains(args, "--resume sess-1") || strings.Contains(args, i18n.TA("agent.switched")) {
+		t.Fatalf("args %s", args)
+	}
+}
+
+// «Switch now» in the middle of a turn: the conversation goes on in the other view with a word that it was cut, not
+// from an empty prompt.
+func TestSwitchViewNowTellsTheAgent(t *testing.T) {
+	d, wt, s := chatInTheChat(t, false)
+	if err := d.SwitchView("t#1", "terminal", true); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := d.Store.Get("t#1")
+	if r.View != "terminal" || r.ViewNext != "" || s.Running() {
+		t.Fatalf("view %q, next %q, the chat runs %v", r.View, r.ViewNext, s.Running())
+	}
+	waitFor(t, func() bool { return agentArgs(wt) != "" }, "the agent did not start in the terminal")
+	args := agentArgs(wt)
+	if !strings.Contains(args, "--resume sess-1") || !strings.Contains(args, i18n.TA("agent.switched")) {
+		t.Fatalf("args %s", args)
+	}
+}
+
+// An agent that does not end in time is an error, not a silent no-op: the view stays and so does the switch asked for.
+func TestSwitchViewOldAgentStillClosing(t *testing.T) {
+	old := closeWait
+	closeWait = 200 * time.Millisecond
+	defer func() { closeWait = old }()
+	d, _, _ := setup(t)
+	wt := t.TempDir()
+	d.Store.Update("t#1", func(r *core.Record) {
+		r.Worktree, r.Executor, r.Status, r.ViewNext = wt, terminalExecutor, core.HandedOff, "chat"
+	})
+	// It ignores the hangup that stops it: only the kill after the grace period ends it.
+	s, err := term.Start(term.Options{ID: "t#1", Worktree: wt, Command: "/bin/sh", Args: []string{"-c", "trap '' HUP; touch trapped; sleep 30"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { s.Stop(); s.Wait() }()
+	d.Sessions.Put(s)
+	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(wt, "trapped")); return err == nil }, "the agent does not ignore the hangup yet")
+	err = d.SwitchView("t#1", "chat", true)
+	if err == nil || !strings.Contains(err.Error(), "still closing") {
+		t.Fatalf("error %v", err)
+	}
+	if r, _ := d.Store.Get("t#1"); r.View != "" || r.ViewNext != "chat" {
+		t.Fatalf("view %q, next %q", r.View, r.ViewNext)
 	}
 }
 
