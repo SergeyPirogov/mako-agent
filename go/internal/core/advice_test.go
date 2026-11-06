@@ -49,6 +49,19 @@ func TestCostAdviceRoutes(t *testing.T) {
 	if got := titles(CostAdvice(Stats{Routes: routes}, now, "")); got != "wait: Big tasks · Work: now Opus · medium, no finished task on it yet" {
 		t.Errorf("a new route: %s", got)
 	}
+	// Changed since, a few tasks ended on it already: told how many.
+	routes2 := append(routes[:len(routes):len(routes)], workRoute("big", "opus", "medium", 2, 2, 1, 7))
+	if got := titles(CostAdvice(Stats{Routes: routes2}, now, "")); got != "wait: Big tasks · Work: now Opus · medium, 2 of 3 finished tasks on it" {
+		t.Errorf("a new route with 2 tasks: %s", got)
+	}
+	// Enough tasks ended on it, none with a price: said so, not «5 of 3».
+	unpriced := workRoute("big", "opus", "medium", 5, 5, 4, 0)
+	unpriced.Priced = 0
+	routes3 := append(routes[:len(routes):len(routes)], unpriced)
+	if as := CostAdvice(Stats{Routes: routes3}, now, ""); titles(as) != "wait: Big tasks · Work: now Opus · medium, 5 finished tasks on it, none with a price" ||
+		strings.Contains(as[0].Text, "once 3 tasks") {
+		t.Errorf("a new route with no price: %s %+v", titles(as), as)
+	}
 	// Too few finished tasks: nothing.
 	if got := titles(CostAdvice(Stats{Routes: []RouteGroup{workRoute("big", "sonnet", "high", 2, 2, 0, 30), workRoute("big", "opus", "high", 2, 2, 2, 5)}},
 		RouteTable{PhaseWork: {"big": {Model: "sonnet", Effort: "high"}}}, "")); got != "" {
@@ -58,6 +71,24 @@ func TestCostAdviceRoutes(t *testing.T) {
 	as = CostAdvice(Stats{Routes: []RouteGroup{workRoute("medium", "sonnet", "high", 10, 10, 3, 1)}}, RouteTable{PhaseWork: {"medium": {Model: "sonnet", Effort: "high"}}}, "")
 	if titles(as) != "warn: Medium tasks · Work: Sonnet · high gets 30% through first time" || as[0].Set.Label() != "sonnet · xhigh" {
 		t.Errorf("weak: %s %+v", titles(as), as[0].Set)
+	}
+	// Cost mode, the better route on the top effort before the model goes up: the table's value is sonnet · max (a
+	// level down: sonnet · xhigh), not a step back up to opus · xhigh (a level down: opus · high).
+	as = CostAdvice(Stats{Routes: []RouteGroup{workRoute("medium", "sonnet", "high", 10, 10, 4, 1), workRoute("medium", "sonnet", "xhigh", 10, 10, 9, 1.1)}},
+		RouteTable{PhaseWork: {"medium": {Model: "sonnet", Effort: "high"}}}, ModeCost)
+	if len(as) != 1 || as[0].Set == nil || as[0].Set.Label() != "sonnet · max" {
+		t.Errorf("cost mode, sonnet · xhigh: %s %+v", titles(as), as)
+	}
+	// A model the table does not offer: the advice, no value to set.
+	as = CostAdvice(Stats{Routes: []RouteGroup{workRoute("medium", "sonnet", "high", 10, 10, 4, 1), workRoute("medium", "—", "high", 10, 10, 9, 0.5)}},
+		RouteTable{PhaseWork: {"medium": {Model: "sonnet", Effort: "high"}}}, "")
+	if len(as) != 1 || as[0].Set != nil {
+		t.Errorf("unknown model: %s %+v", titles(as), as)
+	}
+	// Quality mode, weak: the value set gives the route a level up from the one in use.
+	as = CostAdvice(Stats{Routes: []RouteGroup{workRoute("medium", "sonnet", "xhigh", 10, 10, 3, 1)}}, RouteTable{PhaseWork: {"medium": {Model: "sonnet", Effort: "xhigh"}}}, ModeQuality)
+	if len(as) != 1 || as[0].Set == nil || Step(*as[0].Set, 1).Label() != "opus · xhigh" {
+		t.Errorf("quality mode, weak: %s %+v", titles(as), as)
 	}
 	// Cheaper but worse: not offered.
 	if got := titles(CostAdvice(Stats{Routes: []RouteGroup{workRoute("medium", "sonnet", "high", 10, 10, 9, 1), workRoute("medium", "haiku", "high", 10, 10, 4, 0.2)}},
@@ -104,6 +135,37 @@ func TestPer100Lines(t *testing.T) {
 	for _, g := range st.BySize {
 		if g.Size == "big" && (g.Lined != 2 || math.Abs(g.Per100Lines-14.0/1200*100) > 1e-9) {
 			t.Errorf("big: %d lined, %.4f per 100", g.Lined, g.Per100Lines)
+		}
+	}
+}
+
+// The table's value tableRoute gives, moved by the mode, is the route asked for, for every route and mode; one the
+// table cannot lead to, or a model Mako does not know, gives none.
+func TestTableRoute(t *testing.T) {
+	for _, mode := range Modes {
+		for _, m := range append(modelLadder[:len(modelLadder):len(modelLadder)], "gpt") {
+			for _, e := range Efforts {
+				want := Route{Model: m, Effort: e}
+				got := tableRoute(want, mode)
+				if got != nil && !sameRoute(Step(*got, ModeShift(mode)), want) {
+					t.Errorf("%s, %s: %s gives %s", mode, want.Label(), got.Label(), Step(*got, ModeShift(mode)).Label())
+				}
+				if m == "gpt" && got != nil {
+					t.Errorf("%s, %s: %s", mode, want.Label(), got.Label())
+				}
+			}
+		}
+	}
+	// Balanced: the route itself; cost: haiku · low is a level down from haiku · medium; quality: nothing leads to
+	// haiku · low.
+	for _, c := range []struct{ mode, want, set string }{{ModeBalanced, "opus · high", "opus · high"}, {ModeCost, "haiku · low", "haiku · medium"}, {ModeQuality, "haiku · low", ""}} {
+		w := strings.Split(c.want, " · ")
+		got := ""
+		if r := tableRoute(Route{Model: w[0], Effort: w[1]}, c.mode); r != nil {
+			got = r.Label()
+		}
+		if got != c.set {
+			t.Errorf("%s, %s: %q, want %q", c.mode, c.want, got, c.set)
 		}
 	}
 }

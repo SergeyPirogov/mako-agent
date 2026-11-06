@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -102,12 +103,72 @@ func (d *Dispatcher) GuardPush(ctx context.Context, id string, hook []byte) map[
 	if len(found) > 0 {
 		return hookDecision("deny", secretsRequest(found))
 	}
-	// Unattended (AutoTake, AutoFix): what a task's text or an MR's comment talked the agent into stays on this
-	// machine until you let it out.
-	if unattended(d.Config()) {
-		return hookDecision("ask", unattendedPush)
+	// Unattended (AutoTake, AutoFix): a push that could do harm beyond the task's own branch, or one an
+	// outsider's text could have talked the agent into, waits for you, unless you turned that off (confirmPush:
+	// false). The task's branch and its MR go by themselves: the MR is where you look anyway.
+	if cfg := d.Config(); unattended(cfg) && !cfg.Terminal.NoPushConfirm {
+		r, _ := d.Store.Get(id)
+		if why := criticalPush(r, e.ToolInput.Command); why != "" {
+			d.Log(id, "push waits for you: "+why)
+			return hookDecision("ask", why+" "+unattendedPush)
+		}
 	}
 	return nil
+}
+
+// criticalPush: why a push or a new MR needs a person while nobody looks, "" when it does not: it goes to a branch
+// other than the task's, deletes or pushes every branch, or the task has text by someone outside the project.
+func criticalPush(r core.Record, command string) string {
+	if outsider := r.Task.Author != "" && !r.Task.AuthorMember; outsider {
+		return "The task was written by someone outside the project."
+	}
+	for _, c := range r.Task.Comments {
+		if !c.Member {
+			return "The task has a comment by someone outside the project."
+		}
+	}
+	for _, part := range commandParts.Split(command, -1) {
+		loc := gitPushCommand.FindStringIndex(part)
+		if loc == nil {
+			continue
+		}
+		if why := pushTarget(cmp.Or(r.Branch, r.BranchName), strings.Fields(part[loc[1]:])); why != "" {
+			return why
+		}
+	}
+	return ""
+}
+
+// pushTarget: why the arguments of a git push go beyond the task's branch, "" when they do not.
+func pushTarget(branch string, args []string) string {
+	remote, value := false, false
+	for _, a := range args {
+		switch {
+		case value:
+			value = false
+		case a == "-o" || a == "--push-option" || a == "--repo" || a == "--receive-pack" || a == "--exec":
+			value = true
+		case a == "--all" || a == "--mirror" || a == "--delete" || a == "-d" || a == "--prune":
+			return "The push (" + a + ") reaches beyond the task's branch."
+		case strings.HasPrefix(a, "-") || strings.ContainsAny(a, "<>&|;") || a == "2>&1":
+			continue
+		case !remote:
+			remote = true
+		default:
+			dst := strings.TrimPrefix(a, "+")
+			if i := strings.LastIndex(dst, ":"); i >= 0 {
+				if dst[i+1:] == "" || dst[:i] == "" {
+					return "The push deletes a branch."
+				}
+				dst = dst[i+1:]
+			}
+			dst = strings.TrimPrefix(dst, "refs/heads/")
+			if dst != "HEAD" && dst != branch {
+				return "The push goes to «" + dst + "», not to the task's branch."
+			}
+		}
+	}
+	return ""
 }
 
 // unattended: tasks go to work (AutoTake) or MRs get fixed (AutoFix) with nobody looking.
@@ -132,7 +193,8 @@ func (d *Dispatcher) mrBy(r core.Record) string {
 }
 
 // unattendedPush: why the guard asks you about a push or a new MR while tasks go to work by themselves.
-const unattendedPush = "Mako asks a human to confirm pushes and new merge requests while tasks are taken (AutoTake) or MRs are fixed (AutoFix) automatically."
+const unattendedPush = "While tasks are taken (AutoTake) or MRs are fixed (AutoFix) automatically, Mako asks a human about such a push. " +
+	"«Always allow» does not change that: turn off «Confirm pushes» in Settings → Agent."
 
 // hookDecision: Claude Code's PreToolUse hook output with the decision ("deny", "ask") and its reason.
 func hookDecision(decision, reason string) map[string]any {

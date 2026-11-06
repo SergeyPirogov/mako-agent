@@ -231,6 +231,9 @@ func (d *Dispatcher) sayTo(id, text string) error {
 	return fmt.Errorf("the agent is not running: press \"Continue\" first")
 }
 
+// closeWait: how long a switch waits for the old agent to end.
+var closeWait = 5 * time.Second
+
 // SwitchView shows the task's agent the other way: it stops where it runs and continues the same conversation
 // in the chat or the terminal. In the middle of a turn the switch waits for the turn to end (ViewNext) unless now;
 // to the view it is in already, it cancels such a wait.
@@ -257,14 +260,28 @@ func (d *Dispatcher) SwitchView(id, to string, now bool) error {
 		return nil
 	}
 	live := d.Live(id)
+	// Cut in the middle of a step: the resumed agent is told so, else it would stand at its prompt. One that waited
+	// for your answer is told its question is gone, not to go on without it. One that had ended its turn lost
+	// nothing and goes on when you write.
+	interrupted, asking := live && !d.agentIdle(id), live && d.agentWaiting(id)
 	d.StopTerminal(id)
-	for i := 0; i < 50 && d.Live(id); i++ {
-		time.Sleep(100 * time.Millisecond) // one claude at a time on a conversation
+	for end := time.Now().Add(closeWait); d.Live(id) && time.Now().Before(end); {
+		time.Sleep(10 * time.Millisecond) // one claude at a time on a conversation
+	}
+	if d.Live(id) {
+		// The view stays as it was (and a switch asked for stays asked): resuming now would do nothing.
+		return errors.New("the agent is still closing: try again in a moment")
 	}
 	d.Store.Update(id, func(r *core.Record) { r.View, r.ViewNext = to, "" })
 	d.Log(id, map[string]string{"chat": "the agent is now in the chat", "terminal": "the agent is now in the terminal"}[to])
 	if !live {
 		return nil
+	}
+	if asking {
+		return d.resume(id, i18n.TA("agent.switchedAsking"))
+	}
+	if interrupted {
+		return d.resume(id, i18n.TA("agent.switched"))
 	}
 	return d.ResumeTerminal(id)
 }
@@ -280,6 +297,13 @@ func (d *Dispatcher) switchWhenIdle(id string) {
 		return
 	}
 	if err := d.SwitchView(id, to, true); err != nil {
+		// The switch asked for stays asked (the bar over the agent shows it, Cancel takes it away): the next change of
+		// the agent's state tries again.
+		d.Store.Update(id, func(r *core.Record) {
+			if r.ViewNext == "" && r.View != to {
+				r.ViewNext = to
+			}
+		})
 		d.Log(id, "the agent's view was not switched: "+err.Error())
 	}
 }
@@ -378,7 +402,7 @@ func (d *Dispatcher) taskPrompt(r core.Record) (string, error) {
 		return "", err
 	}
 	cfg := d.Config()
-	j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo), Language: cfg.AgentLanguage}
+	j := orca.Job{Task: r.Task, TrackerName: t.Name(), Repo: repo, Branch: branchOf(r), RetryNote: r.RetryNote, LastAttempt: r.LastAttempt, Checks: gateChecks(cfg, repo), Language: cfg.AgentLanguage, Questions: assumed(r.Estimate)}
 	return orca.FullPrompt(j, cfg.Orca), nil
 }
 
@@ -794,6 +818,9 @@ func (d *Dispatcher) workOf(id string) (worktree, baseBranch string, err error) 
 	r, ok := d.Store.Get(id)
 	if !ok || r.Worktree == "" || !exists(r.Worktree) {
 		return "", "", fmt.Errorf("the task has no worktree")
+	}
+	if r.Stack != nil && r.Stack.Branch != "" {
+		return r.Worktree, r.Stack.Branch, nil
 	}
 	if t := d.tracker(r.Task.TrackerID); t != nil {
 		if repo, err := d.route(t, r.Task); err == nil {

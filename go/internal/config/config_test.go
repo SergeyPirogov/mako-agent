@@ -366,6 +366,25 @@ func TestDefaultPermissionMode(t *testing.T) {
 	}
 }
 
+// Pushes while tasks go by themselves wait for you unless confirmPush is false; a config without it (an older one)
+// keeps asking.
+func TestConfirmPush(t *testing.T) {
+	for raw, want := range map[string]bool{
+		`{}`: false,
+		`{"executors":{"t":{"type":"terminal","autoFix":true}}}`:                     false,
+		`{"executors":{"t":{"type":"terminal","autoFix":true,"confirmPush":true}}}`:  false,
+		`{"executors":{"t":{"type":"terminal","autoFix":true,"confirmPush":false}}}`: true,
+	} {
+		c, err := Parse([]byte(raw), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Terminal.NoPushConfirm != want {
+			t.Errorf("%s: NoPushConfirm %v, want %v", raw, c.Terminal.NoPushConfirm, want)
+		}
+	}
+}
+
 func TestParseAutoTakeOnly(t *testing.T) {
 	for in, want := range map[string]string{"": AutoTakeAll, "all": AutoTakeAll, "smallClear": AutoTakeSmallClear, "small": AutoTakeSmall, "likely": AutoTakeLikely, "big": AutoTakeAll} {
 		if c, _ := Parse([]byte(`{"notifications":{"autoTake":true,"autoTakeOnly":"`+in+`"}}`), nil); c.Notifications.AutoTakeOnly != want || !c.Notifications.AutoTake {

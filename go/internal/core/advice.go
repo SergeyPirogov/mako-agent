@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -101,9 +102,25 @@ func workAdvice(routes []RouteGroup, size string, want Route, mode string) (Advi
 		if len(gs) == 0 || want.Model == "" {
 			return Advice{}, false
 		}
+		// The route in use may have a few tasks ended already, too few (or with no price) to be compared.
+		ended := 0
+		for _, g := range routes {
+			if g.Phase == PhaseWork && g.Size == size && g.Model == want.Model && g.Effort == want.Effort {
+				ended += g.Ended
+			}
+		}
+		so, text := "no finished task on it yet", fmt.Sprintf("Mako compares it with the routes tried before once %d tasks have ended on it.", AdviceMin)
+		switch {
+		case ended >= AdviceMin:
+			// Enough ended, none with a price (an agent in Orca reports none): nothing to weigh the cost by.
+			so = fmt.Sprintf("%d finished tasks on it, none with a price", ended)
+			text = "Mako compares the routes by what their tasks cost; an agent in Orca does not report it."
+		case ended > 0:
+			so = fmt.Sprintf("%d of %d finished tasks on it", ended, AdviceMin)
+		}
 		return Advice{Kind: "wait", Phase: PhaseWork, Size: size,
-			Title: fmt.Sprintf("%s: now %s, no finished task on it yet", where, routeName(want.Model, want.Effort)),
-			Text:  fmt.Sprintf("Mako compares it with the routes tried before once %d tasks have ended on it.", AdviceMin),
+			Title: fmt.Sprintf("%s: now %s, %s", where, routeName(want.Model, want.Effort), so),
+			Text:  text,
 		}, true
 	}
 	var alt *RouteGroup
@@ -134,24 +151,47 @@ func workAdvice(routes []RouteGroup, size string, want Route, mode string) (Advi
 		if save > 0 {
 			text = fmt.Sprintf("On %s the %d tasks of this period would have cost about $%.2f less.", routeName(alt.Model, alt.Effort), cur.Taken, save)
 		}
-		set := Step(Route{Model: alt.Model, Effort: alt.Effort}, -ModeShift(mode))
 		return Advice{Kind: "warn", Phase: PhaseWork, Size: size, Save: save, Text: text,
 			Title: fmt.Sprintf("%s: %s %s", where, routeName(alt.Model, alt.Effort), how),
 			Rows:  []AdviceRow{routeRow(*cur, true), routeRow(*alt, false)},
-			Set:   &Route{Model: set.Model, Effort: set.Effort},
+			Set:   tableRoute(Route{Model: alt.Model, Effort: alt.Effort}, mode),
 		}, true
 	}
 	if firstPassOf(*cur) < 0.5 {
-		up := Step(Route{Model: cur.Model, Effort: cur.Effort}, 1-ModeShift(mode))
 		return Advice{Kind: "warn", Phase: PhaseWork, Size: size,
 			Title: fmt.Sprintf("%s: %s gets %d%% through first time", where, routeName(cur.Model, cur.Effort), int(math.Round(firstPassOf(*cur)*100))),
 			Text:  "Each rework is another run: a level up, or smaller tasks, usually costs less than the rounds.",
 			Rows:  []AdviceRow{routeRow(*cur, true)},
-			Set:   &Route{Model: up.Model, Effort: up.Effort},
+			Set:   tableRoute(Step(Route{Model: cur.Model, Effort: cur.Effort}, 1), mode),
 		}, true
 	}
 	return Advice{}, false
 }
+
+// tableRoute: the value of the routes' table that mode moves to the route a task should get; nil when Mako does not
+// know its model or effort, or no value of the table leads to it in this mode. Step does not undo itself at the
+// ends of the ladder (cost: sonnet · max, not opus · xhigh, gives sonnet · xhigh), so the value is checked, and
+// looked for when the step back misses.
+func tableRoute(effective Route, mode string) *Route {
+	if !slices.Contains(modelLadder, effective.Model) || !slices.Contains(Efforts, effective.Effort) {
+		return nil
+	}
+	shift := ModeShift(mode)
+	gives := func(r Route) bool { return sameRoute(Step(r, shift), effective) }
+	if r := Step(effective, -shift); gives(r) {
+		return &Route{Model: r.Model, Effort: r.Effort}
+	}
+	for _, m := range modelLadder {
+		for _, e := range Efforts {
+			if r := (Route{Model: m, Effort: e}); gives(r) {
+				return &r
+			}
+		}
+	}
+	return nil
+}
+
+func sameRoute(a, b Route) bool { return a.Model == b.Model && a.Effort == b.Effort }
 
 // AdviceLinedMin: the merged tasks with their changed lines each size needs before sizes are compared by the work.
 const AdviceLinedMin = 5

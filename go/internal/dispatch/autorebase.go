@@ -43,6 +43,9 @@ func (d *Dispatcher) AutoRebase(ctx context.Context, now time.Time) {
 		if r.Worktree == "" || !exists(r.Worktree) {
 			continue
 		}
+		if d.stackMerged(r) {
+			continue // Restack moves it onto the base branch
+		}
 		d.mu.Lock()
 		reviewing, last := d.reviewing[r.ID], d.rebased[r.ID]
 		d.mu.Unlock()
@@ -93,7 +96,14 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 		}
 		return
 	}
-	s, err := gitx.UpdateFromBase(gctx, wt, base, branchOf(r), mode)
+	var s *gitx.Sync
+	if st := r.Stack; st != nil && st.Tip != "" {
+		// From another task's branch in review: only its own commits move, whatever that branch went through.
+		s, err = gitx.UpdateOnto(gctx, wt, base, st.Tip, branchOf(r))
+		mode = "rebase"
+	} else {
+		s, err = gitx.UpdateFromBase(gctx, wt, base, branchOf(r), mode)
+	}
 	if err != nil {
 		why := err.Error()
 		if errors.Is(err, gitx.ErrDirty) || errors.Is(err, gitx.ErrBranchMoved) {
@@ -110,6 +120,13 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 	last.said = ""
 	switch {
 	case s.Updated:
+		if r.Stack != nil {
+			d.Store.Update(r.ID, func(rec *core.Record) {
+				if rec.Stack != nil && rec.Stack.Branch == base {
+					rec.Stack.Tip = s.Base
+				}
+			})
+		}
 		d.forgetReview(r.ID)
 		d.Log(r.ID, fmt.Sprintf("updated from %s (%s, %s)", base, mode, commits(s.Behind)))
 	case len(s.Conflicts) > 0:
@@ -119,7 +136,11 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 		if d.LimitHold() != nil || d.AuthHold() != nil || r.AutoFixes >= autoFixLimit {
 			return
 		}
-		text := conflictRequest(r.PRURL, branchOf(r), base, mode, s.Conflicts)
+		upstream := ""
+		if r.Stack != nil {
+			upstream = r.Stack.Tip
+		}
+		text := conflictRequest(r.PRURL, branchOf(r), base, mode, upstream, s.Conflicts)
 		if d.Live(r.ID) {
 			err = d.sayTo(r.ID, text)
 		} else {
@@ -143,11 +164,14 @@ func (d *Dispatcher) rebaseOne(ctx context.Context, r core.Record, mode string, 
 	}
 }
 
-// conflictRequest: what the agent is told when its branch conflicts with the base branch.
-func conflictRequest(url, branch, base, mode string, files []string) string {
+// conflictRequest: what the agent is told when its branch conflicts with the base branch. upstream: the branch
+// started from another task's at that commit; only the commits after it are its own to move.
+func conflictRequest(url, branch, base, mode, upstream string, files []string) string {
 	push := i18n.TA("agent.pushForce")
 	how := i18n.TA("agent.howRebase", branch, base)
-	if mode == "merge" {
+	if upstream != "" {
+		how = i18n.TA("agent.howOnto", base, upstream)
+	} else if mode == "merge" {
 		push = i18n.TA("agent.pushPlain")
 		how = i18n.TA("agent.howMerge", base, branch)
 	}

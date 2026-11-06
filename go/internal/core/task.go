@@ -34,8 +34,13 @@ type Task struct {
 	// AuthorMember: the issue's author is someone of the project (see Comment.Member); an agent follows an
 	// outsider's task only for the code change it asks for.
 	AuthorMember bool `json:"authorMember,omitempty"`
+	// BlockedBy: the issues that block this one in the tracker and are still open there ("group/app#3",
+	// "PROJ-3"); the task does not start until each is merged or closed.
+	BlockedBy []string `json:"blockedBy,omitempty"`
 	// CommentsUnread: the tracker failed to give its comments this time; the ones Mako has stay.
 	CommentsUnread bool `json:"-"`
+	// LinksUnread: the tracker failed to give the issue's links this time; the BlockedBy Mako has stays.
+	LinksUnread bool `json:"-"`
 }
 
 // Plain: the words of a text, lowercased, without the Markdown and the spacing a tracker may change on its way
@@ -205,6 +210,24 @@ type Record struct {
 	// Kept here so the agent goes on even if Mako restarts meanwhile.
 	LimitedUntil     int64 `json:"limitedUntil,omitempty"`
 	ResumeAfterLimit bool  `json:"resumeAfterLimit,omitempty"`
+	// After: the tasks Mako itself put before this one (the parts of a split task before it); it starts once
+	// each is merged, or, for StackOn, once it has an MR: then from that task's branch (see Stack).
+	After   []string `json:"after,omitempty"`
+	StackOn string   `json:"stackOn,omitempty"`
+	// Stack: the task started from the branch of another task still in review; its MR goes into that branch
+	// until the other is merged, then Mako moves the branch onto the base branch and the MR with it.
+	Stack *Stack `json:"stack,omitempty"`
+}
+
+// Stack: the branch a task started from instead of the base branch: the branch of task On, at commit Tip.
+type Stack struct {
+	On     string `json:"on"`
+	Branch string `json:"branch"`
+	// Tip: the commit of Branch the task's branch sits on, to move only the task's own commits onto the base
+	// branch once On is merged (squashed, its commits are not in the base branch as they are).
+	Tip string `json:"tip,omitempty"`
+	// Asked: the Tip the agent was asked to resolve conflicts at, moving the branch; asked once.
+	Asked string `json:"asked,omitempty"`
 }
 
 // ChangeStat: the size of a branch's work: files, lines added and removed, commits.
@@ -259,6 +282,9 @@ type Estimate struct {
 	Clarity Score `json:"clarity"`
 	// Questions: what to ask in the tracker before the agent starts, Markdown points ("" none).
 	Questions string `json:"questions,omitempty"`
+	// Assume: what the agent does when nobody answers a question, by the question's text as the points of
+	// Questions read; an estimate from before assumptions has none, and its questions stay open.
+	Assume map[string]string `json:"assume,omitempty"`
 	// Size: "small", "medium" or "big".
 	Size string `json:"size,omitempty"`
 	// Parts: which parts of the code it will likely touch.

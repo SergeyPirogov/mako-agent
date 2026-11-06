@@ -158,3 +158,36 @@ func TestEstimateKeyCountsComments(t *testing.T) {
 		t.Fatal("an estimate of before the update")
 	}
 }
+
+// The agent starts with the estimate's questions that have an assumption; a question without one (an estimate
+// from before assumptions) is not given to it, as before.
+func TestTakeGivesTheAgentTheAssumptions(t *testing.T) {
+	d, _, jobs := setup(t)
+	newWithQuestions(t, d)
+	d.Store.Update("grp/app#5", func(r *core.Record) {
+		r.Estimate.Assume = map[string]string{"Який браузер?": "Chrome, як у описі"}
+	})
+	d.Take(context.Background(), "grp/app#5")
+	d.Wait()
+	want := []orca.Question{{Q: "Який браузер?", Assume: "Chrome, як у описі"}}
+	if len(*jobs) != 1 || !reflect.DeepEqual((*jobs)[0].Questions, want) {
+		t.Fatalf("jobs: %+v", *jobs)
+	}
+}
+
+func TestAssumedOnlyForDoneEstimates(t *testing.T) {
+	e := &core.Estimate{State: "done", Questions: "- a?\n- b?", Assume: map[string]string{"a?": "A", "b?": " "}}
+	if got := assumed(e); !reflect.DeepEqual(got, []orca.Question{{Q: "a?", Assume: "A"}}) || !unassumed(e) {
+		t.Fatalf("assumed %+v, unassumed %v", got, unassumed(e))
+	}
+	e.Assume["b?"] = "B"
+	if unassumed(e) || len(assumed(e)) != 2 {
+		t.Fatal("every question has an assumption")
+	}
+	if assumed(nil) != nil || assumed(&core.Estimate{State: "running", Questions: e.Questions, Assume: e.Assume}) != nil {
+		t.Fatal("assumptions of an estimate that is not done")
+	}
+	if !unassumed(&core.Estimate{State: "done", Questions: "- a?"}) || unassumed(&core.Estimate{State: "done"}) {
+		t.Fatal("an old estimate's question is open, no question is not")
+	}
+}

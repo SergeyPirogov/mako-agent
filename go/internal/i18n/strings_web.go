@@ -25,8 +25,18 @@ var webStrings = map[string]string{
 	"b.risk.statsFixed":  "{fixed} of them needed a fix after the merge · {pct}%",
 	"b.risk.statsNoAuto": "No merges by itself: auto-merge is off, or no low-risk MR passed",
 	"b.risk.statsMerged": "{n} merged",
-	"b.confirm.ok":       "OK",
-	"b.confirm.cancel":   "Cancel",
+	// A task that waits for another before it starts: a blocker in the tracker, a part of a split before it.
+	"b.waits.label":  "waits",
+	"b.waits.merge":  "Waits for {id} to be merged",
+	"b.waits.mr":     "Waits for an MR of {id}: it starts from that branch",
+	"b.waits.closed": "Waits for {id}: its MR was closed without merging",
+	"b.waits.open":   "Blocked by {id} in the tracker",
+	"b.waits.queued": "Mako will start it on its own once it can",
+	"b.waits.new":    "Taken, it waits in the queue until then",
+	"b.stack.note":   "Started from the branch of {id}: its MR goes into {branch} until {id} is merged, then Mako moves it onto the base branch",
+
+	"b.confirm.ok":     "OK",
+	"b.confirm.cancel": "Cancel",
 
 	// A POST from the board that got no JSON answer.
 	"b.net.noAnswer":  "Mako did not answer. Try again in a moment.",
@@ -286,6 +296,8 @@ var webStrings = map[string]string{
 	"s.o.checkAttemptsHint":    "This many times in a row the agent gets a failed check's output to fix it. Then the MR is not opened, the task waits for you",
 	"s.o.autoFix":              "MR autofix",
 	"s.o.autoFixHint":          "When the agent ends its turn, Mako asks it by itself to resolve conflicts, fix a failed CI, new review comments and the reviewer agent's remarks, like the ✨ buttons. Each problem once, up to 5 requests a task",
+	"s.o.confirmPush":          "Confirm pushes",
+	"s.o.confirmPushHint":      "While tasks are taken or MRs are fixed by themselves (AutoTake, MR autofix), Mako asks you before a critical push: to a branch other than the task's, deleting a branch, or in a task with text by someone outside the project. Pushes to the task's own branch and new MRs go by themselves. «Always allow» does not skip this question; turning this off does",
 	"s.o.autoRebase":           "Update the branch from the base one",
 	"s.o.rebase":               "rebase and push --force-with-lease",
 	"s.o.merge":                "merge the base into the branch and push",
@@ -495,6 +507,10 @@ var webStrings = map[string]string{
 	"s.p.removeAsk":      "Disconnect this phone? To bring it back, the QR code has to be scanned again.",
 	"s.p.wait":           "Wait…",
 	"s.p.sent":           "Sent",
+
+	// The board: a question of the estimate with its assumption (core.Estimate.Assume).
+	"b.est.assumes":        "Mako assumes: {text}",
+	"b.est.answerOrAccept": "Answer, or leave empty to accept the assumption",
 
 	// The board: the outlook of a new task by the history (core.Outlook) and the size estimate's calibration.
 	"b.outlook.title":      "Similar tasks",

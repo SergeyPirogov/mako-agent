@@ -35,6 +35,44 @@ const h = adviceHTML({ kind: "warn", title: "Big <x>", text: "t", rows: [{ label
 eq(h.includes("Sonnet · high <span class=\"muted\">(now)</span>") && !h.includes("Big <x>"), true, "marked and escaped");
 eq(routeLabelOf({ model: "opus", effort: "high" }), "Opus · high", "the button's route");
 eq(routeLabelOf({ effort: "max" }), "max", "effort only");
+const rc = { models: ["haiku", "sonnet", "opus"], efforts: ["low", "medium", "high", "xhigh", "max"] };
+eq(usable({ model: "opus", effort: "high" }, rc), true, "a route the table offers");
+eq(usable({ model: "—", effort: "high" }, rc) || usable({ model: "gpt", effort: "high" }, rc) || usable({ model: "opus" }, rc) || usable(undefined, rc), false, "one it does not");
+`)
+}
+
+// Settings → Models and effort, the table painted: each cell a suggestion is about is marked; the «Use …» button is
+// there only for a route the selects offer, and puts it in.
+func TestSettingsAdviceButtons(t *testing.T) {
+	runNodeScript(t, nodeEq+`const t = (k, v = {}) => k === "s.r.adviceUse" ? "Use " + v.route : k;
+const routeChoices = { models: ["haiku", "sonnet", "opus"], efforts: ["low", "medium", "high", "xhigh", "max"] };
+const el = (tag) => ({ tag, kids: [], classes: new Set(), classList: { add(...c) { c.forEach((x) => this.o.classes.add(x)); }, remove(...c) { c.forEach((x) => this.o.classes.delete(x)); } },
+  append(x) { this.kids.push(x); }, remove() { this.gone = true; }, querySelector() { return null; } });
+const mk = (tag) => { const e = el(tag); e.classList.o = e; return e; };
+const document = { createElement: mk };
+const cells = {};
+for (const s of ["medium", "big"]) {
+  const td = mk("td"), sels = {};
+  for (const k of ["model", "effort"]) sels[k] = { value: "", changed: 0, onchange() { this.changed++; }, closest: () => td };
+  td.querySelector = (q) => sels[q.match(/data-k="(\w+)"/)[1]];
+  cells[s] = { td, sels };
+}
+const wrap = { querySelector: (q) => cells[q.match(/data-s="(\w+)"/)?.[1]]?.sels.model ?? null };
+const box = { isConnected: true, querySelector: () => null, insertBefore() {} };
+const fetch = async () => ({ json: async () => ({ ok: true, days: 30, advice: [
+  { kind: "warn", title: "a", text: "", phase: "work", size: "medium", set: { model: "opus", effort: "high" } },
+  { kind: "warn", title: "b", text: "", phase: "work", size: "big", set: { model: "—", effort: "high" } }] }) });
+`+cutBlock(t, settingsPage, "advice")+`
+(async () => {
+  await paintAdvice(box, wrap);
+  const btn = (s) => cells[s].td.kids.filter((k) => k.className === "use-route");
+  eq([cells.medium.td.classes.has("advise"), cells.big.td.classes.has("advise")], [true, true], "both cells marked");
+  eq(btn("medium").map((b) => b.textContent), ["Use Opus · high"], "a button for a route the table offers");
+  eq(btn("big").length, 0, "none for a model it does not");
+  btn("medium")[0].onclick();
+  eq([cells.medium.sels.model.value, cells.medium.sels.effort.value, cells.medium.sels.model.changed], ["opus", "high", 1], "the button puts the route in");
+  eq(cells.medium.td.classes.has("advised"), true, "the cell marked as changed");
+})();
 `)
 }
 

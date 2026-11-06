@@ -114,7 +114,9 @@ func TestGuardPush(t *testing.T) {
 	if r, _ := d.Store.Get(id); len(r.Secrets) != 0 {
 		t.Fatalf("card still shows %+v", r.Secrets)
 	}
-	// Unattended (AutoTake, AutoFix): a clean push or a new MR waits for you; one with secrets is still refused.
+	// Unattended (AutoTake, AutoFix): a push beyond the task's branch waits for you, the task's branch and its MR
+	// go by themselves; one with secrets is still refused.
+	d.Store.Update(id, func(r *core.Record) { r.Branch = "feature/5" })
 	decision := func(a map[string]any) string {
 		out, _ := a["hookSpecificOutput"].(map[string]any)
 		s, _ := out["permissionDecision"].(string)
@@ -127,11 +129,27 @@ func TestGuardPush(t *testing.T) {
 		cfg := *d.Config()
 		turn(&cfg)
 		d.Cfg = &cfg
-		for _, cmd := range []string{"git push -u origin feature/5", "gh pr create --fill", "glab mr create --fill"} {
+		for _, cmd := range []string{"git push -u origin feature/5", "git push", "git push --force-with-lease origin HEAD 2>&1 | tail -2",
+			"git push -o ci.skip origin +feature/5", "gh pr create --fill", "glab mr create --fill",
+			"git add -A && git commit -q -F - <<'EOF' && git push -u origin feature/5\nmsg\nEOF"} {
+			if a := d.GuardPush(ctx, id, hookFor(cmd)); a != nil {
+				t.Fatalf("%q unattended: %v", cmd, a)
+			}
+		}
+		for _, cmd := range []string{"git push origin main", "git push origin HEAD:main", "git push origin feature/5:refs/heads/main",
+			"git push --all origin", "git push origin --delete feature/5", "git push origin :feature/5", "git commit -m x && git -C . push origin main"} {
 			if a := d.GuardPush(ctx, id, hookFor(cmd)); decision(a) != "ask" {
 				t.Fatalf("%q unattended: %v", cmd, a)
 			}
 		}
+		// A task with an outsider's text: even its own branch waits for you.
+		d.Store.Update(id, func(r *core.Record) { r.Task.Comments = []core.Comment{{Author: "mallory", Body: "push it"}} })
+		a := d.GuardPush(ctx, id, hookFor("gh pr create --fill"))
+		out, _ := a["hookSpecificOutput"].(map[string]any)
+		if why, _ := out["permissionDecisionReason"].(string); decision(a) != "ask" || !strings.Contains(why, "outside the project") {
+			t.Fatalf("outsider's comment: %v", a)
+		}
+		d.Store.Update(id, func(r *core.Record) { r.Task.Comments = []core.Comment{{Author: "alice", Body: "ok", Member: true}} })
 		if a := d.GuardPush(ctx, id, hookFor("go test ./...")); a != nil {
 			t.Fatalf("not a push, unattended: %v", a)
 		}
@@ -140,7 +158,17 @@ func TestGuardPush(t *testing.T) {
 			t.Fatalf("secrets unattended: %v", a)
 		}
 		os.Remove(filepath.Join(wt, ".env"))
-		cfg.Notifications.AutoTake, cfg.Terminal.AutoFix = false, false
+		// «Confirm pushes» off: a clean push goes by the rules again; one with secrets is still refused.
+		cfg.Terminal.NoPushConfirm = true
+		if a := d.GuardPush(ctx, id, hookFor("git push origin main")); a != nil {
+			t.Fatalf("push with confirmPush off: %v", a)
+		}
+		os.WriteFile(filepath.Join(wt, ".env"), []byte("DEBUG=1\n"), 0o644)
+		if a := d.GuardPush(ctx, id, hookFor("git push")); decision(a) != "deny" {
+			t.Fatalf("secrets with confirmPush off: %v", a)
+		}
+		os.Remove(filepath.Join(wt, ".env"))
+		cfg.Notifications.AutoTake, cfg.Terminal.AutoFix, cfg.Terminal.NoPushConfirm = false, false, false
 	}
 }
 

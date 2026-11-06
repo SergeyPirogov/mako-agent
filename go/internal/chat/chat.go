@@ -39,6 +39,9 @@ type Item struct {
 	TaskID string `json:"taskId,omitempty"`
 	// Rules Claude suggests for «always allow».
 	Suggestions json.RawMessage `json:"suggestions,omitempty"`
+	// Reason: why a hook asks you about this tool call (a PreToolUse hook answered «ask», such as Mako's push
+	// guard). Such a request asks again whatever the rules say, so it offers no «always allow».
+	Reason string `json:"reason,omitempty"`
 	// AskUserQuestion: what you chose, question → answer.
 	Answers map[string]string `json:"answers,omitempty"`
 	// The end of a turn.
@@ -531,6 +534,8 @@ func (s *Session) handle(line []byte) {
 			ToolName    string          `json:"tool_name"`
 			Input       json.RawMessage `json:"input"`
 			Suggestions json.RawMessage `json:"permission_suggestions"`
+			Reason      string          `json:"decision_reason"`
+			ReasonType  string          `json:"decision_reason_type"`
 		}
 		json.Unmarshal(e.Request, &r)
 		if r.Subtype != "can_use_tool" {
@@ -549,13 +554,18 @@ func (s *Session) handle(line []byte) {
 		s.mu.Lock()
 		s.pending[e.RequestID] = r.Input
 		s.mu.Unlock()
+		// A hook's «ask» wins over the allow rules: a rule kept now would not stop the next request.
+		reason := ""
+		if r.ReasonType == "hook" {
+			reason, r.Suggestions = strings.TrimSpace(r.Reason), nil
+		}
 		// A compound Bash line comes with no suggestion: «Always allow» then keeps a rule for each of its commands.
-		if r.ToolName == "Bash" && SuggestedRules(r.Suggestions) == nil {
+		if r.ToolName == "Bash" && r.ReasonType != "hook" && SuggestedRules(r.Suggestions) == nil {
 			if sug := bashSuggestions(r.Input); sug != nil {
 				r.Suggestions = sug
 			}
 		}
-		s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "asked", Suggestions: r.Suggestions})
+		s.add(Item{Kind: "permission", ID: e.RequestID, Tool: r.ToolName, Input: r.Input, Status: "asked", Suggestions: r.Suggestions, Reason: reason})
 		s.setState("waiting")
 		if s.o.OnPermission != nil && r.ToolName != "AskUserQuestion" && r.ToolName != PlanTool {
 			s.o.OnPermission(r.ToolName, r.Input, SuggestedRules(r.Suggestions))

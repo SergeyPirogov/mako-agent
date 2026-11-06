@@ -45,6 +45,17 @@ func Behind(ctx context.Context, worktree, base string) (int, string, error) {
 // with conflicts it undoes the attempt and says which files conflicted. A branch that is up to date is left
 // alone.
 func UpdateFromBase(ctx context.Context, worktree, base, branch, mode string) (*Sync, error) {
+	return update(ctx, worktree, base, branch, mode, "")
+}
+
+// UpdateOnto moves the branch's own commits, those after upstream, onto origin/<base> and pushes it: a branch
+// started from another task's branch, once that one is rebased or merged (squashed, its commits are not in base
+// as they are, and a plain rebase would carry them again). Without upstream it is UpdateFromBase's rebase.
+func UpdateOnto(ctx context.Context, worktree, base, upstream, branch string) (*Sync, error) {
+	return update(ctx, worktree, base, branch, "rebase", upstream)
+}
+
+func update(ctx context.Context, worktree, base, branch, mode, upstream string) (*Sync, error) {
 	behind, sha, err := Behind(ctx, worktree, base)
 	if err != nil {
 		return nil, err
@@ -74,7 +85,11 @@ func UpdateFromBase(ctx context.Context, worktree, base, branch, mode string) (*
 	if mode == "merge" {
 		_, err = Run(ctx, worktree, append(quiet, "merge", "--no-edit", "-m", "Merge origin/"+base+" into "+branch, "origin/"+base)...)
 	} else {
-		_, err = Run(ctx, worktree, append(quiet, "rebase", "origin/"+base)...)
+		args := []string{"rebase", "origin/" + base}
+		if upstream != "" {
+			args = []string{"rebase", "--onto", "origin/" + base, upstream}
+		}
+		_, err = Run(ctx, worktree, append(quiet, args...)...)
 	}
 	if err != nil {
 		files, _ := Run(ctx, worktree, "diff", "--name-only", "--diff-filter=U")

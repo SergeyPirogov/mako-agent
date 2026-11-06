@@ -942,9 +942,12 @@ func Estimate(ctx context.Context, dir string, route core.Route, t core.Task, ou
 	prompt := strings.Join([]string{
 		"A developer is deciding whether to give the task below to a coding agent, and how. Before anyone starts, estimate it",
 		"from its text and the repository's layout (you do not see the code). Answer with JSON only, no code fences, in this shape:",
-		`{"clarity":{"score":1,"why":"..."},"questions":["..."],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
+		`{"clarity":{"score":1,"why":"..."},"questions":[{"q":"...","assume":"..."}],"size":"small","parts":"...","risk":{"score":1,"why":"..."},"plan":false,"split":false,"model":"","advice":"..."}`,
 		"- clarity: 5 when the task says all that is needed (what, where, how to tell it is done), 1 when the agent would have to guess most of it;",
-		"- questions: at most 4 concrete questions to answer in the tracker first, only for what is really missing ([] when nothing);",
+		"- questions: at most 3 questions for the tracker, only about what the code cannot tell and the result depends on (what",
+		"  it should do, how far it goes, which data); not what the agent decides itself from the code (how to build a field,",
+		"  in which file, whether in the same PR); [] when nothing is missing. \"assume\": what the agent will do if nobody",
+		"  answers, one short sentence;",
 		"- size: \"small\" (a few lines in one place), \"medium\" (several files of one part), or \"big\" (many parts, new subsystems, migrations);",
 		"- parts: which folders or parts of the code it will likely touch, one short line;",
 		"- risk: 1 safe, 5 likely to break something; \"why\" names what it touches (settings, updates, stored data, security, the UI, …);",
@@ -980,10 +983,11 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		return core.Estimate{}, fmt.Errorf("%w: %v", errNotJSON, err)
 	}
 	e := core.Estimate{
-		State: "done", Questions: pointsText(in.Questions), Size: strings.ToLower(strings.TrimSpace(in.Size)),
+		State: "done", Size: strings.ToLower(strings.TrimSpace(in.Size)),
 		Parts: clipTo(strings.TrimSpace(in.Parts), 500), Plan: in.Plan, Split: in.Split,
 		Model: strings.ToLower(strings.TrimSpace(in.Model)), Advice: clipTo(strings.TrimSpace(in.Advice), 500),
 	}
+	e.Questions, e.Assume = questionsOf(in.Questions)
 	if !slices.Contains(core.Sizes, e.Size) {
 		return core.Estimate{}, fmt.Errorf("unknown size %q", in.Size)
 	}
@@ -1000,6 +1004,48 @@ func ParseEstimate(answer string) (core.Estimate, error) {
 		*s.out = core.Score{Value: s.in.Score, Why: clipTo(strings.TrimSpace(s.in.Why), 500)}
 	}
 	return e, nil
+}
+
+// maxQuestions: the estimate's questions kept, the first ones.
+const maxQuestions = 3
+
+// pointMark: a Markdown point's marker, as dispatch.SplitQuestions takes it off.
+var pointMark = regexp.MustCompile(`^(?:[-*•]|\d+[.)])\s+`)
+
+// questionsOf: the estimate's questions as Markdown points, one line each (so the board and SplitQuestions read
+// the same text), and the assumption of each by that text. They come as {"q","assume"} objects, or as plain
+// strings (no assumption: the question stays open); a single string is the Markdown as it is.
+func questionsOf(raw json.RawMessage) (string, map[string]string) {
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return pointsText(raw), nil
+	}
+	var lines []string
+	assume := map[string]string{}
+	for _, it := range items {
+		var q struct {
+			Q      string `json:"q"`
+			Assume string `json:"assume"`
+		}
+		if json.Unmarshal(it, &q.Q) != nil && json.Unmarshal(it, &q) != nil {
+			continue
+		}
+		text := clipTo(pointMark.ReplaceAllString(strings.Join(strings.Fields(q.Q), " "), ""), 500)
+		if text == "" {
+			continue
+		}
+		lines = append(lines, "- "+text)
+		if a := clipTo(strings.Join(strings.Fields(q.Assume), " "), 500); a != "" {
+			assume[text] = a
+		}
+		if len(lines) == maxQuestions {
+			break
+		}
+	}
+	if len(assume) == 0 {
+		assume = nil
+	}
+	return strings.Join(lines, "\n"), assume
 }
 
 // lang: the agent language, as the agent is asked to write in it.

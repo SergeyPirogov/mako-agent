@@ -224,6 +224,10 @@ type Terminal struct {
 	// AutoFix: the agent is asked by itself to fix its MR's failed CI, conflicts, new review comments and the
 	// remarks of the reviewer agent.
 	AutoFix bool
+	// NoPushConfirm: while tasks are taken (AutoTake) or MRs fixed (AutoFix) by themselves, even a critical push
+	// (beyond the task's branch, or in a task with an outsider's text) goes without asking you («confirmPush»:
+	// false). Off by default: such a push waits for you; the task's own branch and its MR never do.
+	NoPushConfirm bool
 	// AutoRebase: how Mako brings the branch of an MR in review up to its base branch by itself, "rebase" or
 	// "merge"; "" never. Conflicts go to the agent.
 	AutoRebase string
@@ -632,7 +636,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 	}
 	for _, name := range raw.executorOrder() {
 		if e := raw.Executors[name]; e.Type == "terminal" {
-			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst,
+			c.Terminal = Terminal{Command: e.Command, PermissionMode: orStr(e.PermissionMode, "auto"), AllowedTools: e.AllowedTools, SetupCommand: e.SetupCommand, View: e.View, AutoFix: e.AutoFix, NoPushConfirm: e.ConfirmPush != nil && !*e.ConfirmPush, AutoRebase: autoRebase(e.AutoRebase), RebaseEveryMin: e.RebaseEveryMin, PlanFirst: e.PlanFirst,
 				CheckTimeoutSec: e.CheckTimeoutSec, CheckAttempts: e.CheckAttempts}
 			break
 		}
@@ -1038,6 +1042,7 @@ type rawExecutor struct {
 	SetupCommand    string    `json:"setupCommand"`
 	View            string    `json:"view"`
 	AutoFix         bool      `json:"autoFix"`
+	ConfirmPush     *bool     `json:"confirmPush"`
 	AutoRebase      string    `json:"autoRebase"`
 	RebaseEveryMin  int       `json:"rebaseEveryMin"`
 	PlanFirst       string    `json:"planFirst"`

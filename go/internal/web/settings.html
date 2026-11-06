@@ -777,6 +777,7 @@ function renderOrca() {
     box.append(num(tm, "checkTimeoutSec", t("s.o.checkTimeout"), { placeholder: "600", hint: t("s.o.checkTimeoutHint") }));
     box.append(num(tm, "checkAttempts", t("s.o.checkAttempts"), { placeholder: "3", hint: t("s.o.checkAttemptsHint") }));
     box.append(check(tm, "autoFix", t("s.o.autoFix"), { hint: t("s.o.autoFixHint") }));
+    box.append(check(tm, "confirmPush", t("s.o.confirmPush"), { def: true, hint: t("s.o.confirmPushHint") }));
     box.append(select(tm, "autoRebase", t("s.o.autoRebase"), [["", t("s.no")], ["rebase", t("s.o.rebase")], ["merge", t("s.o.merge")]], { def: "", hint: t("s.o.autoRebaseHint") }));
     box.append(num(tm, "rebaseEveryMin", t("s.o.rebaseEvery"), { placeholder: "30" }));
   } else {
@@ -932,7 +933,9 @@ function adviceHTML(a) {
     + `<div class="advice-x">${esc(a.text)}</div></div>`;
 }
 const routeLabelOf = (r) => [r.model ? r.model[0].toUpperCase() + r.model.slice(1) : "", r.effort].filter(Boolean).join(" · ");
-// advice:end
+// usable: the table's selects offer the suggested model and effort; another value set on a select would be kept
+// as an empty one.
+const usable = (set, rc) => !!set && rc.models.includes(set.model) && rc.efforts.includes(set.effort);
 let routeAdvice = null;
 async function paintAdvice(box, wrap) {
   if (!routeAdvice) {
@@ -953,7 +956,7 @@ async function paintAdvice(box, wrap) {
     if (!td) continue;
     td.classList.add("advise", a.kind);
     td.title = a.title;
-    if (!a.set) continue;
+    if (!usable(a.set, routeChoices)) continue;
     const use = document.createElement("button");
     use.type = "button";
     use.className = "use-route";
@@ -961,7 +964,7 @@ async function paintAdvice(box, wrap) {
     use.onclick = () => {
       for (const k of ["model", "effort"]) {
         const sel = td.querySelector(`select[data-k="${k}"]`);
-        if (sel && a.set[k]) { sel.value = a.set[k]; sel.onchange(); }
+        if (sel) { sel.value = a.set[k]; sel.onchange(); }
       }
       td.classList.remove("advise", a.kind);
       td.classList.add("advised");
@@ -970,6 +973,7 @@ async function paintAdvice(box, wrap) {
     td.append(use);
   }
 }
+// advice:end
 
 function renderLimits() {
   const box = $("limits");

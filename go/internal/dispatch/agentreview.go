@@ -448,6 +448,18 @@ func (d *Dispatcher) agentIdle(id string) bool {
 	return true // not running: the message resumes its conversation
 }
 
+// agentWaiting: the task's agent waits for your answer (a permission, a question, a plan), its turn not ended.
+func (d *Dispatcher) agentWaiting(id string) bool {
+	if s := d.Chats.Get(id); s != nil && s.Running() {
+		st, _, _ := s.State()
+		return st == "waiting"
+	}
+	if s := d.Sessions.Get(id); s != nil && s.Running() {
+		return s.State().State == "waiting"
+	}
+	return false
+}
+
 // tellAgent gives the agent Mako's message (not yours: no lesson is drawn from it), resuming it if it is closed.
 func (d *Dispatcher) tellAgent(id, text string) error {
 	return d.deliver(id, text, core.PhaseWork)
