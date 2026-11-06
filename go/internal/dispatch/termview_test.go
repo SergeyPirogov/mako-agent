@@ -62,7 +62,7 @@ func chatInTheChat(t *testing.T, turn bool) (d *Dispatcher, wt string, s *chat.S
 	if turn {
 		result = `echo '{"type":"result","subtype":"success","duration_ms":1000,"total_cost_usd":0.01}'`
 	}
-	script := "#!/bin/sh\necho \"$@\" > args.txt\nread init\nread msg\n" +
+	script := "#!/bin/sh\necho \"$@\" > args.txt\nread init\nread msg\necho \"$msg\" > prompt.json\n" +
 		`echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'` + "\n" + result + "\ncat > /dev/null\n"
 	os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755)
 	cfg := *d.Config()
@@ -130,6 +130,59 @@ func TestSwitchViewNowTellsTheAgent(t *testing.T) {
 	args := agentArgs(wt)
 	if !strings.Contains(args, "--resume sess-1") || !strings.Contains(args, i18n.TA("agent.switched")) {
 		t.Fatalf("args %s", args)
+	}
+}
+
+// «Switch now» while the agent waits for your answer: it is told its question was lost, not to go on without it.
+func TestSwitchViewNowWhileAsking(t *testing.T) {
+	d, wt, s := chatInTheChat(t, false)
+	// The agent is in the terminal, asking for a permission.
+	d.StopTerminal("t#1")
+	s.Wait()
+	d.Store.Update("t#1", func(r *core.Record) { r.View = "" })
+	ts, err := term.Start(term.Options{ID: "t#1", Worktree: wt, Command: "/bin/sh", Args: []string{"-c", "sleep 30"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Sessions.Put(ts)
+	ts.Hook([]byte(`{"hook_event_name":"Notification","message":"Claude needs your permission"}`))
+	if !d.agentWaiting("t#1") || d.agentIdle("t#1") {
+		t.Fatal("the agent is not waiting")
+	}
+	if err := d.SwitchView("t#1", "chat", true); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool {
+		b, _ := os.ReadFile(filepath.Join(wt, "prompt.json"))
+		return strings.HasSuffix(string(b), "\n")
+	}, "the agent got no message in the chat")
+	b, _ := os.ReadFile(filepath.Join(wt, "prompt.json"))
+	if !strings.Contains(string(b), "Постав його ще раз") || strings.Contains(string(b), "продовж з того місця") {
+		t.Fatalf("message %s", b)
+	}
+}
+
+// The switch that was due when the turn ended but failed stays asked: it is not dropped.
+func TestSwitchWhenIdleKeepsTheSwitchOnFailure(t *testing.T) {
+	old := closeWait
+	closeWait = 100 * time.Millisecond
+	defer func() { closeWait = old }()
+	d, _, _ := setup(t)
+	wt := t.TempDir()
+	d.Store.Update("t#1", func(r *core.Record) {
+		r.Worktree, r.Executor, r.Status, r.ViewNext = wt, terminalExecutor, core.HandedOff, "chat"
+	})
+	s, err := term.Start(term.Options{ID: "t#1", Worktree: wt, Command: "/bin/sh", Args: []string{"-c", "trap '' HUP; touch trapped; sleep 30"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { s.Stop(); s.Wait() }()
+	d.Sessions.Put(s)
+	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(wt, "trapped")); return err == nil }, "the agent does not ignore the hangup yet")
+	s.Hook([]byte(`{"hook_event_name":"Stop"}`))
+	d.switchWhenIdle("t#1")
+	if r, _ := d.Store.Get("t#1"); r.View != "" || r.ViewNext != "chat" {
+		t.Fatalf("view %q, next %q: the switch was lost", r.View, r.ViewNext)
 	}
 }
 

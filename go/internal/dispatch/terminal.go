@@ -260,9 +260,10 @@ func (d *Dispatcher) SwitchView(id, to string, now bool) error {
 		return nil
 	}
 	live := d.Live(id)
-	// Cut in the middle of a step (or while it waited for you): the resumed agent is told so, else it would stand at
-	// its prompt. One that had ended its turn lost nothing and goes on when you write.
-	interrupted := live && !d.agentIdle(id)
+	// Cut in the middle of a step: the resumed agent is told so, else it would stand at its prompt. One that waited
+	// for your answer is told its question is gone, not to go on without it. One that had ended its turn lost
+	// nothing and goes on when you write.
+	interrupted, asking := live && !d.agentIdle(id), live && d.agentWaiting(id)
 	d.StopTerminal(id)
 	for end := time.Now().Add(closeWait); d.Live(id) && time.Now().Before(end); {
 		time.Sleep(10 * time.Millisecond) // one claude at a time on a conversation
@@ -275,6 +276,9 @@ func (d *Dispatcher) SwitchView(id, to string, now bool) error {
 	d.Log(id, map[string]string{"chat": "the agent is now in the chat", "terminal": "the agent is now in the terminal"}[to])
 	if !live {
 		return nil
+	}
+	if asking {
+		return d.resume(id, i18n.TA("agent.switchedAsking"))
 	}
 	if interrupted {
 		return d.resume(id, i18n.TA("agent.switched"))
@@ -293,6 +297,13 @@ func (d *Dispatcher) switchWhenIdle(id string) {
 		return
 	}
 	if err := d.SwitchView(id, to, true); err != nil {
+		// The switch asked for stays asked (the bar over the agent shows it, Cancel takes it away): the next change of
+		// the agent's state tries again.
+		d.Store.Update(id, func(r *core.Record) {
+			if r.ViewNext == "" && r.View != to {
+				r.ViewNext = to
+			}
+		})
 		d.Log(id, "the agent's view was not switched: "+err.Error())
 	}
 }
