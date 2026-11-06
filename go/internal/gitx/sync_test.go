@@ -125,3 +125,34 @@ func TestUpdateFromBaseLeavesAlone(t *testing.T) {
 		t.Fatal("remote branch changed")
 	}
 }
+
+// A branch started from another (fix/1, two commits) moves onto main once fix/1 is squashed into it: only its own
+// commit goes; a plain rebase would carry fix/1's commits again and conflict with their squash.
+func TestUpdateOntoAfterSquash(t *testing.T) {
+	wt, other, g := syncRepos(t)
+	ctx := context.Background()
+	commitTo(t, g, wt, "b.txt", "mine, reviewed\n") // fix/1's second commit
+	tip := g(wt, "rev-parse", "HEAD")
+	child := filepath.Join(filepath.Dir(wt), "child")
+	g(filepath.Dir(wt), "clone", "-q", filepath.Join(filepath.Dir(wt), "origin.git"), child)
+	g(child, "checkout", "-q", "-b", "fix/2", "origin/fix/1")
+	commitTo(t, g, child, "c.txt", "child\n")
+	g(child, "push", "-q", "-u", "origin", "fix/2")
+	// fix/1 is squashed into main.
+	g(other, "fetch", "-q", "origin")
+	g(other, "merge", "-q", "--squash", "origin/fix/1")
+	g(other, "commit", "-q", "-m", "Squash fix/1")
+	g(other, "push", "-q", "origin", "main")
+
+	s, err := UpdateOnto(ctx, child, "main", tip, "fix/2")
+	if err != nil || !s.Updated || len(s.Conflicts) != 0 {
+		t.Fatalf("onto: %+v %v", s, err)
+	}
+	g(child, "fetch", "-q", "origin")
+	if n := g(child, "rev-list", "--count", "origin/main..origin/fix/2"); n != "1" {
+		t.Fatalf("fix/2 carries %s commits past main, want its own one", n)
+	}
+	if got := g(child, "show", "origin/fix/2:b.txt"); got != "mine, reviewed" {
+		t.Fatalf("b.txt %q", got)
+	}
+}

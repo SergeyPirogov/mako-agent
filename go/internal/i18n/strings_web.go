@@ -25,8 +25,18 @@ var webStrings = map[string]string{
 	"b.risk.statsFixed":  "{fixed} of them needed a fix after the merge · {pct}%",
 	"b.risk.statsNoAuto": "No merges by itself: auto-merge is off, or no low-risk MR passed",
 	"b.risk.statsMerged": "{n} merged",
-	"b.confirm.ok":       "OK",
-	"b.confirm.cancel":   "Cancel",
+	// A task that waits for another before it starts: a blocker in the tracker, a part of a split before it.
+	"b.waits.label":  "waits",
+	"b.waits.merge":  "Waits for {id} to be merged",
+	"b.waits.mr":     "Waits for an MR of {id}: it starts from that branch",
+	"b.waits.closed": "Waits for {id}: its MR was closed without merging",
+	"b.waits.open":   "Blocked by {id} in the tracker",
+	"b.waits.queued": "Mako will start it on its own once it can",
+	"b.waits.new":    "Taken, it waits in the queue until then",
+	"b.stack.note":   "Started from the branch of {id}: its MR goes into {branch} until {id} is merged, then Mako moves it onto the base branch",
+
+	"b.confirm.ok":     "OK",
+	"b.confirm.cancel": "Cancel",
 
 	// A POST from the board that got no JSON answer.
 	"b.net.noAnswer":  "Mako did not answer. Try again in a moment.",

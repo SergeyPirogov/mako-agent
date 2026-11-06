@@ -56,6 +56,12 @@ type CodeHost interface {
 	Host() string
 }
 
+// Retargeter changes the branch an open MR/PR goes into: a task's MR started from another task's branch goes into
+// the base branch once that one is merged.
+type Retargeter interface {
+	Retarget(ctx context.Context, url, base string) error
+}
+
 type Review struct {
 	URL    string
 	Number int

@@ -294,3 +294,29 @@ func TestUpdateKeepsErrorKindWithError(t *testing.T) {
 		t.Fatalf("a kind set on its own: %q", kind())
 	}
 }
+
+// A state.json written before tasks had links and stacks reads as it was: nothing waits, nothing is stacked; and a
+// stacked task's record keeps its stack across a restart.
+func TestStateBeforeLinksReads(t *testing.T) {
+	dir := t.TempDir()
+	old := `{"grp/app#5":{"id":"grp/app#5","status":"queued","task":{"id":"grp/app#5","slug":"app-5","trackerId":"gl","project":"grp/app","title":"T","description":"","url":"","labels":[],"components":[],"comments":[]},"updatedAt":"2026-01-01T00:00:00Z"}}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil || s.Broken != "" {
+		t.Fatalf("%v, broken %q", err, s.Broken)
+	}
+	r, ok := s.Get("grp/app#5")
+	if !ok || r.Status != core.Queued || r.Task.BlockedBy != nil || r.After != nil || r.StackOn != "" || r.Stack != nil {
+		t.Fatalf("%+v", r)
+	}
+	s.Update("grp/app#6", func(r *core.Record) {
+		r.Task.BlockedBy, r.After, r.StackOn = []string{"grp/app#9"}, []string{"grp/app#5"}, "grp/app#5"
+		r.Stack = &core.Stack{On: "grp/app#5", Branch: "fix/5", Tip: "abc"}
+	})
+	s, _ = Open(dir)
+	if r, _ := s.Get("grp/app#6"); r.Stack == nil || r.Stack.Tip != "abc" || r.StackOn != "grp/app#5" || len(r.After) != 1 || len(r.Task.BlockedBy) != 1 {
+		t.Fatalf("not kept: %+v", r)
+	}
+}

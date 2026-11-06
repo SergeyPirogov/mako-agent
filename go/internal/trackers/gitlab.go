@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/config"
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
@@ -30,6 +31,8 @@ type GitLab struct {
 	memos map[string]reviewMemo
 	// members: whether a user (by id) is a developer or more of a project (by path), as GitLab said.
 	members map[string]bool
+	// links: the open issues blocking each issue, by task ID, as the last read of its links gave them.
+	links map[string]linkMemo
 }
 
 type glUser struct {
@@ -136,6 +139,11 @@ func (g *GitLab) FetchMine(ctx context.Context) ([]core.Task, error) {
 		seen[t.ID] = true
 		me, _ := g.Me(ctx)
 		t.AuthorMember = byProject(t.Author, me, t.Assignees) || g.member(ctx, projectPath, is.Author.ID)
+		if b, ok := g.blockedBy(ctx, projectPath, is, t.ID, time.Now()); ok {
+			t.BlockedBy = b
+		} else {
+			t.LinksUnread = true
+		}
 		if m := old[t.ID]; is.NotesCount > 0 && m.holds(is.UpdatedAt, is.NotesCount) {
 			t.Comments, memos[t.ID] = slices.Clone(m.comments), m
 		} else if is.NotesCount > 0 {
@@ -575,6 +583,15 @@ func (g *GitLab) DescribeReview(ctx context.Context, reviewURL, title, descripti
 		return fmt.Errorf("not a GitLab MR: %s", reviewURL)
 	}
 	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2], map[string]any{"title": title, "description": description}, nil)
+}
+
+// Retarget points the MR into base.
+func (g *GitLab) Retarget(ctx context.Context, reviewURL, base string) error {
+	m := mrURL.FindStringSubmatch(reviewURL)
+	if m == nil {
+		return fmt.Errorf("not a GitLab MR: %s", reviewURL)
+	}
+	return g.do(ctx, "PUT", project(m[1])+"/merge_requests/"+m[2], map[string]any{"target_branch": base}, nil)
 }
 
 func (g *GitLab) OpenReview(ctx context.Context, projectPath, branch, base, title, description string) (*Review, error) {

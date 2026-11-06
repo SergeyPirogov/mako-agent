@@ -54,6 +54,8 @@ func (r Record) Clone() Record {
 		return v
 	})
 	r.Changed = clonePtr(r.Changed, func(v ChangeStat) ChangeStat { return v })
+	r.After = slices.Clone(r.After)
+	r.Stack = clonePtr(r.Stack, func(v Stack) Stack { return v })
 	return r
 }
 
@@ -63,6 +65,7 @@ func (t Task) deep() Task {
 	t.Comments = slices.Clone(t.Comments)
 	t.Assignees = slices.Clone(t.Assignees)
 	t.Attachments = slices.Clone(t.Attachments)
+	t.BlockedBy = slices.Clone(t.BlockedBy)
 	return t
 }
 
