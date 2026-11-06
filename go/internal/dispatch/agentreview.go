@@ -18,8 +18,8 @@ import (
 // The reviewer agent: a second agent with a clean context reads the task and the branch's diff and writes its
 // remarks. It starts from the board's «Рев'ю», or by itself where the change's risk asks for it (AutoRiskReview),
 // once the agent's branch is ready (committed and, unless you open MRs yourself, pushed). Its remarks stay in the
-// task for you to read; the board's «Виправити» hands them to the agent, and after its fixes you may ask for another
-// round. Only Mako's own agents: Orca's cannot be written to.
+// task for you to read; the board's «Виправити» hands them to the agent (with Terminal.AutoFix it is pressed by
+// itself, for the remarks that block the merge), and after its fixes you may ask for another round. Only Mako's own agents: Orca's cannot be written to.
 
 // ReviewBranch runs the reviewer over the worktree; tests replace it.
 var ReviewBranch = writer.AgentReview

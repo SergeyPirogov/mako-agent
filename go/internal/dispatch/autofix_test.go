@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +132,74 @@ func TestAutoFix(t *testing.T) {
 	}
 	if !logged {
 		t.Fatalf("logs %+v", d.Logs(id))
+	}
+}
+
+// AutoFixReview: the reviewer agent's remarks go to the agent by themselves, once, only with Terminal.AutoFix, only
+// while the agent is free, not past the rounds a person decides on, and not the suggestions of a clean round.
+func TestAutoFixReview(t *testing.T) {
+	d, id, wt, idle, _ := numberedReview(t, "", func([]core.Remark) string { return "" })
+	said := func() string { b, _ := os.ReadFile(filepath.Join(wt, "said.json")); return string(b) }
+	round := func() core.AgentReview { r, _ := d.Store.Get(id); return lastReview(r) }
+	tick := func() { d.AutoFixReview(time.Now()) }
+	restore := func(f func(*core.Record)) { d.Store.Update(id, f) }
+
+	// Off: nothing is sent.
+	tick()
+	if round().Sent || strings.Contains(said(), "порожній кошик") {
+		t.Fatalf("sent with AutoFix off: %+v", round())
+	}
+
+	d.Cfg.Terminal.AutoFix = true
+
+	// The task used its requests already.
+	d.Store.Update(id, func(r *core.Record) { r.AutoFixes = autoFixLimit })
+	tick()
+	if round().Sent {
+		t.Fatal("sent past the limit")
+	}
+	restore(func(r *core.Record) { r.AutoFixes = 0 })
+
+	// A person decides after the last round.
+	restore(func(r *core.Record) { r.AgentReviews[len(r.AgentReviews)-1].Escalated = true })
+	tick()
+	if round().Sent {
+		t.Fatal("sent a round left to a person")
+	}
+	restore(func(r *core.Record) { r.AgentReviews[len(r.AgentReviews)-1].Escalated = false })
+
+	// A clean round with suggestions is the person's choice.
+	restore(func(r *core.Record) { r.AgentReviews[len(r.AgentReviews)-1].State = "clean" })
+	tick()
+	if round().Sent {
+		t.Fatal("sent the suggestions of a clean round")
+	}
+	restore(func(r *core.Record) { r.AgentReviews[len(r.AgentReviews)-1].State = "notes" })
+
+	// The agent is in the middle of a turn.
+	_ = d.Chats.Get(id).Send("повільно")
+	tick()
+	if round().Sent {
+		t.Fatal("sent to a working agent")
+	}
+	idle()
+
+	// Free: sent once.
+	tick()
+	r, _ := d.Store.Get(id)
+	if !lastReview(r).Sent || r.AutoFixes != 1 {
+		t.Fatalf("not sent: %+v fixes %d", lastReview(r), r.AutoFixes)
+	}
+	idle()
+	if !strings.Contains(said(), "порожній кошик") {
+		t.Fatalf("the agent got %s", said())
+	}
+	n := strings.Count(said(), "порожній кошик")
+	tick()
+	if r, _ = d.Store.Get(id); r.AutoFixes != 1 || strings.Count(said(), "порожній кошик") != n {
+		t.Fatalf("sent twice: fixes %d", r.AutoFixes)
+	}
+	if !slices.ContainsFunc(d.Logs(id), func(l LogLine) bool { return l.Text == "autofix: reviewer remarks sent to the agent" }) {
+		t.Fatalf("journal %+v", d.Logs(id))
 	}
 }

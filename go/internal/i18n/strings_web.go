@@ -285,7 +285,7 @@ var webStrings = map[string]string{
 	"s.o.checkAttempts":        "Check attempts before «needs attention»",
 	"s.o.checkAttemptsHint":    "This many times in a row the agent gets a failed check's output to fix it. Then the MR is not opened, the task waits for you",
 	"s.o.autoFix":              "MR autofix",
-	"s.o.autoFixHint":          "When the agent ends its turn, Mako asks it by itself to resolve conflicts, fix a failed CI and new review comments, like the ✨ buttons. Each problem once, up to 5 requests a task",
+	"s.o.autoFixHint":          "When the agent ends its turn, Mako asks it by itself to resolve conflicts, fix a failed CI, new review comments and the reviewer agent's remarks, like the ✨ buttons. Each problem once, up to 5 requests a task",
 	"s.o.autoRebase":           "Update the branch from the base one",
 	"s.o.rebase":               "rebase and push --force-with-lease",
 	"s.o.merge":                "merge the base into the branch and push",
