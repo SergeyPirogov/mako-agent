@@ -45,23 +45,34 @@ func ParseSplit(answer string) ([]core.SplitItem, error) {
 	if err != nil {
 		return nil, err
 	}
-	var in struct {
-		Subtasks []struct {
-			Title, Description string
-			After              []int
-		}
-	}
+	var in struct{ Subtasks []rawItem }
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, fmt.Errorf("%w: %v", errNotJSON, err)
 	}
+	out := parseItems(in.Subtasks, 6)
+	if len(out) < 2 {
+		return nil, errors.New("the agent did not split the task into two or more subtasks")
+	}
+	return out, nil
+}
+
+// rawItem is a subtask as the model writes it.
+type rawItem struct {
+	Title, Description string
+	After              []int
+}
+
+// parseItems: the subtasks as the board edits them, at most most of them. One without a title is left out and the
+// numbers of its after move with it; an after that is not of a subtask above is dropped.
+func parseItems(in []rawItem, most int) []core.SplitItem {
 	var out []core.SplitItem
 	number := map[int]int{} // the number in the answer → the number in out
-	for i, s := range in.Subtasks {
+	for i, s := range in {
 		title := strings.TrimSpace(s.Title)
 		if title == "" {
 			continue
 		}
-		if len(out) == 6 {
+		if len(out) == most {
 			break
 		}
 		item := core.SplitItem{Title: clipTo(title, 200), Description: clipTo(strings.TrimSpace(s.Description), 2000)}
@@ -73,8 +84,5 @@ func ParseSplit(answer string) ([]core.SplitItem, error) {
 		out = append(out, item)
 		number[i+1] = len(out)
 	}
-	if len(out) < 2 {
-		return nil, errors.New("the agent did not split the task into two or more subtasks")
-	}
-	return out, nil
+	return out
 }

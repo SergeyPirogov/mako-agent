@@ -144,6 +144,12 @@ func checkSplit(items []core.SplitItem, had []core.SplitItem) ([]core.SplitItem,
 	if len(items) < splitLeast || len(items) > splitMost {
 		return nil, fmt.Errorf("a task splits into %d to %d subtasks, not %d", splitLeast, splitMost, len(items))
 	}
+	return checkItems(items, had)
+}
+
+// checkItems: each subtask of the list with a title, each waiting only for those above it; one already created is
+// the one created, as it was.
+func checkItems(items []core.SplitItem, had []core.SplitItem) ([]core.SplitItem, error) {
 	created := map[string]core.SplitItem{}
 	for _, it := range had {
 		if it.Task != "" {
@@ -230,43 +236,59 @@ func (d *Dispatcher) CreateSplit(ctx context.Context, id string, items []core.Sp
 		})
 	}
 	save("done", "")
-	parent := shortRef(r.Task.ID)
+	if err := d.openSubtasks(ctx, t, r.Task, items, func() { save("done", "") }); err != nil {
+		save("done", err.Error())
+		d.Log(id, "the split stopped: "+err.Error())
+		return err
+	}
+	d.splitDone(ctx, t, r.Task, items)
+	return nil
+}
+
+// openSubtasks opens the subtasks of the list not opened yet in the tracker, in order, in the parent's project:
+// each with «Частина #N» and a «Після #M» for each one it waits for, on the board with ParentID and After. Each
+// one opened is in items at once, and saved is told; a failure stops it, the ones opened staying.
+func (d *Dispatcher) openSubtasks(ctx context.Context, t trackers.Tracker, parent core.Task, items []core.SplitItem, saved func()) error {
 	for i := range items {
 		if items[i].Task != "" {
 			continue
 		}
-		lines := []string{i18n.TA("split.partOf", parent)}
+		lines := []string{i18n.TA("split.partOf", shortRef(parent.ID))}
 		var waits []string
 		for _, a := range items[i].After {
 			lines = append(lines, i18n.TA("split.after", shortRef(items[a-1].Task)))
 			waits = append(waits, items[a-1].Task)
 		}
 		desc := strings.TrimSpace(items[i].Description + "\n\n" + strings.Join(lines, "\n"))
-		n := trackers.NewIssue{Project: r.Task.Project, Title: items[i].Title, Description: desc}
-		child, err := d.createTask(ctx, t.ID(), n, false, false, "", 0, id, waits)
+		n := trackers.NewIssue{Project: parent.Project, Title: items[i].Title, Description: desc}
+		child, err := d.createTask(ctx, t.ID(), n, false, false, "", 0, parent.ID, waits)
 		if err != nil {
-			why := fmt.Sprintf("created %d of %d subtasks: %v", countCreated(items), len(items), err)
-			save("done", why)
-			d.Log(id, "the split stopped: "+why)
-			return errors.New(why)
+			return fmt.Errorf("created %d of %d subtasks: %v", countCreated(items), len(items), err)
 		}
 		items[i].Task = child
-		save("done", "")
+		saved()
 	}
+	return nil
+}
+
+// splitDone: all the subtasks are open: a comment in the parent lists them, and it is split, out of «Нові».
+func (d *Dispatcher) splitDone(ctx context.Context, t trackers.Tracker, parent core.Task, items []core.SplitItem) {
 	list := []string{i18n.TA("split.comment")}
 	for _, it := range items {
 		list = append(list, "- "+shortRef(it.Task)+" "+it.Title)
 	}
-	if err := t.Comment(ctx, r.Task, strings.Join(list, "\n")); err != nil {
-		d.Log(id, "the list of subtasks was not commented in the tracker: "+err.Error())
+	if err := t.Comment(ctx, parent, strings.Join(list, "\n")); err != nil {
+		d.Log(parent.ID, "the list of subtasks was not commented in the tracker: "+err.Error())
 	}
-	d.Store.UpdateIfExists(id, func(r *core.Record) {
-		b := *r.Breakdown
-		b.State, b.Error = "created", ""
+	d.Store.UpdateIfExists(parent.ID, func(r *core.Record) {
+		b := core.Breakdown{At: now(), For: EstimateKey(r.Task)}
+		if r.Breakdown != nil {
+			b = *r.Breakdown
+		}
+		b.State, b.Items, b.Error = "created", slices.Clone(items), ""
 		r.Breakdown, r.Status, r.AutoSkip = &b, core.Split, ""
 	})
-	d.Log(id, fmt.Sprintf("split into %d subtasks", len(items)))
-	return nil
+	d.Log(parent.ID, fmt.Sprintf("split into %d subtasks", len(items)))
 }
 
 func countCreated(items []core.SplitItem) int {

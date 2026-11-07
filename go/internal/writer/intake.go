@@ -46,14 +46,25 @@ func Intake(ctx context.Context, dir, base string, route core.Route, t core.Task
 // runIntake runs the intake in dir: read-only tools, no session, up to IntakeTimeout; its answer, its spend told to
 // the context's WithSpend.
 func runIntake(ctx context.Context, dir, prompt string, route core.Route) (string, error) {
+	return runReadOnly(ctx, dir, prompt, route, IntakeTimeout, intakeMax, nil)
+}
+
+// runReadOnly runs `claude -p` in dir with tools that only read (IntakeTools), no session, up to timeout; addDirs:
+// more folders it may read (the pictures of an idea). Its answer of up to most bytes, its spend told to the
+// context's WithSpend.
+func runReadOnly(ctx context.Context, dir, prompt string, route core.Route, timeout time.Duration, most int, addDirs []string) (string, error) {
 	path, err := exec.LookPath(Claude)
 	if err != nil {
 		return "", errors.New("no Claude Code found")
 	}
-	ctx, cancel := context.WithTimeout(ctx, IntakeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	args := append([]string{"-p"}, streamArgs...)
-	args = append(args, "--permission-mode", "default", "--disallowedTools", "Edit", "Write", "MultiEdit", "NotebookEdit", "--allowedTools")
+	args = append(args, "--permission-mode", "default")
+	if len(addDirs) > 0 {
+		args = append(append(args, "--add-dir"), addDirs...)
+	}
+	args = append(args, "--disallowedTools", "Edit", "Write", "MultiEdit", "NotebookEdit", "--allowedTools")
 	args = append(args, IntakeTools...)
 	// After the tools: --allowedTools takes several values.
 	args = append(args, modelArgs(route)...)
@@ -64,13 +75,13 @@ func runIntake(ctx context.Context, dir, prompt string, route core.Route) (strin
 	cmd.Stderr = &stderr
 	out, err := run(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("no answer from Claude within %d min", int(IntakeTimeout.Minutes()))
+		return "", fmt.Errorf("no answer from Claude within %d min", int(timeout.Minutes()))
 	}
 	if err != nil {
 		return "", fmt.Errorf("claude: %v: %s", err, failDetail(stderr.String(), out))
 	}
 	text := strings.TrimSpace(answer(ctx, out, route.Model))
-	if text == "" || len(text) > intakeMax {
+	if text == "" || len(text) > most {
 		return "", errors.New("empty answer from Claude")
 	}
 	return text, nil

@@ -114,6 +114,8 @@ type stateReply struct {
 	Faults []dispatch.Fault `json:"faults"` // Mako's own errors, the newest first
 	// Ideas: «For Mako», what Mako suggests filing as issues about itself.
 	Ideas []dispatch.Idea `json:"ideas"`
+	// Specs: «New idea», the ideas on their way to tasks.
+	Specs []dispatch.SpecView `json:"specs"`
 	// LessonOffers: the lessons from the reviewer's remarks waiting for an answer in the settings, by project.
 	LessonOffers map[string]int `json:"lessonOffers,omitempty"`
 	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
@@ -287,6 +289,7 @@ func (s *Server) Handler() http.Handler {
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
 		reply.Ideas = s.D.Ideas()
+		reply.Specs = s.D.Specs()
 		// sel: the task whose card the board has open: its copy to try is kept while it is.
 		if sel := r.URL.Query().Get("sel"); sel != "" {
 			s.D.TryKeep(sel)
@@ -518,6 +521,7 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, s.makoInfo(err))
 	})
 	s.createRoutes(mux)
+	s.specRoutes(mux)
 	s.navRoutes(mux)
 	s.evalRoutes(mux)
 	s.codeRoutes(mux)

@@ -49,6 +49,7 @@ type fakeGitLab struct {
 	createsLeft   int
 	closeFails    bool             // the tracker refuses to close an issue
 	created       []map[string]any // what each new issue was asked with
+	uploads       []string         // the names of the files uploaded to the project
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +80,9 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(map[string]any{"data": map[string]any{"project": map[string]any{"workItemTypes": map[string]any{"nodes": []any{
 			map[string]any{"name": "Issue", "widgetDefinitions": []any{map[string]any{}, map[string]any{"allowedStatuses": statuses}}},
 		}}}}})
+	case (p == "/api/v4/projects/grp%2Fapp/uploads" || r.URL.RawPath == "/api/v4/projects/grp%2Fapp/uploads") && r.Method == "POST":
+		f.uploads = append(f.uploads, string(body))
+		reply(map[string]string{"markdown": fmt.Sprintf("![pic](/uploads/%d/pic.png)", len(f.uploads))})
 	case (p == "/api/v4/projects/grp%2Fapp/issues" || r.URL.RawPath == "/api/v4/projects/grp%2Fapp/issues") && r.Method == "POST":
 		if f.createLimited {
 			if f.createsLeft == 0 {

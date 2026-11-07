@@ -71,7 +71,7 @@ const NewQuestion = "ask-new"
 // outside the worktree).
 func (d *Dispatcher) Attach(id, name string, data []byte) (path, local string, err error) {
 	switch _, ok := d.Store.Get(id); {
-	case ok, d.isFreeChat(id), id == NewQuestion:
+	case ok, d.isFreeChat(id), id == NewQuestion, id == NewSpecID:
 	case IsQuestion(id):
 		if _, ok := d.thread(id); !ok {
 			return "", "", fmt.Errorf("no question %q", id)
