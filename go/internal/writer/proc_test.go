@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,5 +98,51 @@ func TestFailDetailKeepsTail(t *testing.T) {
 	got := failDetail(strings.Repeat("я", 1000)+"END", nil)
 	if !strings.HasSuffix(got, "END") || len(got) > failDetailMax+4 || !utf8.ValidString(got) {
 		t.Fatalf("bad tail: %q", got)
+	}
+}
+
+// A failed Claude is told apart by what it said: the account's limit and the login are not a fault of Mako.
+func TestClaudeErrorKinds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body         string
+		limit, login bool
+	}{
+		"limit":  {`echo '{"type":"result","is_error":true,"result":"You'"'"'ve hit your session limit · resets 3pm"}'; exit 1`, true, false},
+		"login":  {`echo "Invalid API key · Please run /login" >&2; exit 1`, false, true},
+		"other":  {`echo "boom" >&2; exit 1`, false, false},
+		"silent": {`exit 1`, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeClaude(t, tc.body)
+			_, err := AskModel(context.Background(), t.TempDir(), core.Route{Model: "haiku"}, "q", 10*time.Second)
+			var ce *ClaudeError
+			if !errors.As(err, &ce) {
+				t.Fatalf("error %T %v, want a ClaudeError", err, err)
+			}
+			if LimitReached(err) != tc.limit || LoginFailed(err) != tc.login {
+				t.Fatalf("limit=%v login=%v for %v", LimitReached(err), LoginFailed(err), err)
+			}
+		})
+	}
+	if LimitReached(errors.New("claude: exit status 1: hit your limit")) || LoginFailed(nil) {
+		t.Fatal("only a ClaudeError is told by its words")
+	}
+}
+
+// The wordings of Claude Code known now. A new one that is not told here is kept among Mako's errors again: add it.
+func TestClaudeErrorWordings(t *testing.T) {
+	err := func(detail string) error { return &ClaudeError{Err: errors.New("exit status 1"), Detail: detail} }
+	for _, w := range []string{"You've hit your session limit · resets 3pm", "You've hit your weekly limit", "Claude AI usage limit reached", "Usage limit reached"} {
+		if !LimitReached(err(w)) || LoginFailed(err(w)) {
+			t.Errorf("%q is a limit", w)
+		}
+	}
+	for _, w := range []string{"Failed to authenticate", "Invalid API key · Please run /login", "Run claude auth login", "Please run /login"} {
+		if !LoginFailed(err(w)) || LimitReached(err(w)) {
+			t.Errorf("%q is a login failure", w)
+		}
+	}
+	if LimitReached(err("boom")) || LoginFailed(err("boom")) || !err(noOutputDetail).(*ClaudeError).Silent() {
+		t.Error("an ordinary failure is neither; only the one with no output is silent")
 	}
 }

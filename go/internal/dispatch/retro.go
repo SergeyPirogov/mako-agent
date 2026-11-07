@@ -54,11 +54,28 @@ func (d *Dispatcher) retro(ctx context.Context, id string) {
 	x.At = now()
 	if err != nil {
 		d.Fault(id, "the retro was not written", err)
-		x = core.Retro{At: x.At, State: "failed", Error: err.Error()}
+		x = core.Retro{At: x.At, State: "failed", Error: retroFailure(err)}
 	} else {
 		d.Log(id, "the task retro was written")
 	}
 	d.Store.UpdateIfExists(id, func(r *core.Record) { r.Retro = &x })
+}
+
+// retroFailure: why the retro was not written, for its card, short and with what to do; the full error, with what
+// Claude said, is in the task's journal (Fault).
+func retroFailure(err error) string {
+	var ce *writer.ClaudeError
+	switch {
+	case writer.LimitReached(err):
+		return "The retro was not written: the Claude limit is reached. Try again after it resets."
+	case writer.LoginFailed(err):
+		return "The retro was not written: Claude is not logged in. Log in (run `claude` in a terminal), then try again."
+	case errors.As(err, &ce) && ce.Silent():
+		return "The retro was not written: Claude failed without saying why. Check that `claude` runs in a terminal, then try again."
+	case errors.As(err, &ce):
+		return "The retro was not written: Claude failed to answer. What it said is in the task's journal. Try again."
+	}
+	return "The retro was not written: " + err.Error() + ". Try again."
 }
 
 // story: how the task went, as Mako saw it, for the retro.

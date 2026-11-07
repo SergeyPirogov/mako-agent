@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 	"net"
 	"net/url"
 	"os"
@@ -191,4 +192,22 @@ func TestStateSaveErrorIsAFault(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("no fault for an unsaved state: %+v", d.Faults())
+}
+
+// The Claude account's limit and login are not Mako's error for any step that asks Claude, not only the retro's.
+func TestFaultsSkipClaudeAccount(t *testing.T) {
+	d, _, _ := setup(t)
+	failure := func(detail string) error {
+		return &writer.ClaudeError{Err: errors.New("exit status 1"), Detail: detail}
+	}
+	d.Fault("grp/app#1", "reviewer failed", failure("You've hit your session limit"))
+	d.Fault("grp/app#1", "summary not written", failure("Please run /login"))
+	d.Fault("grp/app#1", "task not assessed", failure("Failed to authenticate"))
+	if fs := d.Faults(); len(fs) != 0 {
+		t.Fatalf("kept %+v", fs)
+	}
+	d.Fault("grp/app#1", "reviewer failed", failure("boom"))
+	if fs := d.Faults(); len(fs) != 1 {
+		t.Fatalf("another failure of Claude is kept: %+v", fs)
+	}
 }

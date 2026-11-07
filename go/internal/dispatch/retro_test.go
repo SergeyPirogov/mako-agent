@@ -2,10 +2,14 @@ package dispatch
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
+	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
 func TestRetro(t *testing.T) {
@@ -37,5 +41,54 @@ func TestRetro(t *testing.T) {
 	d.retro(context.Background(), id)
 	if r, _ := d.Store.Get(id); r.Retro == nil || r.Retro.State != "failed" || r.Retro.Error == "" {
 		t.Fatalf("retro %+v", r.Retro)
+	}
+}
+
+// A retro that failed says on its card, shortly, why and what to do; Claude's own words stay in the journal. A limit
+// or a login of the Claude account is not Mako's error, any other failure is.
+func TestRetroFailureCard(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body, card, journal string
+		fault               bool
+	}{
+		"limit":  {`echo '{"type":"result","is_error":true,"result":"You'"'"'ve hit your session limit"}'; exit 1`, "limit is reached", "hit your session limit", false},
+		"login":  {`echo "Please run /login" >&2; exit 1`, "not logged in", "Please run /login", false},
+		"other":  {`echo "boom: bad flag" >&2; exit 1`, "Claude failed to answer", "boom: bad flag", true},
+		"silent": {`exit 1`, "Check that `claude` runs in a terminal", "no output", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, _, _ := setup(t)
+			dir := t.TempDir()
+			os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"+tc.body+"\n"), 0o755)
+			writer.Claude = filepath.Join(dir, "claude") // setup restores it
+			id := "grp/app#7"
+			d.Store.Update(id, func(r *core.Record) { r.ReviewState = "merged" })
+			if err := d.startRetro(id); err != nil {
+				t.Fatal(err)
+			}
+			d.retro(context.Background(), id)
+			r, _ := d.Store.Get(id)
+			x := r.Retro
+			if x == nil || x.State != "failed" || !strings.HasPrefix(x.Error, "The retro was not written: ") || !strings.Contains(x.Error, tc.card) ||
+				strings.Contains(x.Error, "exit status") || !strings.Contains(x.Error, "ry again") {
+				t.Fatalf("card %+v", x)
+			}
+			found := false
+			for _, l := range d.Logs(id) {
+				found = found || strings.Contains(l.Text, tc.journal)
+			}
+			if !found {
+				t.Errorf("the journal lacks %q: %+v", tc.journal, d.Logs(id))
+			}
+			if got := len(d.Faults()) > 0; got != tc.fault {
+				t.Errorf("kept among Mako's errors = %v, want %v: %+v", got, tc.fault, d.Faults())
+			}
+		})
+	}
+}
+
+func TestRetroFailureOtherError(t *testing.T) {
+	if got := retroFailure(errors.New("the retro is empty")); got != "The retro was not written: the retro is empty. Try again." {
+		t.Fatalf("%q", got)
 	}
 }
