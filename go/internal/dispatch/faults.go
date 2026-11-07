@@ -16,6 +16,7 @@ import (
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
+	"github.com/SergeyPirogov/mako-agent/go/internal/writer"
 )
 
 // Mako's own errors: what failed on Mako's side (a search, a comment, an MR check, a worktree left behind), kept
@@ -60,12 +61,12 @@ func worktreeGone(path string) error {
 }
 
 // Fault journals a failed step and keeps it among Mako's errors. A failure of the network or the service, of a
-// setting (an unknown assignee), or of a worktree removed from under the task, is only journaled: there is
-// nothing in Mako for an agent to fix.
+// setting (an unknown assignee), of a worktree removed from under the task, or of the Claude account (its limit,
+// its login) is only journaled: there is nothing in Mako for an agent to fix.
 func (d *Dispatcher) Fault(id, what string, err error) {
 	msg := strings.TrimSpace(err.Error())
 	d.Log(id, what+": "+msg)
-	if transientErr(err) || badAssignee(err) || errors.Is(err, errWorktreeGone) {
+	if transientErr(err) || badAssignee(err) || errors.Is(err, errWorktreeGone) || writer.LimitReached(err) || writer.LoginFailed(err) {
 		return
 	}
 	d.faultsMu.Lock()

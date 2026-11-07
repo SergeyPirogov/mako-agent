@@ -229,13 +229,42 @@ func askModelUpTo(ctx context.Context, dir string, route core.Route, prompt stri
 		return "", fmt.Errorf("no answer from Claude within %d min", int(timeout.Minutes()))
 	}
 	if err != nil {
-		return "", fmt.Errorf("claude: %v: %s", err, failDetail(stderr.String(), out))
+		return "", &ClaudeError{Err: err, Detail: failDetail(stderr.String(), out)}
 	}
 	text := strings.TrimSpace(fences.ReplaceAllString(strings.TrimSpace(answer(ctx, out, route.Model)), ""))
 	if text == "" || len(text) > most {
 		return "", errors.New("empty answer from Claude")
 	}
 	return text, nil
+}
+
+// ClaudeError: a `claude -p` that ended with a failure, with what it said (failDetail).
+type ClaudeError struct {
+	Err    error
+	Detail string
+}
+
+func (e *ClaudeError) Error() string { return fmt.Sprintf("claude: %v: %s", e.Err, e.Detail) }
+
+func (e *ClaudeError) Unwrap() error { return e.Err }
+
+var (
+	// claudeLimitText: what Claude Code says when the account's limit cut the call ("You've hit your session limit").
+	claudeLimitText = regexp.MustCompile(`(?i)hit your .*limit|usage limit`)
+	// claudeAuthText: what it says when the login failed.
+	claudeAuthText = regexp.MustCompile(`(?i)failed to authenticate|claude auth login|invalid api key|please run /login`)
+)
+
+// LimitReached: the call failed on the Claude account's limit, which resets by itself.
+func LimitReached(err error) bool {
+	var ce *ClaudeError
+	return errors.As(err, &ce) && claudeLimitText.MatchString(ce.Detail)
+}
+
+// LoginFailed: the call failed on the Claude login, which only the developer can fix.
+func LoginFailed(err error) bool {
+	var ce *ClaudeError
+	return errors.As(err, &ce) && claudeAuthText.MatchString(ce.Detail)
 }
 
 // failDetail: what a failed `claude -p` said, for the error: the tail of its stderr, else of what it printed
@@ -492,7 +521,7 @@ func runReviewer(ctx context.Context, dir, prompt string, route core.Route) (str
 		return "", errors.New("the reviewer did not answer within 15 min")
 	}
 	if err != nil {
-		return "", fmt.Errorf("claude: %v: %s", err, failDetail(stderr.String(), out))
+		return "", &ClaudeError{Err: err, Detail: failDetail(stderr.String(), out)}
 	}
 	return answer(ctx, out, route.Model), nil
 }

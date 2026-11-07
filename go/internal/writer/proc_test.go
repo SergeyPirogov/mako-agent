@@ -2,6 +2,7 @@ package writer
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,5 +98,33 @@ func TestFailDetailKeepsTail(t *testing.T) {
 	got := failDetail(strings.Repeat("я", 1000)+"END", nil)
 	if !strings.HasSuffix(got, "END") || len(got) > failDetailMax+4 || !utf8.ValidString(got) {
 		t.Fatalf("bad tail: %q", got)
+	}
+}
+
+// A failed Claude is told apart by what it said: the account's limit and the login are not a fault of Mako.
+func TestClaudeErrorKinds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body         string
+		limit, login bool
+	}{
+		"limit":  {`echo '{"type":"result","is_error":true,"result":"You'"'"'ve hit your session limit · resets 3pm"}'; exit 1`, true, false},
+		"login":  {`echo "Invalid API key · Please run /login" >&2; exit 1`, false, true},
+		"other":  {`echo "boom" >&2; exit 1`, false, false},
+		"silent": {`exit 1`, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeClaude(t, tc.body)
+			_, err := AskModel(context.Background(), t.TempDir(), core.Route{Model: "haiku"}, "q", 10*time.Second)
+			var ce *ClaudeError
+			if !errors.As(err, &ce) {
+				t.Fatalf("error %T %v, want a ClaudeError", err, err)
+			}
+			if LimitReached(err) != tc.limit || LoginFailed(err) != tc.login {
+				t.Fatalf("limit=%v login=%v for %v", LimitReached(err), LoginFailed(err), err)
+			}
+		})
+	}
+	if LimitReached(errors.New("claude: exit status 1: hit your limit")) || LoginFailed(nil) {
+		t.Fatal("only a ClaudeError is told by its words")
 	}
 }
