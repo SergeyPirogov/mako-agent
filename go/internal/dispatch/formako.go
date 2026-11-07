@@ -112,10 +112,10 @@ func faultIdeas(faults []Fault) []Idea {
 }
 
 // humanEnd: a task that ended by a person's decision (cancelled, closed or deleted in the tracker, written in
-// Russian): nothing in Mako to fix.
+// Russian, its MR closed without a merge): nothing in Mako to fix.
 func humanEnd(r core.Record) bool {
 	switch core.ErrorKindOf(r) {
-	case core.KindCancelled, core.KindTrackerClosed, core.KindTrackerGone, core.KindRussian:
+	case core.KindCancelled, core.KindMRClosed, core.KindTrackerClosed, core.KindTrackerGone, core.KindRussian:
 		return true
 	}
 	return r.Status == core.Cancelled
