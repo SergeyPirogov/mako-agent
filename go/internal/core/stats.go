@@ -295,7 +295,7 @@ func SummarizePriced(records []Record, now, since time.Time, prices Prices) Stat
 			if cancelled(r) {
 				st.Cancelled++
 			}
-			key, text := reasonOf(r)
+			key, text := ReasonOf(r)
 			if reasons[key] == nil {
 				reasons[key] = &Reason{Key: key, Text: text}
 			}
@@ -575,9 +575,9 @@ func sorted(groups map[string]*Group) []Group {
 	return out
 }
 
-// reasonOf: what a failed record is counted by, and the words for it: a known cause by its kind in the interface's
+// ReasonOf: what a failed record is counted by, and the words for it: a known cause by its kind in the interface's
 // language, however its error was worded; any other by the first line of its error.
-func reasonOf(r Record) (key, text string) {
+func ReasonOf(r Record) (key, text string) {
 	if label := KindLabel(ErrorKindOf(r)); label != "" {
 		return ErrorKindOf(r), label
 	}

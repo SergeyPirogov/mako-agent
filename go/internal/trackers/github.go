@@ -432,11 +432,14 @@ func (g *GitHub) OpenReview(ctx context.Context, repo, branch, base, title, desc
 // --- new issues
 
 func (g *GitHub) Create(ctx context.Context, n NewIssue) (core.Task, error) {
-	me, err := g.Me(ctx)
-	if err != nil {
-		return core.Task{}, err
+	body := map[string]any{"title": n.Title, "body": n.Description, "labels": newLabels(g.cfg, n.Plain, n.Bug)}
+	if !n.Plain {
+		me, err := g.Me(ctx)
+		if err != nil {
+			return core.Task{}, err
+		}
+		body["assignees"] = []string{me}
 	}
-	body := map[string]any{"title": n.Title, "body": n.Description, "assignees": []string{me}, "labels": newLabels(g.cfg, n.Bug)}
 	var is ghIssue
 	if err := g.do(ctx, "POST", "/repos/"+n.Project+"/issues", body, &is); err != nil {
 		return core.Task{}, err

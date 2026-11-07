@@ -91,6 +91,9 @@ type NewIssue struct {
 	Title       string
 	Description string
 	Bug         bool
+	// Plain: an issue for a person to read and decide on: assigned to no one and without the trigger label, so
+	// Mako does not take it on its own (a suggestion from «For Mako»).
+	Plain bool
 }
 
 // Creator is a tracker that can open an issue from the board (GitLab, GitHub): assigned to me, with the
@@ -101,10 +104,10 @@ type Creator interface {
 	Upload(ctx context.Context, project, name string, data []byte) (string, error)
 }
 
-// newLabels: the trigger label, and bug for a bug where the tracker marks it with one.
-func newLabels(t *config.Tracker, bug bool) []string {
+// newLabels: the trigger label (none for a plain issue), and bug for a bug where the tracker marks it with one.
+func newLabels(t *config.Tracker, plain, bug bool) []string {
 	labels := []string{}
-	if t.Trigger != "" {
+	if t.Trigger != "" && !plain {
 		labels = append(labels, t.Trigger)
 	}
 	if bug {

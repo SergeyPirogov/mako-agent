@@ -178,6 +178,11 @@ type Dispatcher struct {
 	evalRunMu sync.Mutex
 	evalRuns  map[string]*evalLiveRun
 	faultsMu  sync.Mutex // errors.json: Mako's own errors
+	// ideasMu: ideas.json and ideasSeen, the suggestions «For Mako» last worked out; ideaFiling: one issue filed at
+	// a time, so a second click does not open a second one.
+	ideasMu    sync.Mutex
+	ideasSeen  *ideasCache
+	ideaFiling sync.Mutex
 
 	// Version and Source: this Mako's version and the clone it is built from ("" when unknown), for the
 	// report of its errors.

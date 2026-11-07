@@ -93,7 +93,7 @@
 // The columns, the tasks' states and the agent's notes, in Mako's language: made again when it changes.
 let COLUMNS = [], LABEL = {}, AGENT_NOTE = {};
 function boardWords() {
-  COLUMNS = ["doing", "blocked", "review", "merge", "forme", "new", "split", "failed", "later", "done"].map((c) => [c, t("b.col." + c)]);
+  COLUMNS = ["doing", "blocked", "review", "merge", "forme", "new", "split", "failed", "mako", "later", "done"].map((c) => [c, t("b.col." + c)]);
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   LABEL = Object.fromEntries(["new", "later", "queued", "starting", "doing", "review", "done", "failed", "split",
     "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"].map((k) => [k, t("b.label." + k)]));
@@ -751,6 +751,7 @@ function render() {
   // Others' MRs where I am a reviewer: open ones in "Reviews for me", finished ones in "Done".
   const entries = rows.map((r) => ({ p: r.task.project, g: groupOf(r), r, html: taskRow(r) }));
   if (!attention) for (const q of reviewAsks(words)) entries.push({ p: q.project, g: q.state === "open" ? "forme" : "done", ask: true, html: reviewAskRow(q) });
+  if (!attention) for (const i of ideaEntries(words)) entries.push({ p: i.project || i.mako, g: "mako", html: ideaRow(i) });
   // While filtering, every match shows: a folded group would hide what was asked for.
   const showAll = !!words.length || !!attention;
   const html = groupBy === "project" ? listByProject(entries, showAll) : listByStatus(entries, showAll);
@@ -890,6 +891,83 @@ function reviewAsks(words) {
   return (data.reviewRequests || []).filter((q) => (!project || q.project === project)
     && words.every((w) => `${q.title} ${q.ref} ${q.project} ${q.author}`.toLowerCase().includes(w)));
 }
+// «For Mako»: what Mako suggests filing about itself (data.ideas), a group of its own; in the list and the address its
+// id is "idea:" + its key. A suggestion about failures in one project goes under that project, the rest under Mako's.
+const ideaId = (i) => "idea:" + i.key;
+function ideaEntries(words) {
+  if (showArchive) return [];
+  return (data.ideas || []).filter((i) => (!project || (i.project || i.mako) === project)
+    && words.every((w) => `${i.title} ${i.detail || ""} ${(i.tasks || []).join(" ")}`.toLowerCase().includes(w)));
+}
+const ideaFigure = (i) => i.source === "cost" ? (i.cost ? `$${i.cost.toFixed(2)}` : "") : `${i.count}×`;
+function ideaRow(i) {
+  const n = ideaFigure(i);
+  return `<button class="item idea ${ideaId(i) === selected ? "sel" : ""}" data-id="${esc(ideaId(i))}" title="${esc(i.title)}">
+    <span class="t">${esc(i.title)}</span>
+    <span class="m"><span class="kind mako">${esc(t("b.idea.src." + i.source))}</span>${n ? `<span class="num">${esc(n)}</span>` : ""}${i.issue ? `<span class="updated" title="${esc(t("b.idea.againHint"))}">${esc(t("b.idea.again"))}</span>` : ""}${i.last ? `<span class="ago" title="${esc(ago(i.last))}">${agoShort(i.last)}</span>` : ""}</span></button>`;
+}
+// The suggestion being filed (its key), and the place chosen for each one: the board re-renders every few seconds.
+let ideaBusy = "";
+const ideaTarget = {};
+function closeIdea() {
+  selected = null; history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+}
+function renderIdea(i) {
+  closeTerminal(); closeChat(); $("detail").classList.remove("ws");
+  const card = (title, body) => `<div class="tcard"><div class="tcard-h">${esc(title)}</div>${body}</div>`;
+  const facts = [];
+  if (i.source === "fault") facts.push(t("b.idea.times", { n: i.count }));
+  if (i.source === "fail") facts.push(t("b.idea.failed", { n: i.count }));
+  if (i.first) facts.push(t("b.idea.period", { first: fmtWhen(i.first), last: fmtWhen(i.last) }));
+  if (i.cost && i.source === "fail") facts.push(t("b.idea.spent", { usd: i.cost.toFixed(2) }));
+  if (i.cost && i.source === "cost") facts.push(t("b.idea.save", { usd: i.cost.toFixed(2) }));
+  const known = new Set(data.records.map((r) => r.id));
+  const tasks = (i.tasks || []).map((id) => known.has(id) ? `<a href="#${esc(id)}" data-idea-task="${esc(id)}">${esc(id)}</a>` : `<code>${esc(id)}</code>`).join(", ");
+  const target = ideaTarget[i.key] || i.target, busy = ideaBusy === i.key, figure = ideaFigure(i);
+  const where = i.project
+    ? `<label class="idea-target">${esc(t("b.idea.to"))} <select id="idea-target"><option value="project"${target === "project" ? " selected" : ""}>${esc(i.project)}</option><option value="mako"${target === "mako" ? " selected" : ""}>${esc(i.mako)}</option></select></label>`
+    : `<span class="idea-target muted">${esc(t("b.idea.to"))} ${esc(i.mako)}</span>`;
+  const issue = i.issue ? (/^https?:/.test(i.issue) ? `<a href="${esc(i.issue)}" target="_blank" rel="noopener">${esc(i.issue.replace(/^https?:\/\/(www\.)?/, ""))}</a>` : esc(i.issue)) : "";
+  const html = `
+    <button class="ghost back" id="back">${esc(t("b.idea.back"))}</button>
+    <div class="d-head">
+      <div class="d-main">
+        <div class="d-id"><span class="kind mako">${esc(t("b.col.mako"))}</span><span>${esc(t("b.idea.src." + i.source))}</span>${figure ? `<span>${esc(figure)}</span>` : ""}</div>
+        <h1>${esc(i.title)}</h1>
+      </div>
+    </div>
+    ${card(t("b.idea.why"), `<div class="tcard-b">${esc(t("b.idea.why." + i.source))}</div>`)}
+    ${card(t("b.idea.facts"), `<div class="tcard-b"><ul class="idea-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join("")}${tasks ? `<li>${esc(t("b.idea.tasks"))} ${tasks}</li>` : ""}${issue ? `<li>${t("b.idea.issue", { url: issue })}</li>` : ""}</ul>${i.detail ? `<pre class="idea-detail">${esc(i.detail)}</pre>` : ""}</div>`)}
+    <div class="tcard"><div class="tcard-b idea-act">${where}<span class="idea-btns"><button class="primary" id="idea-file"${busy ? " disabled" : ""}>${esc(busy ? t("b.idea.filing") : t(i.issue ? "b.idea.addFacts" : "b.idea.file"))}</button><button class="ghost" id="idea-no"${busy ? " disabled" : ""}>${esc(t("b.idea.no"))}</button></span></div>
+      <div class="snote idea-note">${esc(t("b.idea.note"))}</div></div>`;
+  if (html === shown) return;
+  if (document.activeElement?.id === "idea-target") return; // the list of places is open
+  $("detail").innerHTML = shown = html;
+  $("back").onclick = closeIdea;
+  if ($("idea-target")) $("idea-target").onchange = (e) => { ideaTarget[i.key] = e.target.value; };
+  for (const a of $("detail").querySelectorAll("[data-idea-task]")) a.onclick = (e) => { e.preventDefault(); select(a.dataset.ideaTask); };
+  const send = (action) => postJSON(`/api/ideas/${action}`, { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: i.key, target: ideaTarget[i.key] || i.target }) });
+  $("idea-file").onclick = async () => {
+    if (ideaBusy) return;
+    ideaBusy = i.key; render();
+    const res = await send("file");
+    ideaBusy = "";
+    if (!res.ok) { toast(res.error || t("b.idea.fileFailed"), true); await load(); return; }
+    toast(t(res.commented ? "b.idea.commented" : "b.idea.filed", { url: res.url }));
+    closeIdea();
+    await load();
+  };
+  $("idea-no").onclick = async () => {
+    if (!(await askConfirm(t("b.idea.noAsk"), { ok: t("b.idea.no") }))) return;
+    const res = await send("no");
+    if (!res.ok) { toast(res.error || t("b.idea.fileFailed"), true); return; }
+    closeIdea();
+    await load();
+  };
+}
+
 const DONE_WHY = { merged: "merged", closed: "MR closed", approved: "you approved" };
 const sizeHTML = (q) => `<span class="mr-size" title="Lines added / removed"><span class="add">+${q.additions}</span> <span class="del">−${q.deletions}</span></span>`;
 const ciDot = (ci) => { const [icon, text] = CI[ci] ?? []; return icon ? `<span class="ci-dot ${icon}" title="${esc(text)}"></span>` : ""; };
@@ -3477,7 +3555,7 @@ function attentionTasks(f) {
   return data.records.filter((r) => (!statsProject || projectOf(r) === statsProject) && (need.now || inPeriod(r)) && need.test(r)
     && (!f.reason || failReason(r) === f.reason));
 }
-// Why a task failed, in the key Summarize counts it by (stats.go: reasonOf): its error kind, else the error's first line.
+// Why a task failed, in the key Summarize counts it by (stats.go: ReasonOf): its error kind, else the error's first line.
 function failReason(r) {
   if (r.errorKind) return r.errorKind;
   const e = r.error || "";
@@ -4517,8 +4595,10 @@ function doneHTML(r, card) {
 function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
   const ask = !r && !statsOpen && !newOpen && !digest && (data.reviewRequests || []).find((x) => x.id === selected);
-  $("work").classList.toggle("detail", !!r || !!ask || statsOpen || newOpen || !!digest);
+  const idea = !r && !ask && !statsOpen && !newOpen && !digest && (data.ideas || []).find((x) => ideaId(x) === selected);
+  $("work").classList.toggle("detail", !!r || !!ask || !!idea || statsOpen || newOpen || !!digest);
   if (ask) return renderAsk(ask);
+  if (idea) return renderIdea(idea);
   if (!r && digest) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button>` + digestHTML(digest);

@@ -112,6 +112,8 @@ type stateReply struct {
 		Active bool `json:"active"`
 	} `json:"awake"`
 	Faults []dispatch.Fault `json:"faults"` // Mako's own errors, the newest first
+	// Ideas: «For Mako», what Mako suggests filing as issues about itself.
+	Ideas []dispatch.Idea `json:"ideas"`
 	// LessonOffers: the lessons from the reviewer's remarks waiting for an answer in the settings, by project.
 	LessonOffers map[string]int `json:"lessonOffers,omitempty"`
 	// Digest: what happened while you were away, once, when the board is seen again after AwayHours.
@@ -284,6 +286,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Evals = s.D.Evals(r.URL.Query().Get("project"), r.URL.Query().Get("evalBase"), r.URL.Query().Get("evalVariant"))
 		reply.ReviewRequests = s.D.ReviewList()
 		reply.Faults = s.D.Faults()
+		reply.Ideas = s.D.Ideas()
 		// sel: the task whose card the board has open: its copy to try is kept while it is.
 		if sel := r.URL.Query().Get("sel"); sel != "" {
 			s.D.TryKeep(sel)
@@ -584,6 +587,40 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true, "id": id})
+	})
+	// «For Mako»: «File issue» files a suggestion (or adds its new facts to the issue filed before), «No» declines it.
+	mux.HandleFunc("POST /api/ideas/{action}", func(w http.ResponseWriter, r *http.Request) {
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var in struct {
+			Key    string `json:"key"`
+			Target string `json:"target"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.Key == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		reply := map[string]any{"ok": true}
+		var err error
+		switch r.PathValue("action") {
+		case "file":
+			var url string
+			var commented bool
+			url, commented, err = s.D.FileIdea(context.WithoutCancel(r.Context()), in.Key, in.Target)
+			reply["url"], reply["commented"] = url, commented
+		case "no":
+			err = s.D.DeclineIdea(in.Key)
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, reply)
 	})
 	mux.HandleFunc("POST /api/{action}", func(w http.ResponseWriter, r *http.Request) {
 		if !sameOrigin(r) {

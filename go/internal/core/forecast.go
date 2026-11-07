@@ -177,7 +177,7 @@ func (h *History) Outlook(r Record, startModel string) *Outlook {
 		}
 		if !p.merged {
 			failed++
-			key, text := reasonOf(x)
+			key, text := ReasonOf(x)
 			if reasons[key] == nil {
 				reasons[key] = &Reason{Key: key, Text: text}
 			}
