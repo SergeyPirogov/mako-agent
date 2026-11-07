@@ -274,6 +274,9 @@ const cardStatus = (r) => {
   if (r.reviewState === "closed") return ["MR closed", "err"];
   if (r.reviewState === "merged") return ["merged", ""];
   if (r.status === "split" && !r.breakdown?.closedAt) return [t("b.split.status", splitCount(r)), ""];
+  // The intake kept the task from the agent: what it waits for, or that it was answered.
+  if (r.intakeStands && r.column === "new" && !r.postponed) return [t("b.intake.status." + r.intake.decision), "warn", t("b.intake.tip", { why: r.intake.why || "" })];
+  if (intakeAnswered(r)) return [t("b.intake.status.answer"), "", t("b.intake.tip", { why: r.intake.why || "" })];
   const st = state(r);
   if (st === "later") return ["snoozed", "", `Snoozed ${untilText(r.snoozedUntil)}`];
   // Left in "New" by auto-take: why, in the row ("large", "description has questions").
@@ -297,7 +300,7 @@ const waitsNote = (w, then) => `<div class="notice later-note waits">${ICON.cloc
 const stackNote = (s) => `<div class="notice later-note stack">${esc(t("b.stack.note", { id: s.on, branch: s.branch }))}</div>`;
 const ATTENTION = { waiting: 0, done: 1, stopped: 1 };
 // The start of a task taken: the steps done (with their time), the one going on, and those still to come.
-const START_STEPS = { tracker: "updating the task in the tracker", main: "updating the base branch", worktree: "creating the worktree", setup: "setup",
+const START_STEPS = { tracker: "updating the task in the tracker", intake: "the agent decides whether to take the task", main: "updating the base branch", worktree: "creating the worktree", setup: "setup",
   agent: "agent is starting", orca: "Orca creates the worktree and starts the agent" };
 const startStep = (r) => r.starting?.steps?.at(-1);
 const secs = (ms) => {
@@ -2000,6 +2003,23 @@ function estimateHTML(r, card) {
   return card("Estimate", `<div class="tcard-b">${line}</div>${fresh ? outlookHTML(r.outlook) : ""}${rec}${questions}`, "assess", note);
 }
 
+// The intake's decision (r.intake) when it kept the task from the agent, or was overridden: what it decided and why,
+// its questions or its answer in the tracker. A decision to take, or a failed intake, is in the journal only.
+const intakeAnswered = (r) => r.intake?.decision === "answer" && r.intake.state === "done" && r.status === "done" && !r.prUrl;
+function intakeHTML(r, card) {
+  const i = r.intake;
+  if (!i || i.state !== "done" || !i.decision || i.decision === "take") return "";
+  const list = (i.questions || []).map((q) => `<li>${esc(q)}</li>`).join("");
+  const body = [
+    `<div class="rec-line"><b>${esc(t("b.intake.d." + i.decision))}</b>${i.why ? `<span class="rec-why">${esc(i.why)}</span>` : ""}</div>`,
+    list ? `<div class="sec"><h4><span class="ic">?</span>${esc(t("b.intake.asked"))}</h4><ul>${list}</ul></div>` : "",
+    i.answer ? `<div class="sec"><h4>${esc(t("b.intake.answer"))}</h4><div class="md">${md(i.answer)}</div></div>` : "",
+    i.overridden ? `<p class="muted">${esc(t("b.intake.overridden"))}</p>`
+      : r.intakeStands && r.column === "new" ? `<p class="muted">${esc(t(i.decision === "clarify" ? "b.intake.standsClarify" : "b.intake.standsOther"))}</p>` : "",
+  ].filter(Boolean).join("");
+  return card(t("b.intake.title"), `<div class="tcard-b">${body}</div>`, "intake");
+}
+
 // The split of a big task (r.breakdown): the agent's subtasks as a list to edit, then «Create in tracker»; once created,
 // the subtasks with how far each got, and the task closes when all are merged. The draft of the edits is kept per task
 // (and per proposal: a new one starts afresh), outside the HTML: the board redraws every 5 s.
@@ -2346,7 +2366,8 @@ function takeButton(r) {
   const item = (m, label) => `<button type="button" data-a="pick" data-x="&model=${encodeURIComponent(m)}" aria-pressed="${model === m}">${model === m ? "✓ " : ""}${label}</button>`;
   const title = model ? `The agent will start with model ${model}, the effort by the routes` : def ? `The agent will start with model ${def}, by the routes` : "The agent will start with the model of the routes";
   const byDefault = def ? `Default: <code>${esc(def)}</code> by the routes` : "By the routes";
-  return `<span class="takesplit"><button class="primary" data-a="take" data-x="" title="${esc(title)}">Start work${start ? ` · <code>${esc(start)}</code>` : ""}</button>
+  const label = r.intakeStands ? t("b.intake.takeAnyway") : "Start work";
+  return `<span class="takesplit"><button class="primary" data-a="take" data-x="" title="${esc(r.intakeStands ? `${t("b.intake.takeAnywayHint")}. ${title}` : title)}">${label}${start ? ` · <code>${esc(start)}</code>` : ""}</button>
     <details class="menu"><summary class="primary" title="Choose the model for the agent" aria-label="Choose model">${ICON.chevron}</summary>
     <div class="menu-pop"><div class="menu-h">Model for the work</div>${(data?.models ?? []).map((m) => item(m, `<code>${esc(m)}</code>`)).join("")}${item("", byDefault)}</div></details></span>`;
 }
@@ -3559,14 +3580,15 @@ function adviceCard(advice) {
 
 function costTab(s) {
   const ph = s.phases || {};
-  const around = (ph.estimate || 0) + (ph.review || 0) + (ph.assess || 0);
+  const around = (ph.estimate || 0) + (ph.intake || 0) + (ph.review || 0) + (ph.assess || 0);
   return `${adviceCard(data?.costAdvice)}<div class="metrics">
       ${metric("Spent", s.cost ? money(s.cost) : "—", s.priced ? `${s.priced} ${plural(s.priced, "task", "tasks")} with a price` : "Mako's agent only", "What Mako's own agent spent on the plan and the work; an agent in Orca does not report it.")}
       ${metric("Per task", s.priced ? money(s.cost / s.priced) : "—", "average")}
       ${metric("Tokens", s.tokens ? tok(s.tokens) : "—", "read and written, cache included")}
-      ${metric("Around the work", around ? money(around) : "—", "estimate, agent review, retro", "Spent outside the plan and the work, for every task: the estimate before the start, the agent's review and the assessment with the retro.")}
+      ${metric("Around the work", around ? money(around) : "—", "estimate, intake, agent review, retro", "Spent outside the plan and the work, for every task: the estimate before the start, the intake, the agent's review and the assessment with the retro.")}
     </div>
     <div class="srow">${phasesCard(s)}${costDaysCard(s.days)}</div>
+    ${intakeCard(s.intake)}
     ${modelsCard(s)}
     ${routingCard(s)}`;
 }
@@ -3692,6 +3714,14 @@ function routingCard(s) {
     + fold(`Details by phase · ${routes.length} ${plural(routes.length, "route", "routes")}`, byRoute)
     + fold(`Escalations · ${e.tasks ? `${e.tasks} ${plural(e.tasks, "task", "tasks")} lifted, ${e.merged} merged` : "none"}`, esc_ + modes),
     "routing vs one model", "flush routing");
+}
+
+// How the intake decided over the period and what keeping tasks from the agent saved; none when it never ran.
+function intakeCard(i) {
+  if (!i?.ran) return "";
+  const line = `<div class="snote">${esc(t("b.intake.statsLine", { ran: i.ran, filtered: i.filtered, clarify: i.clarify, answer: i.answer, split: i.split, overridden: i.overridden }))}</div>`;
+  const saved = i.priced ? `<div class="snote">${esc(t("b.intake.statsSaved", { saved: i.saved.toFixed(2), avoided: i.avoided.toFixed(2), cost: i.cost.toFixed(2) }))}</div>` : "";
+  return scard(t("b.intake.stats"), line + saved + `<div class="snote muted">${esc(t("b.intake.statsHint"))}</div>`, i.cost ? `${money(i.cost)} spent` : "");
 }
 
 // What each phase of the work cost over the period: $ as bars, and the tokens.
@@ -4165,7 +4195,7 @@ function bindFaults() {
 
 const SIZE_NAMES = { small: "small", medium: "medium", big: "big" };
 const STAGE_NAMES = { agent: "agent working", you: "waiting for you", ci: "waiting for CI", review: "waiting for review" };
-const PHASE_NAMES = { estimate: "estimate", plan: "plan", work: "work", review: "agent review", assess: "assessment and retro", forme: "review for me" };
+const PHASE_NAMES = { estimate: "estimate", intake: "intake", plan: "plan", work: "work", review: "agent review", assess: "assessment and retro", forme: "review for me" };
 
 // A time in seconds, short: 42 min, 3 h 5 min, 2 d 4 h.
 function durText(sec) {
@@ -4528,10 +4558,10 @@ function renderDetail() {
   const col = r.column;
   const agentSummary = r.summary && col !== "doing" ? card("Agent summary", summaryHTML(r.summary), "sum") : "";
   const byState = r.status === "split" ? splitHTML(r, card) + descHTML(r, true)
-    : col === "new" ? descHTML(r, false) + estimateHTML(r, card) + splitHTML(r, card)
+    : col === "new" ? descHTML(r, false) + intakeHTML(r, card) + estimateHTML(r, card) + splitHTML(r, card)
     : col === "doing" ? nowHTML(r, card, !!(term || r.worktree || agentOf(r))) + checksHTML(r, card) + descHTML(r, true)
     : col === "review" ? blockersHTML(r) + reviewerHTML(r) + agentSummary + descHTML(r, true)
-    : (col === "done" ? doneHTML(r, card) : "") + (col === "failed" ? checksHTML(r, card, true) : "") + agentSummary + assessmentHTML(r, card) + retroHTML(r, card) + descHTML(r, col !== "failed");
+    : (col === "done" ? intakeHTML(r, card) + doneHTML(r, card) : "") + (col === "failed" ? checksHTML(r, card, true) : "") + agentSummary + assessmentHTML(r, card) + retroHTML(r, card) + descHTML(r, col !== "failed");
   // A split task is done by its subtasks: its card lists them instead of the stages.
   const stages = r.status === "split" ? "" : stripHTML(r, card);
   const task = `

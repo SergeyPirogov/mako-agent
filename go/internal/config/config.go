@@ -70,6 +70,9 @@ type Config struct {
 	SelfCheck string
 	// Estimate: a new task gets the agent's estimate (clarity, size, risk, advice) as it appears.
 	Estimate bool
+	// Intake: when a task taken into work first gets the agent's intake, which may keep it from the work (ask in
+	// the tracker, answer there, split it): "never", "unclear" (unclear or big ones) or "always".
+	Intake string
 	// EstimateModel: the estimate's size picks the task's routes (else every task is medium).
 	EstimateModel bool
 	// CodeModel: the model of «Запитати про код», one for every repository.
@@ -131,6 +134,22 @@ func selfCheckMode(s string) string {
 		return s
 	}
 	return SelfCheckAdvised
+}
+
+// The values of Config.Intake.
+const (
+	IntakeNever   = "never"
+	IntakeUnclear = "unclear"
+	IntakeAlways  = "always"
+)
+
+// intakeMode: the setting's value, "never" for anything else: a config from before the intake works as it did.
+func intakeMode(s string) string {
+	switch s = strings.TrimSpace(s); s {
+	case IntakeUnclear, IntakeAlways:
+		return s
+	}
+	return IntakeNever
 }
 
 // reviewComments: the setting's value, "" for anything else.
@@ -611,6 +630,7 @@ func Parse(data []byte, env map[string]string) (*Config, error) {
 			LessonTasks: atLeast(orInt(raw.AgentReview.LessonTasks, DefaultLessonTasks), 2, DefaultLessonTasks),
 			LessonDays:  atLeast(orInt(raw.AgentReview.LessonDays, DefaultLessonDays), 1, DefaultLessonDays)},
 		SelfCheck:     selfCheckMode(raw.SelfCheck),
+		Intake:        intakeMode(raw.Intake),
 		Estimate:      raw.Estimate.Enabled == nil || *raw.Estimate.Enabled,
 		EstimateModel: raw.Estimate.UseModel == nil || *raw.Estimate.UseModel,
 		CodeModel:     orStr(strings.TrimSpace(raw.CodeAsk.Model), DefaultCodeModel),
@@ -940,6 +960,7 @@ type rawConfig struct {
 		LessonDays  *int   `json:"lessonDays"`
 	} `json:"agentReview"`
 	SelfCheck string `json:"selfCheck"`
+	Intake    string `json:"intake"`
 	Estimate  struct {
 		Enabled  *bool `json:"enabled"`
 		UseModel *bool `json:"useModel"`

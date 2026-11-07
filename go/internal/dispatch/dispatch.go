@@ -517,6 +517,9 @@ func (d *Dispatcher) seen(ctx context.Context, t trackers.Tracker, task core.Tas
 		if r.AutoSkip != "" {
 			d.autoTake(ctx, task.ID)
 		}
+		d.intakeAgain(ctx, r, task)
+	case r.Status == core.Done && r.Intake != nil && r.Intake.Closed:
+		d.intakeReopened(ctx, t, r, task)
 	case r.Status == core.Queued && !task.LinksUnread && !slices.Equal(r.Task.BlockedBy, task.BlockedBy):
 		// What blocks a task in the queue is all that is read of it again: the rest is what it was taken with.
 		d.Store.Update(task.ID, func(r *core.Record) { r.Task.BlockedBy = task.BlockedBy })
@@ -830,6 +833,9 @@ func (d *Dispatcher) start(ctx context.Context, id string) {
 			return
 		}
 		fail(err)
+		return
+	}
+	if !d.intakeGate(ctx, t, repo, r) {
 		return
 	}
 	attempt := max(r.Attempt, 1)

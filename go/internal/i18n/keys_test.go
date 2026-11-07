@@ -26,9 +26,13 @@ func TestEveryKeyUsedExists(t *testing.T) {
 		"theme.":         {"auto", "light", "dark"},
 		"s.r.mode.":      {"cost", "balanced", "quality"},
 		"s.r.size.":      {"small", "medium", "big"},
-		"s.r.phase.":     {"estimate", "plan", "work", "review", "cifix", "assess"},
-		"s.r.phaseHint.": {"estimate", "plan", "work", "review", "cifix", "assess"},
-		"b.eval.st.":     {"passed", "failed", "error", "skipped", "running", "waiting", "done", "stopped"},
+		"s.r.phase.":     {"estimate", "intake", "plan", "work", "review", "cifix", "assess"},
+		"s.r.phaseHint.": {"estimate", "intake", "plan", "work", "review", "cifix", "assess"},
+
+		"b.intake.d.":      {"take", "clarify", "answer", "split"},
+		"b.intake.status.": {"clarify", "answer", "split"},
+
+		"b.eval.st.": {"passed", "failed", "error", "skipped", "running", "waiting", "done", "stopped"},
 	}
 	page := regexp.MustCompile(`"((?:s|b|theme|tray)\.[a-zA-Z]+(?:\.[a-zA-Z-]+)*\.?)"`)
 	goKey := regexp.MustCompile(`"((?:notify|tray|menu|agent|comment|mr|commit|digest|problem|action|task|summary)\.[a-zA-Z]+(?:\.[a-zA-Z-]+)*\.?)"`)
