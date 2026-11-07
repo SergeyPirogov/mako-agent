@@ -403,3 +403,69 @@ func TestCreateSpecGitHub(t *testing.T) {
 		t.Errorf("the second subtask waits for %v, of %q", r.After, r.ParentID)
 	}
 }
+
+// «Drop» while the agent writes stops it: no spending on an idea that is gone.
+func TestDropSpecStopsTheAgent(t *testing.T) {
+	d, _, _ := setup(t)
+	t.Setenv("GIT_SSH_COMMAND", "false")
+	started, stopped := make(chan struct{}), make(chan error, 1)
+	old := SpecFrom
+	SpecFrom = func(ctx context.Context, _, _ string, _ core.Route, _ writer.SpecInput) (core.SpecDraft, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			stopped <- ctx.Err()
+		case <-time.After(10 * time.Second):
+			stopped <- nil
+		}
+		return core.SpecDraft{}, errors.New("stopped")
+	}
+	t.Cleanup(func() { SpecFrom = old })
+	id, err := d.NewSpec(d.TrackerList()[0].ID(), "grp/app", "ідея", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := d.DropSpec(id); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-stopped; err == nil {
+		t.Fatal("the agent went on writing for a dropped idea")
+	}
+	d.WaitSpecs()
+	if len(d.Specs()) != 0 {
+		t.Fatal("the stopped run brought the idea back")
+	}
+	d.mu.Lock()
+	left := len(d.specStops)
+	d.mu.Unlock()
+	if left != 0 {
+		t.Errorf("stops left: %d", left)
+	}
+}
+
+// The pictures of a «New idea» form that was closed without «Write spec» go after a day: at Mako's start and with
+// the next idea. A picture of a form still open stays.
+func TestSweepSpecPics(t *testing.T) {
+	d, _, _ := setup(t)
+	t.Setenv("GIT_SSH_COMMAND", "false")
+	specAgent(t, []core.SpecDraft{{Title: "Т", Body: "Б", Items: specTasks[:1]}}, nil)
+	old, _, _ := d.Attach(NewSpecID, "old.png", []byte("png"))
+	fresh, _, _ := d.Attach(NewSpecID, "fresh.png", []byte("png"))
+	day := time.Now().Add(-specPicsKept - time.Hour)
+	os.Chtimes(old, day, day)
+
+	if _, err := d.NewSpec(d.TrackerList()[0].ID(), "grp/app", "ідея", nil); err != nil {
+		t.Fatal(err)
+	}
+	d.WaitSpecs()
+	if exists(old) || !exists(fresh) {
+		t.Fatalf("with a new idea: old kept %v, fresh kept %v", exists(old), exists(fresh))
+	}
+
+	os.Chtimes(fresh, day, day)
+	New(d.Config(), d.Store, d.TrackerList())
+	if exists(fresh) {
+		t.Fatal("a day-old picture outlived Mako's start")
+	}
+}

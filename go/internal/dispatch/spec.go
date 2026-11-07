@@ -212,16 +212,70 @@ func (d *Dispatcher) NewSpec(trackerID, project, text string, images []string) (
 		return "", err
 	}
 	log.Printf("[%s] a new idea for %s: the agent writes its specification", id, project)
+	d.sweepSpecPics()
 	d.launchSpec(id)
 	return id, nil
 }
 
+// launchSpec runs the agent on the idea in the background; DropSpec stops it (specStops).
 func (d *Dispatcher) launchSpec(id string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	run := &specStop{cancel}
+	d.mu.Lock()
+	if was := d.specStops[id]; was != nil {
+		was.cancel()
+	}
+	d.specStops[id] = run
+	d.mu.Unlock()
 	d.specRuns.Add(1)
 	go func() {
 		defer d.specRuns.Done()
-		d.runSpec(context.Background(), id)
+		defer func() {
+			cancel()
+			d.mu.Lock()
+			// A run started after this one (an answer sent meanwhile) keeps its own stop.
+			if d.specStops[id] == run {
+				delete(d.specStops, id)
+			}
+			d.mu.Unlock()
+		}()
+		d.runSpec(ctx, id)
 	}()
+}
+
+// stopSpec stops the agent writing the idea's specification, if it is.
+func (d *Dispatcher) stopSpec(id string) {
+	d.mu.Lock()
+	run := d.specStops[id]
+	delete(d.specStops, id)
+	d.mu.Unlock()
+	if run != nil {
+		run.cancel()
+	}
+}
+
+// specStop stops one run of the agent on an idea.
+type specStop struct{ cancel context.CancelFunc }
+
+// specPicsKept: how long a picture attached to the form of a new idea («Write spec» not pressed) is kept.
+const specPicsKept = 24 * time.Hour
+
+// sweepSpecPics deletes the pictures attached to the form of a new idea that never became one: older than
+// specPicsKept (a form still open keeps its own). At Mako's start and with each new idea.
+func (d *Dispatcher) sweepSpecPics() {
+	if d.Config().StateDir == "" {
+		return
+	}
+	dir := d.ScreenshotDir(NewSpecID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > specPicsKept {
+			os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // runSpec: the agent, in the project's clone fresh from origin, writes the idea's specification: its questions, or
@@ -362,6 +416,8 @@ func (d *Dispatcher) DropSpec(id string) error {
 	if err != nil {
 		return err
 	}
+	// The agent still writing for it spends on an idea that is gone.
+	d.stopSpec(id)
 	os.RemoveAll(d.ScreenshotDir(id))
 	log.Printf("[%s] the idea was dropped", id)
 	return nil
