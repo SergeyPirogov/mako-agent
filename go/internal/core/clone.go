@@ -54,6 +54,7 @@ func (r Record) Clone() Record {
 		})
 		return v
 	})
+	r.Intake = clonePtr(r.Intake, func(v Intake) Intake { v.Questions = slices.Clone(v.Questions); return v })
 	r.Secrets = slices.Clone(r.Secrets)
 	r.SecretsAllowed = slices.Clone(r.SecretsAllowed)
 	r.Checks = clonePtr(r.Checks, func(v Checks) Checks {

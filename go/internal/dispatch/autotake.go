@@ -103,6 +103,10 @@ func (d *Dispatcher) autoTake(ctx context.Context, id string) {
 	if why == "" && n.AutoTakeOnly != config.AutoTakeAll && !estimateFits(r.Estimate, r.Task) {
 		why = "the description changed after the estimate"
 	}
+	// The intake decided against the work: only you take it anyway.
+	if IntakeStands(r) {
+		why = "the intake decided: " + r.Intake.Decision
+	}
 	if !n.AutoTake || r.PostponedByYou {
 		why = ""
 	}

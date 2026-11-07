@@ -20,6 +20,7 @@ var Stages = []string{StageAgent, StageYou, StageCI, StageReview}
 // The phases a task's spend goes to.
 const (
 	PhaseEstimate = "estimate" // the look at the task before it starts
+	PhaseIntake   = "intake"   // the look as it is taken: work on it, ask, answer or split
 	PhasePlan     = "plan"     // the agent in plan mode, until its plan is approved
 	PhaseWork     = "work"     // the agent's work
 	PhaseReview   = "review"   // the reviewer agent
@@ -29,7 +30,7 @@ const (
 )
 
 // Phases: in the order the board shows them.
-var Phases = []string{PhaseEstimate, PhasePlan, PhaseWork, PhaseReview, PhaseAssess}
+var Phases = []string{PhaseEstimate, PhaseIntake, PhasePlan, PhaseWork, PhaseReview, PhaseAssess}
 
 // Metrics is where a task's time went and what it cost, kept in its record as it goes, so a restart keeps them.
 type Metrics struct {

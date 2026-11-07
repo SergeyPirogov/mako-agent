@@ -13,7 +13,7 @@ import (
 const PhaseCIFix = "cifix"
 
 // RoutePhases: the phases with a route, in the order the settings show them.
-var RoutePhases = []string{PhaseEstimate, PhasePlan, PhaseWork, PhaseReview, PhaseCIFix, PhaseAssess}
+var RoutePhases = []string{PhaseEstimate, PhaseIntake, PhasePlan, PhaseWork, PhaseReview, PhaseCIFix, PhaseAssess}
 
 // Efforts: Claude Code's effort levels, the lowest first (claude --effort).
 var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
@@ -97,6 +97,7 @@ func DefaultRoutes() RouteTable {
 	same := func(x Route) map[string]Route { return map[string]Route{"small": x, "medium": x, "big": x} }
 	return RouteTable{
 		PhaseEstimate: same(r("haiku", "medium")),
+		PhaseIntake:   same(r("haiku", "medium")),
 		PhaseAssess:   same(r("haiku", "medium")),
 		PhasePlan:     {"small": r("sonnet", "medium"), "medium": r("sonnet", "high"), "big": r("opus", "high")},
 		PhaseWork:     {"small": r("sonnet", "medium"), "medium": r("sonnet", "high"), "big": r("opus", "high")},

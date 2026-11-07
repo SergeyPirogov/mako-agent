@@ -202,6 +202,9 @@ type Record struct {
 	// created in the tracker. ParentID: the task this one is a subtask of.
 	Breakdown *Breakdown `json:"breakdown,omitempty"`
 	ParentID  string     `json:"parentId,omitempty"`
+	// Intake: the agent's look at the task as it was taken, before any branch: take it, ask in the tracker first,
+	// answer it there (a question, not a change), or split it.
+	Intake *Intake `json:"intake,omitempty"`
 	// Secrets: what the last push Mako stopped found in the branch's changes; empty once a push passes.
 	// SecretsAllowed: the lines «Це не секрет» let through (secrets.Finding.Key).
 	Secrets        []secrets.Finding `json:"secrets,omitempty"`
@@ -303,6 +306,44 @@ type Estimate struct {
 	Model  string `json:"model,omitempty"`
 	Advice string `json:"advice,omitempty"`
 	Error  string `json:"error,omitempty"`
+}
+
+// The intake's decisions.
+const (
+	IntakeTake    = "take"    // the agent works on it, as without the intake
+	IntakeClarify = "clarify" // the questions went to the tracker; the task waits for the answers in «Нові»
+	IntakeAnswer  = "answer"  // a question, not a change: the answer went to the tracker and the task is closed
+	IntakeSplit   = "split"   // several tasks in one: the agent proposes subtasks (Breakdown)
+)
+
+// IntakeDecisions: the decisions the intake may come to.
+var IntakeDecisions = []string{IntakeTake, IntakeClarify, IntakeAnswer, IntakeSplit}
+
+// Intake: what the agent decided as the task was taken, before its branch: whether to work on it at all.
+type Intake struct {
+	At string `json:"at"`
+	// State: "done" or "failed" (the task went to work as without the intake).
+	State string `json:"state"`
+	// For: the key of the title and description the decision is for; Comments: how many comments the task had,
+	// Mako's own one among them. Another key, or more comments, means the task changed since (an answer came).
+	For      string `json:"for,omitempty"`
+	Comments int    `json:"comments,omitempty"`
+	// Decision: one of IntakeDecisions; Why: the agent's reason, one or two sentences.
+	Decision string `json:"decision,omitempty"`
+	Why      string `json:"why,omitempty"`
+	// Questions: what it asked in the tracker (clarify); Answer: what it answered there (answer).
+	Questions []string `json:"questions,omitempty"`
+	Answer    string   `json:"answer,omitempty"`
+	// Overridden: you took the task anyway, past a decision other than take.
+	Overridden bool `json:"overridden,omitempty"`
+	// Closed: the answered task was closed in the tracker; open there again, it comes back to «Нові».
+	Closed bool   `json:"closed,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// Filtered: the intake kept the task from the agent, and nobody took it anyway.
+func (i *Intake) Filtered() bool {
+	return i != nil && i.State == "done" && i.Decision != "" && i.Decision != IntakeTake && !i.Overridden
 }
 
 // Breakdown is a big task split into subtasks: the agent proposes them («Розбити»), you edit the list on the
