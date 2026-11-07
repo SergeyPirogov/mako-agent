@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/SergeyPirogov/mako-agent/go/internal/fsx"
-	"github.com/SergeyPirogov/mako-agent/go/internal/gitx"
 	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
@@ -163,12 +162,7 @@ func (d *Dispatcher) ReportFaults(ctx context.Context) (string, error) {
 // faultTarget: the tracker and project of Mako's own repository — the origin of the clone Mako is built from,
 // else MakoRepo — among the trackers that can open issues.
 func (d *Dispatcher) faultTarget(ctx context.Context) (string, string, error) {
-	host, project := "github.com", strings.ToLower(strings.TrimPrefix(MakoRepo, "github.com/"))
-	if d.Source != "" {
-		if origin, _ := gitx.OriginURL(ctx, d.Source); gitx.RemoteProject(origin) != "" {
-			host, project = remoteHost(origin), gitx.RemoteProject(origin)
-		}
-	}
+	host, project := d.makoProject(ctx)
 	for _, t := range d.TrackerList() {
 		ch, ok := t.(trackers.CodeHost)
 		if _, creates := t.(trackers.Creator); ok && creates && ch.Host() == host {

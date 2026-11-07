@@ -13,7 +13,11 @@ import (
 func TestEveryKeyUsedExists(t *testing.T) {
 	// The keys put together from a prefix, with all their endings.
 	families := map[string][]string{
-		"b.col.":         {"later", "new", "doing", "blocked", "review", "merge", "forme", "done", "failed"},
+		"b.col.":         {"later", "new", "doing", "blocked", "review", "merge", "forme", "mako", "done", "failed"},
+		"idea.title.":    {"fault", "fail", "cost"},
+		"idea.intro.":    {"fault", "fail", "cost"},
+		"b.idea.why.":    {"fault", "fail", "cost"},
+		"b.idea.src.":    {"fault", "fail", "cost"},
 		"b.label.":       {"new", "later", "queued", "starting", "doing", "review", "done", "failed", "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"},
 		"b.agent.":       {"waiting", "done", "idle", "unknown"},
 		"s.n.kind.":      {"waiting", "finished", "stopped", "review", "agentReview", "secrets", "merged", "newTask", "reviewAsked", "reminder", "gone", "limits"},
@@ -31,7 +35,7 @@ func TestEveryKeyUsedExists(t *testing.T) {
 		"b.eval.st.":     {"passed", "failed", "error", "skipped", "running", "waiting", "done", "stopped"},
 	}
 	page := regexp.MustCompile(`"((?:s|b|theme|tray)\.[a-zA-Z]+(?:\.[a-zA-Z-]+)*\.?)"`)
-	goKey := regexp.MustCompile(`"((?:notify|tray|menu|agent|comment|mr|commit|digest|problem|action|task|summary)\.[a-zA-Z]+(?:\.[a-zA-Z-]+)*\.?)"`)
+	goKey := regexp.MustCompile(`"((?:notify|tray|menu|agent|comment|mr|commit|digest|problem|action|task|summary|idea)\.[a-zA-Z]+(?:\.[a-zA-Z-]+)*\.?)"`)
 	files := regexp.MustCompile(`\.(json|md|ts|rb|go|png|js|html|css|txt|ya?ml)$`)
 
 	used := map[string]string{} // key → where

@@ -47,7 +47,8 @@ type fakeGitLab struct {
 	// createLimited: the tracker opens createsLeft more issues, then refuses.
 	createLimited bool
 	createsLeft   int
-	closeFails    bool // the tracker refuses to close an issue
+	closeFails    bool             // the tracker refuses to close an issue
+	created       []map[string]any // what each new issue was asked with
 }
 
 func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +90,7 @@ func (f *fakeGitLab) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		var in map[string]any
 		json.Unmarshal(body, &in)
+		f.created = append(f.created, in)
 		iid := 100 + len(f.issues)
 		labels := []string{}
 		if l, _ := in["labels"].(string); l != "" {

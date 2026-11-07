@@ -614,16 +614,19 @@ func orEmpty(s []string) []string {
 
 // Create: a bug is a GitLab Issue, a task a GitLab Task, as TaskType reads them back.
 func (g *GitLab) Create(ctx context.Context, n NewIssue) (core.Task, error) {
-	me, err := g.user(ctx)
-	if err != nil {
-		return core.Task{}, err
-	}
 	kind := "task"
 	if n.Bug {
 		kind = "issue"
 	}
-	body := map[string]any{"title": n.Title, "description": n.Description, "assignee_ids": []int{me.ID}, "issue_type": kind,
-		"labels": strings.Join(newLabels(g.cfg, false), ",")}
+	body := map[string]any{"title": n.Title, "description": n.Description, "issue_type": kind,
+		"labels": strings.Join(newLabels(g.cfg, n.Plain, false), ",")}
+	if !n.Plain {
+		me, err := g.user(ctx)
+		if err != nil {
+			return core.Task{}, err
+		}
+		body["assignee_ids"] = []int{me.ID}
+	}
 	var is glIssue
 	if err := g.do(ctx, "POST", project(n.Project)+"/issues", body, &is); err != nil {
 		return core.Task{}, err
