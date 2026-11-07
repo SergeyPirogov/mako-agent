@@ -3720,7 +3720,9 @@ function routingCard(s) {
 function intakeCard(i) {
   if (!i?.ran) return "";
   const line = `<div class="snote">${esc(t("b.intake.statsLine", { ran: i.ran, filtered: i.filtered, clarify: i.clarify, answer: i.answer, split: i.split, overridden: i.overridden }))}</div>`;
-  const saved = i.priced ? `<div class="snote">${esc(t("b.intake.statsSaved", { saved: i.saved.toFixed(2), avoided: i.avoided.toFixed(2), cost: i.cost.toFixed(2) }))}</div>` : "";
+  // Saved is net of every intake's cost, the ones that took the task too: with few priced tasks it can be below zero.
+  const saved = i.priced ? `<div class="snote">${esc(t("b.intake.statsSaved", { saved: i.saved.toFixed(2), avoided: i.avoided.toFixed(2), priced: i.priced, filtered: i.filtered, cost: i.cost.toFixed(2) }))}</div>`
+    : i.filtered ? `<div class="snote">${esc(t("b.intake.statsUnpriced"))}</div>` : "";
   return scard(t("b.intake.stats"), line + saved + `<div class="snote muted">${esc(t("b.intake.statsHint"))}</div>`, i.cost ? `${money(i.cost)} spent` : "");
 }
 

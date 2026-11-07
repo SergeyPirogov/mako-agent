@@ -714,7 +714,8 @@ var webStrings = map[string]string{
 	"b.intake.takeAnywayHint": "The intake decided against the work; the agent starts on it anyway",
 	"b.intake.stats":          "Intake",
 	"b.intake.statsLine":      "{ran} ran · {filtered} kept from the agent ({clarify} clarify, {answer} answered, {split} split) · {overridden} taken anyway",
-	"b.intake.statsSaved":     "≈ ${saved} saved: ${avoided} the agent would have spent on them, by the median of merged tasks of their size, less ${cost} the intake cost",
+	"b.intake.statsSaved":     "≈ ${saved} saved: ${avoided} the agent would have spent on {priced} of the {filtered} kept from it, by the median of merged tasks of their size, less ${cost} all the intakes cost",
+	"b.intake.statsUnpriced":  "No merged tasks with a known cost yet: what the filtered tasks would have cost is unknown",
 	"b.intake.statsHint":      "A task the intake kept from the agent and nobody took anyway counts as filtered; an intake that failed sent the task to work as usual",
 
 	"b.split.title":       "Split into subtasks",

@@ -30,6 +30,12 @@ func intakeCurrent(i *core.Intake, t core.Task) bool {
 	return i != nil && i.State == "done" && i.For == textKey(t) && len(t.Comments) <= i.Comments
 }
 
+// IntakeFor: the decision i made for the task as it is now (its text and its comments), as the intake keeps it.
+func IntakeFor(t core.Task, i core.Intake) core.Intake {
+	i.For, i.Comments = textKey(t), len(t.Comments)
+	return i
+}
+
 // IntakeStands: the intake's decision against the work still stands for the task as it is: nobody took it anyway
 // and nothing changed since. «Взяти в роботу» then takes it anyway; auto-take leaves it.
 func IntakeStands(r core.Record) bool {
@@ -104,7 +110,8 @@ func (d *Dispatcher) intakeGate(ctx context.Context, t trackers.Tracker, repo *c
 		d.cancelled(ctx, id, "", "", "", false)
 		return false
 	}
-	in.At, in.For, in.Comments = now(), textKey(r.Task), len(r.Task.Comments)
+	in = IntakeFor(r.Task, in)
+	in.At = now()
 	if err != nil {
 		d.Log(id, "the intake failed, the task goes to work as usual: "+err.Error())
 		d.keepIntake(id, core.Intake{At: in.At, For: in.For, Comments: in.Comments, State: "failed", Error: err.Error()})

@@ -218,6 +218,43 @@ func TestIntakeAnswerCommentFails(t *testing.T) {
 	}
 }
 
+// Questions Mako could not post are not lost unsaid either: the task goes to work, nothing waits for an answer.
+func TestIntakeClarifyCommentFails(t *testing.T) {
+	d, f, jobs := setup(t)
+	a := newIntakeAgent(t, d, config.IntakeAlways)
+	a.say(`{"decision":"clarify","why":"неясно","questions":["Що саме?"]}`)
+	f.failNotes = true
+	d.Poll(context.Background())
+	r := takeAndWait(d, "grp/app#5")
+	if r.Status != core.HandedOff || len(*jobs) != 1 || r.Intake.Decision != core.IntakeTake || IntakeStands(r) || len(r.Task.Comments) != 0 {
+		t.Fatalf("status %s, jobs %d, intake %+v", r.Status, len(*jobs), r.Intake)
+	}
+}
+
+// The answer went to the tracker, but the tracker would not close the issue: the task is done on the board with
+// the tracker's refusal on its card, and is not taken for closed (no «reopened» from a search that still finds it).
+func TestIntakeAnswerNotClosed(t *testing.T) {
+	d, f, jobs := setup(t)
+	a := newIntakeAgent(t, d, config.IntakeAlways)
+	a.say(`{"decision":"answer","why":"питання","answer":"Ось відповідь"}`)
+	f.closeFails = true
+	ctx := context.Background()
+	d.Poll(ctx)
+	r := takeAndWait(d, "grp/app#5")
+	if r.Status != core.Done || len(*jobs) != 0 || len(f.notes) != 1 || r.Intake.Closed || r.Intake.Decision != core.IntakeAnswer {
+		t.Fatalf("status %s, jobs %d, notes %v, intake %+v", r.Status, len(*jobs), f.notes, r.Intake)
+	}
+	if r.TrackerStatus == nil || r.TrackerStatus.OK || r.TrackerStatus.Text == "" {
+		t.Fatalf("tracker status %+v", r.TrackerStatus)
+	}
+	// Still open in the tracker, the issue is in the search: the task stays done, the intake does not run again.
+	d.Poll(ctx)
+	d.Wait()
+	if r, _ = d.Store.Get("grp/app#5"); r.Status != core.Done || len(a.calls()) != 1 {
+		t.Fatalf("status %s, calls %d", r.Status, len(a.calls()))
+	}
+}
+
 // «split»: the task goes back to «Нові» and the agent proposes its subtasks.
 func TestIntakeSplit(t *testing.T) {
 	d, f, jobs := setup(t)
