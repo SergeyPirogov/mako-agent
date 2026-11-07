@@ -324,6 +324,15 @@ func TestChecks(t *testing.T) {
 	}
 }
 
+// The intake: never by default and for a value Mako does not know, so a config from before it works as it did.
+func TestIntakeMode(t *testing.T) {
+	for raw, want := range map[string]string{`{}`: "never", `{"intake":"always"}`: "always", `{"intake":" unclear "}`: "unclear", `{"intake":"sometimes"}`: "never"} {
+		if c, err := Parse([]byte(raw), nil); err != nil || c.Intake != want {
+			t.Errorf("%s: %q, %v; want %q", raw, c.Intake, err, want)
+		}
+	}
+}
+
 // «Check it yourself»: advised by default and for a value Mako does not know; a repo's «Try this build» command
 // is kept trimmed.
 func TestSelfCheckAndTry(t *testing.T) {

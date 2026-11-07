@@ -42,6 +42,7 @@
     "model": "haiku"
   },
   "selfCheck": "advised",
+  "intake": "never",
   "agentReview": {
     "model": "",
     "comments": "mr",

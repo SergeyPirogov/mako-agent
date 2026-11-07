@@ -132,6 +132,8 @@ type recordView struct {
 	Live      bool   `json:"live"` // its agent runs in Mako's terminal now
 	// DefaultModel: for a task not taken yet, the model its agent gets when none is picked: its work's route.
 	DefaultModel string `json:"defaultModel,omitempty"`
+	// IntakeStands: the intake's decision against the work still stands: «Взяти в роботу» takes it anyway.
+	IntakeStands bool `json:"intakeStands,omitempty"`
 	// Outlook: for a task not taken yet, how the project's ended tasks like it went (core.OutlookOf); nil when
 	// the history is too short.
 	Outlook *core.Outlook `json:"outlook,omitempty"`
@@ -272,6 +274,7 @@ func (s *Server) Handler() http.Handler {
 		reply.Models = core.Models
 		// project: the statistics of one project only (none: all of them).
 		reply.Stats = core.SummarizePriced(core.OfProject(all, r.URL.Query().Get("project")), time.Now(), since, s.D.Config().Prices)
+		reply.Stats.Intake = core.SummarizeIntake(core.OfProject(all, r.URL.Query().Get("project")), since)
 		if s.D.Spends != nil { // the reviewer over others' MRs: no task's, a phase of its own
 			core.AddSpends(&reply.Stats, s.D.Spends.All(), since, r.URL.Query().Get("project"))
 		}
@@ -289,6 +292,7 @@ func (s *Server) Handler() http.Handler {
 		var history *core.History
 		for _, rec := range all {
 			v := recordView{Record: rec, Column: rec.Column(now), Postponed: rec.Postponed(now), Type: gitx.TaskType(rec.Task)}
+			v.IntakeStands = dispatch.IntakeStands(rec)
 			v.Live = s.D.Live(rec.ID)
 			if v.Column == "new" {
 				v.DefaultModel = s.D.DefaultModel(rec)

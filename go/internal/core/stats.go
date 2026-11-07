@@ -84,6 +84,8 @@ type Stats struct {
 	SelfCheck SelfCheckStats `json:"selfCheck"`
 	// RiskLevels: the merged tasks by the change's risk, the auto-merges and their fixes after.
 	RiskLevels RiskStats `json:"riskLevels"`
+	// Intake: how the intake decided on the tasks taken and what it saved (SummarizeIntake).
+	Intake IntakeStats `json:"intake"`
 }
 
 // Day is how the tasks taken on one day went.

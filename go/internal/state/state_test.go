@@ -320,3 +320,26 @@ func TestStateBeforeLinksReads(t *testing.T) {
 		t.Fatalf("not kept: %+v", r)
 	}
 }
+
+// A state.json from before the intake reads with no intake; one kept reads back as it was.
+func TestStateBeforeIntakeReads(t *testing.T) {
+	dir := t.TempDir()
+	old := `{"grp/app#5":{"id":"grp/app#5","status":"snoozed","task":{"id":"grp/app#5","slug":"app-5","trackerId":"gl","project":"grp/app","title":"T","description":"","url":"","labels":[],"components":[],"comments":[]},"updatedAt":"2026-01-01T00:00:00Z"}}`
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil || s.Broken != "" {
+		t.Fatalf("%v, broken %q", err, s.Broken)
+	}
+	if r, ok := s.Get("grp/app#5"); !ok || r.Intake != nil {
+		t.Fatalf("%+v", r)
+	}
+	s.Update("grp/app#5", func(r *core.Record) {
+		r.Intake = &core.Intake{At: "2026-11-01T00:00:00Z", State: "done", For: "k", Comments: 2, Decision: core.IntakeClarify, Why: "неясно", Questions: []string{"Що?"}}
+	})
+	s, _ = Open(dir)
+	if r, _ := s.Get("grp/app#5"); r.Intake == nil || r.Intake.Decision != core.IntakeClarify || r.Intake.Comments != 2 || len(r.Intake.Questions) != 1 {
+		t.Fatalf("not kept: %+v", r.Intake)
+	}
+}

@@ -796,6 +796,7 @@ function renderOrca() {
   cfg.estimate ??= {};
   box.append(check(cfg.estimate, "enabled", t("s.o.estimate"), { def: true, hint: t("s.o.estimateHint") }));
   box.append(check(cfg.estimate, "useModel", t("s.o.useModel"), { def: true, hint: t("s.o.useModelHint") }));
+  box.append(select(cfg, "intake", t("s.o.intake"), [["never", t("s.o.intakeNever")], ["unclear", t("s.o.intakeUnclear")], ["always", t("s.o.intakeAlways")]], { def: "never", hint: t("s.o.intakeHint") }));
   cfg.codeAsk ??= {};
   box.append(text(cfg.codeAsk, "model", t("s.o.codeAskModel"), { placeholder: "haiku", hint: t("s.o.codeAskModelHint") }));
   // The reviewer agent: only Mako's own agents can be written to, so only with Claude Code in Mako.
