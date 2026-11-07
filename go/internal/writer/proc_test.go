@@ -128,3 +128,21 @@ func TestClaudeErrorKinds(t *testing.T) {
 		t.Fatal("only a ClaudeError is told by its words")
 	}
 }
+
+// The wordings of Claude Code known now. A new one that is not told here is kept among Mako's errors again: add it.
+func TestClaudeErrorWordings(t *testing.T) {
+	err := func(detail string) error { return &ClaudeError{Err: errors.New("exit status 1"), Detail: detail} }
+	for _, w := range []string{"You've hit your session limit · resets 3pm", "You've hit your weekly limit", "Claude AI usage limit reached", "Usage limit reached"} {
+		if !LimitReached(err(w)) || LoginFailed(err(w)) {
+			t.Errorf("%q is a limit", w)
+		}
+	}
+	for _, w := range []string{"Failed to authenticate", "Invalid API key · Please run /login", "Run claude auth login", "Please run /login"} {
+		if !LoginFailed(err(w)) || LimitReached(err(w)) {
+			t.Errorf("%q is a login failure", w)
+		}
+	}
+	if LimitReached(err("boom")) || LoginFailed(err("boom")) || !err(noOutputDetail).(*ClaudeError).Silent() {
+		t.Error("an ordinary failure is neither; only the one with no output is silent")
+	}
+}

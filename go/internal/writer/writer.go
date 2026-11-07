@@ -248,12 +248,18 @@ func (e *ClaudeError) Error() string { return fmt.Sprintf("claude: %v: %s", e.Er
 
 func (e *ClaudeError) Unwrap() error { return e.Err }
 
+// The two kinds below are told by Claude Code's English words, there is no code for them in its exit status: should it
+// word them differently, the failure falls into the general kind and is kept among Mako's errors again (see
+// TestClaudeErrorWordings for the wordings known now; add the new one there).
 var (
 	// claudeLimitText: what Claude Code says when the account's limit cut the call ("You've hit your session limit").
 	claudeLimitText = regexp.MustCompile(`(?i)hit your .*limit|usage limit`)
 	// claudeAuthText: what it says when the login failed.
 	claudeAuthText = regexp.MustCompile(`(?i)failed to authenticate|claude auth login|invalid api key|please run /login`)
 )
+
+// Silent: claude failed and printed nothing, so there is nothing to tell why.
+func (e *ClaudeError) Silent() bool { return e.Detail == noOutputDetail }
 
 // LimitReached: the call failed on the Claude account's limit, which resets by itself.
 func LimitReached(err error) bool {
@@ -279,7 +285,7 @@ func failDetail(stderr string, out *output) string {
 		}
 	}
 	if text == "" {
-		return "no output; check that `claude` runs in a terminal"
+		return noOutputDetail
 	}
 	if cut := len(text) - failDetailMax; cut > 0 {
 		for cut < len(text) && !utf8.RuneStart(text[cut]) {
@@ -291,6 +297,9 @@ func failDetail(stderr string, out *output) string {
 }
 
 const failDetailMax = 600
+
+// noOutputDetail: what failDetail says when the failed claude printed nothing at all.
+const noOutputDetail = "no output; check that `claude` runs in a terminal"
 
 func clip(diff string) string {
 	if len(diff) > maxDiff {

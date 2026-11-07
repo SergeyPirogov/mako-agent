@@ -70,6 +70,8 @@ func retroFailure(err error) string {
 		return "The retro was not written: the Claude limit is reached. Try again after it resets."
 	case writer.LoginFailed(err):
 		return "The retro was not written: Claude is not logged in. Log in (run `claude` in a terminal), then try again."
+	case errors.As(err, &ce) && ce.Silent():
+		return "The retro was not written: Claude failed without saying why. Check that `claude` runs in a terminal, then try again."
 	case errors.As(err, &ce):
 		return "The retro was not written: Claude failed to answer. What it said is in the task's journal. Try again."
 	}

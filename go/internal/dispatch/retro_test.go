@@ -54,7 +54,7 @@ func TestRetroFailureCard(t *testing.T) {
 		"limit":  {`echo '{"type":"result","is_error":true,"result":"You'"'"'ve hit your session limit"}'; exit 1`, "limit is reached", "hit your session limit", false},
 		"login":  {`echo "Please run /login" >&2; exit 1`, "not logged in", "Please run /login", false},
 		"other":  {`echo "boom: bad flag" >&2; exit 1`, "Claude failed to answer", "boom: bad flag", true},
-		"silent": {`exit 1`, "Claude failed to answer", "no output", true},
+		"silent": {`exit 1`, "Check that `claude` runs in a terminal", "no output", true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d, _, _ := setup(t)
