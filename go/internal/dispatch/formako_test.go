@@ -40,8 +40,8 @@ func failed(id, project, err string, ended time.Time, cost float64) core.Record 
 }
 
 // Tasks that failed for one reason are a suggestion, by that reason: in their project when they all come from one
-// other than Mako's, else in Mako's; what a person decided (cancelled, closed in the tracker, in Russian), a single
-// failure and an old one are not.
+// other than Mako's, else in Mako's; what a person decided (cancelled, closed in the tracker, in Russian, an MR
+// closed without a merge), a single failure and an old one are not.
 func TestFailIdeas(t *testing.T) {
 	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	day := 24 * time.Hour
@@ -55,10 +55,18 @@ func TestFailIdeas(t *testing.T) {
 		failed("shop/app#6", "shop/app", "Task closed in the tracker", now.Add(-day), 1),
 		failed("shop/app#7", "shop/app", "Task closed in the tracker", now.Add(-day), 1),
 		failed("shop/app#8", "shop/app", "only once", now.Add(-day), 1),
+		// MRs closed without a merge, by a kind and by an older record's text only: a person's decision.
 		{ID: "web/site#1", Task: core.Task{ID: "web/site#1", Project: "web/site", TrackerID: "gl"}, Status: core.Done, ReviewState: "closed",
 			Error: "MR closed without merging", FinishedAt: now.Add(-3 * day).Format(time.RFC3339Nano)},
 		{ID: "me/mako#9", Task: core.Task{ID: "me/mako#9", Project: "me/mako", TrackerID: "gh"}, Status: core.Failed, ErrorKind: core.KindMRClosed,
 			Error: "MR closed without merging", FinishedAt: now.Add(-day).Format(time.RFC3339Nano)},
+		{ID: "me/mako#10", Task: core.Task{ID: "me/mako#10", Project: "me/mako", TrackerID: "gh"}, Status: core.Failed, ErrorKind: core.KindMRClosed,
+			Error: "MR closed without merging", FinishedAt: now.Add(-day).Format(time.RFC3339Nano)},
+		// One reason in two projects: Mako's own repository.
+		{ID: "web/site#2", Task: core.Task{ID: "web/site#2", Project: "web/site", TrackerID: "gl"}, Status: core.Failed,
+			Error: "clone failed", FinishedAt: now.Add(-3 * day).Format(time.RFC3339Nano)},
+		{ID: "me/mako#11", Task: core.Task{ID: "me/mako#11", Project: "me/mako", TrackerID: "gh"}, Status: core.Failed,
+			Error: "clone failed", FinishedAt: now.Add(-day).Format(time.RFC3339Nano)},
 	}
 	ideas := failIdeas(records, now, "me/mako", creates)
 	if len(ideas) != 2 {
@@ -75,14 +83,11 @@ func TestFailIdeas(t *testing.T) {
 		t.Errorf("one project: %+v", shop)
 	}
 	// Two projects: Mako's own repository.
-	var closed Idea
-	for _, i := range ideas {
-		if i.Count == 2 && i.Title != shop.Title {
-			closed = i
-		}
-	}
-	if closed.Target != "mako" || closed.Project != "" || len(closed.Tasks) != 2 {
+	if c := byTitle["clone failed"]; c.Count != 2 || c.Target != "mako" || c.Project != "" || len(c.Tasks) != 2 {
 		t.Errorf("two projects: %+v", ideas)
+	}
+	if i, ok := byTitle["MR closed without merging"]; ok {
+		t.Errorf("a closed MR is a person's decision, not a suggestion: %+v", i)
 	}
 
 	// All from Mako's own project: Mako's repository, not «the project».
