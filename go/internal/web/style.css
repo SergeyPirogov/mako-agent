@@ -538,6 +538,15 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: v
 .kind.fix { background: color-mix(in srgb, var(--err) 14%, var(--card)); color: var(--err); }
 .kind.rq { background: color-mix(in srgb, var(--purple) 14%, var(--card)); color: var(--purple); }
 .kind.mako { background: color-mix(in srgb, var(--mute) 16%, var(--card)); color: var(--fg); }
+/* «For Mako»: Mako's suggestions about itself */
+.item.idea .kind { flex: none; }
+.idea-facts { margin: 0; padding-left: 18px; line-height: 1.6; }
+.idea-detail { margin: 10px 0 0; padding: 8px 10px; font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--hover); border-radius: 6px; max-height: 240px; overflow: auto; }
+.idea-act { display: flex; gap: 10px 14px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.idea-target { font-size: 12.5px; display: inline-flex; gap: 6px; align-items: center; }
+.idea-target select { max-width: 260px; }
+.idea-btns { display: flex; gap: 8px; margin-left: auto; }
+.idea-note { margin: 0; padding: 0 16px 12px; }
 /* «Рев'ю для мене»: others' MRs where I am a reviewer */
 .mr-size { font: 11px var(--mono); white-space: nowrap; }
 .mr-size .add { color: var(--ok); }

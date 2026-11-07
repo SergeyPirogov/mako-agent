@@ -229,3 +229,42 @@ func TestGitHubMoveClosedMeanwhile(t *testing.T) {
 		t.Errorf("Move: %v", err)
 	}
 }
+
+// A plain issue («For Mako»): no assignee and no trigger label, so Mako does not take it; who the token is is not
+// even asked.
+func TestCreatePlain(t *testing.T) {
+	var gh, gl map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		switch {
+		case r.URL.Path == "/repos/me/app/issues" && r.Method == "POST":
+			json.Unmarshal(body, &gh)
+			w.Write([]byte(`{"number":43,"state":"open","title":"Mako: x","html_url":"https://github.com/me/app/issues/43"}`))
+		case r.URL.EscapedPath() == "/api/v4/projects/grp%2Fapp/issues" && r.Method == "POST":
+			json.Unmarshal(body, &gl)
+			w.Write([]byte(`{"id":901,"iid":6,"state":"opened","title":"Mako: x","web_url":"https://gl/grp/app/-/work_items/6","issue_type":"task"}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	g, _ := NewGitHub(&config.Tracker{ID: "gh", APIURL: srv.URL, Trigger: "claude-agent"}, "tok")
+	if _, err := g.Create(ctx, NewIssue{Project: "me/app", Title: "Mako: x", Description: "facts", Plain: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := gh["assignees"]; ok {
+		t.Errorf("GitHub: assigned %v", gh)
+	}
+	if labels, _ := json.Marshal(gh["labels"]); string(labels) != `[]` {
+		t.Errorf("GitHub: labels %s", labels)
+	}
+	l, _ := NewGitLab(&config.Tracker{ID: "gl", BaseURL: srv.URL, Trigger: "claude-agent"}, "tok")
+	if _, err := l.Create(ctx, NewIssue{Project: "grp/app", Title: "Mako: x", Description: "facts", Plain: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := gl["assignee_ids"]; ok || gl["labels"] != "" {
+		t.Errorf("GitLab: assigned or labelled %v", gl)
+	}
+}
