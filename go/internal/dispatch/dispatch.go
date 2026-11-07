@@ -133,6 +133,11 @@ type Dispatcher struct {
 	// are being created in the tracker now (under mu).
 	splits    sync.WaitGroup
 	splitting map[string]bool
+	// specsMu: specs.json, the ideas on their way to tasks (spec.go); specRuns: the agent writing their
+	// specifications in the background; specCreating: the ideas whose tasks are being opened now (under mu).
+	specsMu      sync.Mutex
+	specRuns     sync.WaitGroup
+	specCreating map[string]bool
 	// contexts: the tasks whose context is being read, true when a turn ended meanwhile and it is read again.
 	ctxMu sync.Mutex
 	// replays: the conversations of tasks whose agent is not running, read from their transcripts (TaskChat).
@@ -199,7 +204,7 @@ func New(cfg *config.Config, store *state.Store, ts []trackers.Tracker) *Dispatc
 	d := &Dispatcher{
 		Cfg: cfg, Store: store, Trackers: ts, Hand: orca.Hand, Term: orcaTerminals{}, LastMessage: orca.LastMessage, Conversation: orca.Conversation,
 		hosts: map[string]trackers.CodeHost{}, searches: map[string]Search{}, starting: map[string]bool{}, progress: map[string]*StartProgress{}, stops: map[string]context.CancelFunc{}, agents: map[string]*Agent{}, reviews: map[string]reviewLook{}, lessoning: map[string]bool{}, repoLessoning: map[string]bool{}, repoLessoned: map[string]time.Time{}, lessonAnswering: map[string]bool{}, reviewing: map[string]bool{}, branches: map[string]branchLook{}, selfBehind: map[string]int{}, autoMerged: map[string]string{}, autoReviewFailed: map[string]string{}, autoFixReviewFailed: map[string]string{}, tries: map[string]*tryRun{}, selfSynced: map[string]time.Time{}, selfSyncing: map[string]bool{}, fixing: map[string]time.Time{}, replying: map[string]bool{}, rebased: map[string]baseLook{}, checking: map[string]bool{},
-		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery, preparing: map[string]bool{}, splitting: map[string]bool{},
+		reviewsAt: map[string]time.Time{}, reviewsEvery: reviewsEvery, preparing: map[string]bool{}, splitting: map[string]bool{}, specCreating: map[string]bool{},
 		wake: make(chan struct{}, 1), Sessions: term.NewManager(filepath.Join(cfg.StateDir, "terminal")), Chats: chat.NewManager(filepath.Join(cfg.StateDir, "limits.json")),
 	}
 	d.RemoveWorkspace = d.orcaRemove

@@ -48,6 +48,7 @@
       <div class="new-pop" id="new-pop" role="menu" hidden>
         <button id="new-task" role="menuitem" data-t="b.menuTask" hidden>Task</button>
         <button id="new-chat" role="menuitem" data-t="b.menuChat" data-t-title="b.newChatHint" hidden>Chat</button>
+        <button id="new-idea" role="menuitem" data-t="b.menuIdea" data-t-title="b.newIdeaHint" hidden>Idea</button>
       </div>
     </div>
     <div class="filter" id="filter"><span id="need-chip" hidden></span><span class="scope" id="scope-box"><span class="scope-l" id="scope-l"></span><select id="scope" aria-label="Show"></select></span></div>
@@ -93,7 +94,7 @@
 // The columns, the tasks' states and the agent's notes, in Mako's language: made again when it changes.
 let COLUMNS = [], LABEL = {}, AGENT_NOTE = {};
 function boardWords() {
-  COLUMNS = ["doing", "blocked", "review", "merge", "forme", "new", "split", "failed", "mako", "later", "done"].map((c) => [c, t("b.col." + c)]);
+  COLUMNS = ["doing", "blocked", "review", "merge", "forme", "ideas", "new", "split", "failed", "mako", "later", "done"].map((c) => [c, t("b.col." + c)]);
   // the agent's own state, for tasks in Orca (ag- keeps them apart from the columns)
   LABEL = Object.fromEntries(["new", "later", "queued", "starting", "doing", "review", "done", "failed", "split",
     "ag-working", "ag-waiting", "ag-done", "ag-stopped", "ci", "ag-idle", "ag-missing"].map((k) => [k, t("b.label." + k)]));
@@ -752,12 +753,15 @@ function render() {
   const entries = rows.map((r) => ({ p: r.task.project, g: groupOf(r), r, html: taskRow(r) }));
   if (!attention) for (const q of reviewAsks(words)) entries.push({ p: q.project, g: q.state === "open" ? "forme" : "done", ask: true, html: reviewAskRow(q) });
   if (!attention) for (const i of ideaEntries(words)) entries.push({ p: i.project || i.mako, g: "mako", html: ideaRow(i) });
+  if (!attention) for (const s of specEntries(words)) entries.push({ p: s.project, g: "ideas", html: specRow(s) });
   // While filtering, every match shows: a folded group would hide what was asked for.
   const showAll = !!words.length || !!attention;
   const html = groupBy === "project" ? listByProject(entries, showAll) : listByStatus(entries, showAll);
   $("new-task").hidden = !newTaskTargets().length;
   $("new-chat").hidden = !(data?.trackers || []).length;
-  $("new-menu").hidden = $("new-task").hidden && $("new-chat").hidden;
+  // An idea's agent reads the clone of this Mac: not from a phone.
+  $("new-idea").hidden = !!data.remote || !newTaskTargets().length;
+  $("new-menu").hidden = $("new-task").hidden && $("new-chat").hidden && $("new-idea").hidden;
   $("new-menu").ariaLabel = $("new-menu").title = t("b.new");
   $("why-btn").ariaLabel = t("b.why");
   $("q").title = t("b.filterHint");
@@ -965,6 +969,204 @@ function renderIdea(i) {
     if (!res.ok) { toast(res.error || t("b.idea.fileFailed"), true); return; }
     closeIdea();
     await load();
+  };
+}
+
+// «New idea» (data.specs): an idea on its way to tasks, a group of its own; in the list and the address its id is
+// "spec:" + its id. The agent writes the specification and asks (answered here) or proposes the tasks; nothing goes to
+// the tracker before «Create in tracker». The drafts (answers, title, specification, tasks) are kept in the browser,
+// per idea and per run of the agent: the board redraws every 5 s.
+const specSel = (s) => "spec:" + s.id;
+function specEntries(words) {
+  if (showArchive) return [];
+  return (data.specs || []).filter((s) => (!project || s.project === project)
+    && words.every((w) => `${s.title || ""} ${s.text} ${s.project}`.toLowerCase().includes(w)));
+}
+const specName = (s) => s.title || s.text.split("\n")[0];
+function specRow(s) {
+  return `<button class="item spec ${specSel(s) === selected ? "sel" : ""}" data-id="${esc(specSel(s))}" title="${esc(specName(s))}">
+    <span class="t">${esc(specName(s))}</span>
+    <span class="m"><span class="kind spec st-${esc(s.state)}">${esc(t("b.spec.st." + s.state))}</span>${s.at ? `<span class="ago" title="${esc(ago(s.at))}">${agoShort(s.at)}</span>` : ""}</span></button>`;
+}
+let specDrafts = (() => { try { return JSON.parse(localStorage.getItem("mako-specs")) || {}; } catch { return {}; } })();
+const saveSpecs = () => { try { localStorage.setItem("mako-specs", JSON.stringify(specDrafts)); } catch {} };
+const specBusy = {}, specErr = {};
+// The draft of an idea's title, specification and answers, made afresh by each run of the agent.
+function specDraft(s) {
+  const at = s.runAt || s.at;
+  let d = specDrafts[s.id];
+  if (!d || d.at !== at) { d = specDrafts[s.id] = { at, title: s.title || "", body: s.body || "", answers: {} }; saveSpecs(); }
+  return d;
+}
+function closeSpec() {
+  selected = null; history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+}
+function renderSpec(s) {
+  closeTerminal(); closeChat(); $("detail").classList.remove("ws");
+  const card = (title, body, cls = "", note = "") => `<div class="tcard ${cls}"><div class="tcard-h">${esc(title)}${note ? `<span class="r">${note}</span>` : ""}</div>${body}</div>`;
+  const key = specSel(s), st = s.state, busy = specBusy[s.id], err = specErr[s.id] || s.error;
+  const errHTML = err ? `<div class="mr-err">${esc(err)}</div>` : "";
+  const pics = (s.links || []).map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img class="spec-pic" src="${esc(u)}" alt=""></a>`).join("");
+  const idea = card(t("b.spec.idea"), `<div class="tcard-b"><div class="spec-text">${md(s.text)}</div>${pics ? `<div class="spec-pics">${pics}</div>` : ""}</div>`);
+  const created = (s.items || []).filter((x) => x.task).length;
+  const drop = st === "created" || (!s.parent && !created) ? `<button class="ghost" id="spec-drop"${busy ? " disabled" : ""}>${esc(t(st === "created" ? "b.spec.hide" : "b.spec.drop"))}</button>` : "";
+  let body = "";
+  if (st === "running") body = card(t("b.spec.title"), `<div class="tcard-b muted">${esc(t(s.answered ? "b.spec.runningAgain" : "b.spec.running"))}</div>`);
+  else if (st === "failed") body = card(t("b.spec.title"), `<div class="tcard-b">${errHTML}<div class="qa-bar"><button class="primary" id="spec-retry"${busy ? " disabled" : ""}>${esc(t("b.spec.retry"))}</button></div></div>`);
+  else if (st === "questions") {
+    const items = (s.questions || []).map((q, i) => `<li class="qa-item"><div class="qa-q">${md(q.q)}</div>${q.assume ? `<div class="qa-assume muted">${esc(t("b.est.assumes", { text: q.assume }))}</div>` : ""}`
+      + `<textarea class="qa" data-spec-qa="${i}" rows="2" placeholder="${esc(t("b.est.answerOrAccept"))}" aria-label="${esc(t("b.spec.answerOf", { n: i + 1 }))}"></textarea></li>`).join("");
+    body = card(t("b.spec.questions"), `<div class="tcard-b"><p class="muted sp-note">${esc(t("b.spec.questionsIntro"))}</p><ol class="qa-list">${items}</ol>${errHTML}`
+      + `<div class="qa-bar"><button type="button" class="primary" id="spec-answer"${busy ? " disabled" : ""}>${esc(t(busy ? "b.spec.sending" : "b.spec.answer"))}</button></div></div>`)
+      + card(t("b.spec.draft"), `<div class="tcard-b spec-body">${md(s.body)}</div>`);
+  } else if (st === "created") {
+    const rows = (s.items || []).map((x, i) => {
+      const [label, cls] = subtaskState(x.task);
+      return `<li class="sp-done"><span class="sp-n">${i + 1}</span>${subtaskLink(x.task)}<span class="sp-t">${esc(x.title)}</span>`
+        + `${x.after?.length ? `<span class="muted sp-after-note">${t("b.split.afterNote", { n: x.after.join(", ") })}</span>` : ""}<span class="sp-st ${cls}">${esc(label)}</span></li>`;
+    }).join("");
+    const parent = s.parent ? `<p class="sp-note">${esc(t("b.spec.parent"))} ${subtaskLink(s.parent)}${s.url ? ` · <a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(t("b.spec.open"))}</a>` : ""}</p>` : "";
+    body = card(t("b.spec.tasks"), `<div class="tcard-b">${parent}<ol class="sp-list">${rows}</ol><p class="muted sp-note">${esc(t(s.parent ? "b.spec.createdNote" : "b.spec.createdOne"))}</p></div>`)
+      + card(t("b.spec.title"), `<div class="tcard-b spec-body">${md(s.body)}</div>`);
+  } else { // ready, creating: the specification and the tasks to edit, then «Create in tracker»
+    const d = specDraft(s), list = itemsDraft(key, s.runAt || s.at, s.items);
+    const { list: rows, bar } = itemsEditorHTML(list, busy);
+    body = card(t("b.spec.title"), `<div class="tcard-b spec-edit"><label>${esc(t("b.spec.issueTitle"))}<input id="spec-title" maxlength="200"></label>`
+      + `<label>${esc(t("b.spec.body"))}<textarea id="spec-body" rows="16"></textarea></label></div>`)
+      + card(t("b.spec.tasks"), `<div class="tcard-b"><p class="muted sp-note">${esc(t("b.spec.tasksIntro"))}</p>${rows}${errHTML}${bar}</div>`, "spec-items")
+      + (d && s.parent ? `<p class="muted">${esc(t("b.spec.parent"))} ${subtaskLink(s.parent)}</p>` : "");
+  }
+  const html = `
+    <button class="ghost back" id="back">${esc(t("b.idea.back"))}</button>
+    <div class="d-head">
+      <div class="d-main">
+        <div class="d-id"><span class="kind spec st-${esc(st)}">${esc(t("b.spec.st." + st))}</span><span>${esc(s.project)}</span>${s.cost ? `<span title="${esc(t("b.spec.costHint"))}">${money(s.cost)}</span>` : ""}</div>
+        <h1>${esc(specName(s))}</h1>
+      </div>
+      ${drop ? `<div class="actions">${drop}</div>` : ""}
+    </div>
+    ${body}${idea}`;
+  if (html === shown) return;
+  const active = document.activeElement;
+  const focused = active?.dataset?.sp != null && { sp: active.dataset.sp, at: [active.selectionStart, active.selectionEnd] };
+  const qa = active?.dataset?.specQa, spot = active && $("detail").contains(active) && active.id ? active.id : "";
+  const at = active?.selectionStart != null ? [active.selectionStart, active.selectionEnd] : null;
+  $("detail").innerHTML = shown = html;
+  $("back").onclick = closeSpec;
+  for (const a of $("detail").querySelectorAll(".sp-list a[href^='#']")) a.onclick = (e) => { e.preventDefault(); select(decodeURIComponent(a.getAttribute("href").slice(1))); };
+  const send = (action, extra) => postJSON(`/api/specs/${action}`, { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, ...extra }) });
+  const act = async (action, extra, done) => {
+    if (specBusy[s.id]) return;
+    specBusy[s.id] = true; delete specErr[s.id]; shown = ""; renderDetail();
+    const res = await send(action, extra);
+    delete specBusy[s.id];
+    if (res.ok === false) specErr[s.id] = res.error || t("b.net.noAnswer");
+    else done?.(res);
+    shown = "";
+    await load();
+  };
+  if ($("spec-retry")) $("spec-retry").onclick = () => act("retry");
+  if ($("spec-drop")) $("spec-drop").onclick = async () => {
+    if (st !== "created" && !(await askConfirm(t("b.spec.dropAsk"), { ok: t("b.spec.drop") }))) return;
+    const res = await send("drop");
+    if (res.ok === false) { toast(res.error || t("b.net.noAnswer"), true); return; }
+    delete specDrafts[s.id]; delete splitDrafts[key]; saveSpecs(); saveSplit();
+    closeSpec(); await load();
+  };
+  const d = st === "questions" || st === "ready" || st === "creating" ? specDraft(s) : null;
+  for (const f of $("detail").querySelectorAll("textarea[data-spec-qa]")) {
+    const q = s.questions[+f.dataset.specQa].q;
+    f.value = d.answers[q] || "";
+    f.oninput = () => { d.answers[q] = f.value; saveSpecs(); };
+    if (qa === f.dataset.specQa) { f.focus(); if (at) f.setSelectionRange(at[0], at[1]); }
+  }
+  if ($("spec-answer")) $("spec-answer").onclick = () => act("answer", { answers: s.questions.map((q) => ({ q: q.q, a: d.answers[q.q] || "" })) },
+    () => toast(t("b.spec.answered")));
+  for (const id of ["spec-title", "spec-body"]) {
+    const f = $(id);
+    if (!f) continue;
+    const k = id === "spec-title" ? "title" : "body";
+    f.value = d[k];
+    f.oninput = () => { d[k] = f.value; saveSpecs(); };
+    if (spot === id) { f.focus(); if (at) f.setSelectionRange(at[0], at[1]); }
+  }
+  bindItems($("detail").querySelector(".spec-items"), key, focused, (items) => act("create", { title: d.title, body: d.body, items }, () => {
+    toast(t("b.spec.created", { n: items.length }));
+    delete splitDrafts[key]; saveSplit();
+  }), (msg) => { specErr[s.id] = msg; shown = ""; renderDetail(); });
+}
+
+// The form of a new idea: a few sentences (pictures pasted or attached) and the project; «Write spec» hands it to the
+// agent. Its pictures are kept on this Mac until the tasks are created.
+const openNewIdea = () => {
+  selected = null; statsOpen = false; newOpen = "idea"; digest = null;
+  history.replaceState(null, "", location.pathname);
+  try { localStorage.removeItem("mako-selected"); } catch {}
+  render();
+  $("ni-text")?.focus();
+};
+$("new-idea").onclick = openNewIdea;
+function showNewIdea() {
+  const root = $("detail"), targets = newTaskTargets(), several = new Set(targets.map((x) => x.tracker)).size > 1;
+  const first = Math.max(0, targets.findIndex((x) => x.project === project));
+  const options = targets.map((x, i) => `<option value="${i}" ${i === first ? "selected" : ""}>${esc(x.project)}${several ? ` · ${esc(x.name)} (${esc(x.tracker)})` : ""}</option>`).join("");
+  root.innerHTML = `<button class="ghost back" id="back">${esc(t("b.idea.back"))}</button>
+    <form class="new-form nt-form" id="idea-form">
+      <div class="nt-head"><h1>${esc(t("b.spec.newTitle"))}</h1><p>${esc(t("b.spec.newIntro"))}</p></div>
+      <div class="nt-card">
+        <label>${esc(t("b.spec.idea"))}<textarea id="ni-text" rows="8" maxlength="4000" placeholder="${esc(t("b.spec.ideaPh"))}"></textarea>
+          <span class="nt-hint">${esc(t("b.spec.ideaHint"))}</span></label>
+        <div class="spec-pics" id="ni-pics"></div>
+        <div class="nt-row">
+          <label>${esc(t("b.spec.project"))}<select id="ni-project">${options}</select></label>
+          <div class="nt-field"><span>${esc(t("b.spec.pictures"))}</span><button type="button" id="ni-attach">${esc(t("b.spec.attach"))}</button><input type="file" id="ni-file" accept="image/*" multiple hidden></div>
+        </div>
+        <div class="nt-error" id="ni-error" hidden></div>
+      </div>
+      <div class="nt-foot"><span class="nt-hint">${esc(t("b.spec.newNote"))}</span>
+        <div class="nt-actions"><button type="button" id="ni-cancel">${esc(t("b.spec.cancel"))}</button><button type="submit" class="primary" id="ni-submit">${esc(t("b.spec.write"))}</button></div></div>
+    </form>`;
+  const close = () => { newOpen = false; render(); };
+  $("back").onclick = $("ni-cancel").onclick = close;
+  const fail = (msg) => { $("ni-error").textContent = msg; $("ni-error").hidden = !msg; };
+  const pics = [];
+  let uploading = 0;
+  const drawPics = () => {
+    $("ni-pics").innerHTML = pics.map((p, i) => `<span class="spec-pic-w"><img class="spec-pic" src="${esc(p.url)}" alt=""><button type="button" class="icon" data-pic-del="${i}" aria-label="${esc(t("b.split.remove"))}">×</button></span>`).join("");
+    for (const b of $("ni-pics").querySelectorAll("[data-pic-del]")) b.onclick = () => { pics.splice(+b.dataset.picDel, 1); drawPics(); };
+  };
+  const attach = async (files) => {
+    for (const f of files) {
+      if (pics.length + uploading >= 5) return fail(t("b.spec.picsMost"));
+      uploading++; $("ni-submit").disabled = true;
+      const name = f.name && f.name !== "image.png" ? f.name : `screenshot-${Date.now()}.${(f.type.split("/")[1] || "png").replace("jpeg", "jpg")}`;
+      const res = await postJSON(`/api/attach?id=spec-new&name=${encodeURIComponent(name)}`, { headers: { "Content-Type": f.type }, body: f });
+      uploading--; $("ni-submit").disabled = uploading > 0;
+      if (res.ok === false) fail(res.error); else { pics.push({ path: res.path, url: res.url }); drawPics(); }
+    }
+  };
+  $("ni-attach").onclick = () => $("ni-file").click();
+  $("ni-file").onchange = (e) => { attach([...e.target.files]); e.target.value = ""; };
+  $("ni-text").onpaste = (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+    e.preventDefault();
+    attach(files);
+  };
+  $("idea-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const x = targets[+$("ni-project").value];
+    if (!x) return fail(t("b.spec.noProject"));
+    if (!$("ni-text").value.trim()) return fail(t("b.spec.noText"));
+    fail("");
+    $("ni-submit").disabled = true; $("ni-submit").textContent = t("b.spec.sending");
+    const res = await postJSON("/api/specs/new", { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tracker: x.tracker, project: x.project, text: $("ni-text").value, images: pics.map((p) => p.path) }) });
+    if (res.ok === false) { $("ni-submit").disabled = false; $("ni-submit").textContent = t("b.spec.write"); return fail(res.error || t("b.net.noAnswer")); }
+    newOpen = false;
+    await load();
+    select("spec:" + res.id);
   };
 }
 
@@ -2106,15 +2308,17 @@ const saveSplit = () => { try { localStorage.setItem("mako-split", JSON.stringif
 const splitErr = {}, splitBusy = {};
 const SPLIT_MOST = 6;
 const splitNums = (s) => [...new Set(String(s ?? "").split(/[^0-9]+/).filter(Boolean).map(Number))];
-function splitDraft(r) {
-  const b = r.breakdown;
-  let d = splitDrafts[r.id];
-  if (!d || d.at !== b.at) {
-    d = splitDrafts[r.id] = { at: b.at, items: (b.items || []).map((x) => ({ title: x.title, description: x.description || "", after: (x.after || []).join(", "), task: x.task || "" })) };
+// The draft of an editable list of tasks under key (a task's id, "spec:" + an idea's), made afresh from items when
+// the proposal is another (at).
+function itemsDraft(key, at, items) {
+  let d = splitDrafts[key];
+  if (!d || d.at !== at) {
+    d = splitDrafts[key] = { at, items: (items || []).map((x) => ({ title: x.title, description: x.description || "", after: (x.after || []).join(", "), task: x.task || "" })) };
     saveSplit();
   }
   return d;
 }
+const splitDraft = (r) => itemsDraft(r.id, r.breakdown.at, r.breakdown.items);
 function splitCount(r) {
   const items = r.breakdown?.items || [];
   const done = items.filter((x) => { const c = recordOf(x.task); return c && (c.reviewState === "merged" || c.gone); }).length;
@@ -2152,7 +2356,16 @@ function splitHTML(r, card) {
     return card(t("b.split.title"), `<div class="tcard-b"><ol class="sp-list">${rows}</ol><p class="muted sp-note">${note}</p></div>`, "split-card");
   }
   if (!fresh) return "";
-  const d = splitDraft(r), n = d.items.length, created = d.items.some((x) => x.task);
+  const d = splitDraft(r), created = d.items.some((x) => x.task);
+  const { list, bar } = itemsEditorHTML(d, splitBusy[r.id]);
+  const err = splitErr[r.id] || b.error;
+  const note = created ? "" : again(t("b.split.again")) + `<button class="ghost" data-a="splitdrop">${t("b.split.drop")}</button>`;
+  return card(t("b.split.title"), `<div class="tcard-b"><p class="muted sp-note">${t("b.split.intro")}</p>${list}${err ? `<div class="mr-err">${esc(err)}</div>` : ""}${bar}</div>`, "split-card", note);
+}
+// The editable list of tasks (a split's subtasks, an idea's tasks): each with its title, description and the ones
+// above it it waits for; created ones stay as they are. The fields are empty in the HTML: bindItems puts the draft in.
+function itemsEditorHTML(d, busy) {
+  const n = d.items.length;
   const rows = d.items.map((x, i) => {
     if (x.task) return `<li class="sp-done"><span class="sp-n">${i + 1}</span>${subtaskLink(x.task)}<span class="sp-t">${esc(x.title)}</span><span class="sp-st ok">${t("b.split.inTracker")}</span></li>`;
     const up = i === 0 || d.items[i - 1].task, down = i === n - 1 || d.items[i + 1].task;
@@ -2164,16 +2377,14 @@ function splitHTML(r, card) {
       + `<textarea data-sp="${i}:description" rows="3" placeholder="${esc(t("b.split.descHint"))}" aria-label="${esc(t("b.split.descOf", { n: i + 1 }))}"></textarea>`
       + `${i ? `<label class="sp-after">${t("b.split.after")}<input data-sp="${i}:after" inputmode="numeric" placeholder="${esc(t("b.split.afterHint"))}"></label>` : ""}</li>`;
   }).join("");
-  const err = splitErr[r.id] || b.error;
   const bar = `<div class="qa-bar sp-bar"><button type="button" class="ghost" data-sp-add ${n >= SPLIT_MOST ? "disabled" : ""}>${t("b.split.add")}</button>`
-    + `<button type="button" class="primary" data-sp-create ${splitBusy[r.id] ? "disabled" : ""} title="${esc(t("b.split.createTitle"))}">${splitBusy[r.id] ? t("b.split.creating") : t("b.split.create")}</button></div>`;
-  const note = created ? "" : again(t("b.split.again")) + `<button class="ghost" data-a="splitdrop">${t("b.split.drop")}</button>`;
-  return card(t("b.split.title"), `<div class="tcard-b"><p class="muted sp-note">${t("b.split.intro")}</p><ol class="sp-list">${rows}</ol>${err ? `<div class="mr-err">${esc(err)}</div>` : ""}${bar}</div>`, "split-card", note);
+    + `<button type="button" class="primary" data-sp-create ${busy ? "disabled" : ""} title="${esc(t("b.split.createTitle"))}">${busy ? t("b.split.creating") : t("b.split.create")}</button></div>`;
+  return { list: `<ol class="sp-list">${rows}</ol>`, bar };
 }
 // The list redrawn after a change of its shape (added, removed, moved): the numbers of "after" follow the subtasks,
 // and a subtask can wait only for those above it.
-function splitReshape(r, order) {
-  const d = splitDrafts[r.id], pos = new Map(order.map((old, i) => [old, i + 1]));
+function splitReshape(key, order) {
+  const d = splitDrafts[key], pos = new Map(order.map((old, i) => [old, i + 1]));
   d.items = order.map((old, i) => {
     const x = old === -1 ? { title: "", description: "", after: "", task: "" } : d.items[old];
     if (x.task) return x;
@@ -2182,31 +2393,8 @@ function splitReshape(r, order) {
   saveSplit(); shown = ""; renderDetail();
 }
 function bindSplit(r, focused) {
-  const card = $("detail").querySelector(".split-card");
-  const d = splitDrafts[r.id];
-  if (!card || !d || r.breakdown?.state !== "done") return;
-  for (const f of card.querySelectorAll("[data-sp]")) {
-    const [i, key] = f.dataset.sp.split(":");
-    f.value = d.items[i]?.[key] ?? "";
-    f.oninput = () => { d.items[i][key] = f.value; saveSplit(); };
-  }
-  if (focused) {
-    const f = card.querySelector(`[data-sp="${focused.sp}"]`);
-    if (f) { f.focus(); f.setSelectionRange?.(focused.at[0], focused.at[1]); }
-  }
-  const keep = d.items.map((_, i) => i);
-  for (const b of card.querySelectorAll("[data-sp-move]")) b.onclick = () => {
-    const [i, by] = b.dataset.spMove.split(":").map(Number), order = [...keep];
-    [order[i], order[i + by]] = [order[i + by], order[i]];
-    splitReshape(r, order);
-  };
-  for (const b of card.querySelectorAll("[data-sp-del]")) b.onclick = () => splitReshape(r, keep.filter((i) => i !== Number(b.dataset.spDel)));
-  const add = card.querySelector("[data-sp-add]");
-  if (add) add.onclick = () => splitReshape(r, [...keep, -1]);
-  const create = card.querySelector("[data-sp-create]");
-  if (create) create.onclick = async () => {
-    const items = d.items.map((x) => ({ title: x.title.trim(), description: x.description.trim(), after: splitNums(x.after), task: x.task || undefined }));
-    if (items.some((x) => !x.title)) { splitErr[r.id] = t("b.split.noTitle"); shown = ""; renderDetail(); return; }
+  if (r.breakdown?.state !== "done") return;
+  bindItems($("detail").querySelector(".split-card"), r.id, focused, async (items) => {
     splitBusy[r.id] = true; delete splitErr[r.id]; shown = ""; renderDetail();
     const res = await postJSON(`/api/splitcreate?id=${encodeURIComponent(r.id)}`, { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
     delete splitBusy[r.id];
@@ -2216,6 +2404,36 @@ function bindSplit(r, focused) {
     delete splitDrafts[r.id]; saveSplit();
     shown = "";
     await load();
+  }, (msg) => { splitErr[r.id] = msg; shown = ""; renderDetail(); });
+}
+// bindItems puts the draft under key into the list in card and keeps the edits; create(items) is «Create in tracker»
+// with every task titled, fail(text) says why not.
+function bindItems(card, key, focused, create, fail) {
+  const d = splitDrafts[key];
+  if (!card || !d) return;
+  for (const f of card.querySelectorAll("[data-sp]")) {
+    const [i, k] = f.dataset.sp.split(":");
+    f.value = d.items[i]?.[k] ?? "";
+    f.oninput = () => { d.items[i][k] = f.value; saveSplit(); };
+  }
+  if (focused) {
+    const f = card.querySelector(`[data-sp="${focused.sp}"]`);
+    if (f) { f.focus(); f.setSelectionRange?.(focused.at[0], focused.at[1]); }
+  }
+  const keep = d.items.map((_, i) => i);
+  for (const b of card.querySelectorAll("[data-sp-move]")) b.onclick = () => {
+    const [i, by] = b.dataset.spMove.split(":").map(Number), order = [...keep];
+    [order[i], order[i + by]] = [order[i + by], order[i]];
+    splitReshape(key, order);
+  };
+  for (const b of card.querySelectorAll("[data-sp-del]")) b.onclick = () => splitReshape(key, keep.filter((i) => i !== Number(b.dataset.spDel)));
+  const add = card.querySelector("[data-sp-add]");
+  if (add) add.onclick = () => splitReshape(key, [...keep, -1]);
+  const btn = card.querySelector("[data-sp-create]");
+  if (btn) btn.onclick = () => {
+    const items = d.items.map((x) => ({ title: x.title.trim(), description: x.description.trim(), after: splitNums(x.after), task: x.task || undefined }));
+    if (items.some((x) => !x.title)) return fail(t("b.split.noTitle"));
+    create(items);
   };
 }
 
@@ -2556,7 +2774,7 @@ $("group-by").onclick = () => {
 // "+": a menu of a new task or a chat; with only one of them to choose, it opens at once.
 const newPop = (on) => { $("new-pop").hidden = !on; $("new-menu").setAttribute("aria-expanded", on); };
 $("new-menu").onclick = () => {
-  const ways = [$("new-task"), $("new-chat")].filter((b) => !b.hidden);
+  const ways = [$("new-task"), $("new-chat"), $("new-idea")].filter((b) => !b.hidden);
   if (ways.length === 1) return ways[0].click();
   newPop($("new-pop").hidden);
 };
@@ -4596,9 +4814,11 @@ function renderDetail() {
   const r = data.records.find((x) => x.id === selected);
   const ask = !r && !statsOpen && !newOpen && !digest && (data.reviewRequests || []).find((x) => x.id === selected);
   const idea = !r && !ask && !statsOpen && !newOpen && !digest && (data.ideas || []).find((x) => ideaId(x) === selected);
-  $("work").classList.toggle("detail", !!r || !!ask || !!idea || statsOpen || newOpen || !!digest);
+  const spec = !r && !ask && !idea && !statsOpen && !newOpen && !digest && (data.specs || []).find((x) => specSel(x) === selected);
+  $("work").classList.toggle("detail", !!r || !!ask || !!idea || !!spec || statsOpen || newOpen || !!digest);
   if (ask) return renderAsk(ask);
   if (idea) return renderIdea(idea);
+  if (spec) return renderSpec(spec);
   if (!r && digest) {
     closeTerminal(); shown = ""; $("detail").classList.remove("ws");
     $("detail").innerHTML = `<button class="ghost back" id="back">← Tasks</button>` + digestHTML(digest);
@@ -4610,7 +4830,7 @@ function renderDetail() {
     // The form keeps what is typed: the board re-renders every few seconds.
     if (newOpen === "chat") { $("detail").classList.add("ws"); if (!$("free-chat")) showFreeChat(); else mountFreeChat(); return; }
     closeChat(); stopQuestion(); // a chat without a task left open
-    if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (!$("new-form")) showNewTask();
+    if (newOpen === "why") { if (!$("why-form")) showWhy(); } else if (newOpen === "idea") { if (!$("idea-form")) showNewIdea(); } else if (!$("new-form")) showNewTask();
     return;
   }
   if (!r) {
@@ -6326,6 +6546,8 @@ const digestHash = () => { const h = hashId(); return h.startsWith("digest:") ? 
 const startDigest = digestHash();
 // #new: straight to the new-task form.
 if (location.hash === "#new") newOpen = "task";
+// #idea: the form of a new idea.
+else if (location.hash === "#idea") newOpen = "idea";
 // #chat: a new chat without a task; #chat-<id>: that chat; #ask-<id>: that question about code. (#code, the old page of the
 // questions, is the new chat now.)
 else if (location.hash === "#code" || location.hash === "#chat" || location.hash.startsWith("#chat-") || location.hash.startsWith("#ask-")) { newOpen = "chat"; freeChat = ["#code", "#chat"].includes(location.hash) ? "" : location.hash.slice(1); }
