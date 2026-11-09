@@ -82,7 +82,7 @@ func TestAuthCardAndBanner(t *testing.T) {
 	}
 	src := string(board)
 	var parts []string
-	for _, re := range []string{`(?m)^const esc = .*$`, `(?m)^const MD_IMG = .*$`, `(?m)^const MD_LINK = .*$`, `(?m)^const pic = .*$`, `(?s)\nfunction md\(text\) \{.*?\n}\n`, `(?s)\nfunction authHoldHTML\(.*?\n}\n`, `(?s)\nfunction chatItem\(.*?\n}\n`} {
+	for _, re := range []string{`(?m)^const esc = .*$`, `(?m)^const MD_IMG = .*$`, `(?m)^const MD_LINK = .*$`, `(?m)^const trackerPic = .*$`, `(?m)^const pic = .*$`, `(?s)\nfunction md\(text(?:, where)?\) \{.*?\n}\n`, `(?s)\nfunction authHoldHTML\(.*?\n}\n`, `(?s)\nfunction chatItem\(.*?\n}\n`} {
 		m := regexp.MustCompile(re).FindString(src)
 		if m == "" {
 			t.Fatalf("board.html has no %s", re)

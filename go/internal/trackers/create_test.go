@@ -268,3 +268,40 @@ func TestCreatePlain(t *testing.T) {
 		t.Errorf("GitLab: assigned or labelled %v", gl)
 	}
 }
+
+// A picture an issue holds ("/uploads/<secret>/<file>") is read through the API with the token; a path that is not
+// an upload is never sent to GitLab.
+func TestGitLabImage(t *testing.T) {
+	const secret = "35e4b8215c97b932f4083d09e557b2d0"
+	png := "\x89PNG\r\n\x1a\nbinary\x00\xff"
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.EscapedPath())
+		if r.Header.Get("PRIVATE-TOKEN") != "tok" {
+			t.Errorf("token %q", r.Header.Get("PRIVATE-TOKEN"))
+		}
+		if r.URL.EscapedPath() != "/api/v4/projects/ecom%2Ftests%2Fmoq/uploads/"+secret+"/my%20shot.png" {
+			w.WriteHeader(404)
+			return
+		}
+		w.Write([]byte(png))
+	}))
+	defer srv.Close()
+	g, _ := NewGitLab(&config.Tracker{ID: "gl", BaseURL: srv.URL}, "tok")
+	ctx := context.Background()
+	got, err := g.Image(ctx, "ecom/tests/moq", "/uploads/"+secret+"/my shot.png")
+	if err != nil || string(got) != png {
+		t.Fatalf("image %q %v", got, err)
+	}
+	for _, bad := range []string{"/uploads/../../user", "/uploads/" + secret + "/a/b.png", "https://evil.example/x.png", "/api/v4/user", "/uploads/zz/a.png"} {
+		if _, err := g.Image(ctx, "ecom/tests/moq", bad); err == nil {
+			t.Errorf("%q was fetched", bad)
+		}
+	}
+	if _, err := g.Image(ctx, "ecom/tests/moq", "/uploads/"+secret+"/gone.png"); err == nil {
+		t.Error("a missing picture is no error")
+	}
+	if len(asked) != 2 {
+		t.Errorf("asked GitLab %v", asked)
+	}
+}

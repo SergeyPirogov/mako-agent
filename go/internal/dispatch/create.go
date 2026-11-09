@@ -113,3 +113,16 @@ func (d *Dispatcher) UploadImage(ctx context.Context, trackerID, project, name s
 	}
 	return c.Upload(ctx, project, name, data)
 }
+
+// TrackerImage fetches a picture from a task's text that the tracker keeps behind its token (GitLab's /uploads/…).
+func (d *Dispatcher) TrackerImage(ctx context.Context, trackerID, project, path string) ([]byte, error) {
+	t := d.tracker(trackerID)
+	if t == nil {
+		return nil, fmt.Errorf("no tracker %q", trackerID)
+	}
+	f, ok := t.(trackers.ImageFetcher)
+	if !ok {
+		return nil, fmt.Errorf("%s has no pictures to fetch", t.Name())
+	}
+	return f.Image(ctx, project, path)
+}

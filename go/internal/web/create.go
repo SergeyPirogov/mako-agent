@@ -141,6 +141,24 @@ func (s *Server) createRoutes(mux *http.ServeMux) {
 		}
 		writeJSON(w, reply)
 	})
+	// A picture in a task's text that the tracker keeps behind its token (GitLab's /uploads/…), for the board.
+	mux.HandleFunc("GET /api/tracker-image", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		data, err := s.D.TrackerImage(r.Context(), q.Get("tracker"), q.Get("project"), q.Get("path"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		kind := http.DetectContentType(data)
+		if !strings.HasPrefix(kind, "image/") || strings.HasPrefix(kind, "image/svg") {
+			http.Error(w, "not a picture", http.StatusUnsupportedMediaType) // the tracker's page (a login), not the picture
+			return
+		}
+		w.Header().Set("Content-Type", kind)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+		w.Write(data)
+	})
 	mux.HandleFunc("GET /api/screenshots/{task}/{file}", func(w http.ResponseWriter, r *http.Request) {
 		task, file := r.PathValue("task"), r.PathValue("file")
 		if task != filepath.Base(task) || file != filepath.Base(file) || strings.HasPrefix(task, ".") || strings.HasPrefix(file, ".") {
