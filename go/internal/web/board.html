@@ -319,11 +319,15 @@ function startingHTML(r) {
 // A small Markdown for what agents write and for tasks' text from the tracker: headings, lists, tables, code blocks,
 // inline code, bold, italic and links.
 // Images in it (screenshots for the MR, Mako's own ones, the tracker's), Markdown (![alt](url)) or HTML (<img src="…">), shown as images.
-const MD_IMG = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)[^>]*>|!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/api\/screenshots\/[^\s)]+)(?:\s+"[^"]*")?\)/gi;
+// md:begin — the Markdown above (a test runs this block in Node).
+const MD_IMG = /<img\b[^>]*?\bsrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)[^>]*>|!\[([^\]]*)\]\((https?:\/\/[^\s)]+|\/api\/screenshots\/[^\s)]+|\/uploads\/[^\s)]+)(?:\s+"[^"]*")?\)(?:\{[^}\n]*\})?/gi;
+// A picture the tracker keeps behind its token (GitLab's /uploads/…, written without the host) goes through Mako, which has the token.
+// where: {trackerId, project} of the task whose text it is; without it such a picture stays text.
+const trackerPic = (src, where) => /^\/uploads\//.test(src) ? (where?.trackerId && where.project ? `/api/tracker-image?tracker=${encodeURIComponent(where.trackerId)}&project=${encodeURIComponent(where.project)}&path=${encodeURIComponent(src)}` : null) : src;
 // Links: Markdown ([text](url)) and bare URLs.
 const MD_LINK = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>"'`)]+/g;
 const pic = (src, alt) => `<a href="${esc(src)}" target="_blank" rel="noopener"><img class="pic" src="${esc(src)}" alt="${esc(alt)}" loading="lazy"></a>`;
-function md(text) {
+function md(text, where) {
   const links = (x) => esc(x).replace(MD_LINK, (u, label, href) => `<a href="${href ?? u}" target="_blank" rel="noopener">${label ?? u}</a>`);
   // Inline code first: what is in backticks is never searched for links, so a URL there cannot swallow the closing </code>.
   // Bold and italic only outside the <a> that links() made, so a URL with _a_ in its path stays intact. Italic comes after bold;
@@ -335,7 +339,8 @@ function md(text) {
   const inline = (x) => {
     let out = "", at = 0;
     for (const m of x.matchAll(MD_IMG)) {
-      const src = m[1] ?? m[3], alt = m[2] ?? m[0].match(/\balt\s*=\s*["']([^"']*)/i)?.[1] ?? "";
+      const src = trackerPic(m[1] ?? m[3], where), alt = m[2] ?? m[0].match(/\balt\s*=\s*["']([^"']*)/i)?.[1] ?? "";
+      if (!src) continue;
       out += plain(x.slice(at, m.index)) + pic(src, alt);
       at = m.index + m[0].length;
     }
@@ -372,6 +377,7 @@ function md(text) {
   }
   return out.join("").replace(/(<li>.*?<\/li>)+/g, (m) => `<ul>${m}</ul>`);
 }
+// md:end
 
 // A POST whose answer is JSON {ok, error}. Anything else (plain text from the server or the service worker, a 4xx/5xx,
 // a rejected fetch while Mako restarts) comes back as {ok:false, error}, so the caller can keep what the user typed.
@@ -4709,7 +4715,7 @@ function stageMore(r, key, card) {
 const descOpen = {};
 function descHTML(r, folded) {
   const t = r.task, has = !!t.description?.trim();
-  const body = `<div class="tcard-b md">${has ? md(t.description) : `<span style="color:var(--mute)">No description</span>`}</div>`;
+  const body = `<div class="tcard-b md">${has ? md(t.description, t) : `<span style="color:var(--mute)">No description</span>`}</div>`;
   if (!folded || !has) return `<div class="tcard"><div class="tcard-h">Description<span class="r">from ${esc(trackerName(t))}</span></div>${body}</div>`;
   const peek = t.description.replace(/[#*_`>\[\]()!-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
   return `<details class="tcard desc" data-desc ${descOpen[r.id] ? "open" : ""}><summary class="tcard-h">Description<span class="peek">${esc(peek)}</span><span class="r">Expand ▾</span></summary>${body}</details>`;
@@ -4869,7 +4875,7 @@ function renderDetail() {
   const task = `
     ${byState}
     ${r.retryNote ? card(`Attempt ${r.attempt || 2}: what to do differently`, `<div class="tcard-b text">${richText(r.retryNote)}</div>`, "", r.model ? `<code>${esc(r.model)}</code>` : "") : ""}
-    ${t.comments?.length ? card(`Comments · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="md">${md(c.body)}</div></div></div>`).join("")) : ""}
+    ${t.comments?.length ? card(`Comments · ${t.comments.length}`, t.comments.map((c) => `<div class="cmt"><span class="av">${esc(initials(c.author))}</span><div><b>${esc(c.author)}</b><div class="md">${md(c.body, t)}</div></div></div>`).join("")) : ""}
     ${logs.length ? `<details class="journal" ${journalOpen ? "open" : ""}><summary>Journal · ${logs.length} ${plural(logs.length, "entry", "entries")}</summary>
       <div class="log">${logs.map((l) => `${fmtWhen(l.at)}  ${linkify(l.text)}`).join("\n")}</div></details>` : ""}`;
   const started = r.column === "doing" && !!r.worktree;

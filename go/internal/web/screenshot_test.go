@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/SergeyPirogov/mako-agent/go/internal/core"
 	"github.com/SergeyPirogov/mako-agent/go/internal/dispatch"
 	"github.com/SergeyPirogov/mako-agent/go/internal/state"
+	"github.com/SergeyPirogov/mako-agent/go/internal/trackers"
 )
 
 // `mako screenshot` hands a task's screenshot to Mako: kept for the board, the upload's failure said, not fatal.
@@ -132,5 +134,53 @@ func TestAttach(t *testing.T) {
 	}
 	if r := post("id=ask-gone&name=a.png", "image/png", png); r.OK {
 		t.Fatal("an unknown question accepted")
+	}
+}
+
+// A picture in a GitLab issue's text goes through Mako, which holds the token: a picture is served as one, the
+// tracker's login page, a path that is no upload, an unknown tracker and a failed fetch are refused.
+func TestTrackerImage(t *testing.T) {
+	const secret = "35e4b8215c97b932f4083d09e557b2d0"
+	png := []byte("\x89PNG\r\n\x1a\nfake")
+	gl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.EscapedPath() {
+		case "/api/v4/projects/grp%2Fapp/uploads/" + secret + "/image.png":
+			w.Write(png)
+		case "/api/v4/projects/grp%2Fapp/uploads/" + secret + "/login.png":
+			w.Write([]byte("<html>Sign in</html>"))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer gl.Close()
+	g, _ := trackers.NewGitLab(&config.Tracker{ID: "gl", BaseURL: gl.URL}, "tok")
+	dir := t.TempDir()
+	store, _ := state.Open(dir)
+	d := dispatch.New(&config.Config{StateDir: dir}, store, []trackers.Tracker{g})
+	srv := httptest.NewServer((&Server{D: d, Version: "test"}).Handler())
+	defer srv.Close()
+
+	get := func(tracker, project, path string) (*http.Response, []byte) {
+		res, err := http.Get(srv.URL + "/api/tracker-image?tracker=" + url.QueryEscape(tracker) + "&project=" + url.QueryEscape(project) + "&path=" + url.QueryEscape(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		return res, body
+	}
+	res, body := get("gl", "grp/app", "/uploads/"+secret+"/image.png")
+	if res.StatusCode != 200 || res.Header.Get("Content-Type") != "image/png" || !bytes.Equal(body, png) {
+		t.Fatalf("picture: %d %s %q", res.StatusCode, res.Header.Get("Content-Type"), body)
+	}
+	for name, c := range map[string][3]string{
+		"a login page":    {"gl", "grp/app", "/uploads/" + secret + "/login.png"},
+		"not an upload":   {"gl", "grp/app", "/api/v4/user"},
+		"unknown tracker": {"nope", "grp/app", "/uploads/" + secret + "/image.png"},
+		"gone":            {"gl", "grp/app", "/uploads/" + secret + "/gone.png"},
+	} {
+		if res, body := get(c[0], c[1], c[2]); res.StatusCode < 400 || bytes.Contains(body, []byte("Sign in")) {
+			t.Errorf("%s: %d %q", name, res.StatusCode, body)
+		}
 	}
 }
